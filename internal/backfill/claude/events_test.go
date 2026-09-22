@@ -94,30 +94,37 @@ func TestEventsInFileOrderWithSkips(t *testing.T) {
 		t.Errorf("session.start prompt = %q, want %q (isMeta line must never become the prompt)", start.Prompt, "Please refactor foo.go")
 	}
 
-	// tool.use extracts the right detail per named extractor: Edit -> file
-	// path, Bash -> command.
+	// tool.use extracts the right field per tool: Edit -> path, Bash ->
+	// command, and the retired `detail` key from before the shared
+	// payload package must never appear again (task 8ba5487a).
 	var toolUse1 struct {
 		ToolUseID string `json:"tool_use_id"`
 		Name      string `json:"name"`
-		Detail    string `json:"detail"`
+		Path      string `json:"path"`
 	}
 	if err := json.Unmarshal([]byte(events[1].Payload), &toolUse1); err != nil {
 		t.Fatal(err)
 	}
-	if toolUse1.Name != "Edit" || toolUse1.Detail != "/home/dana/events/foo.go" {
+	if toolUse1.Name != "Edit" || toolUse1.Path != "/home/dana/events/foo.go" {
 		t.Errorf("tool.use[0] = %+v, want Edit /home/dana/events/foo.go", toolUse1)
+	}
+	if strings.Contains(events[1].Payload, `"detail"`) {
+		t.Errorf("tool.use[0] payload still carries the retired `detail` key; got %s", events[1].Payload)
 	}
 
 	var toolUse2 struct {
 		ToolUseID string `json:"tool_use_id"`
 		Name      string `json:"name"`
-		Detail    string `json:"detail"`
+		Command   string `json:"command"`
 	}
 	if err := json.Unmarshal([]byte(events[3].Payload), &toolUse2); err != nil {
 		t.Fatal(err)
 	}
-	if toolUse2.Name != "Bash" || toolUse2.Detail != "go test ./..." {
+	if toolUse2.Name != "Bash" || toolUse2.Command != "go test ./..." {
 		t.Errorf("tool.use[1] = %+v, want Bash \"go test ./...\"", toolUse2)
+	}
+	if strings.Contains(events[3].Payload, `"detail"`) {
+		t.Errorf("tool.use[1] payload still carries the retired `detail` key; got %s", events[3].Payload)
 	}
 
 	// tool.result carries is_error and content.

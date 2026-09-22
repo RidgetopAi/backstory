@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/RidgetopAi/backstory/internal/ident"
+	"github.com/RidgetopAi/backstory/internal/payload"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
@@ -111,17 +112,6 @@ func resumeSlot(rec store.Record, ok bool) string {
 	return line
 }
 
-// eventPayload is the subset of a timeline event's JSON payload the delta
-// and coordination slots read. All fields are optional: SCHEMA.md leaves
-// timeline_events.kind and payload shape open in v0 ("Event kinds enum...
-// TBD"), so an event that carries none of these simply contributes nothing
-// beyond its session to the count.
-type eventPayload struct {
-	Path   string `json:"path,omitempty"`
-	Exit   *int   `json:"exit,omitempty"`
-	Branch string `json:"branch,omitempty"`
-}
-
 // deltaSlot is slot 2: sessions, distinct files touched, and last exit
 // codes, from events since the handoff's event cursor (or every project
 // event when there is no handoff). events is caller-filtered by
@@ -142,15 +132,23 @@ func deltaSlot(events []store.TimelineEvent) string {
 		if e.SessionID != "" {
 			sessions[e.SessionID] = true
 		}
-		var pl eventPayload
-		if json.Unmarshal([]byte(e.Payload), &pl) != nil {
-			continue
-		}
-		if pl.Path != "" {
-			files[pl.Path] = true
-		}
-		if pl.Exit != nil {
-			exitCodes = append(exitCodes, *pl.Exit)
+		switch e.Kind {
+		case payload.KindToolUse:
+			var tu payload.ToolUse
+			if json.Unmarshal([]byte(e.Payload), &tu) != nil {
+				continue
+			}
+			if tu.Path != "" {
+				files[tu.Path] = true
+			}
+		case payload.KindToolResult:
+			var tr payload.ToolResult
+			if json.Unmarshal([]byte(e.Payload), &tr) != nil {
+				continue
+			}
+			if tr.Exit != nil {
+				exitCodes = append(exitCodes, *tr.Exit)
+			}
 		}
 	}
 
@@ -198,20 +196,20 @@ func coordinationSlot(sessions []store.Session, events []store.TimelineEvent, se
 }
 
 // latestBranchPerSession maps a session id to the most recently observed
-// branch name from its events. events is ordered by id ascending, so a
-// later match simply overwrites an earlier one.
+// git branch from its session.start events. events is ordered by id
+// ascending, so a later match simply overwrites an earlier one.
 func latestBranchPerSession(events []store.TimelineEvent) map[string]string {
 	out := map[string]string{}
 	for _, e := range events {
-		if e.SessionID == "" {
+		if e.SessionID == "" || e.Kind != payload.KindSessionStart {
 			continue
 		}
-		var pl eventPayload
-		if json.Unmarshal([]byte(e.Payload), &pl) != nil {
+		var ss payload.SessionStart
+		if json.Unmarshal([]byte(e.Payload), &ss) != nil {
 			continue
 		}
-		if pl.Branch != "" {
-			out[e.SessionID] = pl.Branch
+		if ss.GitBranch != "" {
+			out[e.SessionID] = ss.GitBranch
 		}
 	}
 	return out

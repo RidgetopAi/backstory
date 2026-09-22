@@ -180,6 +180,31 @@ unmutated → GREEN.
     `EventsSinceID(handoff.EventCursor)`, where `records.event_cursor` is the handoff's own
     position in that sequence at insert time, never a comparison against `handoff.ts`.
 
+## Event payload kinds
+
+`timeline_events.kind` is free text in v0 (open question below), but every writer and
+reader in this codebase agrees on the shape of `payload` for the four kinds actually in
+use — `internal/payload` defines the Go types, and a test in that package (task
+`8ba5487a`) fails if `internal/block` or `internal/backfill/claude` declares a private
+json-tagged payload struct of its own instead of importing them. Before this package
+existed, the backfill importer wrote a tool's file path under `detail` while the block's
+delta slot read `path` — two independent structs, silently disagreeing, so a project with
+thousands of tool events rendered "0 files touched".
+
+| kind            | Go type                | fields                                                  |
+|-----------------|-------------------------|----------------------------------------------------------|
+| `session.start` | `payload.SessionStart`  | `prompt`, `version?`, `git_branch?`                       |
+| `session.end`   | `payload.SessionEnd`    | `reason?`                                                 |
+| `tool.use`      | `payload.ToolUse`       | `tool_use_id?`, `name`, `path?` (file tools), `command?` (Bash) |
+| `tool.result`   | `payload.ToolResult`    | `tool_use_id?`, `is_error?`, `exit?`, `content?`          |
+
+`tool.use.path` is set for the file-editing tools (Edit/Write/Read/MultiEdit); `command`
+is set for Bash; a tool outside both groups (Grep, Glob, WebFetch, ...) carries neither.
+`tool.result.exit` is nil unless the writer observed a real process exit code — a Bash
+`tool_result` replayed from a Claude transcript never carries one (Phase 3 live
+PostToolUse capture will), so a writer must never invent `0`; the SessionStart delta's
+"last exit codes" is empty for backfilled-only history as a result.
+
 ## Reserved for the loop (Q7 `c8f9d7a9`)
 
 `punch`, `stage` and `claim` are record kinds from v0 so `PLAN.md §Phase 6` needs no
