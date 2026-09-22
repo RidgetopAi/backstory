@@ -25,3 +25,17 @@ func (s *Store) LinkEdge(fromID, toID string, edgeType EdgeType, declaredBy stri
 	}
 	return nil
 }
+
+// ContradictionCount counts `contradicts` edges whose to_id names a record
+// in projectKey — the SessionStart block's attention slot's other half
+// (AGENT-CONTRACT.md §The SessionStart block).
+func (s *Store) ContradictionCount(projectKey string) (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM edges e
+		JOIN records r ON r.id = e.to_id
+		WHERE e.type = ? AND r.project_key = ?`, string(EdgeContradicts), projectKey).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("store: contradiction count for project %s: %w", projectKey, err)
+	}
+	return n, nil
+}

@@ -192,6 +192,44 @@ func (s *Store) GetRecord(id string) (Record, error) {
 	return r, nil
 }
 
+// LatestRecord returns the most recently inserted non-tombstoned record of
+// kind in projectKey, ordered by rowid (SCHEMA.md invariant 10's "order by
+// sequence, never ts" applies here too: ts is wall-clock and informational,
+// insertion order is not). found is false when no such record exists.
+func (s *Store) LatestRecord(projectKey string, kind RecordKind) (Record, bool, error) {
+	var id string
+	err := s.db.QueryRow(`SELECT id FROM records
+		WHERE project_key = ? AND kind = ? AND tombstoned_at IS NULL
+		ORDER BY rowid DESC LIMIT 1`, projectKey, string(kind)).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Record{}, false, nil
+	}
+	if err != nil {
+		return Record{}, false, fmt.Errorf("store: latest %s record for project %s: %w", kind, projectKey, err)
+	}
+	rec, err := s.GetRecord(id)
+	if err != nil {
+		return Record{}, false, err
+	}
+	return rec, true, nil
+}
+
+// UnconfirmedDraftCount counts inferred-tier records in projectKey with no
+// promoter and no expiry that has already passed — the SessionStart block's
+// attention slot (AGENT-CONTRACT.md §The SessionStart block).
+func (s *Store) UnconfirmedDraftCount(projectKey string, now time.Time) (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM records
+		WHERE project_key = ? AND tier = ? AND promoter IS NULL
+		AND (expires_at IS NULL OR expires_at > ?)
+		AND tombstoned_at IS NULL`,
+		projectKey, string(TierInferred), tsToNanos(now)).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("store: unconfirmed draft count for project %s: %w", projectKey, err)
+	}
+	return n, nil
+}
+
 // TombstoneRecord sets records.tombstoned_at and nothing else — the sole
 // mutable column, and the sole human-only power (AGENT-CONTRACT.md
 // §User-only powers). It refuses any identity other than IdentityHuman.
