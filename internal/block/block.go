@@ -120,6 +120,12 @@ func resumeSlot(rec store.Record, ok bool) string {
 // carry a ts earlier than the handoff's even though it was appended after
 // it (SCHEMA.md invariant 10, critic T1 on 7d3954f0). events is already
 // ordered by id ascending, so "last exit codes" reflects true sequence.
+//
+// "files touched" counts CHANGED files only (payload.IsMutatingFileTool),
+// never every tool_use that merely carries a path: a Read populates Path
+// too (it is real history), but counting it here overstated the figure
+// 3.9x on real history (task 393d174c) — the number that Brian recalls to
+// check has to be a number he can check.
 func deltaSlot(events []store.TimelineEvent) string {
 	if len(events) == 0 {
 		return ""
@@ -138,7 +144,7 @@ func deltaSlot(events []store.TimelineEvent) string {
 			if json.Unmarshal([]byte(e.Payload), &tu) != nil {
 				continue
 			}
-			if tu.Path != "" {
+			if tu.Path != "" && payload.IsMutatingFileTool(tu.Name) {
 				files[tu.Path] = true
 			}
 		case payload.KindToolResult:

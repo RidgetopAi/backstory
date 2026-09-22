@@ -1,0 +1,3 @@
+{"type":"user","uuid":"r-uuid-1","sessionId":"sess-r-uuid","cwd":"/home/erin/readpath","timestamp":"2026-04-02T00:00:00Z","isMeta":false,"message":{"role":"user","content":"Please look at foo.go"}}
+{"type":"assistant","uuid":"r-uuid-2","sessionId":"sess-r-uuid","cwd":"/home/erin/readpath","timestamp":"2026-04-02T00:00:01Z","isMeta":false,"message":{"role":"assistant","content":[{"type":"tool_use","id":"tr1","name":"Read","input":{"file_path":"/home/erin/readpath/foo.go"}}]}}
+{"type":"user","uuid":"r-uuid-3","sessionId":"sess-r-uuid","cwd":"/home/erin/readpath","timestamp":"2026-04-02T00:00:02Z","isMeta":false,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tr1","content":"file contents here","is_error":false}]}}

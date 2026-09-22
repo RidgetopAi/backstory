@@ -7,14 +7,21 @@ import (
 )
 
 // fileTools are tool_use blocks whose input carries a file path: the
-// importer extracts it into payload.ToolUse.Path. A tool not in this set
-// and not Bash (Grep, Glob, WebFetch, ...) still gets a tool.use event; it
-// just carries neither Path nor Command.
-var fileTools = map[string]bool{
-	"Edit":      true,
-	"Write":     true,
-	"Read":      true,
-	"MultiEdit": true,
+// importer extracts it into payload.ToolUse.Path. It is payload's
+// MutatingFileTools (the one definition of which tools change a file) plus
+// Read, which observes a file without changing it but still gets its path
+// recorded as real history (task 393d174c — the delta slot, not this set,
+// is where "changed" is distinguished from "opened"). A tool not in this
+// set and not Bash (Grep, Glob, WebFetch, ...) still gets a tool.use
+// event; it just carries neither Path nor Command.
+var fileTools = buildFileTools()
+
+func buildFileTools() map[string]bool {
+	m := map[string]bool{"Read": true}
+	for name := range payload.MutatingFileTools {
+		m[name] = true
+	}
+	return m
 }
 
 // toolUsePayload builds one tool_use block's shared payload: Path for the

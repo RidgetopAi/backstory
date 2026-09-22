@@ -34,14 +34,35 @@ type SessionEnd struct {
 }
 
 // ToolUse is the tool.use event payload: Path is set for the file-editing
-// tools (Edit/Write/Read/MultiEdit), Command is set for Bash. A tool
-// outside both groups (Grep, Glob, WebFetch, ...) still gets a tool.use
-// event; it carries neither.
+// tools (Edit/Write/Read/MultiEdit/NotebookEdit), Command is set for Bash. A
+// tool outside both groups (Grep, Glob, WebFetch, ...) still gets a
+// tool.use event; it carries neither.
 type ToolUse struct {
 	ToolUseID string `json:"tool_use_id,omitempty"`
 	Name      string `json:"name"`
 	Path      string `json:"path,omitempty"`
 	Command   string `json:"command,omitempty"`
+}
+
+// MutatingFileTools are the tool_use names whose Path names a file they
+// changed on disk. Read also populates Path (it is a real, first-class
+// event — the This Week view may want it later) but does not belong here:
+// it observed the file, it did not change it. This is the ONE definition
+// of "changed a file" in this codebase (task 393d174c): the SessionStart
+// delta's "files touched" figure counts only these, never every tool that
+// merely carries a path — on Brian's real history that distinction was 105
+// files changed versus 411 paths opened, a 3.9x overstatement.
+var MutatingFileTools = map[string]bool{
+	"Edit":         true,
+	"Write":        true,
+	"MultiEdit":    true,
+	"NotebookEdit": true,
+}
+
+// IsMutatingFileTool reports whether name is a tool that changes a file's
+// contents on disk, per MutatingFileTools.
+func IsMutatingFileTool(name string) bool {
+	return MutatingFileTools[name]
 }
 
 // ToolResult is the tool.result event payload. Exit is nil unless the

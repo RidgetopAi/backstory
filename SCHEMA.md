@@ -198,12 +198,20 @@ thousands of tool events rendered "0 files touched".
 | `tool.use`      | `payload.ToolUse`       | `tool_use_id?`, `name`, `path?` (file tools), `command?` (Bash) |
 | `tool.result`   | `payload.ToolResult`    | `tool_use_id?`, `is_error?`, `exit?`, `content?`          |
 
-`tool.use.path` is set for the file-editing tools (Edit/Write/Read/MultiEdit); `command`
-is set for Bash; a tool outside both groups (Grep, Glob, WebFetch, ...) carries neither.
-`tool.result.exit` is nil unless the writer observed a real process exit code — a Bash
-`tool_result` replayed from a Claude transcript never carries one (Phase 3 live
+`tool.use.path` is set for the file-editing tools (Edit/Write/Read/MultiEdit/NotebookEdit);
+`command` is set for Bash; a tool outside both groups (Grep, Glob, WebFetch, ...) carries
+neither. `tool.result.exit` is nil unless the writer observed a real process exit code — a
+Bash `tool_result` replayed from a Claude transcript never carries one (Phase 3 live
 PostToolUse capture will), so a writer must never invent `0`; the SessionStart delta's
 "last exit codes" is empty for backfilled-only history as a result.
+
+`payload.MutatingFileTools` (Edit/Write/MultiEdit/NotebookEdit — NOT Read) is the one
+definition, in this codebase, of "changed a file." The SessionStart delta's "files
+touched" figure counts only distinct `tool.use.path` values from these tools: a Read
+populates `path` too and remains a first-class event, but it did not change anything, so
+it does not count. Counting every path-carrying tool.use there (task 393d174c) overstated
+the figure 4x on real history — 411 distinct paths opened against 105 files actually
+changed — because an agent reads far more files than it edits.
 
 ## Reserved for the loop (Q7 `c8f9d7a9`)
 

@@ -91,11 +91,20 @@ func mustAppendEvent(t *testing.T, s *store.Store, sessionID, kind string, ts ti
 	return id
 }
 
-// mustAppendToolUse appends a tool.use event carrying only Path — the
-// shape the delta slot's file-touched count reads.
+// mustAppendToolUse appends a tool.use event for a mutating tool (Edit) —
+// the shape the delta slot's file-touched count reads.
 func mustAppendToolUse(t *testing.T, s *store.Store, sessionID string, ts time.Time, path string) {
 	t.Helper()
-	mustAppendEvent(t, s, sessionID, payload.KindToolUse, ts, payload.ToolUse{Path: path})
+	mustAppendToolUseNamed(t, s, sessionID, ts, "Edit", path)
+}
+
+// mustAppendToolUseNamed appends a tool.use event with an explicit tool
+// name, for tests that need to distinguish a mutating tool (Edit, Write,
+// MultiEdit, NotebookEdit) from a non-mutating one (Read) — only the
+// former counts toward the delta slot's "files touched" figure.
+func mustAppendToolUseNamed(t *testing.T, s *store.Store, sessionID string, ts time.Time, name, path string) {
+	t.Helper()
+	mustAppendEvent(t, s, sessionID, payload.KindToolUse, ts, payload.ToolUse{Name: name, Path: path})
 }
 
 // mustAppendToolResult appends a tool.result event carrying an exit code —
@@ -275,6 +284,39 @@ func TestRenderDeltaCountsOnlyEventsAfterHandoff(t *testing.T) {
 	}
 	if !strings.Contains(out, "1 sessions, 1 files touched, last exit codes: 0") {
 		t.Errorf("delta did not count the after-handoff event correctly; got:\n%s", out)
+	}
+}
+
+// TestRenderDeltaFilesTouchedCountsOnlyMutatingTools is the punch's clause
+// 1 (task 393d174c, decision 1e53165a): a Read populates ToolUse.Path just
+// like an Edit does (it is real history), but "files touched" must count
+// files CHANGED, not files opened. Three Read paths and two Edit paths
+// must render "2 files touched", never 5 — on Brian's real history the
+// undiscriminating count was 411 distinct paths against 105 actually
+// changed, a 3.9x overstatement of the block's headline number.
+func TestRenderDeltaFilesTouchedCountsOnlyMutatingTools(t *testing.T) {
+	s := newTestStore(t)
+	mustUpsertProject(t, s, testProjectKey)
+	self := mustStartSession(t, s, "claude", "/proj", 100)
+
+	handoff := mustInsertHandoff(t, s, self, "cut here")
+
+	ts := handoff.TS.Add(time.Minute)
+	mustAppendToolUseNamed(t, s, self, ts, "Read", "read1.go")
+	mustAppendToolUseNamed(t, s, self, ts, "Read", "read2.go")
+	mustAppendToolUseNamed(t, s, self, ts, "Read", "read3.go")
+	mustAppendToolUseNamed(t, s, self, ts, "Edit", "edit1.go")
+	mustAppendToolUseNamed(t, s, self, ts, "Edit", "edit2.go")
+
+	out, err := block.Render(block.Params{
+		Store: s, ProcFS: fakeProcFS{}, ProjectKey: testProjectKey, SessionID: self, Harness: "claude",
+		Now: handoff.TS.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "1 sessions, 2 files touched") {
+		t.Errorf("delta counted Read paths toward files touched; want \"2 files touched\" (edit1.go, edit2.go only); got:\n%s", out)
 	}
 }
 
