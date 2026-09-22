@@ -43,6 +43,20 @@ linked id becomes an `informs` edge from the linked record to the new one
 existing record fails the whole write — the record and every edge, not just the bad one —
 so `note` never leaves a record with a dangling `links` reference.
 
+`records.event_cursor` is a record's position in the timeline: `MAX(timeline_events.id)` at
+insert time, `0` when the timeline was empty. It is never a parameter — the socket API has
+no field for it, the same way `tier` isn't (invariant 2 below) — `InsertRecordWithEdges`
+computes it in the same transaction as the insert. It exists so the SessionStart delta's
+membership boundary (`internal/block`) can be `EventsSinceID(handoff.EventCursor)`, a
+sequence position, instead of a `ts` comparison: a backfilled event can be appended AFTER a
+handoff (a higher `timeline_events.id`, genuinely later) while carrying a `ts` EARLIER than
+the handoff's, because a backfilled transcript's file clock lies (invariant 10). A `ts`-based
+boundary silently dropped that row (critic T1 on `7d3954f0`, task `214eb30e`). Migration
+`0004_event_cursor.sql` adds the column and backfills existing rows from the nearest
+preceding `timeline_events` row by `ts`, best effort: a pre-migration record was never
+assigned a sequence position at insert time, so its own `ts` is the only signal left, and
+that's exactly the lying-clock problem the column exists to stop relying on going forward.
+
 ```sql
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
@@ -102,7 +116,8 @@ CREATE TABLE records (
   outcome        TEXT CHECK (outcome IN ('true','false','could-not-observe')), -- kind = outcome only
   promoter       TEXT,                        -- session id or 'human'; set by confirm
   expires_at     INTEGER,                     -- unix nanoseconds, UTC; claims and inferred drafts
-  tombstoned_at  INTEGER                      -- unix nanoseconds, UTC; human-only, the sole mutable column
+  tombstoned_at  INTEGER,                     -- unix nanoseconds, UTC; human-only, the sole mutable column
+  event_cursor   INTEGER NOT NULL DEFAULT 0   -- MAX(timeline_events.id) at insert time; never a parameter
 );
 CREATE INDEX records_project ON records(project_key, ts);
 CREATE INDEX records_session ON records(session_id);
@@ -160,7 +175,10 @@ unmutated → GREEN.
    `records` are never pruned except expired `claim`s and expired `inferred` drafts
    (`expires_at`), which are pruned, not tombstoned.
 10. **Ordering is by sequence.** Recall and the SessionStart delta order events by
-    `timeline_events.id`, never by `ts`; backfilled sessions carry file clocks that lie.
+    `timeline_events.id`, never by `ts`; backfilled sessions carry file clocks that lie. The
+    delta's membership boundary is the same sequence, not a clock reading: it is
+    `EventsSinceID(handoff.EventCursor)`, where `records.event_cursor` is the handoff's own
+    position in that sequence at insert time, never a comparison against `handoff.ts`.
 
 ## Reserved for the loop (Q7 `c8f9d7a9`)
 

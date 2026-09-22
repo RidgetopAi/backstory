@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -189,6 +190,117 @@ func TestInsertRecordWithEdgesUnknownTargetInsertsNothing(t *testing.T) {
 	}
 	if edgeCount != 0 {
 		t.Fatalf("edges count = %d after a forced edge failure, want 0", edgeCount)
+	}
+}
+
+// TestInsertRecordSetsEventCursorToMaxEventIDAtInsertTime is proof (2) for
+// task 214eb30e: InsertRecord sets event_cursor to MAX(timeline_events.id)
+// at insert time (0 on an empty timeline), and a later event appended after
+// a record never changes that record's already-stored cursor — the same
+// append-only guarantee as every other records column.
+func TestInsertRecordSetsEventCursorToMaxEventIDAtInsertTime(t *testing.T) {
+	s := mustOpen(t, filepath.Join(t.TempDir(), "backstory.db"))
+	mustUpsertProject(t, s, "proj-a")
+	sessionID := mustStartSessionInProject(t, s, "proj-a")
+
+	firstID, err := s.InsertRecord(InsertRecordParams{
+		Identity: Identity{Kind: IdentityAgent}, Kind: KindNote, Text: "before any events",
+		SessionID: sessionID, ProjectKey: "proj-a",
+	})
+	if err != nil {
+		t.Fatalf("InsertRecord first: %v", err)
+	}
+	first, err := s.GetRecord(firstID)
+	if err != nil {
+		t.Fatalf("GetRecord(first): %v", err)
+	}
+	if first.EventCursor != 0 {
+		t.Errorf("first.EventCursor (empty timeline) = %d, want 0", first.EventCursor)
+	}
+
+	for i := 0; i < 3; i++ {
+		if _, err := s.AppendEvent(Event{TS: time.Now(), Kind: "probe", SessionID: sessionID, Source: "shell", Payload: "{}"}); err != nil {
+			t.Fatalf("AppendEvent %d: %v", i, err)
+		}
+	}
+
+	secondID, err := s.InsertRecord(InsertRecordParams{
+		Identity: Identity{Kind: IdentityAgent}, Kind: KindNote, Text: "after three events",
+		SessionID: sessionID, ProjectKey: "proj-a",
+	})
+	if err != nil {
+		t.Fatalf("InsertRecord second: %v", err)
+	}
+	second, err := s.GetRecord(secondID)
+	if err != nil {
+		t.Fatalf("GetRecord(second): %v", err)
+	}
+	if second.EventCursor != 3 {
+		t.Errorf("second.EventCursor (after 3 events) = %d, want 3", second.EventCursor)
+	}
+
+	// Two more events land after second was inserted; second's cursor must
+	// stay exactly where it was set, never recomputed on read.
+	for i := 0; i < 2; i++ {
+		if _, err := s.AppendEvent(Event{TS: time.Now(), Kind: "probe", SessionID: sessionID, Source: "shell", Payload: "{}"}); err != nil {
+			t.Fatalf("AppendEvent (after second) %d: %v", i, err)
+		}
+	}
+	secondReread, err := s.GetRecord(secondID)
+	if err != nil {
+		t.Fatalf("GetRecord(second) reread: %v", err)
+	}
+	if secondReread.EventCursor != 3 {
+		t.Errorf("second.EventCursor after later events landed = %d, want unchanged 3", secondReread.EventCursor)
+	}
+
+	// The append-only trigger must refuse a direct write to event_cursor,
+	// the same as every other non-tombstone column.
+	if _, err := s.db.Exec(`UPDATE records SET event_cursor = 999 WHERE id = ?`, secondID); err == nil {
+		t.Fatal("UPDATE records.event_cursor succeeded, want records_no_update to abort it")
+	}
+}
+
+// TestInsertRecordEventCursorNotCallerSupplied is proof (2) for task
+// 214eb30e: event_cursor cannot be supplied by a caller. InsertRecordParams
+// has deliberately no field for it (SCHEMA.md invariant 2's pattern for
+// tier), so unmarshaling a wire-shaped JSON payload that names
+// "event_cursor" — the same shape a hostile or buggy MCP client could send
+// over the note tool — drops it silently, and InsertRecord still computes
+// the real cursor from the timeline, not the caller's number.
+func TestInsertRecordEventCursorNotCallerSupplied(t *testing.T) {
+	s := mustOpen(t, filepath.Join(t.TempDir(), "backstory.db"))
+	mustUpsertProject(t, s, "proj-a")
+	sessionID := mustStartSessionInProject(t, s, "proj-a")
+
+	if _, err := s.AppendEvent(Event{TS: time.Now(), Kind: "probe", SessionID: sessionID, Source: "shell", Payload: "{}"}); err != nil {
+		t.Fatalf("AppendEvent: %v", err)
+	}
+
+	wireRequest := []byte(`{"kind":"note","text":"a note","session_id":"` + sessionID + `","project_key":"proj-a","event_cursor":999}`)
+	var p InsertRecordParams
+	if err := json.Unmarshal(wireRequest, &p); err != nil {
+		t.Fatalf("unmarshal wire-shaped request: %v", err)
+	}
+	p.Identity = Identity{Kind: IdentityAgent}
+	p.Kind = KindNote
+	p.Text = "a note"
+	p.SessionID = sessionID
+	p.ProjectKey = "proj-a"
+
+	id, err := s.InsertRecord(p)
+	if err != nil {
+		t.Fatalf("InsertRecord: %v", err)
+	}
+	rec, err := s.GetRecord(id)
+	if err != nil {
+		t.Fatalf("GetRecord: %v", err)
+	}
+	if rec.EventCursor == 999 {
+		t.Fatal("event_cursor took the caller-supplied 999 — InsertRecordParams must not accept it as a field")
+	}
+	if rec.EventCursor != 1 {
+		t.Errorf("EventCursor = %d, want 1 (the true count of timeline events at insert time)", rec.EventCursor)
 	}
 }
 
