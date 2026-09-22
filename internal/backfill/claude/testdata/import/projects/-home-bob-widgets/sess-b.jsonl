@@ -1,0 +1,2 @@
+{"type":"user","uuid":"b-uuid-1","parentUuid":null,"sessionId":"sess-b-uuid","cwd":"/home/bob/widgets","gitBranch":"main","version":"2.1.0","timestamp":"2026-02-01T00:00:00Z","isMeta":false,"message":{"role":"user","content":"Add a widget"}}
+{"type":"assistant","uuid":"b-uuid-2","parentUuid":"b-uuid-1","sessionId":"sess-b-uuid","cwd":"/home/bob/widgets","gitBranch":"main","version":"2.1.0","timestamp":"2026-02-01T00:00:05Z","isMeta":false,"message":{"role":"assistant","content":[{"type":"text","text":"Working on it."}]}}

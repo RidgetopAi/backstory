@@ -1,0 +1,2 @@
+{"type":"user","uuid":"c-uuid-1","parentUuid":null,"sessionId":"sess-c-uuid","gitBranch":"main","version":"2.1.0","timestamp":"2026-03-01T00:00:00Z","isMeta":false,"message":{"role":"user","content":"Investigate the crash"}}
+{"type":"assistant","uuid":"c-uuid-2","parentUuid":"c-uuid-1","sessionId":"sess-c-uuid","gitBranch":"main","version":"2.1.0","timestamp":"2026-03-01T00:00:05Z","isMeta":false,"message":{"role":"assistant","content":[{"type":"text","text":"Looking into it."}]}}
