@@ -1,5 +1,7 @@
 package ident
 
+import "fmt"
+
 // Resolver turns a socket peer's credentials into an observed Identity. It
 // never reads anything the peer sent over the connection.
 type Resolver struct {
@@ -48,6 +50,7 @@ func (r *Resolver) Resolve(peer PeerCreds) Identity {
 	}
 	cwd, err := r.ProcFS.Cwd(cwdPID)
 	if err != nil {
+		id.Reason = fmt.Sprintf("cwd unreadable: %v", err)
 		return id
 	}
 	id.CWD = cwd

@@ -50,6 +50,14 @@ type Identity struct {
 	CWD        string
 	ProjectKey string
 	Declared   map[string]string
+	// Reason names why CWD/ProjectKey are empty despite a harness being
+	// found, e.g. "cwd unreadable: permission denied" — the case a
+	// mount-sandboxed systemd --user unit's implicit user namespace
+	// produces by making /proc/<harness_pid>/cwd unreadable (task
+	// f2718b5b). Empty whenever the cwd read succeeded, so callers can
+	// tell that case apart from "no harness found" instead of both
+	// silently looking like project="".
+	Reason string
 }
 
 // PeerCreds is the (uid, pid) SO_PEERCRED reports for a socket connection.
