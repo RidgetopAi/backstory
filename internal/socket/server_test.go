@@ -157,6 +157,52 @@ func TestForgedRequestFieldsNeverBecomeIdentity(t *testing.T) {
 	}
 }
 
+// TestDeclaredFieldsIgnoresNonStringValues makes sure a declared field sent
+// as the wrong JSON type is dropped, not crashed on or coerced.
+func TestDeclaredFieldsIgnoresNonStringValues(t *testing.T) {
+	root := t.TempDir()
+	sockPath := filepath.Join(root, "sock")
+
+	resolver := &ident.Resolver{ProcFS: fakeProcFS{
+		status: map[int]ident.Status{os.Getpid(): {PPid: 1, Name: "shim"}},
+	}}
+
+	received := make(chan ident.Identity, 1)
+	srv, err := socket.Listen(sockPath, resolver, func(id ident.Identity, conn net.Conn) {
+		defer func() { _ = conn.Close() }()
+		received <- id
+	})
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
+	}
+	defer func() { _ = srv.Close() }()
+	go func() { _ = srv.Serve() }()
+
+	conn, err := net.Dial("unix", sockPath)
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	if _, err := conn.Write([]byte(`{"session":123,"actor":"ok"}` + "\n")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+
+	var id ident.Identity
+	select {
+	case id = <-received:
+	case <-time.After(2 * time.Second):
+		t.Fatal("handler was never called")
+	}
+
+	if _, ok := id.Declared["session"]; ok {
+		t.Errorf("Declared[session] present for a non-string value, want dropped")
+	}
+	if got := id.Declared["actor"]; got != "ok" {
+		t.Errorf("Declared[actor] = %q, want ok", got)
+	}
+}
+
 // TestHandlerSeesFullRequestLine makes sure the handler's own conn reader
 // gets the request line intact, even though socket already peeked at it to
 // harvest Declared fields.
