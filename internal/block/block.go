@@ -57,9 +57,17 @@ func Render(p Params) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("block: latest handoff: %w", err)
 	}
-	events, err := p.Store.EventsSinceID(p.ProjectKey, 0)
+	allEvents, err := p.Store.EventsSinceID(p.ProjectKey, 0)
 	if err != nil {
 		return "", fmt.Errorf("block: events: %w", err)
+	}
+	var deltaCursor int64
+	if hasHandoff {
+		deltaCursor = handoff.EventCursor
+	}
+	deltaEvents, err := p.Store.EventsSinceID(p.ProjectKey, deltaCursor)
+	if err != nil {
+		return "", fmt.Errorf("block: delta events: %w", err)
 	}
 	liveSessions, err := p.Store.LiveSessionsInProject(p.ProjectKey)
 	if err != nil {
@@ -75,8 +83,8 @@ func Render(p Params) (string, error) {
 	}
 
 	slot1 := resumeSlot(handoff, hasHandoff)
-	slot2 := deltaSlot(events, handoff, hasHandoff)
-	slot3 := coordinationSlot(liveSessions, events, p.SessionID, p.ProcFS)
+	slot2 := deltaSlot(deltaEvents)
+	slot3 := coordinationSlot(liveSessions, allEvents, p.SessionID, p.ProcFS)
 	slot4 := attentionSlot(draftCount, contradictionCount)
 
 	if slot1 == "" && slot2 == "" && slot3 == "" && slot4 == "" {
@@ -115,28 +123,22 @@ type eventPayload struct {
 }
 
 // deltaSlot is slot 2: sessions, distinct files touched, and last exit
-// codes, from events strictly after the handoff (or every project event
-// when there is no handoff). The membership boundary is the handoff's ts —
-// the only link between the independently-sequenced records and
-// timeline_events tables — but events is already ordered by id ascending
-// (SCHEMA.md invariant 10), and that order is preserved through the filter,
-// so "last exit codes" reflects true sequence, not a lying backfilled ts.
-func deltaSlot(events []store.TimelineEvent, handoff store.Record, hasHandoff bool) string {
-	var since []store.TimelineEvent
-	for _, e := range events {
-		if hasHandoff && e.TS.Before(handoff.TS) {
-			continue
-		}
-		since = append(since, e)
-	}
-	if len(since) == 0 {
+// codes, from events since the handoff's event cursor (or every project
+// event when there is no handoff). events is caller-filtered by
+// store.EventsSinceID(handoff.EventCursor) — the membership boundary is the
+// handoff's position in the sequence, never its ts: a backfilled event can
+// carry a ts earlier than the handoff's even though it was appended after
+// it (SCHEMA.md invariant 10, critic T1 on 7d3954f0). events is already
+// ordered by id ascending, so "last exit codes" reflects true sequence.
+func deltaSlot(events []store.TimelineEvent) string {
+	if len(events) == 0 {
 		return ""
 	}
 
 	sessions := map[string]bool{}
 	files := map[string]bool{}
 	var exitCodes []int
-	for _, e := range since {
+	for _, e := range events {
 		if e.SessionID != "" {
 			sessions[e.SessionID] = true
 		}

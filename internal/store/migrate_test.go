@@ -460,3 +460,217 @@ func TestMigrationV3RewritesNulProjectKeys(t *testing.T) {
 		t.Fatal("UPDATE records.text after migrating a v2 fixture succeeded, want records_no_update to abort it")
 	}
 }
+
+// TestRecordsHaveEventCursorColumn is proof (2) for task 214eb30e:
+// records.event_cursor exists in a freshly migrated database.
+func TestRecordsHaveEventCursorColumn(t *testing.T) {
+	s := mustOpen(t, filepath.Join(t.TempDir(), "backstory.db"))
+
+	colType, found := columnType(t, s, "records", "event_cursor")
+	if !found {
+		t.Fatal("records.event_cursor: column not found")
+	}
+	if colType != "INTEGER" {
+		t.Errorf("records.event_cursor type = %q, want INTEGER", colType)
+	}
+}
+
+// buildV3Fixture creates a database at path with migrations 0001-0003
+// applied (SQLite executed directly, bypassing Store.migrate so migration
+// 0004 is NOT applied), then seeds three timeline_events and two records —
+// one with a ts before every event (no preceding event: backfill must land
+// on 0) and one with a ts between the second and third event (backfill must
+// land on the second event's id, the nearest preceding one) — a stand-in
+// for a real pre-0004 Backstory database on disk.
+func buildV3Fixture(t *testing.T, path string) (event2ID int64) {
+	t.Helper()
+
+	ms, err := loadMigrations()
+	if err != nil {
+		t.Fatalf("loadMigrations: %v", err)
+	}
+	var m0001, m0002, m0003 migration
+	for _, m := range ms {
+		switch m.version {
+		case 1:
+			m0001 = m
+		case 2:
+			m0002 = m
+		case 3:
+			m0003 = m
+		}
+	}
+	if m0001.sql == "" || m0002.sql == "" || m0003.sql == "" {
+		t.Fatal("migration version 1, 2 or 3 not found among embedded migrations")
+	}
+
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatalf("open v3 fixture: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	for _, stmt := range splitStatements(m0001.sql) {
+		if strings.TrimSpace(stmt) == "" {
+			continue
+		}
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("apply v1 schema: %v\nstatement: %s", err, stmt)
+		}
+	}
+	if _, err := db.Exec(`CREATE TABLE schema_version (version INTEGER NOT NULL, applied_at INTEGER NOT NULL)`); err != nil {
+		t.Fatalf("create v1 schema_version: %v", err)
+	}
+	nowNanos := time.Now().UTC().UnixNano()
+	if _, err := db.Exec(`INSERT INTO schema_version (version, applied_at) VALUES (1, ?)`, nowNanos); err != nil {
+		t.Fatalf("seed v1 schema_version: %v", err)
+	}
+	for _, stmt := range splitStatements(m0002.sql) {
+		if strings.TrimSpace(stmt) == "" {
+			continue
+		}
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("apply v2 schema: %v\nstatement: %s", err, stmt)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO schema_version (version, applied_at) VALUES (2, ?)`, nowNanos); err != nil {
+		t.Fatalf("seed v2 schema_version: %v", err)
+	}
+	for _, stmt := range splitStatements(m0003.sql) {
+		if strings.TrimSpace(stmt) == "" {
+			continue
+		}
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("apply v3 schema: %v\nstatement: %s", err, stmt)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO schema_version (version, applied_at) VALUES (3, ?)`, nowNanos); err != nil {
+		t.Fatalf("seed v3 schema_version: %v", err)
+	}
+
+	if _, err := db.Exec(`INSERT INTO projects (key, toplevel, first_seen) VALUES (?, ?, ?)`,
+		"proj-v3", "/tmp/proj-v3", nowNanos); err != nil {
+		t.Fatalf("seed v3 projects: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO sessions (id, agent, cwd, project_key, started_at, origin) VALUES (?, ?, ?, ?, ?, ?)`,
+		"sess-v3", "test-harness", "/tmp/proj-v3", "proj-v3", nowNanos, "live"); err != nil {
+		t.Fatalf("seed v3 sessions: %v", err)
+	}
+
+	base := time.Now().UTC()
+	event1TS := base.UnixNano()
+	event2TS := base.Add(time.Minute).UnixNano()
+	event3TS := base.Add(2 * time.Minute).UnixNano()
+	if _, err := db.Exec(`INSERT INTO timeline_events (ts, kind, session_id, source, payload) VALUES (?, 'probe', ?, 'shell', '{}')`,
+		event1TS, "sess-v3"); err != nil {
+		t.Fatalf("seed v3 event 1: %v", err)
+	}
+	res, err := db.Exec(`INSERT INTO timeline_events (ts, kind, session_id, source, payload) VALUES (?, 'probe', ?, 'shell', '{}')`,
+		event2TS, "sess-v3")
+	if err != nil {
+		t.Fatalf("seed v3 event 2: %v", err)
+	}
+	event2ID, err = res.LastInsertId()
+	if err != nil {
+		t.Fatalf("v3 event 2 last insert id: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO timeline_events (ts, kind, session_id, source, payload) VALUES (?, 'probe', ?, 'shell', '{}')`,
+		event3TS, "sess-v3"); err != nil {
+		t.Fatalf("seed v3 event 3: %v", err)
+	}
+
+	// rec-before-all: ts earlier than every event -> no preceding event ->
+	// backfill must land on 0.
+	if _, err := db.Exec(`INSERT INTO records (id, ts, kind, tier, text, project_key) VALUES (?, ?, ?, ?, ?, ?)`,
+		"rec-before-all", base.Add(-time.Hour).UnixNano(), "note", "agent-declared", "before every event", "proj-v3"); err != nil {
+		t.Fatalf("seed v3 rec-before-all: %v", err)
+	}
+	// rec-between-2-and-3: ts between event 2 and event 3 -> nearest
+	// preceding event is event 2 -> backfill must land on event2ID.
+	if _, err := db.Exec(`INSERT INTO records (id, ts, kind, tier, text, project_key) VALUES (?, ?, ?, ?, ?, ?)`,
+		"rec-between-2-and-3", base.Add(90*time.Second).UnixNano(), "note", "agent-declared", "between event 2 and 3", "proj-v3"); err != nil {
+		t.Fatalf("seed v3 rec-between-2-and-3: %v", err)
+	}
+
+	return event2ID
+}
+
+// TestMigrationV4BackfillsEventCursorFromNearestPrecedingEvent is proof (2)
+// for task 214eb30e: migration 0004 applies cleanly to a v3 fixture,
+// preserves row counts, and backfills every existing record's event_cursor
+// from the nearest preceding timeline event by ts, best effort (0004's own
+// migration comment says so; there is no sequence position recorded at
+// insert time for a pre-0004 row).
+func TestMigrationV4BackfillsEventCursorFromNearestPrecedingEvent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v3fixture.db")
+	event2ID := buildV3Fixture(t, path)
+
+	wantCounts := map[string]int{
+		"projects":        1,
+		"sessions":        1,
+		"timeline_events": 3,
+		"records":         2,
+	}
+
+	s := mustOpen(t, path)
+
+	v, err := s.Version()
+	if err != nil {
+		t.Fatalf("Version: %v", err)
+	}
+	if v != SchemaVersion {
+		t.Errorf("Version() after migrating a v3 fixture = %d, want %d (SchemaVersion)", v, SchemaVersion)
+	}
+
+	for table, want := range wantCounts {
+		var got int
+		if err := s.DB().QueryRow(`SELECT COUNT(*) FROM ` + table).Scan(&got); err != nil {
+			t.Fatalf("count %s: %v", table, err)
+		}
+		if got != want {
+			t.Errorf("%s row count after migrating a v3 fixture = %d, want %d (migration must preserve row counts)", table, got, want)
+		}
+	}
+
+	recBeforeAll, err := s.GetRecord("rec-before-all")
+	if err != nil {
+		t.Fatalf("GetRecord(rec-before-all) after migrating a v3 fixture: %v", err)
+	}
+	if recBeforeAll.EventCursor != 0 {
+		t.Errorf("rec-before-all.EventCursor after migrating a v3 fixture = %d, want 0 (no preceding event)", recBeforeAll.EventCursor)
+	}
+
+	recBetween, err := s.GetRecord("rec-between-2-and-3")
+	if err != nil {
+		t.Fatalf("GetRecord(rec-between-2-and-3) after migrating a v3 fixture: %v", err)
+	}
+	if recBetween.EventCursor != event2ID {
+		t.Errorf("rec-between-2-and-3.EventCursor after migrating a v3 fixture = %d, want %d (event 2, the nearest preceding event)", recBetween.EventCursor, event2ID)
+	}
+
+	// The append-only trigger the migration drops and recreates around its
+	// own backfill UPDATE must still guard records, including the new
+	// column, after migrating.
+	_, err = s.DB().Exec(`UPDATE records SET event_cursor = 999 WHERE id = ?`, "rec-before-all")
+	if err == nil {
+		t.Fatal("UPDATE records.event_cursor after migrating a v3 fixture succeeded, want records_no_update to abort it")
+	}
+}
+
+// TestLoadMigrationsRefusesDuplicateVersion guards the loader against two
+// files sharing a version prefix (task 214eb30e, found when 0004_backfill_cursors
+// and 0004_event_cursor met on main): the runner would skip the second as
+// already applied. Distinct versions load; a duplicate is an error naming both.
+func TestLoadMigrationsRefusesDuplicateVersion(t *testing.T) {
+	read := func(string) ([]byte, error) { return []byte("SELECT 1;"), nil }
+	if _, err := migrationsFromNames([]string{"0001_a.sql", "0002_b.sql"}, read); err != nil {
+		t.Fatalf("distinct versions: unexpected error: %v", err)
+	}
+	_, err := migrationsFromNames([]string{"0004_a.sql", "0004_b.sql"}, read)
+	if err == nil {
+		t.Fatalf("duplicate version 4 loaded without error")
+	}
+	if !strings.Contains(err.Error(), "0004_a.sql") || !strings.Contains(err.Error(), "0004_b.sql") {
+		t.Errorf("error does not name both files: %v", err)
+	}
+}

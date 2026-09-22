@@ -262,6 +262,44 @@ func TestRenderDeltaCountsOnlyEventsAfterHandoff(t *testing.T) {
 	}
 }
 
+// TestRenderDeltaCountsABackfilledEventAppendedAfterTheHandoffDespiteALyingEarlierTS
+// is the critic's exact case (critic T1 on 7d3954f0, SCHEMA.md invariant
+// 10): a handoff is inserted, then an event is appended AFTER it (so its
+// timeline_events.id is higher — it landed later in real sequence) but
+// carrying a ts EARLIER than the handoff's ts, the way a backfilled
+// transcript's file clock lies. The delta's membership test must be the
+// handoff's event cursor (its position in the sequence at insert time), not
+// a wall-clock comparison — a ts-based boundary drops this row entirely.
+//
+// Mutation probe: reinstating the ts comparison this test replaced
+// (`if hasHandoff && e.TS.Before(handoff.TS) { continue }`, formerly in
+// deltaSlot, block.go) turns this test RED (the Delta slot goes missing);
+// removing it again turns it back GREEN.
+func TestRenderDeltaCountsABackfilledEventAppendedAfterTheHandoffDespiteALyingEarlierTS(t *testing.T) {
+	s := newTestStore(t)
+	mustUpsertProject(t, s, testProjectKey)
+	self := mustStartSession(t, s, "claude", "/proj", 100)
+
+	handoff := mustInsertHandoff(t, s, self, "resume here")
+
+	backfilledTS := handoff.TS.Add(-time.Hour) // lying: earlier than the handoff, but appended after it
+	mustAppendEvent(t, s, self, backfilledTS, map[string]any{"path": "backfilled.go", "exit": 7})
+
+	out, err := block.Render(block.Params{
+		Store: s, ProcFS: fakeProcFS{}, ProjectKey: testProjectKey, SessionID: self, Harness: "claude",
+		Now: handoff.TS.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "Delta:") {
+		t.Fatalf("delta slot missing entirely; a backfilled event appended after the handoff with a lying earlier ts must still be counted; got:\n%s", out)
+	}
+	if !strings.Contains(out, "1 sessions, 1 files touched, last exit codes: 7") {
+		t.Errorf("delta slot did not count the backfilled event appended after the handoff; got:\n%s", out)
+	}
+}
+
 // TestRenderCoordinationListsLiveOmitsEndedAndDeadPID is clause (d).
 func TestRenderCoordinationListsLiveOmitsEndedAndDeadPID(t *testing.T) {
 	s := newTestStore(t)

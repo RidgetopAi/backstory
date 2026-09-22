@@ -82,6 +82,15 @@ type Record struct {
 	Promoter     string
 	ExpiresAt    *time.Time
 	TombstonedAt *time.Time
+	// EventCursor is the record's position in the timeline: MAX(timeline_
+	// events.id) at insert time, or 0 when the timeline was empty. It is
+	// never a caller-supplied parameter (there is deliberately no field for
+	// it on InsertRecordParams) — InsertRecordWithEdges computes it in the
+	// same transaction as the insert, the way tier is derived rather than
+	// accepted (SCHEMA.md invariant 2). The SessionStart delta's boundary is
+	// EventsSinceID(handoff.EventCursor), never a ts comparison (SCHEMA.md
+	// invariant 10: backfilled sessions carry file clocks that lie).
+	EventCursor int64
 }
 
 // InsertRecord appends a ledger record with no edges. It is a convenience
@@ -143,8 +152,8 @@ func (s *Store) InsertRecordWithEdges(p InsertRecordParams, edges []EdgeSpec) (s
 	defer func() { _ = tx.Rollback() }() // no-op once Commit has run
 
 	if _, err := tx.Exec(`INSERT INTO records
-		(id, ts, kind, tier, text, about, session_id, project_key, evidence, outcome, promoter, expires_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		(id, ts, kind, tier, text, about, session_id, project_key, evidence, outcome, promoter, expires_at, event_cursor)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(id), 0) FROM timeline_events))`,
 		id, tsToNanos(time.Now()), string(p.Kind), string(tier), redact(p.Text), about,
 		nullable(p.SessionID), nullable(p.ProjectKey), evidence, outcome, nullable(p.Promoter), nullableTS(p.ExpiresAt)); err != nil {
 		return "", fmt.Errorf("store: insert record: %w", err)
@@ -196,9 +205,9 @@ func (s *Store) GetRecord(id string) (Record, error) {
 		expiresAt, tombstonedAt         sql.NullInt64
 	)
 	err := s.db.QueryRow(`SELECT id, ts, kind, tier, text, about, session_id, project_key,
-		evidence, outcome, promoter, expires_at, tombstoned_at FROM records WHERE id = ?`, id).
+		evidence, outcome, promoter, expires_at, tombstoned_at, event_cursor FROM records WHERE id = ?`, id).
 		Scan(&r.ID, &ts, &kind, &tier, &text, &about, &sessionID, &projectKey,
-			&evid, &outcome, &promoter, &expiresAt, &tombstonedAt)
+			&evid, &outcome, &promoter, &expiresAt, &tombstonedAt, &r.EventCursor)
 	if err != nil {
 		return Record{}, fmt.Errorf("store: get record %s: %w", id, err)
 	}
