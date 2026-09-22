@@ -11,6 +11,11 @@ import (
 // that LIE — a later-inserted row (higher rowid) carries an EARLIER ts than
 // an earlier-inserted row — must still be read back in rowid (insertion)
 // order, never ts order. A ts-ordered read would reverse these two.
+//
+// Mutation probe (EventsSinceID's `ORDER BY e.id ASC` changed to
+// `ORDER BY e.ts ASC`, events.go): "events_test.go:39: EventsSinceID order =
+// [2, 1], want [1, 2] (rowid order; ts order would reverse them)" --
+// restoring `ORDER BY e.id ASC` turns it back GREEN.
 func TestEventsSinceIDOrdersByRowIDNotTS(t *testing.T) {
 	s := mustOpen(t, filepath.Join(t.TempDir(), "backstory.db"))
 	mustUpsertProject(t, s, "proj-a")
