@@ -17,10 +17,6 @@ import (
 // FileMode is the permission bits every Backstory database file is held at.
 const FileMode os.FileMode = 0o600
 
-// SchemaVersion is the current schema version recorded in the database.
-// The real schema arrives in a later punch; for now it is the bare marker table.
-const SchemaVersion = 0
-
 // Store is an open Backstory database.
 type Store struct {
 	db   *sql.DB
@@ -56,7 +52,7 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("store: open %s: %w", path, err)
 	}
 	s := &Store{db: db, path: path}
-	if err := s.init(); err != nil {
+	if err := s.migrate(); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
@@ -73,35 +69,17 @@ func dsn(path string) string {
 	return "file:" + path + "?" + q.Encode()
 }
 
-func (s *Store) init() error {
-	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS schema_version (
-		version INTEGER NOT NULL
-	)`)
-	if err != nil {
-		return fmt.Errorf("store: create schema_version: %w", err)
-	}
-	var n int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM schema_version`).Scan(&n); err != nil {
-		return fmt.Errorf("store: read schema_version: %w", err)
-	}
-	if n == 0 {
-		if _, err := s.db.Exec(`INSERT INTO schema_version (version) VALUES (?)`, SchemaVersion); err != nil {
-			return fmt.Errorf("store: seed schema_version: %w", err)
-		}
-	}
-	return nil
-}
-
 // DB exposes the underlying connection pool.
 func (s *Store) DB() *sql.DB { return s.db }
 
 // Path returns the database file path.
 func (s *Store) Path() string { return s.path }
 
-// Version returns the schema version recorded in the database.
+// Version returns the highest schema migration version applied to this
+// database.
 func (s *Store) Version() (int, error) {
 	var v int
-	if err := s.db.QueryRow(`SELECT version FROM schema_version LIMIT 1`).Scan(&v); err != nil {
+	if err := s.db.QueryRow(`SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&v); err != nil {
 		return 0, fmt.Errorf("store: read version: %w", err)
 	}
 	return v, nil
