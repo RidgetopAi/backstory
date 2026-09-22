@@ -12,9 +12,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/RidgetopAi/backstory/internal/ident"
 )
@@ -117,11 +119,56 @@ func (s *Server) handle(conn net.Conn) {
 	}
 	id := s.resolver.Resolve(ident.PeerCreds{UID: uid, PID: pid})
 
+	if err := conn.SetReadDeadline(time.Now().Add(FirstLineDeadline)); err != nil {
+		_ = conn.Close()
+		return
+	}
 	br := bufio.NewReader(conn)
-	line, _ := br.ReadBytes('\n') // best-effort: a client that closes before '\n' still yields its partial line
+	line, cutOff := readFirstLine(br)
+	if cutOff != "" {
+		log.Printf("socket: closing connection from pid %d: %s", pid, cutOff)
+		_ = conn.Close()
+		return
+	}
+	// Handler manages its own read timing from here; the first-line deadline
+	// must not linger and cut off a slower, legitimate later read.
+	if err := conn.SetReadDeadline(time.Time{}); err != nil {
+		_ = conn.Close()
+		return
+	}
 	id.Declared = declaredFields(line)
 
 	s.handler(id, &prefixConn{Conn: conn, r: io.MultiReader(bytes.NewReader(line), br)})
+}
+
+// readFirstLine reads a single '\n'-terminated line from br, one buffered
+// read at a time, so that a line's length is checked against MaxLineLength
+// as soon as it grows past the cap rather than after it has already been
+// read into memory in full. It returns a non-empty cutOff reason instead of
+// a line when the peer's first-line deadline expires or the cap is
+// exceeded; both cases leave line nil so the caller never invokes the
+// Handler with a partial or oversized line. A peer that closes the
+// connection before sending '\n' is not a cutOff: its partial line (best
+// effort) is returned so the Handler still sees whatever bytes arrived.
+func readFirstLine(br *bufio.Reader) (line []byte, cutOff string) {
+	for {
+		chunk, err := br.ReadSlice('\n')
+		line = append(line, chunk...)
+		if len(line) > MaxLineLength {
+			return nil, fmt.Sprintf("first line exceeded %d bytes without '\\n'", MaxLineLength)
+		}
+		if err == nil {
+			return line, ""
+		}
+		if errors.Is(err, bufio.ErrBufferFull) {
+			continue
+		}
+		var netErr net.Error
+		if errors.As(err, &netErr) && netErr.Timeout() {
+			return nil, fmt.Sprintf("no complete first line within %s", FirstLineDeadline)
+		}
+		return line, "" // premature close or other read error: best-effort partial line
+	}
 }
 
 // declaredFields extracts DeclaredFields' string values from a request
