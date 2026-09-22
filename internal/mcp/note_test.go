@@ -58,7 +58,7 @@ func testDaemon(t *testing.T, st *store.Store, harness, cwd, projectKey string) 
 	sockPath := filepath.Join(t.TempDir(), "sock")
 	srv, err := socket.Listen(sockPath, resolver, func(id ident.Identity, conn net.Conn) {
 		defer func() { _ = conn.Close() }()
-		ServeDaemonConn(id, conn, st, nil)
+		ServeDaemonConn(id, conn, st, procfs, nil)
 	})
 	if err != nil {
 		t.Fatalf("socket.Listen: %v", err)

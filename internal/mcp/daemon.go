@@ -12,24 +12,35 @@ import (
 )
 
 // daemonMethodNote and daemonMethodStatus are the only DaemonRequest.Method
-// values the daemon side answers. recall/timeline/confirm never reach the
-// socket at all: the shim returns their not-implemented error itself
-// (DONE WHEN clause 4 — "never touch the store").
+// values the daemon side answers via the mcp shim's note/status tools.
+// recall/timeline/confirm never reach the socket at all: the shim returns
+// their not-implemented error itself (DONE WHEN clause 4 — "never touch the
+// store").
 const (
 	daemonMethodNote   = "note"
 	daemonMethodStatus = "status"
 )
 
+// DaemonMethodBlock is the SessionStart block's daemon-side method
+// (AGENT-CONTRACT.md §The SessionStart block). It is exported because
+// cmd/backstory's `hook session-start` subcommand builds a DaemonRequest for
+// it directly, bypassing the mcp shim's JSON-RPC tools/call indirection
+// entirely — the block is not one of the five frozen v0 tools.
+const DaemonMethodBlock = "block"
+
 // ServeDaemonConn is the daemon side of the shim<->daemon wire protocol: the
 // socket.Handler cmd/backstory wires into socket.Listen. It starts a live
 // store session for the connecting Identity, dispatches DaemonRequest lines
 // against st until the connection closes, and ends the session on exit.
+// procfs backs the block method's coordination-slot liveness check
+// (block.Params.ProcFS); it is otherwise unused.
 //
 // id is resolved purely from SO_PEERCRED + /proc ancestry (never from
 // anything on conn — AGENT-CONTRACT.md §Observed identity), so every record
 // this connection writes is attributed to id.Kind's tier regardless of what
-// a request line claims.
-func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, logger *log.Logger) {
+// a request line claims, and the SessionStart block it renders is always
+// for id.ProjectKey, regardless of what a request line claims either.
+func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs ident.ProcFS, logger *log.Logger) {
 	sessionID, err := startSession(st, id)
 	if err != nil {
 		logf(logger, "mcp: start session for pid=%d: %v", id.PID, err)
@@ -46,7 +57,7 @@ func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, logger *
 	sc := bufio.NewScanner(conn)
 	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	for sc.Scan() {
-		resp := dispatchDaemonRequest(sc.Bytes(), st, identity, sessionID, id)
+		resp := dispatchDaemonRequest(sc.Bytes(), st, procfs, identity, sessionID, id)
 		b, err := json.Marshal(resp)
 		if err != nil {
 			logf(logger, "mcp: marshal daemon response: %v", err)
@@ -58,7 +69,7 @@ func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, logger *
 	}
 }
 
-func dispatchDaemonRequest(line []byte, st *store.Store, identity store.Identity, sessionID string, id ident.Identity) DaemonResponse {
+func dispatchDaemonRequest(line []byte, st *store.Store, procfs ident.ProcFS, identity store.Identity, sessionID string, id ident.Identity) DaemonResponse {
 	var req DaemonRequest
 	if err := json.Unmarshal(line, &req); err != nil {
 		return errResponse("invalid-request", err.Error())
@@ -68,6 +79,8 @@ func dispatchDaemonRequest(line []byte, st *store.Store, identity store.Identity
 		return handleNote(st, identity, sessionID, id.ProjectKey, req.Params)
 	case daemonMethodStatus:
 		return handleStatus(st, id, sessionID)
+	case DaemonMethodBlock:
+		return handleBlock(st, procfs, id, sessionID)
 	default:
 		return errResponse("unknown-method", "unknown method "+req.Method)
 	}

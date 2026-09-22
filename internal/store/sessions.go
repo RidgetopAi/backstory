@@ -68,12 +68,14 @@ type Session struct {
 	Origin           SessionOrigin
 }
 
-// LiveSessionsInProject returns every session in projectKey with no
-// ended_at, most recently started first — the "who else is live here" half
-// of status (AGENT-CONTRACT.md §The five tools).
+// LiveSessionsInProject returns every live session in projectKey (origin
+// 'live', no ended_at), most recently started first — the "who else is live
+// here" half of status (AGENT-CONTRACT.md §The five tools) and the
+// SessionStart block's coordination slot.
 func (s *Store) LiveSessionsInProject(projectKey string) ([]Session, error) {
 	rows, err := s.db.Query(`SELECT id, agent, harness_session_id, pid, cwd, workspace, window, started_at, origin
-		FROM sessions WHERE project_key = ? AND ended_at IS NULL ORDER BY started_at DESC`, projectKey)
+		FROM sessions WHERE project_key = ? AND ended_at IS NULL AND origin = ? ORDER BY started_at DESC`,
+		projectKey, string(OriginLive))
 	if err != nil {
 		return nil, fmt.Errorf("store: live sessions in project %s: %w", projectKey, err)
 	}
