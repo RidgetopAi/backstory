@@ -6,11 +6,6 @@ import (
 	"testing"
 )
 
-// toolsListEnvelope mirrors the tools/list response shape: {"tools": [...]}.
-type toolsListEnvelope struct {
-	Tools []Tool `json:"tools"`
-}
-
 // TestToolsV0MatchesFrozenSnapshotByteForByte is DONE WHEN clause 1: tools/list
 // must match testdata/tools-v0.json byte-for-byte after canonicalisation.
 func TestToolsV0MatchesFrozenSnapshotByteForByte(t *testing.T) {
