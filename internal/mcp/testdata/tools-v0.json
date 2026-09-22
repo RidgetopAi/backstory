@@ -1,0 +1,160 @@
+{
+  "tools": [
+    {
+      "name": "recall",
+      "description": "Anchor (project, path, ref, id, or free text) to an ordered, trust-annotated narrative at an altitude, under a token budget.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "description": "free text, a path, a ref, or a record id — the recall anchor"
+          },
+          "project": {
+            "type": "string",
+            "description": "project key override; defaults to the caller's own project"
+          },
+          "altitude": {
+            "type": "string",
+            "enum": [
+              "summary",
+              "detail"
+            ],
+            "description": "narrative altitude"
+          },
+          "budget_tokens": {
+            "type": "integer",
+            "description": "token budget for the returned narrative"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "note",
+      "description": "The one write. Returns the record id and its provenance tier.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "decision",
+              "outcome",
+              "handoff",
+              "note",
+              "claim"
+            ]
+          },
+          "text": {
+            "type": "string"
+          },
+          "about": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "paths this record is about"
+          },
+          "supersedes": {
+            "type": "string",
+            "description": "id of the record this one supersedes"
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "timeline_events ids cited as evidence"
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expires": {
+            "type": "string",
+            "description": "RFC 3339 timestamp; claims only"
+          }
+        },
+        "required": [
+          "kind",
+          "text"
+        ]
+      }
+    },
+    {
+      "name": "timeline",
+      "description": "Events for my session / this project / since \u003ct\u003e, filtered — the observed truth an agent cites as evidence.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "type": "string",
+            "enum": [
+              "session",
+              "project"
+            ]
+          },
+          "since": {
+            "type": "string",
+            "description": "RFC 3339 timestamp"
+          },
+          "kind": {
+            "type": "string",
+            "description": "timeline_events.kind filter"
+          },
+          "limit": {
+            "type": "integer"
+          }
+        },
+        "required": []
+      }
+    },
+    {
+      "name": "confirm",
+      "description": "Promote a draft, flag a contradiction with evidence, or mark supersession — kept separate from note so the never-list is enforceable per tool.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {
+          "record_id": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "promote",
+              "contradict",
+              "supersede"
+            ]
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "description": "timeline_events ids cited as evidence"
+          },
+          "text": {
+            "type": "string",
+            "description": "optional explanation"
+          }
+        },
+        "required": [
+          "record_id",
+          "action"
+        ]
+      }
+    },
+    {
+      "name": "status",
+      "description": "Who I am (session, project as the daemon sees them), who else is live here, my budget, capture on/off.",
+      "inputSchema": {
+        "type": "object",
+        "properties": {},
+        "required": []
+      }
+    }
+  ]
+}

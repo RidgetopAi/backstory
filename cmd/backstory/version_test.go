@@ -11,7 +11,7 @@ import (
 
 func TestVersionPlain(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"version"}, &stdout, &stderr)
+	code := run([]string{"version"}, bytes.NewReader(nil), &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr.String())
 	}
@@ -27,7 +27,7 @@ func TestVersionPlain(t *testing.T) {
 
 func TestVersionJSON(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	code := run([]string{"version", "--json"}, &stdout, &stderr)
+	code := run([]string{"version", "--json"}, bytes.NewReader(nil), &stdout, &stderr)
 	if code != 0 {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", code, stderr.String())
 	}
