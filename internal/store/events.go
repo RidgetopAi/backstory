@@ -21,10 +21,13 @@ type Event struct {
 
 // AppendEvent inserts a timeline event and returns its id (the rowid, and
 // the only ordering timeline_events carries — SCHEMA.md §timeline_events).
+// Payload is redacted before storage (redact.go), the same rule
+// InsertRecord applies to records.text (SCHEMA.md invariant 6: redaction on
+// every payload, not just the ledger).
 func (s *Store) AppendEvent(e Event) (int64, error) {
 	res, err := s.db.Exec(`INSERT INTO timeline_events (ts, kind, session_id, source, payload, workspace, window)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		tsToNanos(e.TS), e.Kind, nullable(e.SessionID), e.Source, e.Payload,
+		tsToNanos(e.TS), e.Kind, nullable(e.SessionID), e.Source, redact(e.Payload),
 		nullable(e.Workspace), nullable(e.Window))
 	if err != nil {
 		return 0, fmt.Errorf("store: append event: %w", err)
