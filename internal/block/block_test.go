@@ -270,6 +270,11 @@ func TestRenderDeltaCountsOnlyEventsAfterHandoff(t *testing.T) {
 // transcript's file clock lies. The delta's membership test must be the
 // handoff's event cursor (its position in the sequence at insert time), not
 // a wall-clock comparison — a ts-based boundary drops this row entirely.
+//
+// Mutation probe: reinstating the ts comparison this test replaced
+// (`if hasHandoff && e.TS.Before(handoff.TS) { continue }`, formerly in
+// deltaSlot, block.go) turns this test RED (the Delta slot goes missing);
+// removing it again turns it back GREEN.
 func TestRenderDeltaCountsABackfilledEventAppendedAfterTheHandoffDespiteALyingEarlierTS(t *testing.T) {
 	s := newTestStore(t)
 	mustUpsertProject(t, s, testProjectKey)
