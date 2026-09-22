@@ -53,7 +53,7 @@ func CheckStatus(dest, prefix string) Status {
 		}
 		return StatusForeign
 	}
-	data, err := os.ReadFile(dest)
+	data, err := os.ReadFile(dest) //nolint:gosec // dest is the caller-chosen skill path, not external input
 	if err == nil && bytes.Equal(data, Embedded) {
 		return StatusPresent
 	}
@@ -72,7 +72,7 @@ func Install(dest, prefix string) (changed bool, err error) {
 		return false, nil
 	}
 
-	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dest), 0o750); err != nil {
 		return false, err
 	}
 
@@ -83,7 +83,7 @@ func Install(dest, prefix string) (changed bool, err error) {
 		return true, nil
 	}
 
-	if err := os.WriteFile(dest, Embedded, 0o644); err != nil {
+	if err := os.WriteFile(dest, Embedded, 0o600); err != nil {
 		return false, err
 	}
 	return true, nil

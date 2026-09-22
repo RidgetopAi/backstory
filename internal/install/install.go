@@ -401,7 +401,7 @@ func removeSessionStartHook(root map[string]any, timeoutSeconds int) (changed bo
 // creating the file if absent. It is idempotent: if the markers are already
 // present, nothing is written.
 func InstallStub(claudeMDPath string) error {
-	data, statErr := os.ReadFile(claudeMDPath)
+	data, statErr := os.ReadFile(claudeMDPath) //nolint:gosec // claudeMDPath is the caller-chosen CLAUDE.md location
 	if statErr != nil && !os.IsNotExist(statErr) {
 		return statErr
 	}
@@ -410,7 +410,7 @@ func InstallStub(claudeMDPath string) error {
 		return nil // already installed
 	}
 
-	mode := os.FileMode(0o644)
+	mode := os.FileMode(0o600)
 	if info, err := os.Stat(claudeMDPath); err == nil {
 		mode = info.Mode().Perm()
 	}
@@ -420,14 +420,14 @@ func InstallStub(claudeMDPath string) error {
 	}
 	content += stubBlock
 
-	if err := os.MkdirAll(filepath.Dir(claudeMDPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(claudeMDPath), 0o750); err != nil {
 		return err
 	}
 	return writeAtomic(claudeMDPath, []byte(content), mode)
 }
 
 func stubStatus(claudeMDPath string) ItemStatus {
-	data, err := os.ReadFile(claudeMDPath)
+	data, err := os.ReadFile(claudeMDPath) //nolint:gosec // claudeMDPath is the caller-chosen CLAUDE.md location
 	if err != nil {
 		return StatusAbsent
 	}
@@ -443,7 +443,7 @@ func stubStatus(claudeMDPath string) ItemStatus {
 // nothing but the stub remains, the file itself is removed (it did not
 // exist before install).
 func removeStub(claudeMDPath string) error {
-	data, err := os.ReadFile(claudeMDPath)
+	data, err := os.ReadFile(claudeMDPath) //nolint:gosec // claudeMDPath is the caller-chosen CLAUDE.md location
 	if os.IsNotExist(err) {
 		return nil
 	}
@@ -470,7 +470,7 @@ func removeStub(claudeMDPath string) error {
 		return os.Remove(claudeMDPath)
 	}
 
-	mode := os.FileMode(0o644)
+	mode := os.FileMode(0o600)
 	if info, err := os.Stat(claudeMDPath); err == nil {
 		mode = info.Mode().Perm()
 	}
@@ -559,9 +559,9 @@ func jsonEqual(a, b any) bool {
 // malformedErr, wrapped; the caller must not have written anything yet when
 // this returns an error.
 func loadJSONObject(path string, malformedErr error) (m map[string]any, mode os.FileMode, err error) {
-	data, readErr := os.ReadFile(path)
+	data, readErr := os.ReadFile(path) //nolint:gosec // path is the caller-chosen config location
 	if os.IsNotExist(readErr) {
-		return map[string]any{}, 0o644, nil
+		return map[string]any{}, 0o600, nil
 	}
 	if readErr != nil {
 		return nil, 0, readErr
@@ -572,7 +572,7 @@ func loadJSONObject(path string, malformedErr error) (m map[string]any, mode os.
 	}
 
 	info, statErr := os.Stat(path)
-	mode = 0o644
+	mode = 0o600
 	if statErr == nil {
 		mode = info.Mode().Perm()
 	}
@@ -585,7 +585,7 @@ func writeJSONAtomic(path string, m map[string]any, mode os.FileMode) error {
 		return fmt.Errorf("marshal %s: %w", path, err)
 	}
 	data = append(data, '\n')
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
 	return writeAtomic(path, data, mode)

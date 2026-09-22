@@ -23,7 +23,7 @@ var listItemRe = regexp.MustCompile(`^(\d+)\. (.*)$`)
 // skill" that clause 3 requires Embedded to match byte-for-byte.
 func parseSkillLines(t *testing.T, contractPath string) []string {
 	t.Helper()
-	f, err := os.Open(contractPath)
+	f, err := os.Open(contractPath) //nolint:gosec // contractPath is a fixed test-source-relative path, not external input
 	if err != nil {
 		t.Fatalf("open %s: %v", contractPath, err)
 	}
@@ -104,10 +104,10 @@ func TestEmbeddedSkillMatchesAgentContract(t *testing.T) {
 func TestInstallSymlinksToPackagedPathWhenPresent(t *testing.T) {
 	prefix := t.TempDir()
 	packaged := filepath.Join(prefix, skill.PackagedSkillPath)
-	if err := os.MkdirAll(filepath.Dir(packaged), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(packaged), 0o750); err != nil {
 		t.Fatalf("mkdir packaged dir: %v", err)
 	}
-	if err := os.WriteFile(packaged, []byte("packaged copy\n"), 0o644); err != nil {
+	if err := os.WriteFile(packaged, []byte("packaged copy\n"), 0o600); err != nil {
 		t.Fatalf("write packaged skill: %v", err)
 	}
 
@@ -167,7 +167,7 @@ func TestInstallWritesEmbeddedWhenPackagedPathAbsent(t *testing.T) {
 	if fi.Mode()&os.ModeSymlink != 0 {
 		t.Fatalf("dest is a symlink, want a regular file (embedded copy)")
 	}
-	data, err := os.ReadFile(dest)
+	data, err := os.ReadFile(dest) //nolint:gosec // dest is a t.TempDir() path this test built, not external input
 	if err != nil {
 		t.Fatalf("read dest: %v", err)
 	}

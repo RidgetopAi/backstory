@@ -13,17 +13,17 @@ import (
 
 func mustWriteFile(t *testing.T, path, content string) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		t.Fatalf("mkdir for %s: %v", path, err)
 	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatalf("write %s: %v", path, err)
 	}
 }
 
 func sha256OrFatal(t *testing.T, path string) [32]byte {
 	t.Helper()
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path is a t.TempDir() path this test built, not external input
 	if err != nil {
 		t.Fatalf("read %s: %v", path, err)
 	}
@@ -224,7 +224,7 @@ func TestClaudeMDStubNotDuplicatedOnReinstall(t *testing.T) {
 		}
 	}
 
-	data, err := os.ReadFile(claudeMD)
+	data, err := os.ReadFile(claudeMD) //nolint:gosec // claudeMD is a t.TempDir() path this test built, not external input
 	if err != nil {
 		t.Fatalf("read CLAUDE.md: %v", err)
 	}
