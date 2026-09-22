@@ -22,6 +22,10 @@ const (
 	// Source is store.Event.Source and the first key of a backfill_cursors
 	// row for every event and cursor this importer writes.
 	Source = "claude"
+	// EventSource is the timeline_events.source value for everything this importer
+	// writes: SCHEMA.md enumerates it as `backfill` and retention keys on it. The
+	// importer identity ("claude") is the cursor key only, never the event source.
+	EventSource = "backfill"
 	// Agent is store.Session.Agent for every session this importer creates.
 	Agent = "claude"
 
@@ -205,7 +209,7 @@ func importFile(st *store.Store, git project.Git, path string) (fileStats, error
 			TS:        firstTS,
 			Kind:      EventSessionStart,
 			SessionID: sessionID,
-			Source:    Source,
+			Source:    EventSource,
 			Payload:   sessionStartPayload(parsedLines),
 		}); err != nil {
 			return fileStats{}, err
@@ -230,7 +234,7 @@ func importFile(st *store.Store, git project.Git, path string) (fileStats, error
 		TS:        lastTS,
 		Kind:      EventSessionEnd,
 		SessionID: sessionID,
-		Source:    Source,
+		Source:    EventSource,
 		Payload:   `{"reason":"eof"}`,
 	}); err != nil {
 		return fileStats{}, err
@@ -375,7 +379,7 @@ func appendToolEvents(st *store.Store, sessionID string, lines []transcriptLine,
 				}
 				if _, err := st.AppendEvent(store.Event{
 					TS: l.Timestamp, Kind: EventToolUse, SessionID: sessionID,
-					Source: Source, Payload: string(payload),
+					Source: EventSource, Payload: string(payload),
 				}); err != nil {
 					return n, err
 				}
@@ -391,7 +395,7 @@ func appendToolEvents(st *store.Store, sessionID string, lines []transcriptLine,
 				}
 				if _, err := st.AppendEvent(store.Event{
 					TS: l.Timestamp, Kind: EventToolResult, SessionID: sessionID,
-					Source: Source, Payload: string(payload),
+					Source: EventSource, Payload: string(payload),
 				}); err != nil {
 					return n, err
 				}

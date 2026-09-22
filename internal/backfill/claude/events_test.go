@@ -77,8 +77,8 @@ func TestEventsInFileOrderWithSkips(t *testing.T) {
 		if e.Kind != wantKinds[i] {
 			t.Errorf("event[%d].Kind = %q, want %q", i, e.Kind, wantKinds[i])
 		}
-		if e.Source != Source {
-			t.Errorf("event[%d].Source = %q, want %q", i, e.Source, Source)
+		if e.Source != "backfill" {
+			t.Errorf("event[%d].Source = %q, want %q", i, e.Source, "backfill")
 		}
 	}
 
