@@ -10,6 +10,7 @@ import (
 
 	"github.com/RidgetopAi/backstory/internal/block"
 	"github.com/RidgetopAi/backstory/internal/ident"
+	"github.com/RidgetopAi/backstory/internal/payload"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
@@ -77,17 +78,31 @@ func mustInsertHandoff(t *testing.T, s *store.Store, sessionID, text string) sto
 	return rec
 }
 
-func mustAppendEvent(t *testing.T, s *store.Store, sessionID string, ts time.Time, payload any) int64 {
+func mustAppendEvent(t *testing.T, s *store.Store, sessionID, kind string, ts time.Time, pl any) int64 {
 	t.Helper()
-	b, err := json.Marshal(payload)
+	b, err := json.Marshal(pl)
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
 	}
-	id, err := s.AppendEvent(store.Event{TS: ts, Kind: "probe", SessionID: sessionID, Source: "shell", Payload: string(b)})
+	id, err := s.AppendEvent(store.Event{TS: ts, Kind: kind, SessionID: sessionID, Source: "shell", Payload: string(b)})
 	if err != nil {
 		t.Fatalf("AppendEvent: %v", err)
 	}
 	return id
+}
+
+// mustAppendToolUse appends a tool.use event carrying only Path — the
+// shape the delta slot's file-touched count reads.
+func mustAppendToolUse(t *testing.T, s *store.Store, sessionID string, ts time.Time, path string) int64 {
+	t.Helper()
+	return mustAppendEvent(t, s, sessionID, payload.KindToolUse, ts, payload.ToolUse{Path: path})
+}
+
+// mustAppendToolResult appends a tool.result event carrying an exit code —
+// the shape the delta slot's "last exit codes" reads.
+func mustAppendToolResult(t *testing.T, s *store.Store, sessionID string, ts time.Time, exit int) int64 {
+	t.Helper()
+	return mustAppendEvent(t, s, sessionID, payload.KindToolResult, ts, payload.ToolResult{Exit: &exit})
 }
 
 func mustInsertNote(t *testing.T, s *store.Store, sessionID, text string) string {
@@ -124,8 +139,8 @@ func TestRenderAllFiveSlotsPopulatedInOrderWithModeLine(t *testing.T) {
 
 	handoff := mustInsertHandoff(t, s, self, "shipped the delta slot\nMODE: review")
 
-	exit := 1
-	mustAppendEvent(t, s, other, handoff.TS.Add(time.Minute), map[string]any{"path": "main.go", "exit": exit})
+	mustAppendToolUse(t, s, other, handoff.TS.Add(time.Minute), "main.go")
+	mustAppendToolResult(t, s, other, handoff.TS.Add(time.Minute), 1)
 
 	mustInsertDraft(t, s, self, "", nil)
 	target := mustInsertNote(t, s, self, "a claim")
@@ -184,7 +199,7 @@ func TestRenderEachSlotIndependentlyOmittedWhenEmpty(t *testing.T) {
 		mustUpsertProject(t, s, testProjectKey)
 		self := mustStartSession(t, s, "claude", "/proj", 100)
 		other := mustStartSession(t, s, "codex", "/proj2", 200)
-		mustAppendEvent(t, s, other, time.Now(), map[string]any{"path": "a.go"})
+		mustAppendToolUse(t, s, other, time.Now(), "a.go")
 		mustInsertDraft(t, s, self, "", nil)
 
 		out := mustRender(t, s, fakeProcFS{alive: map[int]bool{200: true}}, self)
@@ -210,7 +225,7 @@ func TestRenderEachSlotIndependentlyOmittedWhenEmpty(t *testing.T) {
 		mustUpsertProject(t, s, testProjectKey)
 		self := mustStartSession(t, s, "claude", "/proj", 100)
 		handoff := mustInsertHandoff(t, s, self, "no other live sessions")
-		mustAppendEvent(t, s, self, handoff.TS.Add(time.Minute), map[string]any{"path": "a.go"})
+		mustAppendToolUse(t, s, self, handoff.TS.Add(time.Minute), "a.go")
 		mustInsertDraft(t, s, self, "", nil)
 
 		out := mustRender(t, s, fakeProcFS{}, self)
@@ -224,7 +239,7 @@ func TestRenderEachSlotIndependentlyOmittedWhenEmpty(t *testing.T) {
 		self := mustStartSession(t, s, "claude", "/proj", 100)
 		mustStartSession(t, s, "codex", "/proj2", 200)
 		handoff := mustInsertHandoff(t, s, self, "no drafts, no contradictions")
-		mustAppendEvent(t, s, self, handoff.TS.Add(time.Minute), map[string]any{"path": "a.go"})
+		mustAppendToolUse(t, s, self, handoff.TS.Add(time.Minute), "a.go")
 
 		out := mustRender(t, s, fakeProcFS{alive: map[int]bool{200: true}}, self)
 		assertAbsent(t, out, "Attention:")
@@ -240,12 +255,13 @@ func TestRenderDeltaCountsOnlyEventsAfterHandoff(t *testing.T) {
 	self := mustStartSession(t, s, "claude", "/proj", 100)
 
 	before := time.Now()
-	mustAppendEvent(t, s, self, before, map[string]any{"path": "before.go", "exit": 9})
+	mustAppendToolUse(t, s, self, before, "before.go")
+	mustAppendToolResult(t, s, self, before, 9)
 
 	handoff := mustInsertHandoff(t, s, self, "cut here")
 
-	afterExit := 0
-	mustAppendEvent(t, s, self, handoff.TS.Add(time.Minute), map[string]any{"path": "after.go", "exit": afterExit})
+	mustAppendToolUse(t, s, self, handoff.TS.Add(time.Minute), "after.go")
+	mustAppendToolResult(t, s, self, handoff.TS.Add(time.Minute), 0)
 
 	out, err := block.Render(block.Params{
 		Store: s, ProcFS: fakeProcFS{}, ProjectKey: testProjectKey, SessionID: self, Harness: "claude",
@@ -283,7 +299,8 @@ func TestRenderDeltaCountsABackfilledEventAppendedAfterTheHandoffDespiteALyingEa
 	handoff := mustInsertHandoff(t, s, self, "resume here")
 
 	backfilledTS := handoff.TS.Add(-time.Hour) // lying: earlier than the handoff, but appended after it
-	mustAppendEvent(t, s, self, backfilledTS, map[string]any{"path": "backfilled.go", "exit": 7})
+	mustAppendToolUse(t, s, self, backfilledTS, "backfilled.go")
+	mustAppendToolResult(t, s, self, backfilledTS, 7)
 
 	out, err := block.Render(block.Params{
 		Store: s, ProcFS: fakeProcFS{}, ProjectKey: testProjectKey, SessionID: self, Harness: "claude",

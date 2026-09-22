@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/RidgetopAi/backstory/internal/payload"
 	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
@@ -29,10 +30,10 @@ const (
 	// Agent is store.Session.Agent for every session this importer creates.
 	Agent = "claude"
 
-	EventSessionStart = "session.start"
-	EventToolUse      = "tool.use"
-	EventToolResult   = "tool.result"
-	EventSessionEnd   = "session.end"
+	EventSessionStart = payload.KindSessionStart
+	EventToolUse      = payload.KindToolUse
+	EventToolResult   = payload.KindToolResult
+	EventSessionEnd   = payload.KindSessionEnd
 
 	// PromptExcerptMaxRunes truncates the first non-isMeta user prompt
 	// stored on a session's session.start event. The transcript's own
@@ -230,12 +231,13 @@ func importFile(st *store.Store, git project.Git, path string) (fileStats, error
 	// last by rowid) and moves sessions.ended_at to this batch's last
 	// line — the transcript may still be growing, and each run's
 	// session.end/ended_at reflects what had been written as of that run.
+	sessionEndPayload, _ := json.Marshal(payload.SessionEnd{Reason: "eof"})
 	if _, err := st.AppendEvent(store.Event{
 		TS:        lastTS,
 		Kind:      EventSessionEnd,
 		SessionID: sessionID,
 		Source:    EventSource,
-		Payload:   `{"reason":"eof"}`,
+		Payload:   string(sessionEndPayload),
 	}); err != nil {
 		return fileStats{}, err
 	}
@@ -343,11 +345,11 @@ func sessionStartPayload(lines []transcriptLine) string {
 		}
 	}
 
-	b, _ := json.Marshal(struct {
-		Prompt    string `json:"prompt"`
-		Version   string `json:"version,omitempty"`
-		GitBranch string `json:"git_branch,omitempty"`
-	}{Prompt: truncateRunes(prompt, PromptExcerptMaxRunes), Version: version, GitBranch: gitBranch})
+	b, _ := json.Marshal(payload.SessionStart{
+		Prompt:    truncateRunes(prompt, PromptExcerptMaxRunes),
+		Version:   version,
+		GitBranch: gitBranch,
+	})
 	return string(b)
 }
 
@@ -369,33 +371,27 @@ func appendToolEvents(st *store.Store, sessionID string, lines []transcriptLine,
 		for _, b := range blocks {
 			switch b.Type {
 			case "tool_use":
-				payload, err := json.Marshal(struct {
-					ToolUseID string `json:"tool_use_id"`
-					Name      string `json:"name"`
-					Detail    string `json:"detail,omitempty"`
-				}{ToolUseID: b.ID, Name: b.Name, Detail: toolDetail(b.Name, b.Input)})
+				payloadBytes, err := json.Marshal(toolUsePayload(b.ID, b.Name, b.Input))
 				if err != nil {
 					return n, err
 				}
 				if _, err := st.AppendEvent(store.Event{
 					TS: l.Timestamp, Kind: EventToolUse, SessionID: sessionID,
-					Source: EventSource, Payload: string(payload),
+					Source: EventSource, Payload: string(payloadBytes),
 				}); err != nil {
 					return n, err
 				}
 				n++
 			case "tool_result":
-				payload, err := json.Marshal(struct {
-					ToolUseID string `json:"tool_use_id"`
-					IsError   bool   `json:"is_error,omitempty"`
-					Content   string `json:"content"`
-				}{ToolUseID: b.ToolUseID, IsError: b.IsError, Content: blockText(b.Content)})
+				payloadBytes, err := json.Marshal(payload.ToolResult{
+					ToolUseID: b.ToolUseID, IsError: b.IsError, Content: blockText(b.Content),
+				})
 				if err != nil {
 					return n, err
 				}
 				if _, err := st.AppendEvent(store.Event{
 					TS: l.Timestamp, Kind: EventToolResult, SessionID: sessionID,
-					Source: EventSource, Payload: string(payload),
+					Source: EventSource, Payload: string(payloadBytes),
 				}); err != nil {
 					return n, err
 				}

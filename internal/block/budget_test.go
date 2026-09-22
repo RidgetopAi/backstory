@@ -30,9 +30,9 @@ func overflowingScenario(t *testing.T) (*store.Store, string) {
 		pid := 200 + i
 		cwd := "/workspace/very-long-project-path-for-testing-budget-overflow-" + itoa(i)
 		other := mustStartSession(t, s, "codex", cwd, pid)
-		exit := i % 2
-		mustAppendEvent(t, s, other, handoff.TS.Add(time.Duration(i+1)*time.Second),
-			map[string]any{"path": "file" + itoa(i) + ".go", "exit": exit})
+		ts := handoff.TS.Add(time.Duration(i+1) * time.Second)
+		mustAppendToolUse(t, s, other, ts, "file"+itoa(i)+".go")
+		mustAppendToolResult(t, s, other, ts, i%2)
 	}
 
 	mustInsertDraft(t, s, self, "", nil)
@@ -137,8 +137,10 @@ func orderPinScenario(t *testing.T, includeDelta, includeAttention bool) string 
 
 	handoff := mustInsertHandoff(t, s, self, "keep going")
 	if includeDelta {
-		mustAppendEvent(t, s, self, handoff.TS.Add(time.Second), map[string]any{"path": "a.go", "exit": 0})
-		mustAppendEvent(t, s, self, handoff.TS.Add(2*time.Second), map[string]any{"path": "b.go", "exit": 1})
+		mustAppendToolUse(t, s, self, handoff.TS.Add(time.Second), "a.go")
+		mustAppendToolResult(t, s, self, handoff.TS.Add(time.Second), 0)
+		mustAppendToolUse(t, s, self, handoff.TS.Add(2*time.Second), "b.go")
+		mustAppendToolResult(t, s, self, handoff.TS.Add(2*time.Second), 1)
 	}
 	if includeAttention {
 		mustInsertDraft(t, s, self, "", nil)
@@ -185,8 +187,10 @@ func TestBudgetCutOrderPinnedWhenOnlyDeltaAloneMustBeCut(t *testing.T) {
 	self := mustStartSession(t, s, "claude", "/proj", 100)
 	mustStartSession(t, s, "codex", "/proj2", 200)
 	handoff := mustInsertHandoff(t, s, self, "keep going")
-	mustAppendEvent(t, s, self, handoff.TS.Add(time.Second), map[string]any{"path": "a.go", "exit": 0})
-	mustAppendEvent(t, s, self, handoff.TS.Add(2*time.Second), map[string]any{"path": "b.go", "exit": 1})
+	mustAppendToolUse(t, s, self, handoff.TS.Add(time.Second), "a.go")
+	mustAppendToolResult(t, s, self, handoff.TS.Add(time.Second), 0)
+	mustAppendToolUse(t, s, self, handoff.TS.Add(2*time.Second), "b.go")
+	mustAppendToolResult(t, s, self, handoff.TS.Add(2*time.Second), 1)
 	mustInsertDraft(t, s, self, "", nil)
 
 	if err := s.SetSetting(block.SettingBudgetKey, strconv.Itoa(budget)); err != nil {
