@@ -172,6 +172,12 @@ func (s *Store) applyMigration(m migration) error {
 			return fmt.Errorf("store: apply migration %s (statement %d): %w", m.name, i+1, err)
 		}
 	}
+	if hook, ok := migrationDataHooks[m.version]; ok {
+		if err := hook(ctx, tx); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("store: apply migration %s data hook: %w", m.name, err)
+		}
+	}
 	if _, err := tx.ExecContext(ctx, `INSERT INTO schema_version (version, applied_at) VALUES (?, ?)`,
 		m.version, tsToNanos(time.Now())); err != nil {
 		_ = tx.Rollback()

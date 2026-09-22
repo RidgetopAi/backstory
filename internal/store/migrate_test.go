@@ -310,3 +310,152 @@ func TestMigrationV2AppliesOnV1Fixture(t *testing.T) {
 		t.Errorf("SearchRecords(%q) after migrating a v1 fixture = %+v, want rec2 among the results (FTS rowid must survive the migration)", "searchable", results)
 	}
 }
+
+// nulProjectKey is a stand-in for a real pre-0003 project_key: internal/
+// project.Key used to join CommonDir and RemoteURL with a literal NUL byte.
+const nulProjectKey = "/tmp/proj2/.git\x00git@example.com:ridgetopai/proj2.git"
+
+// wantPrintableProjectKey is nulProjectKey rewritten with the printable "|"
+// separator migration 0003 must produce.
+const wantPrintableProjectKey = "/tmp/proj2/.git|git@example.com:ridgetopai/proj2.git"
+
+// buildV2Fixture creates a database at path with migrations 0001 and 0002
+// applied (SQLite executed directly, bypassing Store.migrate so migration
+// 0003 is NOT applied), then seeds a NUL-separated project_key into
+// projects, sessions and records — a stand-in for a real pre-0003 Backstory
+// database on disk.
+func buildV2Fixture(t *testing.T, path string) {
+	t.Helper()
+
+	ms, err := loadMigrations()
+	if err != nil {
+		t.Fatalf("loadMigrations: %v", err)
+	}
+	var m0001, m0002 migration
+	for _, m := range ms {
+		switch m.version {
+		case 1:
+			m0001 = m
+		case 2:
+			m0002 = m
+		}
+	}
+	if m0001.sql == "" || m0002.sql == "" {
+		t.Fatal("migration version 1 or 2 not found among embedded migrations")
+	}
+
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatalf("open v2 fixture: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+
+	for _, stmt := range splitStatements(m0001.sql) {
+		if strings.TrimSpace(stmt) == "" {
+			continue
+		}
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("apply v1 schema: %v\nstatement: %s", err, stmt)
+		}
+	}
+	if _, err := db.Exec(`CREATE TABLE schema_version (version INTEGER NOT NULL, applied_at INTEGER NOT NULL)`); err != nil {
+		t.Fatalf("create v1 schema_version: %v", err)
+	}
+	nowNanos := time.Now().UTC().UnixNano()
+	if _, err := db.Exec(`INSERT INTO schema_version (version, applied_at) VALUES (1, ?)`, nowNanos); err != nil {
+		t.Fatalf("seed v1 schema_version: %v", err)
+	}
+
+	for _, stmt := range splitStatements(m0002.sql) {
+		if strings.TrimSpace(stmt) == "" {
+			continue
+		}
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("apply v2 schema: %v\nstatement: %s", err, stmt)
+		}
+	}
+	if _, err := db.Exec(`INSERT INTO schema_version (version, applied_at) VALUES (2, ?)`, nowNanos); err != nil {
+		t.Fatalf("seed v2 schema_version: %v", err)
+	}
+
+	if _, err := db.Exec(`INSERT INTO projects (key, toplevel, first_seen) VALUES (?, ?, ?)`,
+		nulProjectKey, "/tmp/proj2", nowNanos); err != nil {
+		t.Fatalf("seed v2 projects: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO sessions (id, agent, cwd, project_key, started_at, ended_at, origin) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		"sess2", "test-harness", "/tmp/proj2", nulProjectKey, nowNanos, nowNanos, "live"); err != nil {
+		t.Fatalf("seed v2 sessions: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO records (id, ts, kind, tier, text, project_key) VALUES (?, ?, ?, ?, ?, ?)`,
+		"rec-v2", nowNanos, "note", "agent-declared", "v2 fixture record", nulProjectKey); err != nil {
+		t.Fatalf("seed v2 records: %v", err)
+	}
+}
+
+// TestMigrationV3RewritesNulProjectKeys is proof (3) for task e7951178: a v2
+// fixture DB with NUL-separated keys migrates to v3 with the same row count
+// and every key rewritten to the printable separator.
+func TestMigrationV3RewritesNulProjectKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v2fixture.db")
+	buildV2Fixture(t, path)
+
+	wantCounts := map[string]int{
+		"projects": 1,
+		"sessions": 1,
+		"records":  1,
+	}
+
+	s := mustOpen(t, path)
+
+	v, err := s.Version()
+	if err != nil {
+		t.Fatalf("Version: %v", err)
+	}
+	if v != SchemaVersion {
+		t.Errorf("Version() after migrating a v2 fixture = %d, want %d (SchemaVersion)", v, SchemaVersion)
+	}
+
+	for table, want := range wantCounts {
+		var got int
+		if err := s.DB().QueryRow(`SELECT COUNT(*) FROM ` + table).Scan(&got); err != nil {
+			t.Fatalf("count %s: %v", table, err)
+		}
+		if got != want {
+			t.Errorf("%s row count after migrating a v2 fixture = %d, want %d (migration must preserve row counts)", table, got, want)
+		}
+	}
+
+	var projectKey string
+	if err := s.DB().QueryRow(`SELECT key FROM projects WHERE toplevel = ?`, "/tmp/proj2").Scan(&projectKey); err != nil {
+		t.Fatalf("read projects.key after migrating a v2 fixture: %v", err)
+	}
+	if projectKey != wantPrintableProjectKey {
+		t.Errorf("projects.key after migrating a v2 fixture = %q, want %q", projectKey, wantPrintableProjectKey)
+	}
+	if strings.ContainsRune(projectKey, 0) {
+		t.Errorf("projects.key after migrating a v2 fixture still carries a NUL byte: %q", projectKey)
+	}
+
+	var sessionProjectKey string
+	if err := s.DB().QueryRow(`SELECT project_key FROM sessions WHERE id = ?`, "sess2").Scan(&sessionProjectKey); err != nil {
+		t.Fatalf("read sessions.project_key after migrating a v2 fixture: %v", err)
+	}
+	if sessionProjectKey != wantPrintableProjectKey {
+		t.Errorf("sessions.project_key after migrating a v2 fixture = %q, want %q", sessionProjectKey, wantPrintableProjectKey)
+	}
+
+	rec, err := s.GetRecord("rec-v2")
+	if err != nil {
+		t.Fatalf("GetRecord(rec-v2) after migrating a v2 fixture: %v", err)
+	}
+	if rec.ProjectKey != wantPrintableProjectKey {
+		t.Errorf("records.project_key after migrating a v2 fixture = %q, want %q", rec.ProjectKey, wantPrintableProjectKey)
+	}
+
+	// The append-only trigger the migration drops and recreates around its
+	// own UPDATE must still guard records after migrating.
+	_, err = s.DB().Exec(`UPDATE records SET text = 'mutated' WHERE id = ?`, "rec-v2")
+	if err == nil {
+		t.Fatal("UPDATE records.text after migrating a v2 fixture succeeded, want records_no_update to abort it")
+	}
+}

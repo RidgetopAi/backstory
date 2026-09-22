@@ -84,3 +84,20 @@ func TestKeyNonGitDirIsItsOwnPath(t *testing.T) {
 		t.Fatalf("Key = %q, want /tmp/scratch", got)
 	}
 }
+
+// TestKeyContainsNoByteBelowSpace is proof (3) for task e7951178: the
+// separator joining CommonDir and RemoteURL must be printable, or `status`
+// returns it over JSON as a \u0000 (or similar) escape that every agent
+// renders literally instead of a real separator (critic T1 on 14704ebe).
+func TestKeyContainsNoByteBelowSpace(t *testing.T) {
+	git := fakeGit{
+		"/repo": {CommonDir: "/repo/.git", RemoteURL: "git@example.com:ridgetopai/backstory.git", Toplevel: "/repo"},
+	}
+
+	got := project.Key("/repo", git)
+	for _, b := range []byte(got) {
+		if b < 0x20 {
+			t.Fatalf("Key = %q, contains byte 0x%02x below 0x20", got, b)
+		}
+	}
+}
