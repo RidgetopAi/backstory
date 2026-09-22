@@ -308,10 +308,10 @@ func TestSubagentDegenerateInputsSkippedWithoutFailingImport(t *testing.T) {
 func TestSubagentGlobDoesNotRecurseUnboundedDepth(t *testing.T) {
 	root := t.TempDir()
 	deep := filepath.Join(root, "-home-x-y", "sess1", "subagents", "nested", "agent-toodeep.jsonl")
-	if err := os.MkdirAll(filepath.Dir(deep), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(deep), 0o750); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(deep, []byte(`{"type":"user","uuid":"u1"}`+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(deep, []byte(`{"type":"user","uuid":"u1"}`+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

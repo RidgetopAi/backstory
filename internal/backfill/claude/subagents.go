@@ -43,8 +43,8 @@ func importSubagents(st *store.Store, root string) (Result, error) {
 	var res Result
 	for _, f := range files {
 		sessionDir := filepath.Dir(filepath.Dir(f)) // .../<slug>/<sessionId>
-		slugDir := filepath.Dir(sessionDir)          // .../<slug>
-		sessionDirName := filepath.Base(sessionDir)  // <sessionId>
+		slugDir := filepath.Dir(sessionDir)         // .../<slug>
+		sessionDirName := filepath.Base(sessionDir) // <sessionId>
 		mainPath := filepath.Join(slugDir, sessionDirName+".jsonl")
 
 		cursor, exists, err := st.GetBackfillCursor(Source, mainPath)
