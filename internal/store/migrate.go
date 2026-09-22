@@ -54,13 +54,35 @@ func loadMigrations() ([]migration, error) {
 	}
 	sort.Strings(names)
 
+	out, err := migrationsFromNames(names, func(name string) ([]byte, error) {
+		return migrationFS.ReadFile(path.Join("migrations", name))
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// migrationsFromNames parses sorted migration file names into ordered
+// migrations. Two files sharing a numeric version prefix are REFUSED: Open
+// keys applied migrations by number, so on a fresh store both run and
+// schema_version holds two rows for one version, while a store that already
+// has that version skips whichever file sorts second. Two branches each
+// adding a 0004 on 2026-09-22 hit the first case (the merge gate's row-count
+// test went RED); the second case would have lost a column silently.
+func migrationsFromNames(names []string, read func(name string) ([]byte, error)) ([]migration, error) {
 	out := make([]migration, 0, len(names))
+	seen := make(map[int]string, len(names))
 	for _, name := range names {
 		version, err := parseMigrationVersion(name)
 		if err != nil {
 			return nil, err
 		}
-		b, err := migrationFS.ReadFile(path.Join("migrations", name))
+		if prev, dup := seen[version]; dup {
+			return nil, fmt.Errorf("store: migrations %q and %q share version %d; renumber one — a duplicate version is skipped as already applied and never runs", prev, name, version)
+		}
+		seen[version] = name
+		b, err := read(name)
 		if err != nil {
 			return nil, fmt.Errorf("store: read migration %s: %w", name, err)
 		}

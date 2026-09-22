@@ -1,4 +1,4 @@
--- 0004_event_cursor.sql — give every record its timeline position
+-- 0005_event_cursor.sql — give every record its timeline position
 -- (critic T1 on 7d3954f0, task 214eb30e, SCHEMA.md invariant 10).
 --
 -- The SessionStart delta's membership boundary used to be the latest

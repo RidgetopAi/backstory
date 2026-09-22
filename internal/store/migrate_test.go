@@ -656,3 +656,21 @@ func TestMigrationV4BackfillsEventCursorFromNearestPrecedingEvent(t *testing.T) 
 		t.Fatal("UPDATE records.event_cursor after migrating a v3 fixture succeeded, want records_no_update to abort it")
 	}
 }
+
+// TestLoadMigrationsRefusesDuplicateVersion guards the loader against two
+// files sharing a version prefix (task 214eb30e, found when 0004_backfill_cursors
+// and 0004_event_cursor met on main): the runner would skip the second as
+// already applied. Distinct versions load; a duplicate is an error naming both.
+func TestLoadMigrationsRefusesDuplicateVersion(t *testing.T) {
+	read := func(string) ([]byte, error) { return []byte("SELECT 1;"), nil }
+	if _, err := migrationsFromNames([]string{"0001_a.sql", "0002_b.sql"}, read); err != nil {
+		t.Fatalf("distinct versions: unexpected error: %v", err)
+	}
+	_, err := migrationsFromNames([]string{"0004_a.sql", "0004_b.sql"}, read)
+	if err == nil {
+		t.Fatalf("duplicate version 4 loaded without error")
+	}
+	if !strings.Contains(err.Error(), "0004_a.sql") || !strings.Contains(err.Error(), "0004_b.sql") {
+		t.Errorf("error does not name both files: %v", err)
+	}
+}
