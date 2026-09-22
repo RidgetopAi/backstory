@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"log"
 	"net"
 	"os"
 	"os/exec"
@@ -11,6 +12,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/RidgetopAi/backstory/internal/ident"
 )
 
 // buildBackstory compiles the backstory binary once for daemon_test.go's
@@ -67,6 +70,48 @@ func waitForSubstring(t *testing.T, get func() string, substr string, timeout ti
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("timed out waiting for output to contain %q; got:\n%s", substr, get())
+}
+
+// TestLogIdentityIncludesReasonWhenSet is the punch's acceptance clause 2
+// (task f2718b5b): the daemon's identity log line carries the reason a
+// harness's cwd could not be read, so it stops looking identical to "no
+// harness found" in the logs.
+func TestLogIdentityIncludesReasonWhenSet(t *testing.T) {
+	var buf bytes.Buffer
+	logger := log.New(&buf, "", 0)
+
+	logIdentity(logger, ident.Identity{
+		Kind:    ident.KindAgent,
+		UID:     1000,
+		PID:     900,
+		Harness: "claude",
+		Reason:  "cwd unreadable: permission denied",
+	})
+
+	got := buf.String()
+	if !strings.Contains(got, `reason="cwd unreadable: permission denied"`) {
+		t.Errorf("log line = %q, want it to contain the reason", got)
+	}
+}
+
+// TestLogIdentityOmitsReasonWhenCwdReadable is
+// TestLogIdentityIncludesReasonWhenSet's control: a caller with a readable
+// cwd (Reason unset) gets no reason field in the log line at all.
+func TestLogIdentityOmitsReasonWhenCwdReadable(t *testing.T) {
+	var buf bytes.Buffer
+	logger := log.New(&buf, "", 0)
+
+	logIdentity(logger, ident.Identity{
+		Kind:    ident.KindAgent,
+		UID:     1000,
+		PID:     900,
+		Harness: "claude",
+		CWD:     "/home/brian/proj",
+	})
+
+	if got := buf.String(); strings.Contains(got, "reason=") {
+		t.Errorf("log line = %q, want no reason field for a readable cwd", got)
+	}
 }
 
 // TestDaemonStartsAcceptsConnectionExitsOnSIGTERM is the punch's acceptance
