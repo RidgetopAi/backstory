@@ -25,7 +25,7 @@ func (s *Store) UpsertProject(p Project) error {
 			git_common_dir = excluded.git_common_dir,
 			remote_url     = excluded.remote_url,
 			toplevel       = excluded.toplevel`,
-		p.Key, nullable(p.GitCommonDir), nullable(p.RemoteURL), p.Toplevel, p.FirstSeen.UTC().Format(time.RFC3339Nano))
+		p.Key, nullable(p.GitCommonDir), nullable(p.RemoteURL), p.Toplevel, tsToNanos(p.FirstSeen))
 	if err != nil {
 		return fmt.Errorf("store: upsert project %s: %w", p.Key, err)
 	}

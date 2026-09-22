@@ -122,17 +122,13 @@ func (s *Store) InsertRecord(p InsertRecordParams) (string, error) {
 	if p.Outcome != nil {
 		outcome = string(*p.Outcome)
 	}
-	var expiresAt any
-	if p.ExpiresAt != nil {
-		expiresAt = p.ExpiresAt.UTC().Format(time.RFC3339Nano)
-	}
 
 	id := uuid.NewString()
 	_, err = s.db.Exec(`INSERT INTO records
 		(id, ts, kind, tier, text, about, session_id, project_key, evidence, outcome, promoter, expires_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, time.Now().UTC().Format(time.RFC3339Nano), string(p.Kind), string(tier), redact(p.Text), about,
-		nullable(p.SessionID), nullable(p.ProjectKey), evidence, outcome, nullable(p.Promoter), expiresAt)
+		id, tsToNanos(time.Now()), string(p.Kind), string(tier), redact(p.Text), about,
+		nullable(p.SessionID), nullable(p.ProjectKey), evidence, outcome, nullable(p.Promoter), nullableTS(p.ExpiresAt))
 	if err != nil {
 		return "", fmt.Errorf("store: insert record: %w", err)
 	}
@@ -142,7 +138,7 @@ func (s *Store) InsertRecord(p InsertRecordParams) (string, error) {
 func (s *Store) recentRecordCount(sessionID string, since time.Time) (int, error) {
 	var n int
 	err := s.db.QueryRow(`SELECT COUNT(*) FROM records WHERE session_id = ? AND ts >= ?`,
-		sessionID, since.UTC().Format(time.RFC3339Nano)).Scan(&n)
+		sessionID, tsToNanos(since)).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("store: count recent records: %w", err)
 	}
@@ -153,10 +149,12 @@ func (s *Store) recentRecordCount(sessionID string, since time.Time) (int, error
 // (recall omits its text elsewhere; the store itself still has the row).
 func (s *Store) GetRecord(id string) (Record, error) {
 	var (
-		r                                 Record
-		ts, kind, tier, text, about, evid string
-		sessionID, projectKey, promoter   sql.NullString
-		outcome, expiresAt, tombstonedAt  sql.NullString
+		r                               Record
+		ts                              int64
+		kind, tier, text, about, evid   string
+		sessionID, projectKey, promoter sql.NullString
+		outcome                         sql.NullString
+		expiresAt, tombstonedAt         sql.NullInt64
 	)
 	err := s.db.QueryRow(`SELECT id, ts, kind, tier, text, about, session_id, project_key,
 		evidence, outcome, promoter, expires_at, tombstoned_at FROM records WHERE id = ?`, id).
@@ -166,10 +164,7 @@ func (s *Store) GetRecord(id string) (Record, error) {
 		return Record{}, fmt.Errorf("store: get record %s: %w", id, err)
 	}
 
-	r.TS, err = time.Parse(time.RFC3339Nano, ts)
-	if err != nil {
-		return Record{}, fmt.Errorf("store: parse record %s ts: %w", id, err)
-	}
+	r.TS = tsFromNanos(ts)
 	r.Kind = RecordKind(kind)
 	r.Tier = Tier(tier)
 	r.Text = text
@@ -187,17 +182,11 @@ func (s *Store) GetRecord(id string) (Record, error) {
 	}
 	r.Promoter = promoter.String
 	if expiresAt.Valid {
-		t, err := time.Parse(time.RFC3339Nano, expiresAt.String)
-		if err != nil {
-			return Record{}, fmt.Errorf("store: parse record %s expires_at: %w", id, err)
-		}
+		t := tsFromNanos(expiresAt.Int64)
 		r.ExpiresAt = &t
 	}
 	if tombstonedAt.Valid {
-		t, err := time.Parse(time.RFC3339Nano, tombstonedAt.String)
-		if err != nil {
-			return Record{}, fmt.Errorf("store: parse record %s tombstoned_at: %w", id, err)
-		}
+		t := tsFromNanos(tombstonedAt.Int64)
 		r.TombstonedAt = &t
 	}
 	return r, nil
@@ -211,7 +200,7 @@ func (s *Store) TombstoneRecord(id string, identity Identity) error {
 		return ErrTombstoneRequiresHuman
 	}
 	res, err := s.db.Exec(`UPDATE records SET tombstoned_at = ? WHERE id = ?`,
-		time.Now().UTC().Format(time.RFC3339Nano), id)
+		tsToNanos(time.Now()), id)
 	if err != nil {
 		return fmt.Errorf("store: tombstone record %s: %w", id, err)
 	}

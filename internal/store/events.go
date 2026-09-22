@@ -23,7 +23,7 @@ type Event struct {
 func (s *Store) AppendEvent(e Event) (int64, error) {
 	res, err := s.db.Exec(`INSERT INTO timeline_events (ts, kind, session_id, source, payload, workspace, window)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		e.TS.UTC().Format(time.RFC3339Nano), e.Kind, nullable(e.SessionID), e.Source, e.Payload,
+		tsToNanos(e.TS), e.Kind, nullable(e.SessionID), e.Source, e.Payload,
 		nullable(e.Workspace), nullable(e.Window))
 	if err != nil {
 		return 0, fmt.Errorf("store: append event: %w", err)

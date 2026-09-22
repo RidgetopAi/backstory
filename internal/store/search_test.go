@@ -3,6 +3,7 @@ package store
 import (
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func TestSearchRecordsMatchesAndExcludesAbsentWord(t *testing.T) {
@@ -44,6 +45,42 @@ func TestSearchRecordsMatchesAndExcludesAbsentWord(t *testing.T) {
 	}
 	if gotAbsent {
 		t.Errorf("SearchRecords(%q) returned a record that does not contain that word", "modernc")
+	}
+}
+
+// TestSearchRecordsTiebreaksEqualRankByTsAscending is proof (4) for task
+// 05b03d4a: it inserts the later record FIRST (row/rowid order is the
+// REVERSE of ts order) so a passing result depends on search.go's `, r.ts
+// ASC` tiebreak actually running, not on rowid/insertion order happening to
+// already agree with ts order. Both records share identical text, so FTS5
+// ranks them equally and rank alone cannot order them. This test is RED if
+// the `, r.ts ASC` tiebreak is removed from search.go's ORDER BY.
+//
+// Mutation probe (ORDER BY rank, r.ts ASC -> ORDER BY rank): "search_test.go:77:
+// SearchRecords order = [<laterID>, <earlierID>], want [<earlierID>,
+// <laterID>] (equal-rank ties broken by ts ascending)" -- restoring the
+// tiebreak turns this back GREEN.
+func TestSearchRecordsTiebreaksEqualRankByTsAscending(t *testing.T) {
+	s := mustOpen(t, filepath.Join(t.TempDir(), "backstory.db"))
+	sessionID := mustStartSession(t, s)
+
+	earlier := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+	later := earlier.Add(time.Hour)
+
+	// Insert later-first: rowid order is the reverse of ts order.
+	laterID := insertRecordFixture(t, s, sessionID, later, "tiebreak probe shared text")
+	earlierID := insertRecordFixture(t, s, sessionID, earlier, "tiebreak probe shared text")
+
+	results, err := s.SearchRecords("tiebreak", 10)
+	if err != nil {
+		t.Fatalf("SearchRecords: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("SearchRecords(%q) returned %d results, want 2", "tiebreak", len(results))
+	}
+	if results[0].ID != earlierID || results[1].ID != laterID {
+		t.Fatalf("SearchRecords order = [%s, %s], want [%s, %s] (equal-rank ties broken by ts ascending)",
+			results[0].ID, results[1].ID, earlierID, laterID)
 	}
 }
 
