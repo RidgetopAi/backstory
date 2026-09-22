@@ -33,6 +33,22 @@ func (f fakeProcFS) Cwd(pid int) (string, error) {
 
 func (f fakeProcFS) Cmdline(int) ([]string, error) { return nil, nil }
 
+// callLogProcFS wraps a fakeProcFS and records every pid a Status call was
+// made for, in order, so a test can assert the walk actually visited every
+// hop instead of inferring it from the final Harness value alone (critic T2
+// on task 73333c8c: TestResolveNoKnownHarness stayed green under a mutation
+// that stopped the walk at the first hop, because HarnessUnknown is also
+// Resolve's pre-walk seed value).
+type callLogProcFS struct {
+	fakeProcFS
+	calls *[]int
+}
+
+func (f callLogProcFS) Status(pid int) (ident.Status, error) {
+	*f.calls = append(*f.calls, pid)
+	return f.fakeProcFS.Status(pid)
+}
+
 // TestResolveKnownHarness is the tree from the punch's acceptance clause 1:
 // pid 900 shim <- 800 claude <- 700 tmux <- 600 alacritty <- 1.
 func TestResolveKnownHarness(t *testing.T) {
@@ -161,6 +177,71 @@ func TestResolveCycleNoPanic(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("Resolve did not terminate on a PPid cycle")
+	}
+}
+
+// TestResolveKnownHarnessTwoHopsUp guards against the walk stopping at the
+// first hop (critic T2 on task 73333c8c): the starting pid's own process
+// name ("wrapper") is not a known harness, nor is its parent's ("shim"); the
+// known harness ("claude") sits two hops above the peer's own pid. RED if
+// the walk only ever checks the starting pid, or only walks one hop up.
+func TestResolveKnownHarnessTwoHopsUp(t *testing.T) {
+	procfs := fakeProcFS{
+		status: map[int]ident.Status{
+			950: {PPid: 900, Name: "wrapper"},
+			900: {PPid: 800, Name: "shim"},
+			800: {PPid: 700, Name: "claude"},
+			700: {PPid: 1, Name: "tmux"},
+		},
+		cwd: map[int]string{800: "/home/brian/proj"},
+	}
+
+	r := &ident.Resolver{ProcFS: procfs}
+	id := r.Resolve(ident.PeerCreds{UID: 1000, PID: 950})
+
+	if id.Harness != "claude" {
+		t.Errorf("Harness = %q, want claude (walk must not stop before hop two)", id.Harness)
+	}
+	if id.HarnessPID != 800 {
+		t.Errorf("HarnessPID = %d, want 800", id.HarnessPID)
+	}
+}
+
+// TestResolveNoKnownHarnessVisitsEveryHop strengthens
+// TestResolveNoKnownHarness: it doesn't just assert the final Harness value
+// (which is also Resolve's pre-walk seed, so it stays HarnessUnknown even if
+// the walk never ran at all) — it asserts, via the fake's call log, that
+// every hop up to pid 1 was actually visited. RED if the walk stops at the
+// first hop, or never walks.
+func TestResolveNoKnownHarnessVisitsEveryHop(t *testing.T) {
+	var calls []int
+	procfs := callLogProcFS{
+		fakeProcFS: fakeProcFS{
+			status: map[int]ident.Status{
+				500: {PPid: 400, Name: "bash"},
+				400: {PPid: 300, Name: "sshd"},
+				300: {PPid: 1, Name: "systemd"},
+			},
+			cwd: map[int]string{500: "/tmp"},
+		},
+		calls: &calls,
+	}
+
+	r := &ident.Resolver{ProcFS: procfs}
+	id := r.Resolve(ident.PeerCreds{UID: 1000, PID: 500})
+
+	if id.Harness != ident.HarnessUnknown {
+		t.Errorf("Harness = %q, want %q", id.Harness, ident.HarnessUnknown)
+	}
+
+	want := []int{500, 400, 300}
+	if len(calls) != len(want) {
+		t.Fatalf("Status call log = %v, want every hop visited %v", calls, want)
+	}
+	for i, pid := range want {
+		if calls[i] != pid {
+			t.Errorf("Status call log[%d] = %d, want %d (calls: %v)", i, calls[i], pid, calls)
+		}
 	}
 }
 
