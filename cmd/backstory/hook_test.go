@@ -149,6 +149,13 @@ func TestHookSessionStartPrintsBlockAndRecordsHarnessSessionID(t *testing.T) {
 // (tier) no daemon request schema even has a slot for. Both resulting
 // sessions must show the SAME daemon-observed agent and cwd; only
 // harness_session_id — a join key — may differ.
+//
+// Mutation probe (mcp/daemon.go's startSession made the declared "session"
+// join key override CWD: `cwd := id.CWD; if v := id.Declared["session"];
+// v != "" { cwd = v }`): "hook_test.go:186: session A cwd = \"session-A\",
+// session B cwd = \"session-B\"; want identical (identity comes from the
+// resolver, not the payload)" -- restoring `CWD: id.CWD` turns it back
+// GREEN.
 func TestHookSessionStartIdentityComesFromResolverNotPayload(t *testing.T) {
 	bin := buildBackstory(t)
 	dbPath, env := startTestDaemon(t, bin)
