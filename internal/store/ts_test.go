@@ -30,6 +30,11 @@ import (
 // "1970-01-01T00:00:00.1Z" -- the whole-second form sorts after the
 // fractional one as a string).
 //
+// Round-2 mutation probe (records.ts reverted to TEXT in migration 0002):
+// "ts_test.go:56: recentRecordCount(session, wholeSecond+50ms) = 0, want 1
+// (only the later record is >= the window start)" -- restoring INTEGER
+// turns this back GREEN.
+//
 // This test inserts its two fixture rows directly with SQL rather than via
 // InsertRecord, which always stamps ts = time.Now(): the bug only
 // reproduces for a specific pair of timestamps (one with ns == 0), which no

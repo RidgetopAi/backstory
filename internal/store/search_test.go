@@ -55,6 +55,11 @@ func TestSearchRecordsMatchesAndExcludesAbsentWord(t *testing.T) {
 // already agree with ts order. Both records share identical text, so FTS5
 // ranks them equally and rank alone cannot order them. This test is RED if
 // the `, r.ts ASC` tiebreak is removed from search.go's ORDER BY.
+//
+// Mutation probe (ORDER BY rank, r.ts ASC -> ORDER BY rank): "search_test.go:77:
+// SearchRecords order = [<laterID>, <earlierID>], want [<earlierID>,
+// <laterID>] (equal-rank ties broken by ts ascending)" -- restoring the
+// tiebreak turns this back GREEN.
 func TestSearchRecordsTiebreaksEqualRankByTsAscending(t *testing.T) {
 	s := mustOpen(t, filepath.Join(t.TempDir(), "backstory.db"))
 	sessionID := mustStartSession(t, s)
