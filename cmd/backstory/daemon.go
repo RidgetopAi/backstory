@@ -52,7 +52,7 @@ func runDaemon(_ []string, stdout, stderr io.Writer) int {
 		defer func() { _ = conn.Close() }()
 		logger.Printf("identity: kind=%s uid=%d pid=%d harness=%s harness_pid=%d cwd=%q project=%q",
 			id.Kind, id.UID, id.PID, id.Harness, id.HarnessPID, id.CWD, id.ProjectKey)
-		mcp.ServeDaemonConn(id, conn, st, logger)
+		mcp.ServeDaemonConn(id, conn, st, ident.RealProcFS{}, logger)
 	})
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory daemon:", err)
