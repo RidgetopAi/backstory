@@ -26,6 +26,23 @@ whole-second timestamp's text sorted AFTER a timestamp a fraction of a second la
 every existing installation; the Go API is unaffected (`time.Time` in, `time.Time`
 out — see `internal/store/times.go`). `edges` carries no timestamp column.
 
+`project_key` (`projects.key`, and every `sessions.project_key` / `records.project_key`
+that copies it) is `internal/project.Key`'s output: `git_common_dir` and the first remote
+URL joined with `|`, a printable separator — not the NUL byte v0 used, which came back
+from `status` over JSON as a `\u0000` escape every agent rendered literally (critic T1 on
+`14704ebe`, task `e7951178`). Migration `0003_printable_project_key_separator.sql`
+rewrites every NUL-separated key already on disk; its data rewrite runs in Go
+(`internal/store/migrate_data.go`), not SQL, because this build's sqlite driver
+(`modernc.org/sqlite`) silently truncates `length()`/`substr()`/`REPLACE()` at an embedded
+NUL byte even though `SELECT`/`INSERT`/`UPDATE` round-trip the full bytes correctly.
+
+`note`'s optional `links[]` field (`AGENT-CONTRACT.md §note`) is not a `records` column: each
+linked id becomes an `informs` edge from the linked record to the new one
+(`store.EdgeInforms`), inserted in the same transaction as the record itself
+(`store.InsertRecordWithEdges`) alongside any `supersedes` edge. An id that names no
+existing record fails the whole write — the record and every edge, not just the bad one —
+so `note` never leaves a record with a dangling `links` reference.
+
 ```sql
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;

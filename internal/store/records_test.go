@@ -1,6 +1,7 @@
 package store
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -115,6 +116,79 @@ func TestUnconfirmedDraftCount(t *testing.T) {
 	}
 	if n != 2 {
 		t.Fatalf("UnconfirmedDraftCount(proj-a) = %d, want 2", n)
+	}
+}
+
+// TestInsertRecordWithEdgesHappyPathAtomic is proof (2) for task e7951178's
+// happy path: InsertRecordWithEdges inserts the record and its supersedes
+// edge together — both present after, asserted in one read.
+func TestInsertRecordWithEdgesHappyPathAtomic(t *testing.T) {
+	s := mustOpen(t, filepath.Join(t.TempDir(), "backstory.db"))
+	mustUpsertProject(t, s, "proj-a")
+	sessionID := mustStartSessionInProject(t, s, "proj-a")
+
+	oldID := mustInsertNote(t, s, sessionID, "proj-a", "an old decision")
+
+	newID, err := s.InsertRecordWithEdges(InsertRecordParams{
+		Identity: Identity{Kind: IdentityAgent}, Kind: KindDecision, Text: "the new decision",
+		SessionID: sessionID, ProjectKey: "proj-a",
+	}, []EdgeSpec{{OtherID: oldID, Type: EdgeSupersedes, DeclaredBy: sessionID, Field: "supersedes"}})
+	if err != nil {
+		t.Fatalf("InsertRecordWithEdges: %v", err)
+	}
+
+	if _, err := s.GetRecord(newID); err != nil {
+		t.Fatalf("GetRecord(newID): %v", err)
+	}
+	var edgeCount int
+	if err := s.DB().QueryRow(`SELECT COUNT(*) FROM edges WHERE from_id = ? AND to_id = ? AND type = ?`,
+		newID, oldID, string(EdgeSupersedes)).Scan(&edgeCount); err != nil {
+		t.Fatalf("count supersedes edge: %v", err)
+	}
+	if edgeCount != 1 {
+		t.Fatalf("supersedes edge count = %d, want 1 (record and edge must land together)", edgeCount)
+	}
+}
+
+// TestInsertRecordWithEdgesUnknownTargetInsertsNothing is proof (2) for task
+// e7951178: an edge whose target id does not exist leaves the records row
+// count unchanged — nothing persisted, not the record and not the edge.
+func TestInsertRecordWithEdgesUnknownTargetInsertsNothing(t *testing.T) {
+	s := mustOpen(t, filepath.Join(t.TempDir(), "backstory.db"))
+	mustUpsertProject(t, s, "proj-a")
+	sessionID := mustStartSessionInProject(t, s, "proj-a")
+
+	var before int
+	if err := s.DB().QueryRow(`SELECT COUNT(*) FROM records`).Scan(&before); err != nil {
+		t.Fatalf("count records before: %v", err)
+	}
+
+	_, err := s.InsertRecordWithEdges(InsertRecordParams{
+		Identity: Identity{Kind: IdentityAgent}, Kind: KindDecision, Text: "doomed decision",
+		SessionID: sessionID, ProjectKey: "proj-a",
+	}, []EdgeSpec{{OtherID: "does-not-exist", Type: EdgeSupersedes, DeclaredBy: sessionID, Field: "supersedes"}})
+
+	var targetErr *UnknownEdgeTargetError
+	if !errors.As(err, &targetErr) {
+		t.Fatalf("InsertRecordWithEdges error = %v, want *UnknownEdgeTargetError", err)
+	}
+	if targetErr.Field != "supersedes" {
+		t.Errorf("UnknownEdgeTargetError.Field = %q, want %q", targetErr.Field, "supersedes")
+	}
+
+	var after int
+	if err := s.DB().QueryRow(`SELECT COUNT(*) FROM records`).Scan(&after); err != nil {
+		t.Fatalf("count records after: %v", err)
+	}
+	if after != before {
+		t.Fatalf("records count = %d after a forced edge failure, want unchanged %d", after, before)
+	}
+	var edgeCount int
+	if err := s.DB().QueryRow(`SELECT COUNT(*) FROM edges`).Scan(&edgeCount); err != nil {
+		t.Fatalf("count edges after: %v", err)
+	}
+	if edgeCount != 0 {
+		t.Fatalf("edges count = %d after a forced edge failure, want 0", edgeCount)
 	}
 }
 

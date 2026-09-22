@@ -250,6 +250,86 @@ func TestNoteRedactsSecretPatternEndToEnd(t *testing.T) {
 	}
 }
 
+// TestNoteLinksPersistAsInformsEdges is DONE WHEN clause 1's main path: a
+// note carrying links:[id1,id2] through shim -> socket -> daemon -> store is
+// readable back with both links, as `informs` edges (note.go's chosen
+// mechanism, over a records.links column).
+func TestNoteLinksPersistAsInformsEdges(t *testing.T) {
+	st := mustOpenStore(t)
+	sockPath := testDaemon(t, st, "claude", "/home/brian/proj", "proj-key")
+	shim := dialShim(t, sockPath)
+
+	raw1, rerr := shim.CallTool(ToolNote, json.RawMessage(`{"kind":"note","text":"link target one"}`))
+	if rerr != nil {
+		t.Fatalf("CallTool(note) target one: %v", rerr)
+	}
+	var target1 NoteResult
+	if err := json.Unmarshal(raw1, &target1); err != nil {
+		t.Fatalf("unmarshal target1: %v", err)
+	}
+	raw2, rerr := shim.CallTool(ToolNote, json.RawMessage(`{"kind":"note","text":"link target two"}`))
+	if rerr != nil {
+		t.Fatalf("CallTool(note) target two: %v", rerr)
+	}
+	var target2 NoteResult
+	if err := json.Unmarshal(raw2, &target2); err != nil {
+		t.Fatalf("unmarshal target2: %v", err)
+	}
+
+	raw, rerr := shim.CallTool(ToolNote, json.RawMessage(
+		fmt.Sprintf(`{"kind":"note","text":"linking note","links":[%q,%q]}`, target1.ID, target2.ID)))
+	if rerr != nil {
+		t.Fatalf("CallTool(note) with links: %v", rerr)
+	}
+	var result NoteResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatalf("unmarshal NoteResult: %v", err)
+	}
+
+	for _, targetID := range []string{target1.ID, target2.ID} {
+		var n int
+		if err := st.DB().QueryRow(`SELECT COUNT(*) FROM edges WHERE from_id = ? AND to_id = ? AND type = 'informs'`,
+			targetID, result.ID).Scan(&n); err != nil {
+			t.Fatalf("count informs edge for %s: %v", targetID, err)
+		}
+		if n != 1 {
+			t.Errorf("informs edge %s -> %s count = %d, want 1", targetID, result.ID, n)
+		}
+	}
+}
+
+// TestNoteUnknownLinkIsRejectedAndInsertsNothing is DONE WHEN clause 1's
+// error path: a note naming an unknown link id returns a JSON-RPC error
+// naming "links" and inserts nothing.
+func TestNoteUnknownLinkIsRejectedAndInsertsNothing(t *testing.T) {
+	st := mustOpenStore(t)
+	sockPath := testDaemon(t, st, "claude", "/home/brian/proj", "proj-key")
+	shim := dialShim(t, sockPath)
+
+	before := countStoreRecords(t, st)
+	_, rerr := shim.CallTool(ToolNote, json.RawMessage(
+		`{"kind":"note","text":"note with a bad link","links":["does-not-exist"]}`))
+	if rerr == nil {
+		t.Fatal("CallTool(note) with an unknown link id = nil error, want an error naming \"links\"")
+	}
+	if rerr.Code != CodeInvalidParams {
+		t.Errorf("error code = %d, want %d (CodeInvalidParams)", rerr.Code, CodeInvalidParams)
+	}
+	if !strings.Contains(rerr.Message, "links") {
+		t.Errorf("error message = %q, want it to name \"links\"", rerr.Message)
+	}
+	if got := countStoreRecords(t, st); got != before {
+		t.Errorf("record count = %d after a rejected note, want unchanged %d", got, before)
+	}
+	var edgeCount int
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM edges`).Scan(&edgeCount); err != nil {
+		t.Fatalf("count edges: %v", err)
+	}
+	if edgeCount != 0 {
+		t.Errorf("edges count = %d after a rejected note, want 0", edgeCount)
+	}
+}
+
 // TestNoteExpiredClaimParsesExpires exercises the optional `expires` field
 // end-to-end, confirming it round-trips through the daemon into the store.
 func TestNoteExpiredClaimParsesExpires(t *testing.T) {
