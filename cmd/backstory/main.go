@@ -15,7 +15,7 @@ const usage = `usage: backstory <command>
 
 commands:
   version   print the build version
-  daemon    run the memory daemon (not implemented yet)
+  daemon    run the memory daemon
 `
 
 func main() {
@@ -31,8 +31,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	case "version":
 		return runVersion(args[1:], stdout, stderr)
 	case "daemon":
-		_, _ = fmt.Fprintln(stderr, "backstory daemon: not implemented")
-		return 2
+		return runDaemon(args[1:], stdout, stderr)
 	default:
 		_, _ = fmt.Fprintf(stderr, "backstory: unknown command %q\n\n%s", args[0], usage)
 		return 2
