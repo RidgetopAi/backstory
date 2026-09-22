@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/RidgetopAi/backstory/internal/backfill/claude"
 	"github.com/RidgetopAi/backstory/internal/ident"
 	"github.com/RidgetopAi/backstory/internal/mcp"
 	"github.com/RidgetopAi/backstory/internal/project"
@@ -40,6 +41,8 @@ func runDaemon(_ []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	defer func() { _ = st.Close() }()
+
+	go runClaudeBackfillOnce(st, logger)
 
 	resolver := &ident.Resolver{
 		ProcFS: ident.RealProcFS{},
@@ -81,6 +84,23 @@ func runDaemon(_ []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	}
+}
+
+// runClaudeBackfillOnce runs the Claude transcript importer once in the
+// background so the daemon's own startup is never delayed by however many
+// transcripts ~/.claude/projects holds (PLAN.md §Phase 3: "This Week"
+// populated within two minutes of the unit starting, from transcripts
+// alone). Root comes from claude.DefaultRoot() ($BACKSTORY_CLAUDE_ROOT,
+// else ~/.claude/projects); a missing root or any other failure is logged
+// and never stops the daemon — a fresh install with no ~/.claude yet must
+// still come up clean.
+func runClaudeBackfillOnce(st *store.Store, logger *log.Logger) {
+	res, err := claude.Import(st, claude.Options{})
+	if err != nil {
+		logger.Printf("backfill claude: %v", err)
+		return
+	}
+	logger.Printf("%s", res.String())
 }
 
 // socketPath is $XDG_RUNTIME_DIR/backstory/sock, falling back to
