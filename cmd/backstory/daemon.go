@@ -53,8 +53,7 @@ func runDaemon(_ []string, stdout, stderr io.Writer) int {
 
 	srv, err := socket.Listen(sockPath, resolver, func(id ident.Identity, conn net.Conn) {
 		defer func() { _ = conn.Close() }()
-		logger.Printf("identity: kind=%s uid=%d pid=%d harness=%s harness_pid=%d cwd=%q project=%q",
-			id.Kind, id.UID, id.PID, id.Harness, id.HarnessPID, id.CWD, id.ProjectKey)
+		logIdentity(logger, id)
 		mcp.ServeDaemonConn(id, conn, st, ident.RealProcFS{}, logger)
 	})
 	if err != nil {
@@ -84,6 +83,19 @@ func runDaemon(_ []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	}
+}
+
+// logIdentity prints the daemon's per-connection identity log line,
+// appending reason=... only when Resolve set a non-empty Identity.Reason —
+// a harness was found but its cwd could not be read (task f2718b5b), which
+// otherwise looks identical in the log to "no harness found" at all.
+func logIdentity(logger *log.Logger, id ident.Identity) {
+	line := fmt.Sprintf("identity: kind=%s uid=%d pid=%d harness=%s harness_pid=%d cwd=%q project=%q",
+		id.Kind, id.UID, id.PID, id.Harness, id.HarnessPID, id.CWD, id.ProjectKey)
+	if id.Reason != "" {
+		line += fmt.Sprintf(" reason=%q", id.Reason)
+	}
+	logger.Print(line)
 }
 
 // runClaudeBackfillOnce runs the Claude transcript importer once in the

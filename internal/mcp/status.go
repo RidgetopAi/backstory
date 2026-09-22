@@ -32,6 +32,11 @@ type StatusResult struct {
 	OtherLiveSessions []LiveSession `json:"other_live_sessions"`
 	RemainingBudget   int           `json:"remaining_budget"`
 	CaptureOn         bool          `json:"capture_on"`
+	// Reason mirrors ident.Identity.Reason: non-empty only when a harness
+	// was found but its cwd could not be read (task f2718b5b), so a caller
+	// can tell that apart from "no harness found" instead of seeing the
+	// same empty ProjectKey either way.
+	Reason string `json:"reason,omitempty"`
 }
 
 // handleStatus never writes to the store; it only reads sessions, the
@@ -75,6 +80,7 @@ func handleStatus(st *store.Store, id ident.Identity, sessionID string) DaemonRe
 		OtherLiveSessions: others,
 		RemainingBudget:   remaining,
 		CaptureOn:         captureOn,
+		Reason:            id.Reason,
 	})
 	if err != nil {
 		return errResponse("internal", err.Error())

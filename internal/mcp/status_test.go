@@ -3,12 +3,46 @@ package mcp
 import (
 	"encoding/json"
 	"net"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/RidgetopAi/backstory/internal/ident"
+	"github.com/RidgetopAi/backstory/internal/socket"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
+
+// testDaemonCwdErr is testDaemon's counterpart for the punch's acceptance
+// clause 2 (task f2718b5b): the fake ProcFS resolves a known harness for the
+// dialing pid but has no cwd entry for it, so ProcFS.Cwd errors exactly like
+// /proc/<harness_pid>/cwd does under a mount-sandboxed systemd --user unit's
+// implicit user namespace (measured d38ca301).
+func testDaemonCwdErr(t *testing.T, st *store.Store, harness string) string {
+	t.Helper()
+	selfPID := os.Getpid()
+	procfs := fakeProcFS{
+		status: map[int]ident.Status{selfPID: {PPid: 1, Name: harness}},
+		// deliberately no cwd entry for selfPID.
+	}
+	// ProjectKey is deliberately nil: Resolve must never call it once the
+	// cwd read has failed (internal/ident/resolver_test.go asserts this
+	// directly), so a non-nil func here would mask a regression by
+	// supplying a project key Resolve had no business computing.
+	resolver := &ident.Resolver{ProcFS: procfs}
+
+	sockPath := filepath.Join(t.TempDir(), "sock")
+	srv, err := socket.Listen(sockPath, resolver, func(id ident.Identity, conn net.Conn) {
+		defer func() { _ = conn.Close() }()
+		ServeDaemonConn(id, conn, st, procfs, nil)
+	})
+	if err != nil {
+		t.Fatalf("socket.Listen: %v", err)
+	}
+	t.Cleanup(func() { _ = srv.Close() })
+	go func() { _ = srv.Serve() }()
+	return sockPath
+}
 
 // TestStatusReportsCallerIdentity is DONE WHEN clause 4's first half: status
 // returns Kind/Harness/ProjectKey/session for the caller.
@@ -37,6 +71,56 @@ func TestStatusReportsCallerIdentity(t *testing.T) {
 	}
 	if result.Session == "" {
 		t.Error("Session is empty, want the daemon-minted session id")
+	}
+}
+
+// TestStatusReportsReasonWhenCwdUnreadable is the punch's acceptance clause
+// 2 (task f2718b5b): a caller whose harness was found but whose cwd could
+// not be read gets the reason back from status, and no ProjectKey — not the
+// same silent empty-everything shape as "no harness found" at all.
+func TestStatusReportsReasonWhenCwdUnreadable(t *testing.T) {
+	st := mustOpenStore(t)
+	sockPath := testDaemonCwdErr(t, st, "claude")
+	shim := dialShim(t, sockPath)
+
+	raw, rerr := shim.CallTool(ToolStatus, nil)
+	if rerr != nil {
+		t.Fatalf("CallTool(status): %v", rerr)
+	}
+	var result StatusResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatalf("unmarshal StatusResult: %v", err)
+	}
+
+	if result.Harness != "claude" {
+		t.Errorf("Harness = %q, want claude", result.Harness)
+	}
+	if result.ProjectKey != "" {
+		t.Errorf("ProjectKey = %q, want empty (cwd unreadable)", result.ProjectKey)
+	}
+	if result.Reason == "" {
+		t.Error("Reason is empty, want a non-empty reason naming the cwd error")
+	}
+}
+
+// TestStatusReportsNoReasonWhenCwdReadable is
+// TestStatusReportsReasonWhenCwdUnreadable's control: a caller with a
+// readable cwd gets no reason back from status.
+func TestStatusReportsNoReasonWhenCwdReadable(t *testing.T) {
+	st := mustOpenStore(t)
+	sockPath := testDaemon(t, st, "claude", "/home/brian/proj", "proj-key")
+	shim := dialShim(t, sockPath)
+
+	raw, rerr := shim.CallTool(ToolStatus, nil)
+	if rerr != nil {
+		t.Fatalf("CallTool(status): %v", rerr)
+	}
+	var result StatusResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatalf("unmarshal StatusResult: %v", err)
+	}
+	if result.Reason != "" {
+		t.Errorf("Reason = %q, want empty for a readable cwd", result.Reason)
 	}
 }
 

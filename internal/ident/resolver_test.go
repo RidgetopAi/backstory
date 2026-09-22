@@ -245,6 +245,71 @@ func TestResolveNoKnownHarnessVisitsEveryHop(t *testing.T) {
 	}
 }
 
+// TestResolveCwdErrorSetsReason is the punch's acceptance clause 1 (task
+// f2718b5b): when a known harness is found but its cwd can't be read — what
+// a mount-sandboxed systemd --user unit's implicit user namespace produces
+// for /proc/<harness_pid>/cwd — Resolve must not silently return CWD="" and
+// ProjectKey="" indistinguishable from "no harness found"; it names the
+// error in Reason instead, and ProjectKey is never computed from an unread
+// cwd.
+func TestResolveCwdErrorSetsReason(t *testing.T) {
+	procfs := fakeProcFS{
+		status: map[int]ident.Status{
+			800: {PPid: 700, Name: "claude"},
+			700: {PPid: 1, Name: "tmux"},
+		},
+		// deliberately no cwd entry for 800: fakeProcFS.Cwd returns an error,
+		// standing in for the unreadable /proc/800/cwd probe 2 measured.
+	}
+	projectKeyCalled := false
+
+	r := &ident.Resolver{
+		ProcFS: procfs,
+		ProjectKey: func(cwd string) string {
+			projectKeyCalled = true
+			return "key:" + cwd
+		},
+	}
+
+	id := r.Resolve(ident.PeerCreds{UID: 1000, PID: 800})
+
+	if id.Harness != "claude" {
+		t.Errorf("Harness = %q, want claude", id.Harness)
+	}
+	if id.CWD != "" {
+		t.Errorf("CWD = %q, want empty", id.CWD)
+	}
+	if id.ProjectKey != "" {
+		t.Errorf("ProjectKey = %q, want empty", id.ProjectKey)
+	}
+	if projectKeyCalled {
+		t.Error("ProjectKey func was called despite the cwd read failing")
+	}
+	if id.Reason == "" {
+		t.Error("Reason is empty, want a non-empty reason naming the cwd error")
+	}
+}
+
+// TestResolveCwdSuccessLeavesReasonEmpty is
+// TestResolveCwdErrorSetsReason's control: a readable cwd must leave Reason
+// empty, so a non-empty Reason reliably signals the failure case.
+func TestResolveCwdSuccessLeavesReasonEmpty(t *testing.T) {
+	procfs := fakeProcFS{
+		status: map[int]ident.Status{
+			800: {PPid: 700, Name: "claude"},
+			700: {PPid: 1, Name: "tmux"},
+		},
+		cwd: map[int]string{800: "/home/brian/proj"},
+	}
+
+	r := &ident.Resolver{ProcFS: procfs}
+	id := r.Resolve(ident.PeerCreds{UID: 1000, PID: 800})
+
+	if id.Reason != "" {
+		t.Errorf("Reason = %q, want empty", id.Reason)
+	}
+}
+
 // TestResolveDoesNotSetDeclared makes sure Resolve never populates Declared
 // itself: that is strictly the socket layer's job, from the connection's
 // request, never from anything Resolve touches.
