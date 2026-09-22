@@ -3,8 +3,11 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
+
+	"github.com/RidgetopAi/backstory/internal/payload"
 )
 
 // migrationDataHooks maps a migration version to Go-side data
@@ -15,9 +18,13 @@ import (
 // built-ins silently truncate at an embedded NUL byte even though the
 // underlying stored bytes round-trip correctly through plain
 // SELECT/INSERT/UPDATE, so a NUL-separated project_key cannot be rewritten
-// in pure SQL.
+// in pure SQL. Migration 6 (0006_tool_use_payload_shape.sql's comment
+// explains why) reuses the same mechanism to rewrite pre-payload-contract
+// tool.use rows, routing each row's `detail` value by its own `name` field —
+// logic Go expresses far more legibly than SQLite's json1 functions would.
 var migrationDataHooks = map[int]func(context.Context, *sql.Tx) error{
 	3: rewriteNulProjectKeySeparators,
+	6: rewriteToolUseDetailPayloads,
 }
 
 // recordsNoUpdateTriggerSQL recreates records_no_update exactly as
@@ -112,6 +119,120 @@ func rewriteNulSeparatedColumn(ctx context.Context, tx *sql.Tx, selectSQL, updat
 		if _, err := tx.ExecContext(ctx, updateSQL, newValue, r.rowid); err != nil {
 			return fmt.Errorf("update for NUL-separator rewrite: %w", err)
 		}
+	}
+	return nil
+}
+
+// timelineEventsNoUpdateTriggerSQL recreates timeline_events_no_update
+// exactly as 0001_init.sql defines it. rewriteToolUseDetailPayloads drops
+// the trigger to rewrite timeline_events.payload (the trigger refuses every
+// UPDATE, unconditionally — timeline_events has no analog of records'
+// tombstoned_at exception) and must recreate it identically before the
+// migration commits.
+const timelineEventsNoUpdateTriggerSQL = `
+CREATE TRIGGER timeline_events_no_update
+BEFORE UPDATE ON timeline_events
+BEGIN
+  SELECT RAISE(ABORT, 'timeline_events: append-only, no update');
+END;`
+
+// toolUseFileFields mirrors internal/backfill/claude/tools.go's fileTools:
+// the tool.use payload's pre-8ba5487a `detail` value becomes `path` for
+// these tools, `command` for Bash, under this migration's routing. store
+// cannot import internal/backfill/claude (that package imports store), so
+// this is a manually kept-in-sync copy of the same four names, not a shared
+// import — both express the one routing rule internal/payload's doc comment
+// names.
+var toolUseFileFields = map[string]bool{
+	"Edit":      true,
+	"Write":     true,
+	"Read":      true,
+	"MultiEdit": true,
+}
+
+// oldToolUsePayload is the pre-8ba5487a tool.use payload shape: one shared
+// `detail` field for whichever string the tool carried, file path or shell
+// command alike. It exists only to read rows this migration rewrites away,
+// never to write one — payload.ToolUse is what every write, migrated or
+// new, produces.
+type oldToolUsePayload struct {
+	ToolUseID string `json:"tool_use_id,omitempty"`
+	Name      string `json:"name"`
+	Detail    string `json:"detail,omitempty"`
+}
+
+// rewriteToolUseDetailPayloads rewrites every timeline_events row whose
+// kind is tool.use and whose payload still carries the pre-8ba5487a
+// `detail` key into the current payload.ToolUse shape: `detail` becomes
+// `path` for the file-editing tools, `command` for Bash, and is dropped
+// (matching current write-side behavior) for any other tool the old shape
+// happened to tag with one. A row whose payload has no `detail` key —
+// already migrated, or a tool outside both groups, whose old and new shapes
+// are identical either way — matches nothing and is left byte-for-byte
+// alone; a malformed payload is left alone too, never destroyed, since a
+// row this rewrite cannot safely parse is still evidence the daemon
+// recorded.
+func rewriteToolUseDetailPayloads(ctx context.Context, tx *sql.Tx) error {
+	if _, err := tx.ExecContext(ctx, `DROP TRIGGER timeline_events_no_update`); err != nil {
+		return fmt.Errorf("drop timeline_events_no_update: %w", err)
+	}
+
+	rows, err := tx.QueryContext(ctx, `SELECT id, payload FROM timeline_events WHERE kind = ?`, payload.KindToolUse)
+	if err != nil {
+		return fmt.Errorf("select tool.use rows for detail-shape rewrite: %w", err)
+	}
+	type pendingEvent struct {
+		id      int64
+		payload string
+	}
+	var pending []pendingEvent
+	for rows.Next() {
+		var r pendingEvent
+		if err := rows.Scan(&r.id, &r.payload); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("scan tool.use row for detail-shape rewrite: %w", err)
+		}
+		pending = append(pending, r)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("iterate tool.use rows for detail-shape rewrite: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close tool.use rows for detail-shape rewrite: %w", err)
+	}
+
+	for _, r := range pending {
+		var probe map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(r.payload), &probe); err != nil {
+			continue
+		}
+		if _, hasDetail := probe["detail"]; !hasDetail {
+			continue
+		}
+		var old oldToolUsePayload
+		if err := json.Unmarshal([]byte(r.payload), &old); err != nil {
+			continue
+		}
+
+		rewritten := payload.ToolUse{ToolUseID: old.ToolUseID, Name: old.Name}
+		switch {
+		case toolUseFileFields[old.Name]:
+			rewritten.Path = old.Detail
+		case old.Name == "Bash":
+			rewritten.Command = old.Detail
+		}
+
+		newPayload, err := json.Marshal(rewritten)
+		if err != nil {
+			return fmt.Errorf("marshal rewritten tool.use payload for event %d: %w", r.id, err)
+		}
+		if _, err := tx.ExecContext(ctx, `UPDATE timeline_events SET payload = ? WHERE id = ?`, string(newPayload), r.id); err != nil {
+			return fmt.Errorf("update tool.use payload for event %d: %w", r.id, err)
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, timelineEventsNoUpdateTriggerSQL); err != nil {
+		return fmt.Errorf("recreate timeline_events_no_update: %w", err)
 	}
 	return nil
 }

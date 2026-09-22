@@ -213,6 +213,20 @@ it does not count. Counting every path-carrying tool.use there (task 393d174c) o
 the figure 4x on real history — 411 distinct paths opened against 105 files actually
 changed — because an agent reads far more files than it edits.
 
+**Changing a payload's shape requires a migration, not just a code change.** Before
+`internal/payload` existed, the Claude backfill wrote a tool.use file path under `detail`;
+after task `8ba5487a` unified every writer and reader onto `payload.ToolUse`'s `path`
+field, every `timeline_events` row already on disk still carried the old key, and the
+reader silently found nothing — not an error, a delta that read "0 files touched" on a
+correct, deployed fix (task `e96d1a21`, Brian's desktop, 2026-09-22). `timeline_events` is
+append-only and has no reader-side fallback between shapes, so **a payload shape change is
+a schema change**: it needs its own numbered migration (`internal/store/migrations/`) that
+bumps `SchemaVersion`, plus a Go-side path (`migrationDataHooks` in `migrate.go`) that
+rewrites — never deletes — every row already written in the old shape, exactly the way
+migration `0006_tool_use_payload_shape.sql` rewrites `detail` into `path`/`command`. Not
+every store on disk was ever migrated to the shape a payload change assumes; a code review
+of a payload struct's fields should ask what migrates the rows that predate it.
+
 ## Reserved for the loop (Q7 `c8f9d7a9`)
 
 `punch`, `stage` and `claim` are record kinds from v0 so `PLAN.md §Phase 6` needs no

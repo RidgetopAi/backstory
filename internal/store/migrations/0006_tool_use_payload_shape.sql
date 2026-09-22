@@ -1,0 +1,35 @@
+-- 0006_tool_use_payload_shape.sql — rewrite pre-payload-contract tool.use
+-- rows in place (task e96d1a21, decision 1e53165a).
+--
+-- Before internal/payload existed (task 8ba5487a, commit 63ab330), the
+-- Claude transcript backfill wrote a tool_use block's extracted detail — a
+-- file path for Edit/Write/Read/MultiEdit, a shell command for Bash — under
+-- one shared key, `detail`. internal/payload.ToolUse (the shape every writer
+-- and reader agrees on since 63ab330) splits that into two keys, `path` and
+-- `command`, and internal/block's delta slot reads only `path`. A store
+-- whose timeline_events predate 63ab330 therefore carries thousands of
+-- `detail` rows the current reader cannot see at all: not an error, just a
+-- delta that quietly reads "0 files touched" on a correct, deployed reader
+-- (Brian's desktop, 2026-09-22, the report this migration exists to close).
+--
+-- This migration carries no SQL of its own, the same shape as
+-- 0003_printable_project_key_separator.sql: the rewrite is per-row JSON
+-- surgery keyed on `timeline_events.kind = 'tool.use'` and routed by each
+-- row's own `name` field (file tool -> `path`, Bash -> `command`, anything
+-- else -> neither, exactly mirroring internal/backfill/claude/tools.go's
+-- current routing), which Go expresses far more legibly than SQLite's json1
+-- functions would. migrationDataHooks in migrate.go does the rewrite,
+-- inside this migration's own transaction, immediately after this (empty)
+-- statement list runs and before schema_version records version 6.
+--
+-- timeline_events is append-only (0001_init.sql's timeline_events_no_update
+-- trigger refuses every UPDATE, not just an attacker's), so the data hook
+-- drops that trigger for the duration of its rewrite and recreates it
+-- identically before the transaction commits — the same drop-rewrite-
+-- recreate shape 0003 and 0005 use for records' append-only trigger. Row
+-- ids, ts, kind, session_id, source, workspace and window are untouched;
+-- only the payload column's JSON shape changes, and only for rows that
+-- still carry the old `detail` key. A store with no such rows (freshly
+-- created, or already rewritten) matches nothing and this migration is a
+-- no-op beyond recording schema_version — verified by row id equality, not
+-- by timing.
