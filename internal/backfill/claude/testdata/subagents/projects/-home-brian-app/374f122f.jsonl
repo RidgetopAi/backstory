@@ -1,0 +1,2 @@
+{"type":"user","uuid":"main-1","sessionId":"374f122f-real","cwd":"/home/brian/app","gitBranch":"main","version":"2.3.0","timestamp":"2026-09-20T10:00:00Z","isMeta":false,"message":{"role":"user","content":"Investigate the flaky test suite"}}
+{"type":"assistant","uuid":"main-2","parentUuid":"main-1","sessionId":"374f122f-real","cwd":"/home/brian/app","gitBranch":"main","version":"2.3.0","timestamp":"2026-09-20T10:00:05Z","isMeta":false,"message":{"role":"assistant","content":[{"type":"text","text":"Let me spin up a subagent to dig into this."}]}}

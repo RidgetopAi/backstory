@@ -1,0 +1,3 @@
+{"type":"user","uuid":"subg-1","sessionId":"sub-f2083274-good2","timestamp":"2026-09-21T09:00:06Z","isMeta":false,"message":{"role":"user","content":"Update the retry logic"}}
+{"type":"assistant","uuid":"subg-2","parentUuid":"subg-1","sessionId":"sub-f2083274-good2","timestamp":"2026-09-21T09:00:07Z","isMeta":false,"message":{"role":"assistant","content":[{"type":"tool_use","id":"subg-tu1","name":"Edit","input":{"file_path":"/home/brian/app2/payment.go"}}]}}
+{"type":"user","uuid":"subg-3","parentUuid":"subg-2","sessionId":"sub-f2083274-good2","timestamp":"2026-09-21T09:00:09Z","isMeta":false,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"subg-tu1","is_error":false,"content":"edited"}]}}
