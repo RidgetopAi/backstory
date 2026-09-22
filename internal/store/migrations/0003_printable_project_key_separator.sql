@@ -1,0 +1,26 @@
+-- 0003_printable_project_key_separator.sql — rewrite every NUL-separated
+-- project key to the printable "|" separator (internal/project.Key, task
+-- e7951178, critic T1 on 14704ebe).
+--
+-- internal/project.Key used to join git_common_dir and the first remote URL
+-- with a literal NUL byte (0x00). `status` returns project_key over JSON,
+-- where a byte below 0x20 comes back as a \u0000 escape that every agent
+-- renders literally instead of a real separator. "|" is printable ASCII,
+-- needs no JSON escaping, is illegal in a Windows path (defense in depth for
+-- cross-platform tooling), and does not occur in the ssh/https URL schemes
+-- git remotes use or in a *nix directory path in practice.
+--
+-- This migration carries no SQL of its own: modernc.org/sqlite's
+-- length/substr/replace() built-ins silently truncate at an embedded NUL
+-- byte even though the underlying stored bytes round-trip correctly through
+-- plain SELECT/INSERT/UPDATE (verified empirically — `length('a' || X'00' ||
+-- 'b')` reports 1, and `REPLACE(k, X'00', '|')` is a no-op, while `hex(k)`
+-- and a bound-parameter UPDATE both see the full 3 bytes). SQL alone
+-- therefore cannot rewrite a NUL-separated project_key; migrationDataHooks
+-- in migrate.go does the byte-level rewrite in Go instead, inside this
+-- migration's own transaction, immediately after this (empty) statement
+-- list runs and before schema_version records version 3.
+--
+-- The store is pre-alpha (no installed base to preserve): every
+-- NUL-separated key already on disk is rewritten in place, byte for byte
+-- identical except for the separator. Row counts are untouched.

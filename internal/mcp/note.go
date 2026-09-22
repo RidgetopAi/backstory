@@ -19,8 +19,13 @@ type NoteParams struct {
 	About      []string `json:"about,omitempty"`
 	Supersedes string   `json:"supersedes,omitempty"`
 	Evidence   []int64  `json:"evidence,omitempty"`
-	// Links is accepted per AGENT-CONTRACT.md's note field list; SCHEMA.md's
-	// records table has no column for it yet, so v0 accepts and drops it.
+	// Links is accepted per AGENT-CONTRACT.md's note field list. Each id
+	// becomes an `informs` edge (store.EdgeInforms) from the named record
+	// to the new one — chosen over a records.links column because it
+	// reuses the edges table's existing atomic-insert path and its
+	// foreign-key-shaped identity, rather than adding a second, parallel
+	// way to say "these records relate". An id that names no existing
+	// record is a JSON-RPC error naming "links"; nothing is inserted.
 	Links   []string `json:"links,omitempty"`
 	Expires string   `json:"expires,omitempty"` // RFC 3339
 }
@@ -71,7 +76,26 @@ func handleNote(st *store.Store, identity store.Identity, sessionID, projectKey 
 		expiresAt = &t
 	}
 
-	id, err := st.InsertRecord(store.InsertRecordParams{
+	edges := make([]store.EdgeSpec, 0, len(p.Links)+1)
+	if p.Supersedes != "" {
+		edges = append(edges, store.EdgeSpec{
+			OtherID:    p.Supersedes,
+			Type:       store.EdgeSupersedes,
+			DeclaredBy: sessionID,
+			Field:      "supersedes",
+		})
+	}
+	for _, linkID := range p.Links {
+		edges = append(edges, store.EdgeSpec{
+			OtherID:    linkID,
+			Type:       store.EdgeInforms,
+			DeclaredBy: sessionID,
+			Field:      "links",
+			Incoming:   true,
+		})
+	}
+
+	id, err := st.InsertRecordWithEdges(store.InsertRecordParams{
 		Identity:   identity,
 		Kind:       kind,
 		Text:       p.Text,
@@ -80,19 +104,17 @@ func handleNote(st *store.Store, identity store.Identity, sessionID, projectKey 
 		ProjectKey: projectKey,
 		Evidence:   p.Evidence,
 		ExpiresAt:  expiresAt,
-	})
+	}, edges)
 	if err != nil {
 		var capErr *store.CapError
 		if errors.As(err, &capErr) {
 			return errResponse("rate-limited", capErr.Error())
 		}
-		return errResponse("internal", err.Error())
-	}
-
-	if p.Supersedes != "" {
-		if err := st.LinkEdge(id, p.Supersedes, store.EdgeSupersedes, sessionID); err != nil {
-			return errResponse("internal", err.Error())
+		var edgeErr *store.UnknownEdgeTargetError
+		if errors.As(err, &edgeErr) {
+			return errResponse("invalid-params", edgeErr.Error())
 		}
+		return errResponse("internal", err.Error())
 	}
 
 	rec, err := st.GetRecord(id)

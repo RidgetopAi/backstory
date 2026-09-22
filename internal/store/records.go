@@ -84,11 +84,22 @@ type Record struct {
 	TombstonedAt *time.Time
 }
 
-// InsertRecord appends a ledger record. Text is redacted before storage
-// (redact.go); the record's tier comes from p.Identity, never from a
-// parameter; a write exceeding a named cap (limits.go) inserts nothing and
-// returns a *CapError.
+// InsertRecord appends a ledger record with no edges. It is a convenience
+// wrapper: InsertRecordWithEdges(p, nil).
 func (s *Store) InsertRecord(p InsertRecordParams) (string, error) {
+	return s.InsertRecordWithEdges(p, nil)
+}
+
+// InsertRecordWithEdges appends a ledger record and every edge in edges,
+// all in ONE transaction: if any edge names a target record id that does
+// not exist, nothing is inserted — not the record, not any edge (critic T1
+// on 14704ebe, task e7951178: note.go used to insert the record, then link
+// a supersedes edge as a separate write, leaving the record persisted on
+// an edge failure). Text is redacted before storage (redact.go); the
+// record's tier comes from p.Identity, never from a parameter; a write
+// exceeding a named cap (limits.go) inserts nothing and returns a
+// *CapError.
+func (s *Store) InsertRecordWithEdges(p InsertRecordParams, edges []EdgeSpec) (string, error) {
 	tier, err := p.Identity.Kind.tier()
 	if err != nil {
 		return "", err
@@ -124,13 +135,41 @@ func (s *Store) InsertRecord(p InsertRecordParams) (string, error) {
 	}
 
 	id := uuid.NewString()
-	_, err = s.db.Exec(`INSERT INTO records
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return "", fmt.Errorf("store: begin insert record: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }() // no-op once Commit has run
+
+	if _, err := tx.Exec(`INSERT INTO records
 		(id, ts, kind, tier, text, about, session_id, project_key, evidence, outcome, promoter, expires_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, tsToNanos(time.Now()), string(p.Kind), string(tier), redact(p.Text), about,
-		nullable(p.SessionID), nullable(p.ProjectKey), evidence, outcome, nullable(p.Promoter), nullableTS(p.ExpiresAt))
-	if err != nil {
+		nullable(p.SessionID), nullable(p.ProjectKey), evidence, outcome, nullable(p.Promoter), nullableTS(p.ExpiresAt)); err != nil {
 		return "", fmt.Errorf("store: insert record: %w", err)
+	}
+
+	for _, e := range edges {
+		var exists int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM records WHERE id = ?`, e.OtherID).Scan(&exists); err != nil {
+			return "", fmt.Errorf("store: check edge target %s: %w", e.OtherID, err)
+		}
+		if exists == 0 {
+			return "", &UnknownEdgeTargetError{Field: e.Field, ID: e.OtherID}
+		}
+		fromID, toID := id, e.OtherID
+		if e.Incoming {
+			fromID, toID = e.OtherID, id
+		}
+		if _, err := tx.Exec(`INSERT INTO edges (from_id, to_id, type, declared_by) VALUES (?, ?, ?, ?)`,
+			fromID, toID, string(e.Type), e.DeclaredBy); err != nil {
+			return "", fmt.Errorf("store: link edge %s->%s (%s): %w", fromID, toID, e.Type, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return "", fmt.Errorf("store: commit insert record: %w", err)
 	}
 	return id, nil
 }

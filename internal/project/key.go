@@ -23,6 +23,16 @@ type Git interface {
 	Repo(cwd string) (Repo, bool)
 }
 
+// keySeparator joins CommonDir and RemoteURL in Key's output. It used to be
+// a NUL byte (0x00): `status` returns project_key over JSON, where a byte
+// below 0x20 comes back as a \u0000 escape that every agent renders
+// literally instead of a real separator (critic T1 on 14704ebe, task
+// e7951178). "|" is printable ASCII so it needs no JSON escaping, is
+// illegal in a Windows path (defense in depth for cross-platform tooling),
+// and does not occur in the ssh/https URL schemes git remotes use or in a
+// *nix directory path in practice.
+const keySeparator = "|"
+
 // Key computes cwd's project key:
 //   - inside a git working tree with a configured remote: the common dir
 //     plus the first remote URL, so a worktree and its main checkout (same
@@ -38,7 +48,7 @@ func Key(cwd string, git Git) string {
 		return cwd
 	}
 	if repo.RemoteURL != "" {
-		return repo.CommonDir + "\x00" + repo.RemoteURL
+		return repo.CommonDir + keySeparator + repo.RemoteURL
 	}
 	return repo.Toplevel
 }

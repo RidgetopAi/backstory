@@ -26,6 +26,37 @@ func (s *Store) LinkEdge(fromID, toID string, edgeType EdgeType, declaredBy stri
 	return nil
 }
 
+// EdgeSpec is one edge to insert alongside a new record, as part of
+// InsertRecordWithEdges: the new record's id supplies one endpoint, OtherID
+// supplies the other. Field names the caller-facing parameter this edge
+// came from (e.g. "links", "supersedes"), so an unknown OtherID can be
+// attributed back to it in a caller-facing error.
+type EdgeSpec struct {
+	OtherID    string
+	Type       EdgeType
+	DeclaredBy string
+	Field      string
+	// Incoming makes OtherID the edge's from_id and the new record's id
+	// its to_id — e.g. a linked record "informs" the new one. The default
+	// (false) makes the new record's id the from_id and OtherID the
+	// to_id — e.g. the new record "supersedes" OtherID.
+	Incoming bool
+}
+
+// UnknownEdgeTargetError is returned by InsertRecordWithEdges when an
+// EdgeSpec names a record id that does not exist. Nothing is inserted when
+// this error is returned — not the record, not any edge (critic T1 on
+// 14704ebe, task e7951178: a supersedes edge written after the record's
+// own insert used to leave a partial write on failure).
+type UnknownEdgeTargetError struct {
+	Field string
+	ID    string
+}
+
+func (e *UnknownEdgeTargetError) Error() string {
+	return fmt.Sprintf("store: unknown %s target %q", e.Field, e.ID)
+}
+
 // ContradictionCount counts `contradicts` edges whose to_id names a record
 // in projectKey — the SessionStart block's attention slot's other half
 // (AGENT-CONTRACT.md §The SessionStart block).
