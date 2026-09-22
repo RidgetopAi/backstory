@@ -86,7 +86,8 @@ func (s *Store) LiveSessionsInProject(projectKey string) ([]Session, error) {
 			harnessSessionID  sql.NullString
 			pid               sql.NullInt64
 			workspace, window sql.NullString
-			startedAt, origin string
+			startedAt         int64
+			origin            string
 		)
 		if err := rows.Scan(&sess.ID, &sess.Agent, &harnessSessionID, &pid, &sess.CWD,
 			&workspace, &window, &startedAt, &origin); err != nil {
@@ -100,11 +101,7 @@ func (s *Store) LiveSessionsInProject(projectKey string) ([]Session, error) {
 		}
 		sess.Workspace = workspace.String
 		sess.Window = window.String
-		ts, err := time.Parse(time.RFC3339Nano, startedAt)
-		if err != nil {
-			return nil, fmt.Errorf("store: parse session %s started_at: %w", sess.ID, err)
-		}
-		sess.StartedAt = ts
+		sess.StartedAt = tsFromNanos(startedAt)
 		sess.Origin = SessionOrigin(origin)
 		sessions = append(sessions, sess)
 	}

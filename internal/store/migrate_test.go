@@ -221,6 +221,15 @@ func buildV1Fixture(t *testing.T, path string) {
 		"rec1", nowText, "note", "agent-declared", "v1 fixture record", nowText, nowText); err != nil {
 		t.Fatalf("seed v1 records: %v", err)
 	}
+	// rec2 is NOT tombstoned: it exercises clause 3's requirement that a
+	// live pre-migration record is still findable by SearchRecords after
+	// migrating, i.e. records_fts's external-content rowid link to records
+	// survives the create-copy-drop-rename rewrite. migration 0001's
+	// records_ai AFTER INSERT trigger populates records_fts for it.
+	if _, err := db.Exec(`INSERT INTO records (id, ts, kind, tier, text) VALUES (?, ?, ?, ?, ?)`,
+		"rec2", nowText, "note", "agent-declared", "v1 fixture pre-migration searchable record"); err != nil {
+		t.Fatalf("seed v1 records rec2: %v", err)
+	}
 }
 
 // TestMigrationV2AppliesOnV1Fixture is proof (2) for task 05b03d4a:
@@ -235,7 +244,7 @@ func TestMigrationV2AppliesOnV1Fixture(t *testing.T) {
 		"projects":        1,
 		"sessions":        1,
 		"timeline_events": 1,
-		"records":         1,
+		"records":         2,
 	}
 
 	s := mustOpen(t, path)
@@ -281,5 +290,23 @@ func TestMigrationV2AppliesOnV1Fixture(t *testing.T) {
 	}
 	if rec.TombstonedAt == nil || rec.TombstonedAt.IsZero() {
 		t.Error("GetRecord(rec1).TombstonedAt is nil/zero after migrating a v1 fixture")
+	}
+
+	// Clause 3: a non-tombstoned pre-migration record (rec2) is still
+	// returned by SearchRecords after migrating — proof that records_fts's
+	// external-content rowid link to records survived the create-copy-
+	// drop-rename rewrite of the records table.
+	results, err := s.SearchRecords("searchable", 10)
+	if err != nil {
+		t.Fatalf("SearchRecords after migrating a v1 fixture: %v", err)
+	}
+	var foundRec2 bool
+	for _, r := range results {
+		if r.ID == "rec2" {
+			foundRec2 = true
+		}
+	}
+	if !foundRec2 {
+		t.Errorf("SearchRecords(%q) after migrating a v1 fixture = %+v, want rec2 among the results (FTS rowid must survive the migration)", "searchable", results)
 	}
 }
