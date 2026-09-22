@@ -169,6 +169,48 @@ func TestEventsInFileOrderWithSkips(t *testing.T) {
 	}
 }
 
+// TestReadToolUseKeepsPathInStore is the punch's clause 2 (task 393d174c,
+// decision 1e53165a): the fix for the SessionStart delta's "files touched"
+// overstatement belongs in the block's counter, never in what gets
+// recorded. Importing a fixture whose only tool_use is a Read must still
+// store a tool.use event with its path populated — Read remains a
+// first-class event with a real path, exactly as before this punch.
+func TestReadToolUseKeepsPathInStore(t *testing.T) {
+	st := mustOpenStore(t)
+	root := filepath.Join("testdata", "readpath", "projects")
+
+	res, err := Import(st, Options{Root: root, Git: fakeGit{}})
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if res.SessionsCreated != 1 {
+		t.Fatalf("SessionsCreated = %d, want 1", res.SessionsCreated)
+	}
+
+	sess := sessionByHarnessID(t, st, "sess-r-uuid")
+
+	var eventPayload string
+	if err := st.DB().QueryRow(`SELECT payload FROM timeline_events
+		WHERE session_id = ? AND kind = ? ORDER BY id ASC LIMIT 1`, sess.ID, EventToolUse).
+		Scan(&eventPayload); err != nil {
+		t.Fatal(err)
+	}
+
+	var tu struct {
+		Name string `json:"name"`
+		Path string `json:"path"`
+	}
+	if err := json.Unmarshal([]byte(eventPayload), &tu); err != nil {
+		t.Fatalf("unmarshal tool.use payload: %v", err)
+	}
+	if tu.Name != "Read" {
+		t.Fatalf("tool.use.name = %q, want %q", tu.Name, "Read")
+	}
+	if tu.Path != "/home/erin/readpath/foo.go" {
+		t.Errorf("tool.use.path = %q, want %q; Read must still carry its path — the fix belongs in the block's counter, not in what gets recorded", tu.Path, "/home/erin/readpath/foo.go")
+	}
+}
+
 // TestSessionStartPromptIsTruncatedToPromptExcerptMaxRunes is part of the
 // punch's clause 3: a prompt longer than PromptExcerptMaxRunes is stored as
 // an excerpt of exactly that many runes (plus the ellipsis truncateRunes

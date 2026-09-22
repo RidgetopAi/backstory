@@ -67,3 +67,66 @@ func TestNoPrivateJSONTaggedPayloadStructsOutsideThisPackage(t *testing.T) {
 		}
 	}
 }
+
+// mutatingFileToolLiterals are MutatingFileTools' names, as they'd appear
+// as Go string literals (quoted) in source. Used to catch a second,
+// independent copy of the mutating-tool-name list creeping back into a
+// consuming package.
+var mutatingFileToolLiterals = func() []string {
+	var out []string
+	for name := range MutatingFileTools {
+		out = append(out, `"`+name+`"`)
+	}
+	return out
+}()
+
+// TestNoHardcodedMutatingFileToolLiteralOutsideThisPackage is the punch's
+// clause 3 (task 393d174c): the tool-name classification of "which tools
+// change a file" has ONE definition, payload.MutatingFileTools. Neither
+// internal/block nor internal/backfill/claude may repeat one of its names
+// (Edit, Write, MultiEdit, NotebookEdit) as a hardcoded string literal in a
+// non-test source file — that is exactly how the block's delta counter and
+// the backfill classifier drifted apart before (block counted every path,
+// tools.go's own separate literal list decided which tools got one).
+// internal/backfill/claude/tools.go's "Read" literal is unaffected: Read is
+// deliberately NOT in MutatingFileTools.
+func TestNoHardcodedMutatingFileToolLiteralOutsideThisPackage(t *testing.T) {
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller(0) failed")
+	}
+	internalDir := filepath.Dir(filepath.Dir(thisFile))
+
+	packages := []string{
+		filepath.Join("block"),
+		filepath.Join("backfill", "claude"),
+	}
+
+	for _, pkgRel := range packages {
+		pkgDir := filepath.Join(internalDir, pkgRel)
+		entries, err := os.ReadDir(pkgDir)
+		if err != nil {
+			t.Fatalf("ReadDir(%s): %v", pkgDir, err)
+		}
+		for _, entry := range entries {
+			name := entry.Name()
+			if entry.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+				continue
+			}
+			if exemptFiles[filepath.Join(pkgRel, name)] {
+				continue
+			}
+			path := filepath.Join(pkgDir, name)
+			b, err := os.ReadFile(path) //nolint:gosec // path is built from a fixed, hardcoded package list, not external input
+			if err != nil {
+				t.Fatalf("ReadFile(%s): %v", path, err)
+			}
+			src := string(b)
+			for _, lit := range mutatingFileToolLiterals {
+				if strings.Contains(src, lit) {
+					t.Errorf("%s hardcodes the tool-name literal %s; the mutating-file-tool set has one definition, payload.MutatingFileTools — derive from it instead of repeating a name", filepath.Join(pkgRel, name), lit)
+				}
+			}
+		}
+	}
+}
