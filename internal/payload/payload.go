@@ -36,22 +36,29 @@ type SessionEnd struct {
 // ToolUse is the tool.use event payload: Path is set for the file-editing
 // tools (Edit/Write/Read/MultiEdit), Command is set for Bash. A tool
 // outside both groups (Grep, Glob, WebFetch, ...) still gets a tool.use
-// event; it carries neither.
+// event; it carries neither. AgentID is set only when the event was
+// replayed from a Task-tool subagent transcript (<slug>/<sessionId>/subagents/agent-<hex>.jsonl):
+// its value is that transcript's own agent-<hex> identifier, attributed to
+// the parent session but distinguishable from that session's own main-thread
+// tool use (task 6047db51). Empty for every main-thread event.
 type ToolUse struct {
 	ToolUseID string `json:"tool_use_id,omitempty"`
 	Name      string `json:"name"`
 	Path      string `json:"path,omitempty"`
 	Command   string `json:"command,omitempty"`
+	AgentID   string `json:"agent_id,omitempty"`
 }
 
 // ToolResult is the tool.result event payload. Exit is nil unless the
 // writer observed a real process exit code: a Bash tool_result replayed
 // from a Claude transcript never carries one (Phase 3 live PostToolUse
 // capture will), so a writer must never invent 0 — a set-but-zero Exit and
-// an unset Exit are distinguishable on purpose.
+// an unset Exit are distinguishable on purpose. AgentID mirrors ToolUse.AgentID
+// (task 6047db51): set only for a subagent transcript's own tool_result blocks.
 type ToolResult struct {
 	ToolUseID string `json:"tool_use_id,omitempty"`
 	IsError   bool   `json:"is_error,omitempty"`
 	Exit      *int   `json:"exit,omitempty"`
 	Content   string `json:"content,omitempty"`
+	AgentID   string `json:"agent_id,omitempty"`
 }

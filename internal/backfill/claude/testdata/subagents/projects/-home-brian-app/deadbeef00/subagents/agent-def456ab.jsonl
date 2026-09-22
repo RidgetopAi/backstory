@@ -1,0 +1,2 @@
+{"type":"user","uuid":"orphan-1","sessionId":"sub-deadbeef00-def456ab","timestamp":"2026-09-22T09:00:00Z","isMeta":false,"message":{"role":"user","content":"This subagent's parent transcript was never captured"}}
+{"type":"assistant","uuid":"orphan-2","parentUuid":"orphan-1","sessionId":"sub-deadbeef00-def456ab","timestamp":"2026-09-22T09:00:01Z","isMeta":false,"message":{"role":"assistant","content":[{"type":"tool_use","id":"orphan-tu1","name":"Bash","input":{"command":"echo hi"}}]}}
