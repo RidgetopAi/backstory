@@ -108,7 +108,11 @@ anything.
 
 ### Human desktop
 
-- Unit file, sandbox directives from probe 2, restart on crash
+- Unit file (`ops/backstory.service`), restart on crash — the probe-2 mount-namespace
+  sandbox directives (`ProtectSystem`/`ProtectHome`/`PrivateTmp`/`PrivateNetwork`/
+  `ReadWritePaths`) are omitted: measured on Brian's desktop 2026-09-22 (context
+  `d38ca301`) to leave `/proc/<harness_pid>/cwd` unreadable under `systemd --user`'s
+  implicit user namespace.
 - Ancestry hop through tmux → terminal → Hyprland window (the untested hop from probe 3)
 - socket2 discovery by globbing `$XDG_RUNTIME_DIR/hypr/*/`, survives a Hyprland restart
 

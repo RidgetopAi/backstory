@@ -1,0 +1,25 @@
+# Measured on Brian's desktop 2026-09-22 (context d38ca301). With the probe-2
+# mount-namespace sandbox directives — ProtectSystem=strict,
+# ProtectHome=read-only, PrivateTmp, PrivateNetwork, ReadWritePaths — added to
+# this unit under the `systemd --user` manager, the daemon logged
+# `identity: harness=claude harness_pid=N cwd="" project=""` for every
+# connection and every SessionStart block was the empty-state line. Bisected:
+# each directive passes alone under the SYSTEM manager with --uid, but under
+# the USER manager mount-namespace sandboxing is implemented through an
+# implicit user namespace, and /proc/<harness_pid>/cwd is unreadable from
+# inside it. Those directives are deliberately absent below; see task
+# f2718b5b (internal/ident/resolver.go) for the fix that at least surfaces the
+# failure via Identity.Reason instead of silently swallowing it.
+[Unit]
+Description=Backstory identity-aware memory daemon
+After=default.target
+
+[Service]
+ExecStart=%h/.local/bin/backstory daemon
+Restart=on-failure
+RuntimeDirectory=backstory
+Environment=BACKSTORY_CLAUDE_ROOT=%h/.claude/projects
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=default.target
