@@ -3,8 +3,10 @@ package claude
 import (
 	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 type eventRow struct {
@@ -131,6 +133,24 @@ func TestEventsInFileOrderWithSkips(t *testing.T) {
 		t.Errorf("tool.result[0] = %+v, want tu1/false/\"edited successfully\"", result1)
 	}
 
+	// tu2's tool.result (events[4]) sets is_error true in the fixture —
+	// the only line in this branch that does — and it must round-trip
+	// through the store, not just through the in-memory struct: deleting
+	// IsError from the product (a constant false) would leave this
+	// unguarded, since the payload field is `omitempty` and false never
+	// appears either way.
+	var result2 struct {
+		ToolUseID string `json:"tool_use_id"`
+		IsError   bool   `json:"is_error"`
+		Content   string `json:"content"`
+	}
+	if err := json.Unmarshal([]byte(events[4].Payload), &result2); err != nil {
+		t.Fatal(err)
+	}
+	if result2.ToolUseID != "tu2" || !result2.IsError || result2.Content != "FAIL: exit status 1" {
+		t.Errorf("tool.result[1] = %+v, want tu2/true/\"FAIL: exit status 1\"", result2)
+	}
+
 	// FILE ORDER, not timestamp order: tu2's tool.use event (events[3]) has
 	// an earlier ts than tu1's tool.use event (events[1]) even though its
 	// rowid places it after — proving the importer never sorts by ts.
@@ -139,5 +159,47 @@ func TestEventsInFileOrderWithSkips(t *testing.T) {
 	}
 	if events[3].ID <= events[1].ID {
 		t.Errorf("events[3].ID (%d) <= events[1].ID (%d), want file order (later ts-earlier line still gets the later rowid)", events[3].ID, events[1].ID)
+	}
+}
+
+// TestSessionStartPromptIsTruncatedToPromptExcerptMaxRunes is part of the
+// punch's clause 3: a prompt longer than PromptExcerptMaxRunes is stored as
+// an excerpt of exactly that many runes (plus the ellipsis truncateRunes
+// appends) — deleting the truncation would store the whole 4500-rune
+// fixture prompt verbatim and this test would catch it.
+func TestSessionStartPromptIsTruncatedToPromptExcerptMaxRunes(t *testing.T) {
+	st := mustOpenStore(t)
+	root := filepath.Join("testdata", "prompt", "projects")
+
+	res, err := Import(st, Options{Root: root, Git: fakeGit{}})
+	if err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	if res.SessionsCreated != 1 {
+		t.Fatalf("SessionsCreated = %d, want 1", res.SessionsCreated)
+	}
+
+	sess := sessionByHarnessID(t, st, "sess-p-uuid")
+
+	var payload string
+	if err := st.DB().QueryRow(`SELECT payload FROM timeline_events
+		WHERE session_id = ? AND kind = ? ORDER BY id ASC LIMIT 1`, sess.ID, EventSessionStart).
+		Scan(&payload); err != nil {
+		t.Fatal(err)
+	}
+
+	var start struct {
+		Prompt string `json:"prompt"`
+	}
+	if err := json.Unmarshal([]byte(payload), &start); err != nil {
+		t.Fatalf("unmarshal session.start payload: %v", err)
+	}
+
+	trimmed := strings.TrimSuffix(start.Prompt, "…")
+	if trimmed == start.Prompt {
+		t.Fatalf("stored prompt was not truncated at all (%d runes); fixture prompt is 4500 runes, want it cut to %d", utf8.RuneCountInString(start.Prompt), PromptExcerptMaxRunes)
+	}
+	if got := utf8.RuneCountInString(trimmed); got != PromptExcerptMaxRunes {
+		t.Errorf("stored prompt excerpt = %d runes, want exactly %d", got, PromptExcerptMaxRunes)
 	}
 }

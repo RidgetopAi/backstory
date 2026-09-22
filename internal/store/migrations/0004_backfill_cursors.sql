@@ -1,4 +1,4 @@
--- 0003_backfill_cursors.sql — per-file backfill progress cursors.
+-- 0004_backfill_cursors.sql — per-file backfill progress cursors.
 --
 -- A backfill importer (e.g. internal/backfill/claude) processes a source
 -- file incrementally: byte_offset is how far into the file it has already

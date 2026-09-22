@@ -7,7 +7,7 @@ import (
 )
 
 // BackfillCursor is one importer's progress through one source file
-// (migrations/0003_backfill_cursors.sql). SessionID is the session that
+// (migrations/0004_backfill_cursors.sql). SessionID is the session that
 // file's events belong to, minted once on the file's first import.
 type BackfillCursor struct {
 	SessionID  string

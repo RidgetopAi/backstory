@@ -38,13 +38,13 @@ func readLinesFrom(path string, from int64) ([]rawLine, error) {
 	offset := from
 	for {
 		chunk, readErr := r.ReadBytes('\n')
-		if len(chunk) > 0 {
+		// A chunk with no trailing newline is a partial tail: the harness
+		// may still be mid-write on it. It must not be treated as a line
+		// and the cursor must not advance past its bytes, or a rerun would
+		// silently lose whatever the writer appends to complete it.
+		if len(chunk) > 0 && chunk[len(chunk)-1] == '\n' {
 			offset += int64(len(chunk))
-			text := chunk
-			if text[len(text)-1] == '\n' {
-				text = text[:len(text)-1]
-			}
-			lines = append(lines, rawLine{Text: text, End: offset})
+			lines = append(lines, rawLine{Text: chunk[:len(chunk)-1], End: offset})
 		}
 		if readErr != nil {
 			if readErr == io.EOF { //nolint:errorlint // bufio.Reader.ReadBytes returns io.EOF verbatim, never wrapped

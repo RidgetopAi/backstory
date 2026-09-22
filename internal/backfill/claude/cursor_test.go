@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/RidgetopAi/backstory/internal/store"
 )
@@ -105,13 +106,19 @@ func TestImportIsIdempotentAndIncremental(t *testing.T) {
 	if res3.SessionsCreated != 0 {
 		t.Errorf("appended-rerun SessionsCreated = %d, want 0 (existing session, not a new one)", res3.SessionsCreated)
 	}
-	if res3.EventsCreated != 2 {
-		t.Errorf("appended-rerun EventsCreated = %d, want exactly 2", res3.EventsCreated)
+	// 2 new tool events (tu3's tool.use and tool.result) PLUS a re-minted
+	// session.end: the transcript grew, so the session's "last event" must
+	// move to reflect that, and it does so by appending a new session.end
+	// rather than rewriting the first one (append-only, SCHEMA.md
+	// invariant 10 — rowid is the only ordering, nothing is ever mutated
+	// in place).
+	if res3.EventsCreated != 3 {
+		t.Errorf("appended-rerun EventsCreated = %d, want exactly 3 (2 tool events + a re-minted session.end)", res3.EventsCreated)
 	}
 	if got := countTable(t, st, "sessions"); got != sessionsAfterFirst {
-		t.Errorf("sessions rows after appended rerun = %d, want %d (unchanged)", got, sessionsAfterFirst)
+		t.Errorf("sessions rows after appended rerun = %d, want %d (unchanged, exactly one session for the file)", got, sessionsAfterFirst)
 	}
-	if got, want := countTable(t, st, "timeline_events"), eventsAfterFirst+2; got != want {
+	if got, want := countTable(t, st, "timeline_events"), eventsAfterFirst+3; got != want {
 		t.Errorf("timeline_events rows after appended rerun = %d, want %d", got, want)
 	}
 
@@ -122,6 +129,50 @@ func TestImportIsIdempotentAndIncremental(t *testing.T) {
 	}
 	if hEvents != 2 {
 		t.Errorf("sess-h event count = %d, want 2 (untouched by sess-g's append)", hEvents)
+	}
+
+	// sess-g: the earlier session.end (minted on the first run) stays —
+	// append-only — and the re-minted session.end from the appended rerun
+	// is the LAST event by rowid, after the two new tool events.
+	sessGRow := sessionByHarnessID(t, st, "sess-g-uuid")
+	gRows, err := st.DB().Query(`SELECT kind FROM timeline_events WHERE session_id = ? ORDER BY id ASC`, sessGRow.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gKinds []string
+	for gRows.Next() {
+		var k string
+		if err := gRows.Scan(&k); err != nil {
+			t.Fatal(err)
+		}
+		gKinds = append(gKinds, k)
+	}
+	if err := gRows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	_ = gRows.Close()
+
+	wantGKinds := []string{
+		EventSessionStart, EventSessionEnd, // first run: sess-g had no tool_use/tool_result
+		EventToolUse, EventToolResult, EventSessionEnd, // appended rerun
+	}
+	if len(gKinds) != len(wantGKinds) {
+		t.Fatalf("sess-g events = %v, want %v", gKinds, wantGKinds)
+	}
+	for i, k := range gKinds {
+		if k != wantGKinds[i] {
+			t.Errorf("sess-g event[%d] = %q, want %q (kinds=%v)", i, k, wantGKinds[i], gKinds)
+		}
+	}
+	if got := gKinds[len(gKinds)-1]; got != EventSessionEnd {
+		t.Errorf("sess-g's last event by rowid = %q, want %q (re-minted session.end)", got, EventSessionEnd)
+	}
+
+	// sessions.ended_at must move to the appended last line's timestamp
+	// (2026-06-01T00:00:03Z), not stay pinned to the first run's.
+	wantEndedAt := mustParseRFC3339(t, "2026-06-01T00:00:03Z")
+	if !sessGRow.EndedAt.Valid || !time.Unix(0, sessGRow.EndedAt.Int64).UTC().Equal(wantEndedAt) {
+		t.Errorf("sess-g ended_at = %v, want %s", sessGRow.EndedAt, wantEndedAt)
 	}
 }
 

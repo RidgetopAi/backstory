@@ -219,21 +219,26 @@ func importFile(st *store.Store, git project.Git, path string) (fileStats, error
 	}
 	stats.events += n
 
-	if !exists {
-		if _, err := st.AppendEvent(store.Event{
-			TS:        lastTS,
-			Kind:      EventSessionEnd,
-			SessionID: sessionID,
-			Source:    Source,
-			Payload:   `{"reason":"eof"}`,
-		}); err != nil {
-			return fileStats{}, err
-		}
-		stats.events++
+	// Every run that processes new lines re-mints session.end as the
+	// session's current last event (append-only: an earlier run's
+	// session.end is never deleted or rewritten, so a session that has
+	// been backfilled twice has two session.end events, the later one
+	// last by rowid) and moves sessions.ended_at to this batch's last
+	// line — the transcript may still be growing, and each run's
+	// session.end/ended_at reflects what had been written as of that run.
+	if _, err := st.AppendEvent(store.Event{
+		TS:        lastTS,
+		Kind:      EventSessionEnd,
+		SessionID: sessionID,
+		Source:    Source,
+		Payload:   `{"reason":"eof"}`,
+	}); err != nil {
+		return fileStats{}, err
+	}
+	stats.events++
 
-		if err := st.EndSession(sessionID, lastTS, "backfill"); err != nil {
-			return fileStats{}, err
-		}
+	if err := st.EndSession(sessionID, lastTS, "backfill"); err != nil {
+		return fileStats{}, err
 	}
 
 	if err := st.SetBackfillCursor(Source, path, store.BackfillCursor{

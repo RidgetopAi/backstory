@@ -6,4 +6,4 @@
 {"type":"summary","uuid":"e-uuid-6","sessionId":"sess-e-uuid","timestamp":"2026-04-01T00:00:05Z","summary":"refactor foo.go"}
 {this is not valid json at all
 {"type":"assistant","uuid":"e-uuid-8","sessionId":"sess-e-uuid","cwd":"/home/dana/events","timestamp":"2026-03-01T00:00:00Z","isMeta":false,"message":{"role":"assistant","content":[{"type":"tool_use","id":"tu2","name":"Bash","input":{"command":"go test ./..."}}]}}
-{"type":"user","uuid":"e-uuid-9","sessionId":"sess-e-uuid","cwd":"/home/dana/events","timestamp":"2026-04-01T00:00:07Z","isMeta":false,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu2","content":"PASS","is_error":false}]}}
+{"type":"user","uuid":"e-uuid-9","sessionId":"sess-e-uuid","cwd":"/home/dana/events","timestamp":"2026-04-01T00:00:07Z","isMeta":false,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu2","content":"FAIL: exit status 1","is_error":true}]}}

@@ -1,0 +1,2 @@
+{"type":"user","uuid":"q-uuid-1","sessionId":"sess-q-uuid","cwd":"/home/quinn/partial","timestamp":"2026-07-01T00:00:00Z","isMeta":false,"message":{"role":"user","content":"Please check something"}}
+{"type":"assistant","uuid":"q-uuid-2","sessionId":"sess-q-uuid","cwd":"/home/quinn/partial","timestamp":"2026-07-01T00:00:01Z","isMeta":false,"message":{"role":"assistant","content":[{"type":"tool_use","id":"tu1","name":"Bash","input":{"command":"ls
