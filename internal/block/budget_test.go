@@ -66,6 +66,11 @@ func itoa(n int) string {
 // measures <= 200 by block.EstimateTokens, slot 2 (delta) and slot 4
 // (attention) are cut but slot 3 (coordination) is not, and slots 1 (resume)
 // and 5 (the final line) survive.
+//
+// Mutation probe (assemble's `if EstimateTokens(join()) <= budgetTokens {
+// return join() }` short-circuited to an unconditional `return join()`,
+// budget.go): "budget_test.go:98: EstimateTokens(out) = 220, want <= 200"
+// (this test) -- restoring the budget check turns it back GREEN.
 func TestBudgetCutsDeltaBeforeAttentionBeforeCoordination(t *testing.T) {
 	s, self := overflowingScenario(t)
 
