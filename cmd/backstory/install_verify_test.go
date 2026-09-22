@@ -104,6 +104,62 @@ func TestInstallVerifyPassesWithNoDaemonRunning(t *testing.T) {
 	}
 }
 
+// writeFakeBackstory writes a shell script named "backstory" to a fresh
+// temp dir and returns that dir, for tests that need `sh -c "backstory hook
+// session-start"` to run something other than the real binary.
+func writeFakeBackstory(t *testing.T, script string) (dir string) {
+	t.Helper()
+	dir = t.TempDir()
+	path := filepath.Join(dir, "backstory")
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil { //nolint:gosec // test fixture, needs +x
+		t.Fatalf("write fake backstory: %v", err)
+	}
+	return dir
+}
+
+// TestInstallVerifyFailsWhenDaemonUpButHookPrintsNothing is clause 5's
+// negative case (a): a fake `backstory` on PATH that exits 0 and prints
+// nothing, while a real daemon IS reachable, must not be mistaken for the
+// documented no-daemon empty-stdout success path — install must exit
+// non-zero and name the failing item. RED against 4fd4b6494bcc, where
+// verifyHook decided on exit code alone.
+func TestInstallVerifyFailsWhenDaemonUpButHookPrintsNothing(t *testing.T) {
+	bin := buildBackstory(t)
+	_, daemonEnv := startTestDaemon(t, bin)
+
+	fakeDir := writeFakeBackstory(t, "#!/bin/sh\nexit 0\n")
+	home := t.TempDir()
+	env := mergeEnv(daemonEnv, "PATH="+fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	stdout, stderr, exitCode := runInstallVerifySubprocess(t, bin, home, env)
+	if exitCode == 0 {
+		t.Fatalf("install claude (verify on) with daemon up and a silent fake hook: exit code = 0, want non-zero (stdout: %s)", stdout)
+	}
+	if !strings.Contains(stderr, "session-start-hook") {
+		t.Errorf("stderr = %q, want it to name the failed item (session-start-hook)", stderr)
+	}
+}
+
+// TestInstallVerifyFailsWhenHookPrintsUnrelatedText is clause 5's negative
+// case (b): a fake `backstory` that exits 0 and prints text that is neither
+// a rendered block nor the documented empty-state line must fail
+// verification. RED against 4fd4b6494bcc.
+func TestInstallVerifyFailsWhenHookPrintsUnrelatedText(t *testing.T) {
+	bin := buildBackstory(t)
+
+	fakeDir := writeFakeBackstory(t, "#!/bin/sh\necho 'TOTAL GARBAGE: not a block, not the empty-state line'\nexit 0\n")
+	home := t.TempDir()
+	env := []string{"PATH=" + fakeDir + string(os.PathListSeparator) + os.Getenv("PATH")}
+
+	stdout, stderr, exitCode := runInstallVerifySubprocess(t, bin, home, env)
+	if exitCode == 0 {
+		t.Fatalf("install claude (verify on) with a fake hook printing unrelated text: exit code = 0, want non-zero (stdout: %s)", stdout)
+	}
+	if !strings.Contains(stderr, "session-start-hook") {
+		t.Errorf("stderr = %q, want it to name the failed item (session-start-hook)", stderr)
+	}
+}
+
 // TestInstallVerifyFailsWhenHookExitsNonZero is clause 4's failure path: a
 // hook command that exits non-zero makes install exit non-zero and report
 // which item failed.

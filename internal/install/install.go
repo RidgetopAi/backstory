@@ -9,11 +9,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/RidgetopAi/backstory/internal/block"
 	"github.com/RidgetopAi/backstory/internal/skill"
 )
 
@@ -634,10 +637,18 @@ func writeAtomic(path string, data []byte, mode os.FileMode) error {
 // sessionStartPayload.
 const syntheticSessionStartPayload = `{"session_id":"backstory-install-verify","cwd":"/","transcript_path":"","source":"startup","hook_event_name":"SessionStart"}` + "\n"
 
+// verifyDialTimeout bounds how long daemonReachable waits to connect to the
+// daemon socket before concluding no daemon is listening.
+const verifyDialTimeout = 2 * time.Second
+
 // verifyHook runs the exact hook command Install wrote through sh -c with a
 // synthetic SessionStart payload on stdin, inheriting the current process's
-// environment (so a test's fake PATH and XDG dirs reach it), and fails only
-// if it exits non-zero.
+// environment (so a test's fake PATH and XDG dirs reach it). It fails if the
+// command exits non-zero, and — since a hook must never break a harness
+// boot, so exit 0 alone proves nothing — also fails unless its stdout is one
+// of the three documented shapes: a rendered block, the exact empty-project
+// line, or (only when independently confirmed here that no daemon is
+// actually reachable, never taken on the hook's own say-so) empty.
 func verifyHook() error {
 	cmd := exec.Command("sh", "-c", HookCommand) //nolint:gosec // HookCommand is our own named constant, not external input
 	cmd.Stdin = strings.NewReader(syntheticSessionStartPayload)
@@ -647,5 +658,60 @@ func verifyHook() error {
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("%w: %s: %v (stderr: %s)", ErrVerifyFailed, ItemSessionStartHook, err, stderr.String())
 	}
+
+	out := strings.TrimRight(stdout.String(), "\n")
+	if !verifyStdoutOK(out, daemonReachable()) {
+		return fmt.Errorf("%w: %s: unexpected stdout %q", ErrVerifyFailed, ItemSessionStartHook, stdout.String())
+	}
 	return nil
+}
+
+// verifyStdoutOK reports whether out — the hook's stdout after a zero exit,
+// trailing newline trimmed — matches a documented success shape: a rendered
+// block (block.Render always ends non-empty content in block.FinalLine,
+// untouched by its own budget-cut truncation), the exact empty-project
+// line, or, when out is completely empty, an independently confirmed
+// absence of a reachable daemon. daemonUp must come from daemonReachable,
+// not from the hook subprocess's own exit code — a hook that exits 0
+// printing nothing is otherwise indistinguishable from the documented
+// no-daemon success path.
+func verifyStdoutOK(out string, daemonUp bool) bool {
+	switch {
+	case out == block.EmptyProjectLine:
+		return true
+	case out != "" && strings.HasSuffix(out, block.FinalLine):
+		return true
+	case out == "" && !daemonUp:
+		return true
+	default:
+		return false
+	}
+}
+
+// daemonReachable reports whether a backstory daemon is listening on this
+// environment's socket, resolved the same way cmd/backstory's daemon and
+// hook resolve it: $XDG_RUNTIME_DIR/backstory/sock, falling back to
+// ~/.local/state/backstory/sock.
+func daemonReachable() bool {
+	path, err := verifySocketPath()
+	if err != nil {
+		return false
+	}
+	conn, err := net.DialTimeout("unix", path, verifyDialTimeout)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
+func verifySocketPath() (string, error) {
+	if dir := os.Getenv("XDG_RUNTIME_DIR"); dir != "" {
+		return filepath.Join(dir, "backstory", "sock"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home dir: %w", err)
+	}
+	return filepath.Join(home, ".local", "state", "backstory", "sock"), nil
 }
