@@ -57,7 +57,7 @@ func TestNoPrivateJSONTaggedPayloadStructsOutsideThisPackage(t *testing.T) {
 				continue
 			}
 			path := filepath.Join(pkgDir, name)
-			b, err := os.ReadFile(path)
+			b, err := os.ReadFile(path) //nolint:gosec // path is built from a fixed, hardcoded package list, not external input
 			if err != nil {
 				t.Fatalf("ReadFile(%s): %v", path, err)
 			}

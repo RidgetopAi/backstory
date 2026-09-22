@@ -93,16 +93,16 @@ func mustAppendEvent(t *testing.T, s *store.Store, sessionID, kind string, ts ti
 
 // mustAppendToolUse appends a tool.use event carrying only Path — the
 // shape the delta slot's file-touched count reads.
-func mustAppendToolUse(t *testing.T, s *store.Store, sessionID string, ts time.Time, path string) int64 {
+func mustAppendToolUse(t *testing.T, s *store.Store, sessionID string, ts time.Time, path string) {
 	t.Helper()
-	return mustAppendEvent(t, s, sessionID, payload.KindToolUse, ts, payload.ToolUse{Path: path})
+	mustAppendEvent(t, s, sessionID, payload.KindToolUse, ts, payload.ToolUse{Path: path})
 }
 
 // mustAppendToolResult appends a tool.result event carrying an exit code —
 // the shape the delta slot's "last exit codes" reads.
-func mustAppendToolResult(t *testing.T, s *store.Store, sessionID string, ts time.Time, exit int) int64 {
+func mustAppendToolResult(t *testing.T, s *store.Store, sessionID string, ts time.Time, exit int) {
 	t.Helper()
-	return mustAppendEvent(t, s, sessionID, payload.KindToolResult, ts, payload.ToolResult{Exit: &exit})
+	mustAppendEvent(t, s, sessionID, payload.KindToolResult, ts, payload.ToolResult{Exit: &exit})
 }
 
 func mustInsertNote(t *testing.T, s *store.Store, sessionID, text string) string {
