@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"database/sql"
 	"encoding/json"
@@ -17,7 +16,6 @@ import (
 	"time"
 
 	"github.com/RidgetopAi/backstory/internal/ident"
-	"github.com/RidgetopAi/backstory/internal/mcp"
 	"github.com/RidgetopAi/backstory/internal/payload"
 	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/store"
@@ -244,65 +242,104 @@ func seedOldShapeStore(t *testing.T, dbPath, projectKey, sessionID string) {
 	}
 }
 
-// requestBlockDirect dials sockPath and issues one DaemonRequest for
-// DaemonMethodBlock, exactly like requestBlock in hook.go but returning the
-// raw response for a test to inspect (hook.go's requestBlock reads
-// $XDG_RUNTIME_DIR itself; this test dials the path it already knows).
-func requestBlockDirect(t *testing.T, sockPath, sessionID string) string {
+// harnessName is the recognised harness (internal/ident.KnownHarnesses)
+// TestDaemonStartMigratesOldShapeStoreThroughNormalReadPath's self-spawned
+// helper process is built and exec'd as. It is asserted against
+// ident.KnownHarnesses below rather than assumed, so this test breaks
+// loudly instead of silently if that table ever drops "claude".
+const harnessName = "claude"
+
+// buildHarnessClient compiles cmd/backstory/testdata/harnessclient to a
+// binary whose path's final component is exactly name. Linux sets a
+// process's /proc/<pid>/status "Name:" (comm) from the basename of the path
+// passed to execve, not argv[0], so exec'ing this binary directly (never
+// through a shell or PATH lookup) gives the daemon's ancestry walk a comm
+// of name regardless of what built or launched the test binary itself.
+func buildHarnessClient(t *testing.T, name string) string {
+	t.Helper()
+	found := false
+	for _, h := range ident.KnownHarnesses {
+		if h == name {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("harness name %q is not in ident.KnownHarnesses %v", name, ident.KnownHarnesses)
+	}
+
+	bin := filepath.Join(t.TempDir(), name)
+	cmd := exec.Command("go", "build", "-o", bin, "./testdata/harnessclient") //nolint:gosec // fixed source path, fixed tmp-dir output path
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("go build harnessclient: %v\n%s", err, out)
+	}
+	return bin
+}
+
+// requestBlockAsHarness is punch e96d1a21's clause 4: instead of the go
+// test process itself dialing the daemon socket (which would make the
+// resolved identity depend on whatever process tree happens to be running
+// `go test` — a Claude Code session, a plain shell, a cron job), this
+// spawns harnessBin as its own child process with its cwd set to cwd, and
+// that child is the one that dials the socket and issues the block
+// request. The daemon's /proc ancestry walk starts at that child's pid,
+// matches harnessName at distance zero, and stops there — so the ancestry
+// above the child, i.e. whatever ran this test suite, is never consulted
+// and cannot change the result.
+func requestBlockAsHarness(t *testing.T, harnessBin, sockPath, cwd, sessionID string) string {
 	t.Helper()
 
-	conn, err := net.Dial("unix", sockPath)
+	cmd := exec.Command(harnessBin, sockPath, sessionID) //nolint:gosec // harnessBin is the binary this test just built, not external input
+	cmd.Dir = cwd
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("dial daemon socket: %v", err)
+		t.Fatalf("harness client block request: %v\n%s", err, out)
 	}
-	defer func() { _ = conn.Close() }()
-
-	req := mcp.DaemonRequest{Session: sessionID, Method: mcp.DaemonMethodBlock}
-	b, err := json.Marshal(req)
-	if err != nil {
-		t.Fatalf("marshal block request: %v", err)
-	}
-	if _, err := conn.Write(append(b, '\n')); err != nil {
-		t.Fatalf("write block request: %v", err)
-	}
-
-	line, err := bufio.NewReader(conn).ReadBytes('\n')
-	if err != nil {
-		t.Fatalf("read block response: %v", err)
-	}
-	var resp mcp.DaemonResponse
-	if err := json.Unmarshal(line, &resp); err != nil {
-		t.Fatalf("decode block response %q: %v", line, err)
-	}
-	if resp.Error != nil {
-		t.Fatalf("daemon returned error for block request: %s", resp.Error.Message)
-	}
-	var result mcp.BlockResult
-	if err := json.Unmarshal(resp.Result, &result); err != nil {
-		t.Fatalf("decode block result: %v", err)
-	}
-	return result.Block
+	return string(out)
 }
 
 // TestDaemonStartMigratesOldShapeStoreThroughNormalReadPath is proof (3)
-// for task e96d1a21: starting `backstory daemon` against a store whose
-// tool.use events predate the payload contract (task 8ba5487a) ends with
-// the SessionStart block's delta reporting the correct file count, observed
-// through the daemon's normal block-request read path — not by calling the
-// migration directly. There is no subcommand and no flag: store.Open inside
-// runDaemon is the only thing that runs it.
+// and (4) for task e96d1a21: starting `backstory daemon` against a store
+// whose tool.use events predate the payload contract (task 8ba5487a) ends
+// with the SessionStart block's delta reporting the correct file count,
+// observed through the daemon's normal block-request read path — not by
+// calling the migration directly. There is no subcommand and no flag:
+// store.Open inside runDaemon is the only thing that runs it.
+//
+// The block request itself is issued from a harness process this test
+// spawns and controls (requestBlockAsHarness), not from the go test
+// process — see that function's doc comment for why: the daemon resolves a
+// caller's project by walking /proc for the nearest recognised harness, so
+// a test that dialed the socket directly from `go test` would have its
+// result depend on whatever ancestry happened to be running the suite.
+//
+// projectDir is a fresh t.TempDir(), not this package's own directory
+// (which sits inside the backstory git checkout, and so would resolve to
+// the same project key whether it came from the spawned harness's cwd or
+// from whatever real ancestor happened to be running the suite — masking
+// exactly the bug clause 4 exists to catch). Because projectDir is outside
+// any git working tree, project.Key falls back to the raw path itself
+// (internal/project/key.go), so it is guaranteed to differ from the
+// project key any real invoking process's cwd would produce. Only a client
+// whose OWN cwd was set to projectDir — i.e. only the harness this test
+// spawned and pointed at projectDir — can make the block resolve this
+// project at all; a client that inherited its ancestry's cwd instead would
+// resolve a different (or no) project and read back "0 sessions, 0 files
+// touched", regardless of what environment ran the test.
 func TestDaemonStartMigratesOldShapeStoreThroughNormalReadPath(t *testing.T) {
 	bin := buildBackstory(t)
+	harnessBin := buildHarnessClient(t, harnessName)
 
 	runtimeDir := t.TempDir()
 	dataDir := t.TempDir()
 	dbPath := filepath.Join(dataDir, "backstory", "backstory.db")
+	projectDir := t.TempDir()
 
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Getwd: %v", err)
+	projectKey := project.Key(projectDir, project.RealGit{})
+	if cwd, err := os.Getwd(); err == nil && projectKey == project.Key(cwd, project.RealGit{}) {
+		t.Fatalf("projectDir %q resolved to the same project key as this test's own cwd %q — the isolation this test depends on is broken", projectDir, cwd)
 	}
-	projectKey := project.Key(cwd, project.RealGit{})
 
 	seedOldShapeStore(t, dbPath, projectKey, "sess-daemon-migration")
 
@@ -322,7 +359,7 @@ func TestDaemonStartMigratesOldShapeStoreThroughNormalReadPath(t *testing.T) {
 	sockPath := filepath.Join(runtimeDir, "backstory", "sock")
 	waitForFile(t, sockPath, 2*time.Second)
 
-	block := requestBlockDirect(t, sockPath, "hook-session-daemon-migration")
+	block := requestBlockAsHarness(t, harnessBin, sockPath, projectDir, "hook-session-daemon-migration")
 
 	if !strings.Contains(block, "1 sessions, 2 files touched") {
 		t.Errorf("block = %q, want it to contain %q (the corrected delta count, through the normal read path)", block, "1 sessions, 2 files touched")
