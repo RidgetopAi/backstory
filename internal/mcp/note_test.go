@@ -48,9 +48,6 @@ func (f fakeProcFS) Cmdline(int) ([]string, error) { return nil, nil }
 // projectKey — the fake ProcFS the punch's DONE WHEN clauses call for.
 func testDaemon(t *testing.T, st *store.Store, harness, cwd, projectKey string) string {
 	t.Helper()
-	if err := st.UpsertProject(store.Project{Key: projectKey, Toplevel: projectKey, FirstSeen: time.Now()}); err != nil {
-		t.Fatalf("UpsertProject(%s): %v", projectKey, err)
-	}
 	selfPID := os.Getpid()
 	procfs := fakeProcFS{
 		status: map[int]ident.Status{selfPID: {PPid: 1, Name: harness}},

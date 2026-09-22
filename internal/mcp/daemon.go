@@ -75,8 +75,22 @@ func dispatchDaemonRequest(line []byte, st *store.Store, identity store.Identity
 
 // startSession opens a live store session for a newly connected identity.
 // The session's pid is the harness's, when the ancestry walk found one;
-// otherwise it falls back to the immediate peer pid.
+// otherwise it falls back to the immediate peer pid. sessions.project_key
+// and records.project_key both foreign-key into projects, so a project this
+// daemon has never seen before is upserted first — the resolver computes
+// ProjectKey from git identity alone (AGENT-CONTRACT.md §Project = git
+// repository identity), never from anything a request declares.
 func startSession(st *store.Store, id ident.Identity) (string, error) {
+	if id.ProjectKey != "" {
+		if err := st.UpsertProject(store.Project{
+			Key:       id.ProjectKey,
+			Toplevel:  id.CWD,
+			FirstSeen: time.Now(),
+		}); err != nil {
+			return "", err
+		}
+	}
+
 	pid := id.HarnessPID
 	if pid == 0 {
 		pid = id.PID
