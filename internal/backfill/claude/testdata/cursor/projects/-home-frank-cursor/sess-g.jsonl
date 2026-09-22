@@ -1,0 +1,2 @@
+{"type":"user","uuid":"g-uuid-1","sessionId":"sess-g-uuid","cwd":"/home/frank/cursor","gitBranch":"main","version":"2.1.0","timestamp":"2026-06-01T00:00:00Z","isMeta":false,"message":{"role":"user","content":"What does this repo do?"}}
+{"type":"assistant","uuid":"g-uuid-2","sessionId":"sess-g-uuid","cwd":"/home/frank/cursor","gitBranch":"main","version":"2.1.0","timestamp":"2026-06-01T00:00:01Z","isMeta":false,"message":{"role":"assistant","content":[{"type":"text","text":"It's a CLI tool."}]}}

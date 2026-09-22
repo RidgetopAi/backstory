@@ -19,6 +19,7 @@ commands:
   mcp       run the MCP stdio shim
   hook      run a harness hook (session-start)
   install   install or remove the Claude Code integration
+  backfill  import transcripts from another tool (e.g. "backfill claude")
 `
 
 func main() {
@@ -41,6 +42,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runHook(args[1:], stdin, stdout, stderr)
 	case "install":
 		return runInstall(args[1:], stdout, stderr)
+	case "backfill":
+		return runBackfill(args[1:], stdout, stderr)
 	default:
 		_, _ = fmt.Fprintf(stderr, "backstory: unknown command %q\n\n%s", args[0], usage)
 		return 2

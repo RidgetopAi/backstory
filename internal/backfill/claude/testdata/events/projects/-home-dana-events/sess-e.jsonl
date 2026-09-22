@@ -1,0 +1,9 @@
+{"type":"user","uuid":"e-uuid-1","sessionId":"sess-e-uuid","cwd":"/home/dana/events","timestamp":"2026-04-01T00:00:00Z","isMeta":true,"message":{"role":"user","content":"<harness-injected command output>"}}
+{"type":"user","uuid":"e-uuid-2","sessionId":"sess-e-uuid","cwd":"/home/dana/events","timestamp":"2026-04-01T00:00:01Z","isMeta":false,"message":{"role":"user","content":"Please refactor foo.go"}}
+{"type":"assistant","uuid":"e-uuid-3","sessionId":"sess-e-uuid","cwd":"/home/dana/events","timestamp":"2026-04-01T00:00:02Z","isMeta":false,"message":{"role":"assistant","content":[{"type":"text","text":"OK, editing now."},{"type":"tool_use","id":"tu1","name":"Edit","input":{"file_path":"/home/dana/events/foo.go"}}]}}
+{"type":"user","uuid":"e-uuid-4","sessionId":"sess-e-uuid","cwd":"/home/dana/events","timestamp":"2026-04-01T00:00:03Z","isMeta":false,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu1","content":"edited successfully","is_error":false}]}}
+{"type":"system","uuid":"e-uuid-5","sessionId":"sess-e-uuid","timestamp":"2026-04-01T00:00:04Z","content":"housekeeping"}
+{"type":"summary","uuid":"e-uuid-6","sessionId":"sess-e-uuid","timestamp":"2026-04-01T00:00:05Z","summary":"refactor foo.go"}
+{this is not valid json at all
+{"type":"assistant","uuid":"e-uuid-8","sessionId":"sess-e-uuid","cwd":"/home/dana/events","timestamp":"2026-03-01T00:00:00Z","isMeta":false,"message":{"role":"assistant","content":[{"type":"tool_use","id":"tu2","name":"Bash","input":{"command":"go test ./..."}}]}}
+{"type":"user","uuid":"e-uuid-9","sessionId":"sess-e-uuid","cwd":"/home/dana/events","timestamp":"2026-04-01T00:00:07Z","isMeta":false,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"tu2","content":"FAIL: exit status 1","is_error":true}]}}

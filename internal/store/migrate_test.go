@@ -19,6 +19,7 @@ var wantTables = []string{
 	"edges",
 	"settings",
 	"records_fts",
+	"backfill_cursors",
 }
 
 func tableExists(t *testing.T, s *Store, name string) bool {

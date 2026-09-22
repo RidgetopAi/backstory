@@ -1,0 +1,2 @@
+{"type":"user","uuid":"h-uuid-1","sessionId":"sess-h-uuid","cwd":"/home/gina/other","gitBranch":"main","version":"2.1.0","timestamp":"2026-06-02T00:00:00Z","isMeta":false,"message":{"role":"user","content":"Status check"}}
+{"type":"assistant","uuid":"h-uuid-2","sessionId":"sess-h-uuid","cwd":"/home/gina/other","gitBranch":"main","version":"2.1.0","timestamp":"2026-06-02T00:00:01Z","isMeta":false,"message":{"role":"assistant","content":[{"type":"text","text":"All green."}]}}

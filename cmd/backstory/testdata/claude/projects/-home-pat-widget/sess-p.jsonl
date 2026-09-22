@@ -1,0 +1,2 @@
+{"type":"user","uuid":"p-uuid-1","sessionId":"sess-p-uuid","cwd":"/home/pat/widget","gitBranch":"main","version":"2.1.0","timestamp":"2026-07-01T00:00:00Z","isMeta":false,"message":{"role":"user","content":"Build the widget"}}
+{"type":"assistant","uuid":"p-uuid-2","sessionId":"sess-p-uuid","cwd":"/home/pat/widget","gitBranch":"main","version":"2.1.0","timestamp":"2026-07-01T00:00:01Z","isMeta":false,"message":{"role":"assistant","content":[{"type":"text","text":"On it."}]}}
