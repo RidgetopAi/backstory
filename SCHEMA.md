@@ -18,13 +18,21 @@ one file, mode 0600, owned by the `systemd --user` daemon (Q3 `5d2733c0`).
 
 ## DDL sketch
 
+Every `ts`-like column is `INTEGER` — unix nanoseconds, UTC — never `TEXT`. v0 stored
+them as RFC3339Nano text and compared them as strings (e.g. the rate-cap window's
+`... AND ts >= ?`); RFC3339Nano omits the fractional part when `ns == 0`, so a
+whole-second timestamp's text sorted AFTER a timestamp a fraction of a second later
+(PLAN.md §Phase 1, critic T2 on `7c4dfc90`). Migration `0002_ts_integer.sql` converts
+every existing installation; the Go API is unaffected (`time.Time` in, `time.Time`
+out — see `internal/store/times.go`). `edges` carries no timestamp column.
+
 ```sql
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE schema_version (
   version     INTEGER NOT NULL,           -- v0 = 0
-  applied_at  TEXT    NOT NULL            -- RFC 3339
+  applied_at  INTEGER NOT NULL            -- unix nanoseconds, UTC
 );
 
 CREATE TABLE projects (
@@ -32,7 +40,7 @@ CREATE TABLE projects (
   git_common_dir  TEXT,
   remote_url      TEXT,
   toplevel        TEXT NOT NULL,           -- fallback identity for non-git dirs
-  first_seen      TEXT NOT NULL
+  first_seen      INTEGER NOT NULL         -- unix nanoseconds, UTC
 );
 
 CREATE TABLE sessions (
@@ -44,15 +52,15 @@ CREATE TABLE sessions (
   project_key         TEXT REFERENCES projects(key),
   workspace           TEXT,
   window              TEXT,
-  started_at          TEXT NOT NULL,
-  ended_at            TEXT,
+  started_at          INTEGER NOT NULL,    -- unix nanoseconds, UTC
+  ended_at            INTEGER,             -- unix nanoseconds, UTC
   origin              TEXT NOT NULL CHECK (origin IN ('live','backfilled')),
   exit_kind           TEXT                 -- NULL while live or unobserved
 );
 
 CREATE TABLE timeline_events (
   id          INTEGER PRIMARY KEY,         -- rowid: the ONLY ordering
-  ts          TEXT NOT NULL,               -- wall clock, informational
+  ts          INTEGER NOT NULL,            -- unix nanoseconds, UTC; wall clock, informational
   kind        TEXT NOT NULL,               -- see open questions: enum TBD
   session_id  TEXT REFERENCES sessions(id),-- NULL for OS events with no session
   source      TEXT NOT NULL,               -- posttooluse | shell | socket2 | notification | clipboard | backfill | daemon
@@ -65,7 +73,7 @@ CREATE INDEX timeline_ts      ON timeline_events(ts);
 
 CREATE TABLE records (
   id             TEXT PRIMARY KEY,
-  ts             TEXT NOT NULL,
+  ts             INTEGER NOT NULL,            -- unix nanoseconds, UTC
   kind           TEXT NOT NULL CHECK (kind IN
                    ('decision','outcome','handoff','note','claim','punch','stage','confirm')),
   tier           TEXT NOT NULL CHECK (tier IN ('human-declared','agent-declared','inferred')),
@@ -76,8 +84,8 @@ CREATE TABLE records (
   evidence       TEXT NOT NULL DEFAULT '[]',  -- JSON array of timeline_events.id
   outcome        TEXT CHECK (outcome IN ('true','false','could-not-observe')), -- kind = outcome only
   promoter       TEXT,                        -- session id or 'human'; set by confirm
-  expires_at     TEXT,                        -- claims and inferred drafts
-  tombstoned_at  TEXT                         -- human-only; the sole mutable column
+  expires_at     INTEGER,                     -- unix nanoseconds, UTC; claims and inferred drafts
+  tombstoned_at  INTEGER                      -- unix nanoseconds, UTC; human-only, the sole mutable column
 );
 CREATE INDEX records_project ON records(project_key, ts);
 CREATE INDEX records_session ON records(session_id);
