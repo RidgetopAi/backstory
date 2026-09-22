@@ -126,6 +126,15 @@ func Import(st *store.Store, opts Options) (Result, error) {
 		res.EventsCreated += stats.events
 		res.LinesSkipped += stats.skipped
 	}
+
+	subRes, err := importSubagents(st, root)
+	if err != nil {
+		return res, err
+	}
+	res.FilesScanned += subRes.FilesScanned
+	res.EventsCreated += subRes.EventsCreated
+	res.LinesSkipped += subRes.LinesSkipped
+
 	return res, nil
 }
 
@@ -218,7 +227,7 @@ func importFile(st *store.Store, git project.Git, path string) (fileStats, error
 		stats.events++
 	}
 
-	n, err := appendToolEvents(st, sessionID, parsedLines, validIdx)
+	n, err := appendToolEvents(st, sessionID, "", parsedLines, validIdx)
 	if err != nil {
 		return fileStats{}, err
 	}
@@ -356,8 +365,11 @@ func sessionStartPayload(lines []transcriptLine) string {
 // appendToolEvents emits one tool.use per tool_use block and one
 // tool.result per tool_result block, walking validIdx (already in file
 // order) so rowid order matches file order regardless of each line's own
-// timestamp (SCHEMA.md invariant 10).
-func appendToolEvents(st *store.Store, sessionID string, lines []transcriptLine, validIdx []int) (int, error) {
+// timestamp (SCHEMA.md invariant 10). agentID is "" for the main-thread
+// transcript, or a subagent transcript's own agent-<hex> identifier
+// (task 6047db51) — carried on every payload emitted here so a subagent's
+// events are attributable without a second query.
+func appendToolEvents(st *store.Store, sessionID, agentID string, lines []transcriptLine, validIdx []int) (int, error) {
 	n := 0
 	for _, idx := range validIdx {
 		l := lines[idx]
@@ -371,7 +383,7 @@ func appendToolEvents(st *store.Store, sessionID string, lines []transcriptLine,
 		for _, b := range blocks {
 			switch b.Type {
 			case "tool_use":
-				payloadBytes, err := json.Marshal(toolUsePayload(b.ID, b.Name, b.Input))
+				payloadBytes, err := json.Marshal(toolUsePayload(b.ID, b.Name, b.Input, agentID))
 				if err != nil {
 					return n, err
 				}
@@ -385,6 +397,7 @@ func appendToolEvents(st *store.Store, sessionID string, lines []transcriptLine,
 			case "tool_result":
 				payloadBytes, err := json.Marshal(payload.ToolResult{
 					ToolUseID: b.ToolUseID, IsError: b.IsError, Content: blockText(b.Content),
+					AgentID: agentID,
 				})
 				if err != nil {
 					return n, err

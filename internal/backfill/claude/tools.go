@@ -19,9 +19,10 @@ var fileTools = map[string]bool{
 
 // toolUsePayload builds one tool_use block's shared payload: Path for the
 // file-editing tools (extracted from their input's file_path field),
-// Command for Bash (from its input's command field).
-func toolUsePayload(id, name string, input json.RawMessage) payload.ToolUse {
-	p := payload.ToolUse{ToolUseID: id, Name: name}
+// Command for Bash (from its input's command field). agentID is "" for a
+// main-thread event, or a subagent transcript's own identifier (task 6047db51).
+func toolUsePayload(id, name string, input json.RawMessage, agentID string) payload.ToolUse {
+	p := payload.ToolUse{ToolUseID: id, Name: name, AgentID: agentID}
 	switch {
 	case fileTools[name]:
 		p.Path = inputStringField(input, "file_path")
