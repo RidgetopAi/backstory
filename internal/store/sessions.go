@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -51,6 +52,66 @@ func (s *Store) StartSession(p StartSessionParams) (string, error) {
 		return "", fmt.Errorf("store: start session: %w", err)
 	}
 	return id, nil
+}
+
+// Session is a row read back from sessions.
+type Session struct {
+	ID               string
+	Agent            string
+	HarnessSessionID string
+	PID              *int
+	CWD              string
+	ProjectKey       string
+	Workspace        string
+	Window           string
+	StartedAt        time.Time
+	Origin           SessionOrigin
+}
+
+// LiveSessionsInProject returns every session in projectKey with no
+// ended_at, most recently started first — the "who else is live here" half
+// of status (AGENT-CONTRACT.md §The five tools).
+func (s *Store) LiveSessionsInProject(projectKey string) ([]Session, error) {
+	rows, err := s.db.Query(`SELECT id, agent, harness_session_id, pid, cwd, workspace, window, started_at, origin
+		FROM sessions WHERE project_key = ? AND ended_at IS NULL ORDER BY started_at DESC`, projectKey)
+	if err != nil {
+		return nil, fmt.Errorf("store: live sessions in project %s: %w", projectKey, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	sessions := []Session{}
+	for rows.Next() {
+		var (
+			sess              Session
+			harnessSessionID  sql.NullString
+			pid               sql.NullInt64
+			workspace, window sql.NullString
+			startedAt, origin string
+		)
+		if err := rows.Scan(&sess.ID, &sess.Agent, &harnessSessionID, &pid, &sess.CWD,
+			&workspace, &window, &startedAt, &origin); err != nil {
+			return nil, fmt.Errorf("store: scan session: %w", err)
+		}
+		sess.ProjectKey = projectKey
+		sess.HarnessSessionID = harnessSessionID.String
+		if pid.Valid {
+			p := int(pid.Int64)
+			sess.PID = &p
+		}
+		sess.Workspace = workspace.String
+		sess.Window = window.String
+		ts, err := time.Parse(time.RFC3339Nano, startedAt)
+		if err != nil {
+			return nil, fmt.Errorf("store: parse session %s started_at: %w", sess.ID, err)
+		}
+		sess.StartedAt = ts
+		sess.Origin = SessionOrigin(origin)
+		sessions = append(sessions, sess)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: live sessions in project %s: %w", projectKey, err)
+	}
+	return sessions, nil
 }
 
 // EndSession records a session's end time and exit kind.
