@@ -18,6 +18,7 @@ commands:
   daemon    run the memory daemon
   mcp       run the MCP stdio shim
   hook      run a harness hook (session-start)
+  install   install or remove the Claude Code integration
 `
 
 func main() {
@@ -38,6 +39,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runMCP(args[1:], stdin, stdout, stderr)
 	case "hook":
 		return runHook(args[1:], stdin, stdout, stderr)
+	case "install":
+		return runInstall(args[1:], stdout, stderr)
 	default:
 		_, _ = fmt.Fprintf(stderr, "backstory: unknown command %q\n\n%s", args[0], usage)
 		return 2
