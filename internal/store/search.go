@@ -27,7 +27,7 @@ func (s *Store) SearchRecords(query string, limit int) ([]SearchResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("store: search records: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var out []SearchResult
 	for rows.Next() {

@@ -115,7 +115,7 @@ func (s *Store) appliedMigrations() (map[int]bool, error) {
 	if err != nil {
 		return nil, fmt.Errorf("store: read schema_version: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	applied := map[int]bool{}
 	for rows.Next() {
@@ -223,7 +223,7 @@ func isWordBoundary(s string, i int) bool {
 		return true
 	}
 	prev := s[i-1]
-	return !(prev == '_' || (prev >= 'a' && prev <= 'z') || (prev >= 'A' && prev <= 'Z') || (prev >= '0' && prev <= '9'))
+	return prev != '_' && (prev < 'a' || prev > 'z') && (prev < 'A' || prev > 'Z') && (prev < '0' || prev > '9')
 }
 
 func isWordEnd(upper string, i int) bool {
@@ -231,5 +231,5 @@ func isWordEnd(upper string, i int) bool {
 		return true
 	}
 	c := upper[i]
-	return !(c == '_' || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))
+	return c != '_' && (c < 'A' || c > 'Z') && (c < '0' || c > '9')
 }
