@@ -1,6 +1,8 @@
 package store
 
 import (
+	"context"
+	"database/sql"
 	"embed"
 	"fmt"
 	"io/fs"
@@ -83,9 +85,15 @@ func parseMigrationVersion(name string) (int, error) {
 // schema_version, each in its own transaction, oldest first. It is safe to
 // call on every Open: a fully-migrated store applies nothing.
 func (s *Store) migrate() error {
+	// applied_at is INTEGER (unix nanoseconds) here, matching the schema
+	// migration 0002 converts every other database to: on a brand-new
+	// database this bootstrap runs before any migration, so migration 0001's
+	// own schema_version row must already land in the final column type.
+	// IF NOT EXISTS makes this a no-op against a pre-0002 database still
+	// carrying the original TEXT column; migration 0002 converts that one.
 	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS schema_version (
 		version    INTEGER NOT NULL,
-		applied_at TEXT    NOT NULL
+		applied_at INTEGER NOT NULL
 	)`); err != nil {
 		return fmt.Errorf("store: create schema_version: %w", err)
 	}
@@ -131,8 +139,27 @@ func (s *Store) appliedMigrations() (map[int]bool, error) {
 	return applied, nil
 }
 
+// applyMigration runs one migration's statements in a transaction, on a
+// single dedicated connection with foreign-key enforcement suspended for
+// the duration (SQLite's recommended procedure for schema-restructuring
+// migrations — a migration may recreate tables out of FK dependency order,
+// e.g. 0002_ts_integer.sql). PRAGMA foreign_key_check runs inside the
+// transaction, before commit, so a migration that leaves a dangling
+// reference fails loudly instead of silently corrupting the schema.
 func (s *Store) applyMigration(m migration) error {
-	tx, err := s.db.Begin()
+	ctx := context.Background()
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("store: acquire connection for migration %s: %w", m.name, err)
+	}
+	defer func() { _ = conn.Close() }()
+
+	if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
+		return fmt.Errorf("store: disable foreign_keys for migration %s: %w", m.name, err)
+	}
+	defer func() { _, _ = conn.ExecContext(ctx, `PRAGMA foreign_keys = ON`) }()
+
+	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("store: begin migration %s: %w", m.name, err)
 	}
@@ -140,18 +167,52 @@ func (s *Store) applyMigration(m migration) error {
 		if strings.TrimSpace(stmt) == "" {
 			continue
 		}
-		if _, err := tx.Exec(stmt); err != nil {
+		if _, err := tx.ExecContext(ctx, stmt); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("store: apply migration %s (statement %d): %w", m.name, i+1, err)
 		}
 	}
-	if _, err := tx.Exec(`INSERT INTO schema_version (version, applied_at) VALUES (?, ?)`,
-		m.version, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO schema_version (version, applied_at) VALUES (?, ?)`,
+		m.version, tsToNanos(time.Now())); err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("store: record migration %s: %w", m.name, err)
 	}
+	if err := checkForeignKeys(ctx, tx); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("store: migration %s: %w", m.name, err)
+	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("store: commit migration %s: %w", m.name, err)
+	}
+	return nil
+}
+
+// checkForeignKeys runs PRAGMA foreign_key_check and turns any reported row
+// into an error. It must run inside the migration's own transaction, before
+// foreign_keys is turned back on, so it sees the migration's final state.
+func checkForeignKeys(ctx context.Context, tx *sql.Tx) error {
+	rows, err := tx.QueryContext(ctx, `PRAGMA foreign_key_check`)
+	if err != nil {
+		return fmt.Errorf("foreign_key_check: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var violations []string
+	for rows.Next() {
+		var table string
+		var rowid sql.NullInt64
+		var parent string
+		var fkid int
+		if err := rows.Scan(&table, &rowid, &parent, &fkid); err != nil {
+			return fmt.Errorf("foreign_key_check: scan violation: %w", err)
+		}
+		violations = append(violations, fmt.Sprintf("%s(rowid=%v) -> %s", table, rowid, parent))
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("foreign_key_check: %w", err)
+	}
+	if len(violations) > 0 {
+		return fmt.Errorf("foreign_key_check found %d dangling reference(s): %s", len(violations), strings.Join(violations, "; "))
 	}
 	return nil
 }

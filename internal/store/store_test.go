@@ -120,8 +120,8 @@ func TestOpenTwiceIsSafe(t *testing.T) {
 		if err := st.DB().QueryRow(`SELECT COUNT(*) FROM schema_version`).Scan(&rows); err != nil {
 			t.Fatal(err)
 		}
-		if rows != 1 {
-			t.Errorf("schema_version rows = %d, want exactly 1", rows)
+		if rows != SchemaVersion {
+			t.Errorf("schema_version rows = %d, want exactly %d (one per embedded migration)", rows, SchemaVersion)
 		}
 	}
 }

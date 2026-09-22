@@ -14,15 +14,18 @@ type SearchResult struct {
 	Text string
 }
 
-// SearchRecords runs an FTS5 query over records.text, best match first, and
-// excludes tombstoned records (a delete removes a record from recall even
-// though the row itself stays — AGENT-CONTRACT.md §User-only powers).
+// SearchRecords runs an FTS5 query over records.text, best match first (ties
+// broken chronologically, earliest first — a numeric comparison on the
+// INTEGER ts column, never the lexical comparison an RFC3339Nano TEXT ts
+// column would give), and excludes tombstoned records (a delete removes a
+// record from recall even though the row itself stays — AGENT-CONTRACT.md
+// §User-only powers).
 func (s *Store) SearchRecords(query string, limit int) ([]SearchResult, error) {
 	rows, err := s.db.Query(`SELECT r.id, r.ts, r.kind, r.tier, r.text
 		FROM records_fts
 		JOIN records r ON r.rowid = records_fts.rowid
 		WHERE records_fts MATCH ? AND r.tombstoned_at IS NULL
-		ORDER BY rank
+		ORDER BY rank, r.ts ASC
 		LIMIT ?`, query, limit)
 	if err != nil {
 		return nil, fmt.Errorf("store: search records: %w", err)
@@ -32,14 +35,12 @@ func (s *Store) SearchRecords(query string, limit int) ([]SearchResult, error) {
 	var out []SearchResult
 	for rows.Next() {
 		var r SearchResult
-		var ts, kind, tier string
+		var ts int64
+		var kind, tier string
 		if err := rows.Scan(&r.ID, &ts, &kind, &tier, &r.Text); err != nil {
 			return nil, fmt.Errorf("store: scan search result: %w", err)
 		}
-		r.TS, err = time.Parse(time.RFC3339Nano, ts)
-		if err != nil {
-			return nil, fmt.Errorf("store: parse search result ts: %w", err)
-		}
+		r.TS = tsFromNanos(ts)
 		r.Kind = RecordKind(kind)
 		r.Tier = Tier(tier)
 		out = append(out, r)

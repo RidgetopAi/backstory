@@ -47,7 +47,7 @@ func (s *Store) StartSession(p StartSessionParams) (string, error) {
 		(id, agent, harness_session_id, pid, cwd, project_key, workspace, window, started_at, origin)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, p.Agent, nullable(p.HarnessSessionID), pid, p.CWD, nullable(p.ProjectKey),
-		nullable(p.Workspace), nullable(p.Window), p.StartedAt.UTC().Format(time.RFC3339Nano), string(p.Origin))
+		nullable(p.Workspace), nullable(p.Window), tsToNanos(p.StartedAt), string(p.Origin))
 	if err != nil {
 		return "", fmt.Errorf("store: start session: %w", err)
 	}
@@ -117,7 +117,7 @@ func (s *Store) LiveSessionsInProject(projectKey string) ([]Session, error) {
 // EndSession records a session's end time and exit kind.
 func (s *Store) EndSession(id string, endedAt time.Time, exitKind string) error {
 	res, err := s.db.Exec(`UPDATE sessions SET ended_at = ?, exit_kind = ? WHERE id = ?`,
-		endedAt.UTC().Format(time.RFC3339Nano), nullable(exitKind), id)
+		tsToNanos(endedAt), nullable(exitKind), id)
 	if err != nil {
 		return fmt.Errorf("store: end session %s: %w", id, err)
 	}
