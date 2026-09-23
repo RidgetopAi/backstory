@@ -369,6 +369,14 @@ func sessionStartPayload(lines []transcriptLine) string {
 // transcript, or a subagent transcript's own agent-<hex> identifier
 // (task 6047db51) — carried on every payload emitted here so a subagent's
 // events are attributable without a second query.
+//
+// A block whose tool_use_id was already captured live (cmd/backstory's
+// `hook post-tool-use`, internal/mcp's handlePostToolUse) is skipped rather
+// than appended a second time (task 04b1cb40's DONE WHEN clause 3): live
+// capture runs ahead of backfill by construction — the daemon backfills a
+// transcript once, on start or a later restart, well after PostToolUse
+// already recorded the same tool call — so by the time this importer sees
+// the line, a duplicate here is never legitimate history, only replay.
 func appendToolEvents(st *store.Store, sessionID, agentID string, lines []transcriptLine, validIdx []int) (int, error) {
 	n := 0
 	for _, idx := range validIdx {
@@ -383,6 +391,15 @@ func appendToolEvents(st *store.Store, sessionID, agentID string, lines []transc
 		for _, b := range blocks {
 			switch b.Type {
 			case "tool_use":
+				if b.ID != "" {
+					dup, err := st.HasEventWithToolUseID(EventToolUse, b.ID)
+					if err != nil {
+						return n, err
+					}
+					if dup {
+						continue
+					}
+				}
 				payloadBytes, err := json.Marshal(toolUsePayload(b.ID, b.Name, b.Input, agentID))
 				if err != nil {
 					return n, err
@@ -395,6 +412,15 @@ func appendToolEvents(st *store.Store, sessionID, agentID string, lines []transc
 				}
 				n++
 			case "tool_result":
+				if b.ToolUseID != "" {
+					dup, err := st.HasEventWithToolUseID(EventToolResult, b.ToolUseID)
+					if err != nil {
+						return n, err
+					}
+					if dup {
+						continue
+					}
+				}
 				payloadBytes, err := json.Marshal(payload.ToolResult{
 					ToolUseID: b.ToolUseID, IsError: b.IsError, Content: blockText(b.Content),
 					AgentID: agentID,
