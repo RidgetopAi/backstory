@@ -7,10 +7,21 @@
 // harness ancestor the test asserts on is one it created, never one it
 // inherited.
 //
-// Usage: harnessclient <socket-path> <session-id>
-// It dials the daemon socket, issues one DaemonMethodBlock request for
-// session-id, and prints the rendered block text to stdout. A failure at
-// any step is reported on stderr with a non-zero exit.
+// Usage: harnessclient <socket-path> <session-id> [method] [params-json]
+//
+// With no method (or method == "block"), it issues one raw
+// mcp.DaemonMethodBlock request for session-id and prints the rendered
+// block text to stdout — unchanged from before task d6ddfce3, so
+// requestBlockAsHarness's existing 2-argument call sites keep working.
+//
+// With method == "recall" (task d6ddfce3's clause 1: "through the MCP
+// shim"), it drives the request through an actual mcp.Server built on this
+// process's own connection — the same production code path
+// cmd/backstory's `mcp` subcommand uses — rather than hand-rolling a
+// DaemonRequest line the way the block path does, and prints the tool's raw
+// JSON result to stdout.
+//
+// A failure at any step is reported on stderr with a non-zero exit.
 package main
 
 import (
@@ -24,11 +35,19 @@ import (
 )
 
 func main() {
-	if len(os.Args) != 3 {
-		fmt.Fprintln(os.Stderr, "usage: harnessclient <socket-path> <session-id>")
+	if len(os.Args) < 3 || len(os.Args) > 5 {
+		fmt.Fprintln(os.Stderr, "usage: harnessclient <socket-path> <session-id> [method] [params-json]")
 		os.Exit(2)
 	}
 	sockPath, sessionID := os.Args[1], os.Args[2]
+	method := mcp.DaemonMethodBlock
+	if len(os.Args) >= 4 {
+		method = os.Args[3]
+	}
+	var params json.RawMessage
+	if len(os.Args) == 5 {
+		params = json.RawMessage(os.Args[4])
+	}
 
 	conn, err := net.Dial("unix", sockPath)
 	if err != nil {
@@ -37,34 +56,45 @@ func main() {
 	}
 	defer func() { _ = conn.Close() }()
 
-	req := mcp.DaemonRequest{Session: sessionID, Method: mcp.DaemonMethodBlock}
+	if method == mcp.ToolRecall {
+		shim := mcp.NewServer(conn)
+		result, rerr := shim.CallTool(mcp.ToolRecall, params)
+		if rerr != nil {
+			fmt.Fprintln(os.Stderr, "recall call error:", rerr.Message)
+			os.Exit(1)
+		}
+		fmt.Print(string(result))
+		return
+	}
+
+	req := mcp.DaemonRequest{Session: sessionID, Method: method}
 	b, err := json.Marshal(req)
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "marshal block request:", err)
+		fmt.Fprintln(os.Stderr, "marshal", method, "request:", err)
 		os.Exit(1)
 	}
 	if _, err := conn.Write(append(b, '\n')); err != nil {
-		fmt.Fprintln(os.Stderr, "write block request:", err)
+		fmt.Fprintln(os.Stderr, "write", method, "request:", err)
 		os.Exit(1)
 	}
 
 	line, err := bufio.NewReader(conn).ReadBytes('\n')
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "read block response:", err)
+		fmt.Fprintln(os.Stderr, "read", method, "response:", err)
 		os.Exit(1)
 	}
 	var resp mcp.DaemonResponse
 	if err := json.Unmarshal(line, &resp); err != nil {
-		fmt.Fprintln(os.Stderr, "decode block response:", err)
+		fmt.Fprintln(os.Stderr, "decode", method, "response:", err)
 		os.Exit(1)
 	}
 	if resp.Error != nil {
-		fmt.Fprintln(os.Stderr, "daemon returned error for block request:", resp.Error.Message)
+		fmt.Fprintln(os.Stderr, "daemon returned error for", method, "request:", resp.Error.Message)
 		os.Exit(1)
 	}
 	var result mcp.BlockResult
 	if err := json.Unmarshal(resp.Result, &result); err != nil {
-		fmt.Fprintln(os.Stderr, "decode block result:", err)
+		fmt.Fprintln(os.Stderr, "decode", method, "result:", err)
 		os.Exit(1)
 	}
 	fmt.Print(result.Block)
