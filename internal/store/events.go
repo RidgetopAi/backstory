@@ -2,6 +2,7 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -45,6 +46,32 @@ func (s *Store) AppendEvent(e Event) (int64, error) {
 type TimelineEvent struct {
 	ID int64
 	Event
+}
+
+// HasEventWithToolUseID reports whether a timeline event of kind already
+// carries toolUseID as its payload's tool_use_id. It is scoped by kind and
+// tool_use_id only, never by session: a tool use captured live and the same
+// tool use later replayed from a Claude transcript land in two different
+// sessions (a live PostToolUse connection mints its own ad hoc session; a
+// backfill import mints a separate backfilled one for the transcript file),
+// so a session-scoped check would never see the live event backfill must
+// dedup against (internal/backfill/claude's appendToolEvents). toolUseID
+// must be non-empty — the caller skips the check entirely for a tool_use
+// block with no id, since every such row's payload omits the key
+// (json:"tool_use_id,omitempty") and would otherwise all compare equal
+// under json_extract's NULL.
+func (s *Store) HasEventWithToolUseID(kind, toolUseID string) (bool, error) {
+	var exists int
+	err := s.db.QueryRow(`SELECT 1 FROM timeline_events
+		WHERE kind = ? AND json_extract(payload, '$.tool_use_id') = ? LIMIT 1`,
+		kind, toolUseID).Scan(&exists)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("store: has event with tool_use_id %s/%s: %w", kind, toolUseID, err)
+	}
+	return true, nil
 }
 
 // EventsSinceID returns every timeline event belonging to a session in

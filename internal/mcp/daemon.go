@@ -84,6 +84,8 @@ func dispatchDaemonRequest(line []byte, st *store.Store, procfs ident.ProcFS, id
 		return handleRecall(st, id, req.Params)
 	case DaemonMethodBlock:
 		return handleBlock(st, procfs, id, sessionID)
+	case DaemonMethodPostToolUse:
+		return handlePostToolUse(st, sessionID, req.Params)
 	default:
 		return errResponse("unknown-method", "unknown method "+req.Method)
 	}

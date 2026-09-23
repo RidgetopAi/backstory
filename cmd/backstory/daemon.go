@@ -159,6 +159,25 @@ func socketPath() (string, error) {
 	return filepath.Join(home, ".local", "state", "backstory", "sock"), nil
 }
 
+// captureOffPath is $XDG_RUNTIME_DIR/backstory/capture-off, falling back to
+// ~/.local/state/backstory/capture-off when XDG_RUNTIME_DIR is unset — the
+// same directory and fallback as socketPath, since it is the same
+// "omarchy toggle"-style flag file precedent (AGENT-CONTRACT.md §User-only
+// powers) checked from the same client processes that dial the socket.
+// Only `backstory hook post-tool-use` honours it today (task 04b1cb40); the
+// daemon-side write paths SCHEMA.md invariant 8 also names are pre-existing,
+// unimplemented scope this task does not touch.
+func captureOffPath() (string, error) {
+	if dir := os.Getenv("XDG_RUNTIME_DIR"); dir != "" {
+		return filepath.Join(dir, "backstory", "capture-off"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("resolve home dir: %w", err)
+	}
+	return filepath.Join(home, ".local", "state", "backstory", "capture-off"), nil
+}
+
 // storePath is $XDG_DATA_HOME/backstory/backstory.db, falling back to
 // ~/.local/share/backstory/backstory.db when XDG_DATA_HOME is unset.
 func storePath() (string, error) {
