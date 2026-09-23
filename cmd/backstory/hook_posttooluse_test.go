@@ -74,18 +74,6 @@ func runHookInDir(t *testing.T, bin, dir string, env []string, hookArgs []string
 	return outBuf.String(), errBuf.String(), exitCode, elapsed
 }
 
-// envValue returns key's value from an os/exec-shaped "KEY=value" slice, or
-// "" if key is absent.
-func envValue(env []string, key string) string {
-	prefix := key + "="
-	for _, e := range env {
-		if strings.HasPrefix(e, prefix) {
-			return strings.TrimPrefix(e, prefix)
-		}
-	}
-	return ""
-}
-
 type toolEventRow struct {
 	Kind    string
 	Source  string
@@ -129,7 +117,7 @@ func queryEventsForProject(t *testing.T, s *store.Store, projectKey string) []to
 // project then counts that file as touched.
 func TestHookPostToolUseEditRecordsOneLiveEventAndBlockCountsFile(t *testing.T) {
 	bin := buildBackstoryHarness(t)
-	dbPath, env := startTestDaemon(t, bin)
+	dbPath, _, env := startTestDaemon(t, bin)
 	projectDir := t.TempDir()
 	filePath := filepath.Join(projectDir, "main.go")
 
@@ -215,7 +203,7 @@ func TestHookPostToolUseEditRecordsOneLiveEventAndBlockCountsFile(t *testing.T) 
 // sessionID.
 func TestHookPostToolUseProjectComesFromResolverNotDeclaredSession(t *testing.T) {
 	bin := buildBackstoryHarness(t)
-	dbPath, env := startTestDaemon(t, bin)
+	dbPath, _, env := startTestDaemon(t, bin)
 	projectDir := t.TempDir()
 
 	_, stderrA, exitA, _ := runHookInDir(t, bin, projectDir, env, []string{"post-tool-use"}, map[string]any{
@@ -264,7 +252,7 @@ func TestHookPostToolUseProjectComesFromResolverNotDeclaredSession(t *testing.T)
 // misuse here even by accident.
 func TestHookPostToolUseProjectComesFromRealCwdNotPayloadCWD(t *testing.T) {
 	bin := buildBackstoryHarness(t)
-	dbPath, env := startTestDaemon(t, bin)
+	dbPath, _, env := startTestDaemon(t, bin)
 	realProjectDir := t.TempDir()
 	fakeProjectDir := t.TempDir()
 
@@ -300,7 +288,7 @@ func TestHookPostToolUseProjectComesFromRealCwdNotPayloadCWD(t *testing.T) {
 // with its command, and with its exit code when the payload carries one.
 func TestHookPostToolUseBashRecordsCommandAndExitCode(t *testing.T) {
 	bin := buildBackstoryHarness(t)
-	dbPath, env := startTestDaemon(t, bin)
+	dbPath, _, env := startTestDaemon(t, bin)
 	projectDir := t.TempDir()
 
 	bashPayload := map[string]any{
@@ -374,7 +362,7 @@ func TestHookPostToolUseBashRecordsCommandAndExitCode(t *testing.T) {
 // writer must never invent 0).
 func TestHookPostToolUseBashNoExitCodeRecordsNilNeverZero(t *testing.T) {
 	bin := buildBackstoryHarness(t)
-	dbPath, env := startTestDaemon(t, bin)
+	dbPath, _, env := startTestDaemon(t, bin)
 	projectDir := t.TempDir()
 
 	bashPayload := map[string]any{
@@ -461,13 +449,9 @@ func TestHookPostToolUseNoSocketExitsQuicklyWritesNothing(t *testing.T) {
 // records nothing.
 func TestHookPostToolUseCaptureOffRecordsNothing(t *testing.T) {
 	bin := buildBackstoryHarness(t)
-	dbPath, env := startTestDaemon(t, bin)
+	dbPath, runtimeDir, env := startTestDaemon(t, bin)
 	projectDir := t.TempDir()
 
-	runtimeDir := envValue(env, "XDG_RUNTIME_DIR")
-	if runtimeDir == "" {
-		t.Fatalf("XDG_RUNTIME_DIR not found in daemon env: %v", env)
-	}
 	flagPath := filepath.Join(runtimeDir, "backstory", "capture-off")
 	if err := os.WriteFile(flagPath, []byte{}, 0o600); err != nil {
 		t.Fatalf("write capture-off flag file %s: %v", flagPath, err)

@@ -72,7 +72,7 @@ func runInstallVerifySubprocess(t *testing.T, bin, home string, env []string) (s
 // SessionStart payload and exits 0.
 func TestInstallVerifyPassesWithDaemonRunning(t *testing.T) {
 	bin := buildBackstory(t)
-	_, daemonEnv := startTestDaemon(t, bin) // env carries XDG_RUNTIME_DIR/XDG_DATA_HOME
+	_, _, daemonEnv := startTestDaemon(t, bin) // env carries XDG_RUNTIME_DIR/XDG_DATA_HOME
 
 	home := t.TempDir()
 	env := mergeEnv(daemonEnv, "PATH="+fakePATH(t, bin))
@@ -125,7 +125,7 @@ func writeFakeBackstory(t *testing.T, script string) (dir string) {
 // verifyHook decided on exit code alone.
 func TestInstallVerifyFailsWhenDaemonUpButHookPrintsNothing(t *testing.T) {
 	bin := buildBackstory(t)
-	_, daemonEnv := startTestDaemon(t, bin)
+	_, _, daemonEnv := startTestDaemon(t, bin)
 
 	fakeDir := writeFakeBackstory(t, "#!/bin/sh\nexit 0\n")
 	home := t.TempDir()

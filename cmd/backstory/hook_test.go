@@ -15,15 +15,44 @@ import (
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
+// envWithout returns a copy of env with every entry for any of keys
+// removed — used to strip inherited XDG_RUNTIME_DIR / XDG_DATA_HOME before
+// appending fresh test values, so the result never carries a variable
+// twice. A duplicate entry is a real hazard here, not just noise: the
+// exec'd child resolves it to the LAST occurrence, but anything in the
+// test process itself that scans env by hand (as this file's tests used
+// to, via a now-deleted first-match envValue helper) would silently see
+// the FIRST occurrence instead — the invoking user's real dir, not the
+// test's temp one.
+func envWithout(env []string, keys ...string) []string {
+	out := make([]string, 0, len(env))
+	for _, e := range env {
+		drop := false
+		for _, k := range keys {
+			if strings.HasPrefix(e, k+"=") {
+				drop = true
+				break
+			}
+		}
+		if !drop {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
 // startTestDaemon starts `backstory daemon` as a subprocess against fresh
 // runtime/data dirs and waits for its socket to appear. It returns the
-// store db path and the env every client subprocess (hook, mcp) must share
-// to reach this daemon.
-func startTestDaemon(t *testing.T, bin string) (dbPath string, env []string) {
+// store db path, the runtime dir it chose (so callers never need to dig it
+// back out of env), and the env every client subprocess (hook, mcp) must
+// share to reach this daemon. Any inherited XDG_RUNTIME_DIR / XDG_DATA_HOME
+// is stripped before the fresh ones are appended, so env carries each
+// exactly once.
+func startTestDaemon(t *testing.T, bin string) (dbPath, runtimeDir string, env []string) {
 	t.Helper()
-	runtimeDir := t.TempDir()
+	runtimeDir = t.TempDir()
 	dataDir := t.TempDir()
-	env = append(os.Environ(),
+	env = append(envWithout(os.Environ(), "XDG_RUNTIME_DIR", "XDG_DATA_HOME"),
 		"XDG_RUNTIME_DIR="+runtimeDir,
 		"XDG_DATA_HOME="+dataDir,
 	)
@@ -44,7 +73,7 @@ func startTestDaemon(t *testing.T, bin string) (dbPath string, env []string) {
 	sockPath := filepath.Join(runtimeDir, "backstory", "sock")
 	waitForFile(t, sockPath, 2*time.Second)
 	dbPath = filepath.Join(dataDir, "backstory", "backstory.db")
-	return dbPath, env
+	return dbPath, runtimeDir, env
 }
 
 // runHookSubprocess runs `backstory hook session-start` as a subprocess
@@ -109,7 +138,7 @@ func querySessionByHarnessSessionID(t *testing.T, s *store.Store, harnessSession
 // harness_session_id = the payload's session_id.
 func TestHookSessionStartPrintsBlockAndRecordsHarnessSessionID(t *testing.T) {
 	bin := buildBackstory(t)
-	dbPath, env := startTestDaemon(t, bin)
+	dbPath, _, env := startTestDaemon(t, bin)
 
 	stdout, stderr, exitCode := runHookSubprocess(t, bin, env, map[string]any{
 		"session_id":      "claude-session-abc123",
@@ -160,7 +189,7 @@ func TestHookSessionStartPrintsBlockAndRecordsHarnessSessionID(t *testing.T) {
 // GREEN.
 func TestHookSessionStartIdentityComesFromResolverNotPayload(t *testing.T) {
 	bin := buildBackstory(t)
-	dbPath, env := startTestDaemon(t, bin)
+	dbPath, _, env := startTestDaemon(t, bin)
 
 	_, stderrA, exitA := runHookSubprocess(t, bin, env, map[string]any{
 		"session_id": "session-A",
@@ -223,5 +252,32 @@ func TestHookSessionStartNoSocketPrintsNothingExactlyOneStderrLineExit0(t *testi
 	lines := strings.Split(strings.TrimRight(stderr, "\n"), "\n")
 	if len(lines) != 1 || lines[0] == "" {
 		t.Errorf("stderr = %q, want exactly one non-empty line", stderr)
+	}
+}
+
+// TestStartTestDaemonEnvHasNoDuplicateXDGVars guards against the class of
+// bug task 7c121b4b fixed: startTestDaemon used to append its fresh
+// XDG_RUNTIME_DIR / XDG_DATA_HOME onto os.Environ() without stripping any
+// inherited value, so on a runner (or a real desktop) that already set
+// XDG_RUNTIME_DIR, env carried it twice. The exec'd child resolves a
+// duplicate to its LAST entry, but anything scanning env by hand — as this
+// package's tests used to, via a first-match envValue helper — would
+// silently read the FIRST entry instead: the invoking user's real runtime
+// dir, not the test's temp one. Asserting exactly one entry of each here
+// makes that duplication impossible to reintroduce unnoticed.
+func TestStartTestDaemonEnvHasNoDuplicateXDGVars(t *testing.T) {
+	bin := buildBackstory(t)
+	_, _, env := startTestDaemon(t, bin)
+
+	for _, key := range []string{"XDG_RUNTIME_DIR", "XDG_DATA_HOME"} {
+		count := 0
+		for _, e := range env {
+			if strings.HasPrefix(e, key+"=") {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Errorf("env has %d entries for %s, want exactly 1: %v", count, key, env)
+		}
 	}
 }
