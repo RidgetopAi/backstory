@@ -19,22 +19,22 @@ import (
 
 // buildBackstoryHarness compiles cmd/backstory itself (unlike
 // buildHarnessClient, which compiles the separate testdata/harnessclient
-// program) to a binary whose path's final component is exactly name — see
-// buildHarnessClient's doc comment for why exec'ing a binary at a
-// harness-named path, never through a shell or PATH lookup, gives the
-// daemon's /proc ancestry walk a comm of name regardless of what ran the
-// test suite itself. Used so `backstory hook post-tool-use` is, for these
+// program) to a binary whose path's final component is exactly harnessName
+// ("claude") — see buildHarnessClient's doc comment for why exec'ing a
+// binary at a harness-named path, never through a shell or PATH lookup,
+// gives the daemon's /proc ancestry walk that comm regardless of what ran
+// the test suite itself. Used so `backstory hook post-tool-use` is, for these
 // tests, literally the process the daemon's ancestry walk finds Harness
 // "claude" at distance zero for — the same guarantee buildHarnessClient
 // gives the raw block/recall requests in daemon_test.go, applied to the
 // real hook subcommand this punch (task 04b1cb40) adds.
-func buildBackstoryHarness(t *testing.T, name string) string {
+func buildBackstoryHarness(t *testing.T) string {
 	t.Helper()
-	bin := filepath.Join(t.TempDir(), name)
+	bin := filepath.Join(t.TempDir(), harnessName)
 	cmd := exec.Command("go", "build", "-o", bin, ".") //nolint:gosec // bin is a t.TempDir() path this test built, not external input
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("go build backstory as %s: %v\n%s", name, err, out)
+		t.Fatalf("go build backstory as %s: %v\n%s", harnessName, err, out)
 	}
 	return bin
 }
@@ -128,7 +128,7 @@ func queryEventsForProject(t *testing.T, s *store.Store, projectKey string) []to
 // project whose source is not backfill, and the SessionStart block for that
 // project then counts that file as touched.
 func TestHookPostToolUseEditRecordsOneLiveEventAndBlockCountsFile(t *testing.T) {
-	bin := buildBackstoryHarness(t, harnessName)
+	bin := buildBackstoryHarness(t)
 	dbPath, env := startTestDaemon(t, bin)
 	projectDir := t.TempDir()
 	filePath := filepath.Join(projectDir, "main.go")
@@ -214,7 +214,7 @@ func TestHookPostToolUseEditRecordsOneLiveEventAndBlockCountsFile(t *testing.T) 
 // dispatchDaemonRequest's post_tool_use case to pass req.Session in place of
 // sessionID.
 func TestHookPostToolUseProjectComesFromResolverNotDeclaredSession(t *testing.T) {
-	bin := buildBackstoryHarness(t, harnessName)
+	bin := buildBackstoryHarness(t)
 	dbPath, env := startTestDaemon(t, bin)
 	projectDir := t.TempDir()
 
@@ -254,7 +254,7 @@ func TestHookPostToolUseProjectComesFromResolverNotDeclaredSession(t *testing.T)
 // 04b1cb40's DONE WHEN clause 2: a Bash PostToolUse payload is recorded
 // with its command, and with its exit code when the payload carries one.
 func TestHookPostToolUseBashRecordsCommandAndExitCode(t *testing.T) {
-	bin := buildBackstoryHarness(t, harnessName)
+	bin := buildBackstoryHarness(t)
 	dbPath, env := startTestDaemon(t, bin)
 	projectDir := t.TempDir()
 
@@ -328,7 +328,7 @@ func TestHookPostToolUseBashRecordsCommandAndExitCode(t *testing.T) {
 // exit code produces an event with no exit code, never 0 (SCHEMA.md: a
 // writer must never invent 0).
 func TestHookPostToolUseBashNoExitCodeRecordsNilNeverZero(t *testing.T) {
-	bin := buildBackstoryHarness(t, harnessName)
+	bin := buildBackstoryHarness(t)
 	dbPath, env := startTestDaemon(t, bin)
 	projectDir := t.TempDir()
 
@@ -383,7 +383,7 @@ func TestHookPostToolUseBashNoExitCodeRecordsNilNeverZero(t *testing.T) {
 // 04b1cb40's DONE WHEN clause 4: with no daemon listening, `backstory hook
 // post-tool-use` exits 0 in under 1 second and writes nothing.
 func TestHookPostToolUseNoSocketExitsQuicklyWritesNothing(t *testing.T) {
-	bin := buildBackstoryHarness(t, harnessName)
+	bin := buildBackstoryHarness(t)
 	runtimeDir := t.TempDir() // no daemon ever started here: no socket file
 	env := append(os.Environ(), "XDG_RUNTIME_DIR="+runtimeDir)
 	projectDir := t.TempDir()
@@ -415,7 +415,7 @@ func TestHookPostToolUseNoSocketExitsQuicklyWritesNothing(t *testing.T) {
 // 04b1cb40's DONE WHEN clause 4: with the capture-off flag file present, it
 // records nothing.
 func TestHookPostToolUseCaptureOffRecordsNothing(t *testing.T) {
-	bin := buildBackstoryHarness(t, harnessName)
+	bin := buildBackstoryHarness(t)
 	dbPath, env := startTestDaemon(t, bin)
 	projectDir := t.TempDir()
 
@@ -465,7 +465,7 @@ func TestHookPostToolUseCaptureOffRecordsNothing(t *testing.T) {
 // over one file, exactly what TestDaemonStartMigratesOldShapeStoreThroughNormalReadPath's
 // stop-then-reopen pattern avoids.
 func TestHookPostToolUseLiveCaptureDedupsAgainstLaterClaudeBackfill(t *testing.T) {
-	bin := buildBackstoryHarness(t, harnessName)
+	bin := buildBackstoryHarness(t)
 	toolUseID := "toolu_dedup_shared_1"
 	sessionID := "claude-dedup-session"
 
