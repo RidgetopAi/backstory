@@ -46,11 +46,10 @@ func buildMCPHarness(t *testing.T, name string) string {
 
 // startDaemonForTest starts `backstory daemon` as a subprocess against
 // runtimeDir/dataDir plus any extraEnv, waits for its socket to appear, and
-// returns the socket path, its combined output, and a stop func the test can
-// call explicitly (e.g. before reopening the store file directly) — stop is
-// also registered as a t.Cleanup so a test that never calls it still tears
-// the daemon down.
-func startDaemonForTest(t *testing.T, bin, runtimeDir, dataDir string, extraEnv ...string) (sockPath string, out *safeBuffer, stop func()) {
+// returns a stop func the test can call explicitly (e.g. before reopening
+// the store file directly) — stop is also registered as a t.Cleanup so a
+// test that never calls it still tears the daemon down.
+func startDaemonForTest(t *testing.T, bin, runtimeDir, dataDir string, extraEnv ...string) (stop func()) {
 	t.Helper()
 	env := append(os.Environ(),
 		"XDG_RUNTIME_DIR="+runtimeDir,
@@ -60,9 +59,9 @@ func startDaemonForTest(t *testing.T, bin, runtimeDir, dataDir string, extraEnv 
 
 	cmd := exec.Command(bin, "daemon") //nolint:gosec // bin is the binary this test built
 	cmd.Env = env
-	out = &safeBuffer{}
-	cmd.Stdout = out
-	cmd.Stderr = out
+	var out safeBuffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start daemon: %v", err)
 	}
@@ -77,9 +76,9 @@ func startDaemonForTest(t *testing.T, bin, runtimeDir, dataDir string, extraEnv 
 	}
 	t.Cleanup(stop)
 
-	sockPath = filepath.Join(runtimeDir, "backstory", "sock")
+	sockPath := filepath.Join(runtimeDir, "backstory", "sock")
 	waitForFile(t, sockPath, 2*time.Second)
-	return sockPath, out, stop
+	return stop
 }
 
 // TestMCPShimSurvivesIdlePastFirstLineDeadlineThenSucceeds is the punch's
@@ -101,7 +100,7 @@ func TestMCPShimSurvivesIdlePastFirstLineDeadlineThenSucceeds(t *testing.T) {
 	runtimeDir := t.TempDir()
 	dataDir := t.TempDir()
 	const fastDeadline = 200 * time.Millisecond
-	_, _, stopDaemon := startDaemonForTest(t, bin, runtimeDir, dataDir,
+	stopDaemon := startDaemonForTest(t, bin, runtimeDir, dataDir,
 		firstLineDeadlineEnvVar+"="+fastDeadline.String())
 
 	env := append(os.Environ(),
