@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/RidgetopAi/backstory/internal/ident"
+	"github.com/RidgetopAi/backstory/internal/mcp"
 	"github.com/RidgetopAi/backstory/internal/payload"
 	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/store"
@@ -366,6 +367,289 @@ func TestDaemonStartMigratesOldShapeStoreThroughNormalReadPath(t *testing.T) {
 	}
 	if strings.Contains(block, "0 files touched") {
 		t.Errorf("block = %q, still reads 0 files touched — the old-shape store was not migrated on daemon start", block)
+	}
+
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatalf("signal SIGTERM: %v", err)
+	}
+	waitDone := make(chan error, 1)
+	go func() { waitDone <- cmd.Wait() }()
+	select {
+	case err := <-waitDone:
+		if err != nil {
+			t.Fatalf("daemon exited with error after SIGTERM (want exit 0): %v\noutput:\n%s", err, out.String())
+		}
+	case <-time.After(2 * time.Second):
+		_ = cmd.Process.Kill()
+		t.Fatalf("daemon did not exit within 2s of SIGTERM\noutput:\n%s", out.String())
+	}
+}
+
+// seedRecallStore opens dbPath through store.Open (creating it), then
+// inserts one backfilled session in projectKey and, through it, two
+// decision records (oldDecisionID first, newDecisionID second — so
+// newDecisionID is the newer one) and one handoff record, plus a single
+// timeline event appended after the handoff so recall's recent-timeline
+// summary has something to report. It closes the store before returning so
+// the daemon this test starts next owns the only open connection.
+func seedRecallStore(t *testing.T, dbPath, projectKey, cwd string) (handoffID, oldDecisionID, newDecisionID string) {
+	t.Helper()
+
+	st, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatalf("seed: store.Open: %v", err)
+	}
+	defer func() { _ = st.Close() }()
+
+	if err := st.UpsertProject(store.Project{Key: projectKey, Toplevel: cwd, FirstSeen: time.Now()}); err != nil {
+		t.Fatalf("seed: upsert project %s: %v", projectKey, err)
+	}
+	sessionID, err := st.StartSession(store.StartSessionParams{
+		Agent: "claude", CWD: cwd, ProjectKey: projectKey, StartedAt: time.Now(), Origin: store.OriginBackfilled,
+	})
+	if err != nil {
+		t.Fatalf("seed: start session: %v", err)
+	}
+
+	oldDecisionID, err = st.InsertRecord(store.InsertRecordParams{
+		Identity: store.Identity{Kind: store.IdentityAgent}, Kind: store.KindDecision,
+		Text: "seeded: chose approach A", SessionID: sessionID, ProjectKey: projectKey,
+	})
+	if err != nil {
+		t.Fatalf("seed: insert old decision: %v", err)
+	}
+	newDecisionID, err = st.InsertRecord(store.InsertRecordParams{
+		Identity: store.Identity{Kind: store.IdentityAgent}, Kind: store.KindDecision,
+		Text: "seeded: chose approach B", SessionID: sessionID, ProjectKey: projectKey,
+	})
+	if err != nil {
+		t.Fatalf("seed: insert new decision: %v", err)
+	}
+	handoffID, err = st.InsertRecord(store.InsertRecordParams{
+		Identity: store.Identity{Kind: store.IdentityAgent}, Kind: store.KindHandoff,
+		Text: "seeded: resume here", SessionID: sessionID, ProjectKey: projectKey,
+	})
+	if err != nil {
+		t.Fatalf("seed: insert handoff: %v", err)
+	}
+
+	if _, err := st.AppendEvent(store.Event{
+		TS: time.Now(), Kind: "test.event", SessionID: sessionID, Source: "test", Payload: "{}",
+	}); err != nil {
+		t.Fatalf("seed: append event: %v", err)
+	}
+
+	return handoffID, oldDecisionID, newDecisionID
+}
+
+// seedOtherProjectDecision opens dbPath through store.Open and inserts a
+// single decision record in a different project (otherProjectKey), the
+// project-isolation half of
+// TestDaemonRecallIsProjectAnchoredThroughHarnessSpawnedHelper: this record
+// must never appear in a recall for projectKey.
+func seedOtherProjectDecision(t *testing.T, dbPath, otherProjectKey, otherCwd string) string {
+	t.Helper()
+
+	st, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatalf("seed other project: store.Open: %v", err)
+	}
+	defer func() { _ = st.Close() }()
+
+	if err := st.UpsertProject(store.Project{Key: otherProjectKey, Toplevel: otherCwd, FirstSeen: time.Now()}); err != nil {
+		t.Fatalf("seed other project: upsert project %s: %v", otherProjectKey, err)
+	}
+	sessionID, err := st.StartSession(store.StartSessionParams{
+		Agent: "claude", CWD: otherCwd, ProjectKey: otherProjectKey, StartedAt: time.Now(), Origin: store.OriginBackfilled,
+	})
+	if err != nil {
+		t.Fatalf("seed other project: start session: %v", err)
+	}
+	id, err := st.InsertRecord(store.InsertRecordParams{
+		Identity: store.Identity{Kind: store.IdentityAgent}, Kind: store.KindDecision,
+		Text: "seeded: a different project's private decision", SessionID: sessionID, ProjectKey: otherProjectKey,
+	})
+	if err != nil {
+		t.Fatalf("seed other project: insert decision: %v", err)
+	}
+	return id
+}
+
+// requestRecallAsHarness is requestBlockAsHarness's recall counterpart
+// (DONE WHEN clause 6: same pattern as
+// TestDaemonStartMigratesOldShapeStoreThroughNormalReadPath): it spawns
+// harnessBin as its own child with cwd set to cwd, so the daemon's /proc
+// ancestry walk resolves the project from THAT child's cwd, never from
+// whatever ran this test suite. harnessBin is told to speak the "recall"
+// tool through an actual mcp.Server (clause 1: "through the MCP shim"), not
+// a hand-rolled DaemonRequest line.
+func requestRecallAsHarness(t *testing.T, harnessBin, sockPath, cwd, sessionID string, params json.RawMessage) string {
+	t.Helper()
+
+	args := []string{sockPath, sessionID, mcp.ToolRecall}
+	if params != nil {
+		args = append(args, string(params))
+	}
+	cmd := exec.Command(harnessBin, args...) //nolint:gosec // harnessBin is the binary this test just built, not external input
+	cmd.Dir = cwd
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("harness client recall request: %v\n%s", err, out)
+	}
+	return string(out)
+}
+
+// TestDaemonRecallIsProjectAnchoredThroughHarnessSpawnedHelper is the
+// punch's DONE WHEN clause 1, proof kind "cmd/backstory tests": through the
+// MCP shim over a real daemon socket, recall with no anchor, called from a
+// test-spawned harness-named helper whose cwd is a seeded project, returns
+// that project's latest handoff first, then its decision records newest
+// first, then a recent-timeline summary; every record item carries its id
+// and provenance tier. A record from a different project seeded in the same
+// store does not appear. Clause 6: this test constructs its own
+// harness-named helper (requestRecallAsHarness -> buildHarnessClient)
+// rather than inheriting the suite's ancestry, the same pattern as
+// TestDaemonStartMigratesOldShapeStoreThroughNormalReadPath.
+//
+// RA-MUTATION-PROBE: handleRecall's projectKey filter replaced with "" (mcp/recall.go)
+// -> RED (this test: leaks the other project's decision id); restored -> GREEN.
+func TestDaemonRecallIsProjectAnchoredThroughHarnessSpawnedHelper(t *testing.T) {
+	bin := buildBackstory(t)
+	harnessBin := buildHarnessClient(t, harnessName)
+
+	runtimeDir := t.TempDir()
+	dataDir := t.TempDir()
+	dbPath := filepath.Join(dataDir, "backstory", "backstory.db")
+	projectDir := t.TempDir()
+	otherProjectDir := t.TempDir()
+
+	projectKey := project.Key(projectDir, project.RealGit{})
+	otherProjectKey := project.Key(otherProjectDir, project.RealGit{})
+	if projectKey == otherProjectKey {
+		t.Fatalf("projectDir %q and otherProjectDir %q resolved to the same project key %q — the isolation this test depends on is broken",
+			projectDir, otherProjectDir, projectKey)
+	}
+
+	handoffID, oldDecisionID, newDecisionID := seedRecallStore(t, dbPath, projectKey, projectDir)
+	otherDecisionID := seedOtherProjectDecision(t, dbPath, otherProjectKey, otherProjectDir)
+
+	cmd := exec.Command(bin, "daemon") //nolint:gosec // bin is the binary this test just built, not external input
+	cmd.Env = append(os.Environ(),
+		"XDG_RUNTIME_DIR="+runtimeDir,
+		"XDG_DATA_HOME="+dataDir,
+	)
+	var out safeBuffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start daemon: %v", err)
+	}
+
+	sockPath := filepath.Join(runtimeDir, "backstory", "sock")
+	waitForFile(t, sockPath, 2*time.Second)
+
+	raw := requestRecallAsHarness(t, harnessBin, sockPath, projectDir, "hook-session-daemon-recall", nil)
+
+	var result mcp.RecallResult
+	if err := json.Unmarshal([]byte(raw), &result); err != nil {
+		t.Fatalf("unmarshal recall result %q: %v", raw, err)
+	}
+
+	if result.ProjectKey != projectKey {
+		t.Errorf("ProjectKey = %q, want %q", result.ProjectKey, projectKey)
+	}
+	if result.Handoff == nil {
+		t.Fatalf("Handoff is nil, want the seeded handoff: %s", raw)
+	}
+	if result.Handoff.ID != handoffID {
+		t.Errorf("Handoff.ID = %q, want %q", result.Handoff.ID, handoffID)
+	}
+	if result.Handoff.Tier == "" {
+		t.Errorf("Handoff.Tier is empty, want a provenance tier")
+	}
+	if len(result.Decisions) != 2 {
+		t.Fatalf("len(Decisions) = %d, want 2: %s", len(result.Decisions), raw)
+	}
+	if result.Decisions[0].ID != newDecisionID {
+		t.Errorf("Decisions[0].ID = %q, want %q (the newer decision first)", result.Decisions[0].ID, newDecisionID)
+	}
+	if result.Decisions[1].ID != oldDecisionID {
+		t.Errorf("Decisions[1].ID = %q, want %q (the older decision second)", result.Decisions[1].ID, oldDecisionID)
+	}
+	for _, d := range result.Decisions {
+		if d.Tier == "" {
+			t.Errorf("decision %s has no Tier, want a provenance tier", d.ID)
+		}
+	}
+	if result.Timeline == "" {
+		t.Errorf("Timeline is empty, want a recent-timeline summary (a seeded event exists): %s", raw)
+	}
+	if strings.Contains(raw, otherDecisionID) {
+		t.Errorf("recall for %s leaked a different project's decision id %s: %s", projectKey, otherDecisionID, raw)
+	}
+
+	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
+		t.Fatalf("signal SIGTERM: %v", err)
+	}
+	waitDone := make(chan error, 1)
+	go func() { waitDone <- cmd.Wait() }()
+	select {
+	case err := <-waitDone:
+		if err != nil {
+			t.Fatalf("daemon exited with error after SIGTERM (want exit 0): %v\noutput:\n%s", err, out.String())
+		}
+	case <-time.After(2 * time.Second):
+		_ = cmd.Process.Kill()
+		t.Fatalf("daemon did not exit within 2s of SIGTERM\noutput:\n%s", out.String())
+	}
+}
+
+// TestDaemonRecallOnEmptyProjectReturnsHonestEmptyResultThroughHarnessSpawnedHelper
+// is the punch's DONE WHEN clause 3, exercised through the same
+// harness-spawned pattern as the clause 1 test above: a project the daemon
+// has never seen a record or event for still returns a project_key, not an
+// error and not not-implemented.
+func TestDaemonRecallOnEmptyProjectReturnsHonestEmptyResultThroughHarnessSpawnedHelper(t *testing.T) {
+	bin := buildBackstory(t)
+	harnessBin := buildHarnessClient(t, harnessName)
+
+	runtimeDir := t.TempDir()
+	dataDir := t.TempDir()
+	projectDir := t.TempDir()
+	projectKey := project.Key(projectDir, project.RealGit{})
+
+	cmd := exec.Command(bin, "daemon") //nolint:gosec // bin is the binary this test just built, not external input
+	cmd.Env = append(os.Environ(),
+		"XDG_RUNTIME_DIR="+runtimeDir,
+		"XDG_DATA_HOME="+dataDir,
+	)
+	var out safeBuffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("start daemon: %v", err)
+	}
+
+	sockPath := filepath.Join(runtimeDir, "backstory", "sock")
+	waitForFile(t, sockPath, 2*time.Second)
+
+	raw := requestRecallAsHarness(t, harnessBin, sockPath, projectDir, "hook-session-daemon-recall-empty", nil)
+
+	var result mcp.RecallResult
+	if err := json.Unmarshal([]byte(raw), &result); err != nil {
+		t.Fatalf("unmarshal recall result %q: %v", raw, err)
+	}
+	if result.ProjectKey != projectKey {
+		t.Errorf("ProjectKey = %q, want %q", result.ProjectKey, projectKey)
+	}
+	if result.Handoff != nil {
+		t.Errorf("Handoff = %+v, want nil for an empty project", result.Handoff)
+	}
+	if len(result.Decisions) != 0 {
+		t.Errorf("Decisions = %+v, want empty for an empty project", result.Decisions)
+	}
+	if result.Timeline != "" {
+		t.Errorf("Timeline = %q, want empty for an empty project", result.Timeline)
 	}
 
 	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {

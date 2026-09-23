@@ -141,6 +141,14 @@ func resumeSlot(rec store.Record, ok bool) string {
 // too (it is real history), but counting it here overstated the figure
 // 3.9x on real history (task 393d174c) — the number that Brian recalls to
 // check has to be a number he can check.
+// DeltaSummary is deltaSlot's compressed "N sessions, M files touched, last
+// exit codes" rendering, exported for recall's own recent-timeline summary
+// (internal/mcp/recall.go) so the one definition of "what a delta looks
+// like" stays here rather than growing a second copy.
+func DeltaSummary(events []store.TimelineEvent) string {
+	return deltaSlot(events)
+}
+
 func deltaSlot(events []store.TimelineEvent) string {
 	if len(events) == 0 {
 		return ""

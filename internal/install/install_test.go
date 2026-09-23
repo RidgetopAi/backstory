@@ -237,6 +237,54 @@ func TestClaudeMDStubNotDuplicatedOnReinstall(t *testing.T) {
 	}
 }
 
+// TestClaudeMDStubUpgradesOldTextInPlaceOnReinstall is DONE WHEN clause 5
+// (task d6ddfce3): running install twice over a file holding the OLD stub
+// (the unconditional "call recall" text, pre-dating this punch) leaves
+// exactly one stub between the markers, with the NEW text, and all foreign
+// content — before, between, and after the stub — unchanged.
+func TestClaudeMDStubUpgradesOldTextInPlaceOnReinstall(t *testing.T) {
+	home := t.TempDir()
+	claudeMD := filepath.Join(home, ".claude", "CLAUDE.md")
+
+	const oldStubLine = "Backstory: call the `backstory` MCP tool's `recall`; see `~/.claude/skills/backstory/SKILL.md`."
+	seeded := "# before\nsome prior notes\n" +
+		install.StubMarkerBegin + "\n" + oldStubLine + "\n" + install.StubMarkerEnd + "\n" +
+		"# after\nmore foreign content\n"
+	mustWriteFile(t, claudeMD, seeded)
+
+	paths := install.DefaultPaths(home)
+	for i := 0; i < 2; i++ {
+		if err := install.InstallStub(paths.ClaudeMD); err != nil {
+			t.Fatalf("round %d: InstallStub: %v", i, err)
+		}
+	}
+
+	data, err := os.ReadFile(claudeMD) //nolint:gosec // claudeMD is a t.TempDir() path this test built, not external input
+	if err != nil {
+		t.Fatalf("read CLAUDE.md: %v", err)
+	}
+	content := string(data)
+
+	if n := strings.Count(content, install.StubMarkerBegin); n != 1 {
+		t.Errorf("stub begin marker appears %d times, want 1:\n%s", n, content)
+	}
+	if n := strings.Count(content, install.StubMarkerEnd); n != 1 {
+		t.Errorf("stub end marker appears %d times, want 1:\n%s", n, content)
+	}
+	if strings.Contains(content, oldStubLine) {
+		t.Errorf("old stub text is still present, want it replaced:\n%s", content)
+	}
+	if !strings.Contains(content, install.StubLine) {
+		t.Errorf("new stub text is missing:\n%s", content)
+	}
+	if !strings.Contains(content, "# before\nsome prior notes") {
+		t.Errorf("foreign content before the stub was lost:\n%s", content)
+	}
+	if !strings.Contains(content, "# after\nmore foreign content") {
+		t.Errorf("foreign content after the stub was lost:\n%s", content)
+	}
+}
+
 // TestMalformedSettingsJSONRefusesAndLeavesFilesUntouched mirrors the
 // previous test for the other JSON file: a malformed settings.json refuses
 // with a named error and leaves both files untouched, even though
