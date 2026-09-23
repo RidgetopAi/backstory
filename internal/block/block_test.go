@@ -167,6 +167,7 @@ func TestRenderAllFiveSlotsPopulatedInOrderWithModeLine(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 
+	idxHeader := strings.Index(out, block.HeaderLine)
 	idxResume := strings.Index(out, "Resume:")
 	idxMode := strings.Index(out, "MODE: review")
 	idxDelta := strings.Index(out, "Delta:")
@@ -175,14 +176,17 @@ func TestRenderAllFiveSlotsPopulatedInOrderWithModeLine(t *testing.T) {
 	idxFinal := strings.Index(out, block.FinalLine)
 
 	for name, idx := range map[string]int{
-		"Resume": idxResume, "MODE": idxMode, "Delta": idxDelta,
+		"header": idxHeader, "Resume": idxResume, "MODE": idxMode, "Delta": idxDelta,
 		"Coordination": idxCoord, "Attention": idxAttention, "final line": idxFinal,
 	} {
 		if idx < 0 {
 			t.Fatalf("output missing %s; got:\n%s", name, out)
 		}
 	}
-	inOrder := idxResume < idxMode && idxMode < idxDelta && idxDelta < idxCoord &&
+	if idxHeader != 0 {
+		t.Fatalf("header is not the first line; got:\n%s", out)
+	}
+	inOrder := idxHeader < idxResume && idxResume < idxMode && idxMode < idxDelta && idxDelta < idxCoord &&
 		idxCoord < idxAttention && idxAttention < idxFinal
 	if !inOrder {
 		t.Fatalf("slots out of order; got:\n%s", out)
@@ -422,7 +426,11 @@ func TestRenderAttentionCountsDraftsAndContradictions(t *testing.T) {
 	}
 }
 
-// TestRenderEmptyProjectYieldsExactlyTheEmptyStateConstant is clause (f).
+// TestRenderEmptyProjectYieldsExactlyTheEmptyStateConstant is clause (f),
+// plus the punch's (task 6ae45e80, decision 1e53165a) DONE WHEN clause 1's
+// empty-state half: the empty-state render opens with HeaderLine so an
+// agent seeing only "no history yet" can still tell it came from Backstory
+// and needs no recall call to re-fetch it.
 func TestRenderEmptyProjectYieldsExactlyTheEmptyStateConstant(t *testing.T) {
 	s := newTestStore(t)
 	mustUpsertProject(t, s, "proj-empty")
@@ -433,8 +441,65 @@ func TestRenderEmptyProjectYieldsExactlyTheEmptyStateConstant(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	if out != block.EmptyProjectLine {
-		t.Fatalf("Render(empty project) = %q, want exactly %q", out, block.EmptyProjectLine)
+	want := block.HeaderLine + "\n\n" + block.EmptyProjectLine
+	if out != want {
+		t.Fatalf("Render(empty project) = %q, want exactly %q", out, want)
+	}
+	if !strings.HasPrefix(out, block.HeaderLine) {
+		t.Errorf("empty-state render does not open with HeaderLine; got:\n%s", out)
+	}
+	if !strings.Contains(out, "Backstory") {
+		t.Errorf("empty-state header does not name Backstory as the source; got:\n%s", out)
+	}
+}
+
+// TestRenderHeaderLineOpensBothThePopulatedAndEmptyStateBlock is the punch's
+// (task 6ae45e80, decision 1e53165a) DONE WHEN clause 1, directly: Brian's
+// desktop measurement showed an agent receiving "Delta: 50 sessions, 105
+// files touched\n\nask backstory for more" could not tell the block came
+// from Backstory and offered to re-fetch it with recall — AGENT-CONTRACT.md
+// §The SessionStart block's "do not re-fetch it" rule was unobeyable because
+// nothing named the source. The first line of every render, populated or
+// empty-state, must name Backstory and say the block is already loaded so
+// recall need not be called again.
+func TestRenderHeaderLineOpensBothThePopulatedAndEmptyStateBlock(t *testing.T) {
+	if !strings.Contains(block.HeaderLine, "Backstory") {
+		t.Fatalf("HeaderLine %q does not contain the word Backstory", block.HeaderLine)
+	}
+	if !strings.Contains(strings.ToLower(block.HeaderLine), "already loaded") {
+		t.Fatalf("HeaderLine %q does not say the block is already loaded", block.HeaderLine)
+	}
+	if !strings.Contains(strings.ToLower(block.HeaderLine), "recall") {
+		t.Fatalf("HeaderLine %q does not mention recall need not be called to re-fetch it", block.HeaderLine)
+	}
+	if strings.Contains(block.HeaderLine, "\n") {
+		t.Fatalf("HeaderLine %q is not one line", block.HeaderLine)
+	}
+
+	s := newTestStore(t)
+	mustUpsertProject(t, s, testProjectKey)
+	self := mustStartSession(t, s, "claude", "/proj", 100)
+	mustInsertHandoff(t, s, self, "populated case")
+
+	populated, err := block.Render(block.Params{
+		Store: s, ProcFS: fakeProcFS{}, ProjectKey: testProjectKey, SessionID: self, Harness: "claude",
+	})
+	if err != nil {
+		t.Fatalf("Render (populated): %v", err)
+	}
+	if firstLine := strings.SplitN(populated, "\n", 2)[0]; firstLine != block.HeaderLine {
+		t.Errorf("populated block's first line = %q, want %q", firstLine, block.HeaderLine)
+	}
+
+	mustUpsertProject(t, s, "proj-empty-header")
+	empty, err := block.Render(block.Params{
+		Store: s, ProcFS: fakeProcFS{}, ProjectKey: "proj-empty-header", SessionID: "self", Harness: "claude",
+	})
+	if err != nil {
+		t.Fatalf("Render (empty-state): %v", err)
+	}
+	if firstLine := strings.SplitN(empty, "\n", 2)[0]; firstLine != block.HeaderLine {
+		t.Errorf("empty-state block's first line = %q, want %q", firstLine, block.HeaderLine)
 	}
 }
 

@@ -63,14 +63,18 @@ func itoa(n int) string {
 }
 
 // TestBudgetCutsDeltaBeforeAttentionBeforeCoordination is the punch's DONE
-// WHEN clause 3: at a 200 token budget with overflowing content, the output
-// measures <= 200 by block.EstimateTokens, slot 2 (delta) and slot 4
-// (attention) are cut but slot 3 (coordination) is not, and slots 1 (resume)
-// and 5 (the final line) survive.
+// WHEN clause 3: at a 220 token budget with overflowing content, the output
+// measures <= 220 by block.EstimateTokens, slot 2 (delta) and slot 4
+// (attention) are cut but slot 3 (coordination) is not, and HeaderLine,
+// slot 1 (resume), and slot 5 (the final line) survive. The budget was
+// raised from 200 to 220 (task 6ae45e80, decision 1e53165a): HeaderLine now
+// counts against every render's token budget too, so the fixture needs
+// enough headroom for HeaderLine plus slot 1, slot 3, and the final line to
+// fit once slot 2 and slot 4 are cut.
 //
 // Mutation probe (assemble's `if EstimateTokens(join()) <= budgetTokens {
 // return join() }` short-circuited to an unconditional `return join()`,
-// budget.go): "budget_test.go:98: EstimateTokens(out) = 220, want <= 200"
+// budget.go): "budget_test.go:98: EstimateTokens(out) = 241, want <= 220"
 // (this test) -- restoring the budget check turns it back GREEN.
 func TestBudgetCutsDeltaBeforeAttentionBeforeCoordination(t *testing.T) {
 	s, self := overflowingScenario(t)
@@ -88,7 +92,7 @@ func TestBudgetCutsDeltaBeforeAttentionBeforeCoordination(t *testing.T) {
 			budgetTokens, block.EstimateTokens(out))
 	}
 
-	if err := s.SetSetting(block.SettingBudgetKey, "200"); err != nil {
+	if err := s.SetSetting(block.SettingBudgetKey, strconv.Itoa(budgetTokens)); err != nil {
 		t.Fatalf("SetSetting: %v", err)
 	}
 
@@ -100,8 +104,8 @@ func TestBudgetCutsDeltaBeforeAttentionBeforeCoordination(t *testing.T) {
 		t.Fatalf("Render: %v", err)
 	}
 
-	if got := block.EstimateTokens(out); got > 200 {
-		t.Fatalf("EstimateTokens(out) = %d, want <= 200; got:\n%s", got, out)
+	if got := block.EstimateTokens(out); got > budgetTokens {
+		t.Fatalf("EstimateTokens(out) = %d, want <= %d; got:\n%s", got, budgetTokens, out)
 	}
 	if strings.Contains(out, "Delta:") {
 		t.Errorf("slot 2 (delta) was not cut; got:\n%s", out)
@@ -118,9 +122,12 @@ func TestBudgetCutsDeltaBeforeAttentionBeforeCoordination(t *testing.T) {
 	if !strings.Contains(out, block.FinalLine) {
 		t.Errorf("slot 5 (final line) is missing but must always survive; got:\n%s", out)
 	}
+	if !strings.HasPrefix(out, block.HeaderLine) {
+		t.Errorf("HeaderLine is missing or not first even though the budget fit it; got:\n%s", out)
+	}
 }
 
-const budgetTokens = 200
+const budgetTokens = 220
 
 // orderPinScenario builds a fixture for the cut-order pinning test: one
 // other live session (a small, constant slot 3), optionally events for
@@ -262,12 +269,16 @@ func TestBudgetTruncatesAResumeSlotThatAloneExceedsTheBudget(t *testing.T) {
 	}
 }
 
-// TestBudgetSmallerThanFinalLineReturnsExactlyTheFinalLine is the punch's
-// DONE WHEN clause 3's degenerate case: a budget too small even for the
-// final line alone still completes (no panic, no infinite loop) and
-// returns exactly the final line once every cuttable slot has been cut and
-// slot 1 was already empty.
-func TestBudgetSmallerThanFinalLineReturnsExactlyTheFinalLine(t *testing.T) {
+// TestBudgetTooSmallForAnySlotStillContainsTheHeaderLine is the older
+// budget-cutting punch's degenerate case (a budget too small even for the
+// final line alone still completes with no panic and no infinite loop) AND
+// task 6ae45e80's (decision 1e53165a) DONE WHEN clause 2: under a token
+// budget too small to fit any slot — including slot 5, the final line —
+// the rendered block still contains HeaderLine. HeaderLine is the very
+// last thing the budget cutter drops, so at this budget it is the only
+// thing left: even FinalLine, never truncated and previously always
+// present at any budget, is dropped before HeaderLine ever would be.
+func TestBudgetTooSmallForAnySlotStillContainsTheHeaderLine(t *testing.T) {
 	s := newTestStore(t)
 	mustUpsertProject(t, s, testProjectKey)
 	self := mustStartSession(t, s, "claude", "/proj", 100)
@@ -285,8 +296,11 @@ func TestBudgetSmallerThanFinalLineReturnsExactlyTheFinalLine(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	if out != block.FinalLine {
-		t.Fatalf("Render with a %d token budget = %q, want exactly %q", tinyBudget, out, block.FinalLine)
+	if !strings.Contains(out, block.HeaderLine) {
+		t.Fatalf("Render with a %d token budget = %q, want it to still contain HeaderLine %q", tinyBudget, out, block.HeaderLine)
+	}
+	if out != block.HeaderLine {
+		t.Fatalf("Render with a %d token budget = %q, want exactly HeaderLine %q (every slot and the final line dropped first)", tinyBudget, out, block.HeaderLine)
 	}
 }
 

@@ -668,16 +668,17 @@ func verifyHook() error {
 
 // verifyStdoutOK reports whether out — the hook's stdout after a zero exit,
 // trailing newline trimmed — matches a documented success shape: a rendered
-// block (block.Render always ends non-empty content in block.FinalLine,
-// untouched by its own budget-cut truncation), the exact empty-project
-// line, or, when out is completely empty, an independently confirmed
-// absence of a reachable daemon. daemonUp must come from daemonReachable,
-// not from the hook subprocess's own exit code — a hook that exits 0
-// printing nothing is otherwise indistinguishable from the documented
-// no-daemon success path.
+// block ending in block.EmptyProjectLine (the empty-state body, itself
+// preceded by block.HeaderLine) or in block.FinalLine (untouched by its own
+// budget-cut truncation, except at a budget too small to fit anything —
+// out of reach at the default budget this synthetic verify run uses), or,
+// when out is completely empty, an independently confirmed absence of a
+// reachable daemon. daemonUp must come from daemonReachable, not from the
+// hook subprocess's own exit code — a hook that exits 0 printing nothing is
+// otherwise indistinguishable from the documented no-daemon success path.
 func verifyStdoutOK(out string, daemonUp bool) bool {
 	switch {
-	case out == block.EmptyProjectLine:
+	case strings.HasSuffix(out, block.EmptyProjectLine):
 		return true
 	case out != "" && strings.HasSuffix(out, block.FinalLine):
 		return true

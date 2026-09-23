@@ -125,11 +125,13 @@ func TestHookSessionStartPrintsBlockAndRecordsHarnessSessionID(t *testing.T) {
 	if strings.TrimSpace(stdout) == "" {
 		t.Fatalf("stdout is empty, want the rendered block (stderr: %s)", stderr)
 	}
-	// A fresh project with no history renders the named empty-state
-	// constant — that IS the block, so this also proves the hook printed
-	// the daemon's actual rendered output, not some placeholder.
-	if got := strings.TrimSpace(stdout); got != block.EmptyProjectLine {
-		t.Errorf("stdout = %q, want exactly %q for a fresh project", got, block.EmptyProjectLine)
+	// A fresh project with no history renders the named empty-state body,
+	// preceded by the Backstory header — that IS the block, so this also
+	// proves the hook printed the daemon's actual rendered output, not some
+	// placeholder.
+	wantEmpty := block.HeaderLine + "\n\n" + block.EmptyProjectLine
+	if got := strings.TrimSpace(stdout); got != wantEmpty {
+		t.Errorf("stdout = %q, want exactly %q for a fresh project", got, wantEmpty)
 	}
 
 	s := mustOpenTestStore(t, dbPath)

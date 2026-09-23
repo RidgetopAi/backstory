@@ -140,10 +140,20 @@ resume is reopening a terminal at the session's cwd.
 
 ## The SessionStart block
 
-Five fixed slots, in order, each optional, under a **user-set budget** (default ~1,500
-tokens, per-agent override). The budget is not the agent's choice and not hard-coded; the
-industry range is narrow (Hermes ~2,200 chars, omp 5,000 tokens, Claude auto-memory 200
-lines / 25 KB).
+Opens with **one header line**, ahead of every slot below, that names Backstory as the
+source and says the block is already loaded — so the agent reading it can tell it came
+from Backstory and can obey the next paragraph's "do not re-fetch it" without help. Before
+this line existed, nothing in the block named its source: measured on Brian's desktop
+(2026-09-23, binary `0e14cad`), an agent that received `Delta: 50 sessions, 105 files
+touched\n\nask backstory for more` could not tell it came from Backstory and offered to
+call `recall` to fetch it — the exact re-fetch the next rule forbids. The header counts
+against the budget below like every slot, but is the **last thing dropped, never the
+first**: at a budget too small to fit any slot, the header is what survives.
+
+Then five fixed slots, in order, each optional, under a **user-set budget** (default
+~1,500 tokens, per-agent override). The budget is not the agent's choice and not
+hard-coded; the industry range is narrow (Hermes ~2,200 chars, omp 5,000 tokens, Claude
+auto-memory 200 lines / 25 KB).
 
 1. **Resume pointer** — the latest `handoff` for THIS project, its MODE line if present
 2. **Delta** — timeline since that handoff, compressed to "N sessions, files touched, last
@@ -153,8 +163,9 @@ lines / 25 KB).
 4. **Attention** — unconfirmed drafts count, flagged contradictions
 5. **One line** — "ask backstory for more"
 
-Nothing else. Harnesses with no SessionStart (Antigravity) or no injection on passive
-hooks (Grok) get the block by the skill telling the agent to call `recall` once.
+The header plus these five slots are the whole of it. Harnesses with no SessionStart
+(Antigravity) or no injection on passive hooks (Grok) get the block by the skill telling
+the agent to call `recall` once.
 
 **If the block is present, do not re-fetch it.** Measured on Ridge (context `206f0638`):
 202/202 boot re-reads returned zero fresh tokens.
