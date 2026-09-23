@@ -54,6 +54,12 @@ func startDaemonForTest(t *testing.T, bin, runtimeDir, dataDir string, extraEnv 
 	env := append(os.Environ(),
 		"XDG_RUNTIME_DIR="+runtimeDir,
 		"XDG_DATA_HOME="+dataDir,
+		// Isolate from this machine's real ~/.claude/projects (backfill_test.go's
+		// own pattern): without this, the daemon's background backfill importer
+		// competes for the sqlite store's write lock against whatever real
+		// transcript history happens to exist on the box running the test,
+		// which is neither hermetic nor this test's concern.
+		"BACKSTORY_CLAUDE_ROOT="+filepath.Join(t.TempDir(), "does-not-exist"),
 	)
 	env = append(env, extraEnv...)
 
