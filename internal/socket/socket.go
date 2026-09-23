@@ -48,6 +48,14 @@ type Server struct {
 	ln       net.Listener
 	resolver *ident.Resolver
 	handler  Handler
+
+	// FirstLineDeadline bounds how long handle waits, per accepted
+	// connection, for the connecting peer to send its complete first
+	// request line. Listen sets it to the package's FirstLineDeadline
+	// constant (production default: 5s); a caller may lower it before
+	// Serve to make an idle-timeout test run fast without touching the
+	// production default itself.
+	FirstLineDeadline time.Duration
 }
 
 // Listen creates (or replaces) a unix socket at path, mode FileMode inside a
@@ -74,7 +82,7 @@ func Listen(path string, resolver *ident.Resolver, handler Handler) (*Server, er
 		_ = ln.Close()
 		return nil, fmt.Errorf("socket: chmod %s: %w", path, err)
 	}
-	return &Server{ln: ln, resolver: resolver, handler: handler}, nil
+	return &Server{ln: ln, resolver: resolver, handler: handler, FirstLineDeadline: FirstLineDeadline}, nil
 }
 
 // Addr returns the socket's filesystem path.
@@ -119,12 +127,12 @@ func (s *Server) handle(conn net.Conn) {
 	}
 	id := s.resolver.Resolve(ident.PeerCreds{UID: uid, PID: pid})
 
-	if err := conn.SetReadDeadline(time.Now().Add(FirstLineDeadline)); err != nil {
+	if err := conn.SetReadDeadline(time.Now().Add(s.FirstLineDeadline)); err != nil {
 		_ = conn.Close()
 		return
 	}
 	br := bufio.NewReader(conn)
-	line, cutOff := readFirstLine(br)
+	line, cutOff := readFirstLine(br, s.FirstLineDeadline)
 	if cutOff != "" {
 		log.Printf("socket: closing connection from pid %d: %s", pid, cutOff)
 		_ = conn.Close()
@@ -150,7 +158,7 @@ func (s *Server) handle(conn net.Conn) {
 // Handler with a partial or oversized line. A peer that closes the
 // connection before sending '\n' is not a cutOff: its partial line (best
 // effort) is returned so the Handler still sees whatever bytes arrived.
-func readFirstLine(br *bufio.Reader) (line []byte, cutOff string) {
+func readFirstLine(br *bufio.Reader, deadline time.Duration) (line []byte, cutOff string) {
 	for {
 		chunk, err := br.ReadSlice('\n')
 		line = append(line, chunk...)
@@ -165,7 +173,7 @@ func readFirstLine(br *bufio.Reader) (line []byte, cutOff string) {
 		}
 		var netErr net.Error
 		if errors.As(err, &netErr) && netErr.Timeout() {
-			return nil, fmt.Sprintf("no complete first line within %s", FirstLineDeadline)
+			return nil, fmt.Sprintf("no complete first line within %s", deadline)
 		}
 		return line, "" // premature close or other read error: best-effort partial line
 	}

@@ -48,19 +48,43 @@ type rpcResponse struct {
 	Error   *RPCError       `json:"error,omitempty"`
 }
 
+// Dialer connects to the daemon socket. Server calls it lazily, on the
+// first tool call that needs the daemon (note/status), never at
+// construction — a harness launches the shim at session start and the first
+// tool call can arrive minutes later, so dialing eagerly means the
+// connection sits idle past the daemon's FirstLineDeadline before it is ever
+// used, and every one of those first calls fails with a closed connection
+// (task 40008eea).
+type Dialer func() (net.Conn, error)
+
 // Server is the stdio<->socket MCP shim: it speaks JSON-RPC 2.0 line by line
 // over stdin/stdout, and forwards note/status/recall tool calls to the
-// daemon over daemonConn. timeline/confirm never touch daemonConn at all.
+// daemon over a connection it dials lazily via dial. timeline/confirm never
+// touch the daemon connection at all.
 type Server struct {
+	dial         Dialer
 	daemonConn   net.Conn
 	daemonReader *bufio.Reader
 }
 
-// NewServer builds a shim that forwards note/status calls over an
-// already-connected daemonConn (dialed by the caller, e.g. cmd/backstory's
-// `mcp` subcommand or a test's own net.Dial against a test daemon).
-func NewServer(daemonConn net.Conn) *Server {
-	return &Server{daemonConn: daemonConn, daemonReader: bufio.NewReader(daemonConn)}
+// NewServer builds a shim that forwards note/status calls to the daemon
+// connection dial produces. dial is not called until the first daemon-backed
+// tool call, so initialize/tools/list answer even with no daemon listening,
+// and a shim that never calls a daemon-backed tool never dials at all.
+func NewServer(dial Dialer) *Server {
+	return &Server{dial: dial}
+}
+
+// Close closes the shim's daemon connection, if one has been dialed. It is a
+// no-op if the shim never made a daemon-backed call.
+func (s *Server) Close() error {
+	if s.daemonConn == nil {
+		return nil
+	}
+	err := s.daemonConn.Close()
+	s.daemonConn = nil
+	s.daemonReader = nil
+	return err
 }
 
 // Serve reads line-delimited JSON-RPC 2.0 requests from r and writes

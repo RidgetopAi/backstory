@@ -1,6 +1,11 @@
 package mcp
 
-import "encoding/json"
+import (
+	"bufio"
+	"encoding/json"
+	"errors"
+	"fmt"
+)
 
 // CallTool executes one MCP tool by name given its raw JSON arguments
 // object, returning the tool's structured JSON result or a JSON-RPC error.
@@ -67,32 +72,84 @@ func (s *Server) callRecall(args json.RawMessage) (json.RawMessage, *RPCError) {
 
 // callDaemon sends one DaemonRequest line to the daemon and reads back
 // exactly one DaemonResponse line, translating a daemon-side error into a
-// JSON-RPC error.
+// JSON-RPC error. The daemon connection is dialed lazily (on the first call
+// that reaches here) and then reused across subsequent calls. If sending or
+// reading the request fails — the daemon may have closed an idle connection
+// between two tool calls, since sessions are per connection and the daemon
+// still reaps a peer that goes quiet — callDaemon closes the dead
+// connection, re-dials once, and retries the same request once before
+// surfacing an error (task 40008eea).
 func (s *Server) callDaemon(method string, params json.RawMessage) (json.RawMessage, *RPCError) {
-	if s.daemonConn == nil {
-		return nil, &RPCError{Code: CodeInternal, Message: "mcp: no daemon connection"}
-	}
 	req := DaemonRequest{Method: method, Params: params}
 	b, err := json.Marshal(req)
 	if err != nil {
 		return nil, &RPCError{Code: CodeInternal, Message: err.Error()}
 	}
-	if _, err := s.daemonConn.Write(append(b, '\n')); err != nil {
-		return nil, &RPCError{Code: CodeInternal, Message: "mcp: write daemon request: " + err.Error()}
-	}
+	line := append(b, '\n')
 
-	line, err := s.daemonReader.ReadBytes('\n')
-	if err != nil {
-		return nil, &RPCError{Code: CodeInternal, Message: "mcp: read daemon response: " + err.Error()}
+	resp, rerr := s.sendRecvOnce(line)
+	if rerr != nil {
+		s.closeDaemonConn()
+		resp, rerr = s.sendRecvOnce(line)
 	}
-	var resp DaemonResponse
-	if err := json.Unmarshal(line, &resp); err != nil {
-		return nil, &RPCError{Code: CodeInternal, Message: "mcp: decode daemon response: " + err.Error()}
+	if rerr != nil {
+		return nil, rerr
 	}
 	if resp.Error != nil {
 		return nil, &RPCError{Code: rpcCodeForDaemonError(resp.Error.Code), Message: resp.Error.Message}
 	}
 	return resp.Result, nil
+}
+
+// sendRecvOnce ensures a daemon connection is dialed, writes line to it, and
+// reads back exactly one DaemonResponse line. It never retries itself —
+// callDaemon owns the one-retry policy — so a caller can tell a fresh
+// dial+write+read attempt apart from a retry of the same attempt.
+func (s *Server) sendRecvOnce(line []byte) (DaemonResponse, *RPCError) {
+	if err := s.ensureDaemonConn(); err != nil {
+		return DaemonResponse{}, &RPCError{Code: CodeInternal, Message: "mcp: " + err.Error()}
+	}
+	if _, err := s.daemonConn.Write(line); err != nil {
+		return DaemonResponse{}, &RPCError{Code: CodeInternal, Message: "mcp: write daemon request: " + err.Error()}
+	}
+	respLine, err := s.daemonReader.ReadBytes('\n')
+	if err != nil {
+		return DaemonResponse{}, &RPCError{Code: CodeInternal, Message: "mcp: read daemon response: " + err.Error()}
+	}
+	var resp DaemonResponse
+	if err := json.Unmarshal(respLine, &resp); err != nil {
+		return DaemonResponse{}, &RPCError{Code: CodeInternal, Message: "mcp: decode daemon response: " + err.Error()}
+	}
+	return resp, nil
+}
+
+// ensureDaemonConn dials the daemon on the first call and reuses that
+// connection on every subsequent call; it is a no-op once daemonConn is set.
+func (s *Server) ensureDaemonConn() error {
+	if s.daemonConn != nil {
+		return nil
+	}
+	if s.dial == nil {
+		return errors.New("no daemon connection")
+	}
+	conn, err := s.dial()
+	if err != nil {
+		return fmt.Errorf("dial daemon: %w", err)
+	}
+	s.daemonConn = conn
+	s.daemonReader = bufio.NewReader(conn)
+	return nil
+}
+
+// closeDaemonConn drops the current daemon connection so the next call
+// re-dials from scratch. Used only to recover from a dead connection;
+// Server.Close is the public, caller-invoked equivalent.
+func (s *Server) closeDaemonConn() {
+	if s.daemonConn != nil {
+		_ = s.daemonConn.Close()
+	}
+	s.daemonConn = nil
+	s.daemonReader = nil
 }
 
 // rpcCodeForDaemonError maps a DaemonError.Code to the JSON-RPC error code
