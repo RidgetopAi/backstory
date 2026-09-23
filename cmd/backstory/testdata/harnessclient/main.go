@@ -57,7 +57,7 @@ func main() {
 	defer func() { _ = conn.Close() }()
 
 	if method == mcp.ToolRecall {
-		shim := mcp.NewServer(conn)
+		shim := mcp.NewServer(func() (net.Conn, error) { return conn, nil })
 		result, rerr := shim.CallTool(mcp.ToolRecall, params)
 		if rerr != nil {
 			fmt.Fprintln(os.Stderr, "recall call error:", rerr.Message)
