@@ -250,6 +250,51 @@ func TestHookPostToolUseProjectComesFromResolverNotDeclaredSession(t *testing.T)
 	}
 }
 
+// TestHookPostToolUseProjectComesFromRealCwdNotPayloadCWD is DONE WHEN
+// clause 6's "take the project from the payload's cwd instead of the
+// observed identity" guard applied literally to the payload's own "cwd"
+// field: the hook subprocess's real OS cwd is realProjectDir (what the
+// daemon's SO_PEERCRED + /proc walk actually observes), but the PostToolUse
+// JSON it sends declares a "cwd" field pointing at a different directory,
+// fakeProjectDir, the way a compromised or buggy harness could claim any
+// cwd it likes. The event must land in the project the daemon *observed*
+// (realProjectDir) and never in the project the payload merely *declared*
+// (fakeProjectDir) — mcp.PostToolUseParams intentionally carries no CWD
+// field at all (internal/mcp/hook.go) so there is nothing for a handler to
+// misuse here even by accident.
+func TestHookPostToolUseProjectComesFromRealCwdNotPayloadCWD(t *testing.T) {
+	bin := buildBackstoryHarness(t)
+	dbPath, env := startTestDaemon(t, bin)
+	realProjectDir := t.TempDir()
+	fakeProjectDir := t.TempDir()
+
+	_, stderr, exitCode, _ := runHookInDir(t, bin, realProjectDir, env, []string{"post-tool-use"}, map[string]any{
+		"session_id":  "claude-cwd-spoof-session",
+		"cwd":         fakeProjectDir,
+		"tool_name":   "Edit",
+		"tool_use_id": "toolu_cwd_spoof_1",
+		"tool_input":  map[string]any{"file_path": filepath.Join(realProjectDir, "spoofed.go")},
+	})
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", exitCode, stderr)
+	}
+
+	s := mustOpenTestStore(t, dbPath)
+	realKey := project.Key(realProjectDir, project.RealGit{})
+	fakeKey := project.Key(fakeProjectDir, project.RealGit{})
+
+	realEvents := queryEventsForProject(t, s, realKey)
+	if len(realEvents) != 1 {
+		t.Fatalf("project at the real observed cwd has %d events, want exactly 1: %#v", len(realEvents), realEvents)
+	}
+	fakeEvents := queryEventsForProject(t, s, fakeKey)
+	if len(fakeEvents) != 0 {
+		t.Fatalf("project at the payload's declared (fake) cwd has %d events, want 0 — "+
+			"a payload's own \"cwd\" field must never decide which project an event is recorded in: %#v",
+			len(fakeEvents), fakeEvents)
+	}
+}
+
 // TestHookPostToolUseBashRecordsCommandAndExitCode is half of task
 // 04b1cb40's DONE WHEN clause 2: a Bash PostToolUse payload is recorded
 // with its command, and with its exit code when the payload carries one.
