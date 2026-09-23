@@ -24,6 +24,7 @@ import (
 const (
 	ItemMCPServer        = "mcp-server"
 	ItemSessionStartHook = "session-start-hook"
+	ItemPostToolUseHook  = "post-tool-use-hook"
 	ItemSkill            = "skill"
 	ItemClaudeMDStub     = "claude-md-stub"
 )
@@ -52,6 +53,17 @@ const HookCommand = "backstory hook session-start"
 // separate entries (AGENT-CONTRACT.md's installer note picks one and tests
 // it).
 const HookMatcher = "startup|resume|clear"
+
+// HookCommandPostToolUse is the exact PostToolUse hook command string the
+// installer writes. It must match the `backstory hook post-tool-use`
+// subcommand (cmd/backstory/hook.go, task 04b1cb40).
+const HookCommandPostToolUse = "backstory hook post-tool-use"
+
+// HookMatcherPostToolUse is the PostToolUse matcher this installer writes:
+// an empty string, matching every tool. Claude Code's documented "match
+// everything" matcher, "*", has a known bug where it silently matches
+// nothing; "" is the working form.
+const HookMatcherPostToolUse = ""
 
 // DefaultHookTimeoutSeconds is the SessionStart hook's timeout when Options
 // does not override it.
@@ -141,13 +153,17 @@ func Install(paths Paths, opts Options) error {
 	if err != nil {
 		return err
 	}
+	postToolUseChanged, err := mergePostToolUseHook(settingsRoot, opts.timeoutSeconds())
+	if err != nil {
+		return err
+	}
 
 	if mcpChanged {
 		if err := writeJSONAtomic(paths.ClaudeJSON, claudeRoot, claudeMode); err != nil {
 			return fmt.Errorf("%s: %w", ItemMCPServer, err)
 		}
 	}
-	if hookChanged {
+	if hookChanged || postToolUseChanged {
 		if err := writeJSONAtomic(paths.SettingsJSON, settingsRoot, settingsMode); err != nil {
 			return fmt.Errorf("%s: %w", ItemSessionStartHook, err)
 		}
@@ -188,6 +204,7 @@ func Check(paths Paths, opts Options) ([]Item, error) {
 	items := []Item{
 		{Name: ItemMCPServer, Status: mcpServerStatus(claudeRoot)},
 		{Name: ItemSessionStartHook, Status: sessionStartHookStatus(settingsRoot, opts.timeoutSeconds())},
+		{Name: ItemPostToolUseHook, Status: postToolUseHookStatus(settingsRoot, opts.timeoutSeconds())},
 		{Name: ItemSkill, Status: install2checkStatus(skill.CheckStatus(paths.SkillPath, opts.Prefix))},
 		{Name: ItemClaudeMDStub, Status: stubStatus(paths.ClaudeMD)},
 	}
@@ -210,13 +227,14 @@ func Remove(paths Paths, opts Options) error {
 
 	mcpChanged := removeMCPServer(claudeRoot)
 	hookChanged := removeSessionStartHook(settingsRoot, opts.timeoutSeconds())
+	postToolUseChanged := removePostToolUseHook(settingsRoot, opts.timeoutSeconds())
 
 	if mcpChanged {
 		if err := writeJSONAtomic(paths.ClaudeJSON, claudeRoot, claudeMode); err != nil {
 			return fmt.Errorf("%s: %w", ItemMCPServer, err)
 		}
 	}
-	if hookChanged {
+	if hookChanged || postToolUseChanged {
 		if err := writeJSONAtomic(paths.SettingsJSON, settingsRoot, settingsMode); err != nil {
 			return fmt.Errorf("%s: %w", ItemSessionStartHook, err)
 		}
@@ -392,6 +410,120 @@ func removeSessionStartHook(root map[string]any, timeoutSeconds int) (changed bo
 		delete(hooksObj, "SessionStart")
 	} else {
 		hooksObj["SessionStart"] = kept
+	}
+	if len(hooksObj) == 0 {
+		delete(root, "hooks")
+	} else {
+		root["hooks"] = hooksObj
+	}
+	return true
+}
+
+// --- hooks.PostToolUse ---
+
+func wantPostToolUseEntry(timeoutSeconds int) map[string]any {
+	return map[string]any{
+		"matcher": HookMatcherPostToolUse,
+		"hooks": []any{
+			map[string]any{
+				"type":    "command",
+				"command": HookCommandPostToolUse,
+				"timeout": float64(timeoutSeconds),
+			},
+		},
+	}
+}
+
+// mergePostToolUseHook appends the PostToolUse entry to root's
+// hooks.PostToolUse array, exactly like mergeSessionStartHook does for
+// hooks.SessionStart: an existing foreign entry in that array (a different
+// matcher, a different command) is left in place, never replaced or
+// reordered, because this installer only ever appends its own entry and
+// only ever removes it by exact match (removePostToolUseHook).
+func mergePostToolUseHook(root map[string]any, timeoutSeconds int) (changed bool, err error) {
+	hooksObj, err := objectField(root, "hooks")
+	if err != nil {
+		return false, err
+	}
+	arr, err := arrayField(hooksObj, "PostToolUse")
+	if err != nil {
+		return false, err
+	}
+
+	want := wantPostToolUseEntry(timeoutSeconds)
+	for _, e := range arr {
+		if jsonDeepEqual(e, want) {
+			return false, nil
+		}
+	}
+	arr = append(arr, want)
+	hooksObj["PostToolUse"] = arr
+	root["hooks"] = hooksObj
+	return true, nil
+}
+
+func postToolUseHookStatus(root map[string]any, timeoutSeconds int) ItemStatus {
+	hooksRaw, ok := root["hooks"]
+	if !ok {
+		return StatusAbsent
+	}
+	hooksObj, ok := hooksRaw.(map[string]any)
+	if !ok {
+		return StatusForeign
+	}
+	arrRaw, ok := hooksObj["PostToolUse"]
+	if !ok {
+		return StatusAbsent
+	}
+	arr, ok := arrRaw.([]any)
+	if !ok {
+		return StatusForeign
+	}
+	want := wantPostToolUseEntry(timeoutSeconds)
+	for _, e := range arr {
+		if jsonDeepEqual(e, want) {
+			return StatusPresent
+		}
+	}
+	return StatusAbsent
+}
+
+func removePostToolUseHook(root map[string]any, timeoutSeconds int) (changed bool) {
+	hooksRaw, ok := root["hooks"]
+	if !ok {
+		return false
+	}
+	hooksObj, ok := hooksRaw.(map[string]any)
+	if !ok {
+		return false
+	}
+	arrRaw, ok := hooksObj["PostToolUse"]
+	if !ok {
+		return false
+	}
+	arr, ok := arrRaw.([]any)
+	if !ok {
+		return false
+	}
+
+	want := wantPostToolUseEntry(timeoutSeconds)
+	kept := make([]any, 0, len(arr))
+	found := false
+	for _, e := range arr {
+		if !found && jsonDeepEqual(e, want) {
+			found = true
+			continue
+		}
+		kept = append(kept, e)
+	}
+	if !found {
+		return false
+	}
+
+	if len(kept) == 0 {
+		delete(hooksObj, "PostToolUse")
+	} else {
+		hooksObj["PostToolUse"] = kept
 	}
 	if len(hooksObj) == 0 {
 		delete(root, "hooks")
