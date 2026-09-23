@@ -64,17 +64,23 @@ func readBudgetSetting(st *store.Store, key string) (int, bool, error) {
 	return n, true, nil
 }
 
-// assemble joins the four data slots with the fixed final line and, if the
-// result exceeds budgetTokens, cuts slot 2 (delta) first, then slot 4
-// (attention), then slot 3 (coordination) — stopping as soon as the result
-// fits (AGENT-CONTRACT.md §The SessionStart block's ordering). Slots 1
-// (resume) and 5 (the final line) are never cut by this loop; only when
-// slot 1 together with the final line still exceeds the budget is slot 1
-// itself truncated to fit.
+// assemble joins HeaderLine, the four data slots, and the fixed final line
+// and, if the result exceeds budgetTokens, cuts slot 2 (delta) first, then
+// slot 4 (attention), then slot 3 (coordination) — stopping as soon as the
+// result fits (AGENT-CONTRACT.md §The SessionStart block's ordering). Slot 1
+// (resume) is truncated, never dropped outright, when it alone together
+// with HeaderLine and FinalLine still exceeds the budget. HeaderLine is
+// never cut: it is joined in unconditionally, before the fit check ever
+// runs, and survives every cut this function makes. FinalLine is the very
+// last thing dropped — only once slot 1 has been truncated to nothing and
+// HeaderLine plus FinalLine alone still doesn't fit — so that a budget too
+// small for any slot still yields HeaderLine (task 6ae45e80's DONE WHEN
+// clause 2: the header is the last thing dropped, not the first).
 func assemble(slot1, slot2, slot3, slot4 string, budgetTokens int) string {
-	slots := [5]string{slot1, slot2, slot3, slot4, FinalLine}
+	final := FinalLine
+	slots := [5]string{slot1, slot2, slot3, slot4, final}
 	join := func() string {
-		var parts []string
+		parts := []string{HeaderLine}
 		for _, s := range slots {
 			if s != "" {
 				parts = append(parts, s)
@@ -105,5 +111,10 @@ func assemble(slot1, slot2, slot3, slot4 string, budgetTokens int) string {
 		}
 		slots[0] = string(r[:cut])
 	}
+	if EstimateTokens(join()) <= budgetTokens {
+		return join()
+	}
+
+	slots[4] = "" // drop FinalLine last: HeaderLine alone must survive.
 	return join()
 }

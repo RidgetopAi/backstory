@@ -1,7 +1,7 @@
-// Package block renders the Backstory SessionStart block: five fixed
-// slots, in order, each omitted when empty, under a user-set token budget
-// (AGENT-CONTRACT.md §The SessionStart block). It reads the store; it never
-// writes to it.
+// Package block renders the Backstory SessionStart block: a header naming
+// Backstory as the source, then five fixed slots, in order, each omitted
+// when empty, under a user-set token budget (AGENT-CONTRACT.md §The
+// SessionStart block). It reads the store; it never writes to it.
 package block
 
 import (
@@ -17,12 +17,27 @@ import (
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
-// EmptyProjectLine is the exact and only line Render returns for a project
-// with no records and no events — an honest empty state, never invented
-// prose (AGENT-CONTRACT.md §The SessionStart block, PLAN.md §Phase 2).
+// HeaderLine opens every rendered block, populated or empty-state alike: it
+// names Backstory as the block's source and tells the agent the block is
+// already loaded, so the agent can obey AGENT-CONTRACT.md §The SessionStart
+// block's "do not re-fetch it" rule instead of proposing a recall call to
+// fetch content it is already holding (task 6ae45e80, decision 1e53165a —
+// measured on Brian's desktop 2026-09-23: an agent that received the block
+// with no header could not tell it came from Backstory and offered to
+// re-fetch it with recall). It counts against the token budget like every
+// slot, but is the last thing the budget cutter drops, never the first.
+const HeaderLine = "Backstory (already loaded this session — no need to call recall to fetch it again):"
+
+// EmptyProjectLine is the body Render returns, after HeaderLine, for a
+// project with no records and no events — an honest empty state, never
+// invented prose (AGENT-CONTRACT.md §The SessionStart block, PLAN.md §Phase
+// 2).
 const EmptyProjectLine = "backstory: no history yet for this project."
 
-// FinalLine is slot 5, verbatim, always present, never truncated.
+// FinalLine is slot 5, verbatim. It survives every budget cut except the
+// most extreme one: a budget too small even for HeaderLine plus FinalLine
+// together, where FinalLine is dropped so HeaderLine — never dropped —
+// still fits (task 6ae45e80's DONE WHEN clause 2).
 const FinalLine = "ask backstory for more"
 
 // maxLastExitCodes bounds how many exit codes slot 2 lists, oldest kept
@@ -89,7 +104,7 @@ func Render(p Params) (string, error) {
 	slot4 := attentionSlot(draftCount, contradictionCount)
 
 	if slot1 == "" && slot2 == "" && slot3 == "" && slot4 == "" {
-		return EmptyProjectLine, nil
+		return HeaderLine + "\n\n" + EmptyProjectLine, nil
 	}
 
 	budgetTokens, err := resolveBudget(p.Store, p.Harness)
