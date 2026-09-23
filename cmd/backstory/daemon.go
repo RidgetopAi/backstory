@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"syscall"
+	"time"
 
 	"github.com/RidgetopAi/backstory/internal/backfill/claude"
 	"github.com/RidgetopAi/backstory/internal/ident"
@@ -18,6 +19,31 @@ import (
 	"github.com/RidgetopAi/backstory/internal/socket"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
+
+// firstLineDeadlineEnvVar overrides socket.Server.FirstLineDeadline for this
+// daemon process only — production never sets it, so the default (the
+// socket package's FirstLineDeadline constant, 5s) always applies there. It
+// exists purely so a hermetic test can spawn a real `backstory daemon`
+// subprocess with a fast idle timeout instead of waiting out the production
+// value (named config, per CONTRIBUTING.md, rather than a test build tag or
+// a hardcoded short deadline).
+const firstLineDeadlineEnvVar = "BACKSTORY_FIRST_LINE_DEADLINE"
+
+// applyFirstLineDeadlineOverride reads firstLineDeadlineEnvVar and, if set,
+// parses it as a time.Duration and applies it to srv.FirstLineDeadline. It
+// is a no-op when the variable is unset, which is every production run.
+func applyFirstLineDeadlineOverride(srv *socket.Server) error {
+	raw := os.Getenv(firstLineDeadlineEnvVar)
+	if raw == "" {
+		return nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return fmt.Errorf("parse %s=%q: %w", firstLineDeadlineEnvVar, raw, err)
+	}
+	srv.FirstLineDeadline = d
+	return nil
+}
 
 // runDaemon opens the store, listens on the daemon socket, logs the
 // identity of every connection, and exits on SIGTERM/SIGINT.
@@ -61,6 +87,11 @@ func runDaemon(_ []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	defer func() { _ = srv.Close() }()
+
+	if err := applyFirstLineDeadlineOverride(srv); err != nil {
+		_, _ = fmt.Fprintln(stderr, "backstory daemon:", err)
+		return 1
+	}
 
 	logger.Printf("listening on %s (store %s)", sockPath, dbPath)
 

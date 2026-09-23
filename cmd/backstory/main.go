@@ -17,6 +17,7 @@ commands:
   version   print the build version
   daemon    run the memory daemon
   mcp       run the MCP stdio shim
+  status    print daemon status (project, capture, budget); non-zero if unreachable
   hook      run a harness hook (session-start)
   install   install or remove the Claude Code integration
   backfill  import transcripts from another tool (e.g. "backfill claude")
@@ -38,6 +39,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runDaemon(args[1:], stdout, stderr)
 	case "mcp":
 		return runMCP(args[1:], stdin, stdout, stderr)
+	case "status":
+		return runStatus(args[1:], stdout, stderr)
 	case "hook":
 		return runHook(args[1:], stdin, stdout, stderr)
 	case "install":
