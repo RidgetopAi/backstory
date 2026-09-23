@@ -418,7 +418,7 @@ func TestHookPostToolUseBashNoExitCodeRecordsNilNeverZero(t *testing.T) {
 func TestHookPostToolUseNoSocketExitsQuicklyWritesNothing(t *testing.T) {
 	bin := buildBackstoryHarness(t)
 	runtimeDir := t.TempDir() // no daemon ever started here: no socket file
-	env := append(os.Environ(), "XDG_RUNTIME_DIR="+runtimeDir)
+	env := testXDGEnv("XDG_RUNTIME_DIR=" + runtimeDir)
 	projectDir := t.TempDir()
 
 	stdout, stderr, exitCode, elapsed := runHookInDir(t, bin, projectDir, env, []string{"post-tool-use"}, map[string]any{
@@ -500,7 +500,7 @@ func TestHookPostToolUseLiveCaptureDedupsAgainstLaterClaudeBackfill(t *testing.T
 
 	runtimeDir := t.TempDir()
 	dataDir := t.TempDir()
-	env := append(os.Environ(),
+	env := testXDGEnv(
 		"XDG_RUNTIME_DIR="+runtimeDir,
 		"XDG_DATA_HOME="+dataDir,
 	)

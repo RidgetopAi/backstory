@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"encoding/json"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -51,7 +50,7 @@ func buildMCPHarness(t *testing.T, name string) string {
 // test that never calls it still tears the daemon down.
 func startDaemonForTest(t *testing.T, bin, runtimeDir, dataDir string, extraEnv ...string) (stop func()) {
 	t.Helper()
-	env := append(os.Environ(),
+	env := testXDGEnv(
 		"XDG_RUNTIME_DIR="+runtimeDir,
 		"XDG_DATA_HOME="+dataDir,
 		// Isolate from this machine's real ~/.claude/projects (backfill_test.go's
@@ -109,7 +108,7 @@ func TestMCPShimSurvivesIdlePastFirstLineDeadlineThenSucceeds(t *testing.T) {
 	stopDaemon := startDaemonForTest(t, bin, runtimeDir, dataDir,
 		firstLineDeadlineEnvVar+"="+fastDeadline.String())
 
-	env := append(os.Environ(),
+	env := testXDGEnv(
 		"XDG_RUNTIME_DIR="+runtimeDir,
 		"XDG_DATA_HOME="+dataDir,
 	)
@@ -235,7 +234,7 @@ func TestMCPInitializeAndToolsListSucceedWithNoDaemonListening(t *testing.T) {
 
 	runtimeDir := t.TempDir() // no daemon ever started: no socket file here
 	dataDir := t.TempDir()
-	env := append(os.Environ(),
+	env := testXDGEnv(
 		"XDG_RUNTIME_DIR="+runtimeDir,
 		"XDG_DATA_HOME="+dataDir,
 	)
@@ -324,7 +323,7 @@ func TestStatusSubcommandAgainstRunningDaemon(t *testing.T) {
 	dataDir := t.TempDir()
 	startDaemonForTest(t, bin, runtimeDir, dataDir)
 
-	env := append(os.Environ(),
+	env := testXDGEnv(
 		"XDG_RUNTIME_DIR="+runtimeDir,
 		"XDG_DATA_HOME="+dataDir,
 	)
@@ -354,7 +353,7 @@ func TestStatusSubcommandWithNoDaemonExitsNonZeroNamingSocketPath(t *testing.T) 
 	bin := buildBackstory(t)
 	runtimeDir := t.TempDir() // no daemon ever started
 	dataDir := t.TempDir()
-	env := append(os.Environ(),
+	env := testXDGEnv(
 		"XDG_RUNTIME_DIR="+runtimeDir,
 		"XDG_DATA_HOME="+dataDir,
 	)

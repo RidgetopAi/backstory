@@ -130,7 +130,7 @@ func TestDaemonStartsAcceptsConnectionExitsOnSIGTERM(t *testing.T) {
 	dataDir := t.TempDir()
 
 	cmd := exec.Command(bin, "daemon") //nolint:gosec // bin is the binary this test just built, not external input
-	cmd.Env = append(os.Environ(),
+	cmd.Env = testXDGEnv(
 		"XDG_RUNTIME_DIR="+runtimeDir,
 		"XDG_DATA_HOME="+dataDir,
 	)
@@ -345,7 +345,7 @@ func TestDaemonStartMigratesOldShapeStoreThroughNormalReadPath(t *testing.T) {
 	seedOldShapeStore(t, dbPath, projectKey, "sess-daemon-migration")
 
 	cmd := exec.Command(bin, "daemon") //nolint:gosec // bin is the binary this test just built, not external input
-	cmd.Env = append(os.Environ(),
+	cmd.Env = testXDGEnv(
 		"XDG_RUNTIME_DIR="+runtimeDir,
 		"XDG_DATA_HOME="+dataDir,
 	)
@@ -534,7 +534,7 @@ func TestDaemonRecallIsProjectAnchoredThroughHarnessSpawnedHelper(t *testing.T) 
 	otherDecisionID := seedOtherProjectDecision(t, dbPath, otherProjectKey, otherProjectDir)
 
 	cmd := exec.Command(bin, "daemon") //nolint:gosec // bin is the binary this test just built, not external input
-	cmd.Env = append(os.Environ(),
+	cmd.Env = testXDGEnv(
 		"XDG_RUNTIME_DIR="+runtimeDir,
 		"XDG_DATA_HOME="+dataDir,
 	)
@@ -619,7 +619,7 @@ func TestDaemonRecallOnEmptyProjectReturnsHonestEmptyResultThroughHarnessSpawned
 	projectKey := project.Key(projectDir, project.RealGit{})
 
 	cmd := exec.Command(bin, "daemon") //nolint:gosec // bin is the binary this test just built, not external input
-	cmd.Env = append(os.Environ(),
+	cmd.Env = testXDGEnv(
 		"XDG_RUNTIME_DIR="+runtimeDir,
 		"XDG_DATA_HOME="+dataDir,
 	)
