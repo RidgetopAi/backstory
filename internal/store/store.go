@@ -60,12 +60,24 @@ func Open(path string) (*Store, error) {
 }
 
 // dsn builds the modernc.org/sqlite connection string. The _pragma parameters
-// are applied to every new connection in the pool.
+// are applied to every new connection in the pool. _txlock=immediate makes
+// every explicit transaction (every s.db.Begin() in this package) take its
+// write lock at BEGIN instead of deferring it: in WAL mode, a DEFERRED
+// transaction that turns out to write can fail its read->write lock upgrade
+// with SQLITE_BUSY (or SQLITE_BUSY_SNAPSHOT) the instant a concurrent writer
+// commits between the transaction's read snapshot and its write attempt —
+// busy_timeout's busy handler is never invoked for that case, because
+// waiting cannot fix a stale snapshot. Acquiring the lock at BEGIN reduces
+// the failure to ordinary lock contention, which busy_timeout does resolve
+// by retrying. This is a single, DSN-wide setting: it covers every write
+// path in the package (InsertRecord, migrations, data migration) without
+// each call site having to opt in separately.
 func dsn(path string) string {
 	q := url.Values{}
 	q.Add("_pragma", "journal_mode(WAL)")
 	q.Add("_pragma", "foreign_keys(ON)")
 	q.Add("_pragma", "busy_timeout(5000)")
+	q.Add("_txlock", "immediate")
 	return "file:" + path + "?" + q.Encode()
 }
 
