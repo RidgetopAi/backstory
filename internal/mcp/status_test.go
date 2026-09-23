@@ -229,11 +229,15 @@ func TestSessionEndsWhenItsConnectionCloses(t *testing.T) {
 	st := mustOpenStore(t)
 	sockPath := testDaemon(t, st, "claude", "/home/brian/proj", "proj-key")
 
-	connA, err := net.Dial("unix", sockPath)
-	if err != nil {
-		t.Fatalf("dial A: %v", err)
-	}
-	shimA := NewServer(connA)
+	var connA net.Conn
+	shimA := NewServer(func() (net.Conn, error) {
+		c, err := net.Dial("unix", sockPath)
+		if err != nil {
+			return nil, err
+		}
+		connA = c
+		return c, nil
+	})
 	statusA, rerr := shimA.CallTool(ToolStatus, nil)
 	if rerr != nil {
 		t.Fatalf("CallTool(status) A: %v", rerr)

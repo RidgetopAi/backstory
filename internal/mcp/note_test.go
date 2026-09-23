@@ -68,15 +68,14 @@ func testDaemon(t *testing.T, st *store.Store, harness, cwd, projectKey string) 
 	return sockPath
 }
 
-// dialShim connects a new Server to sockPath, ready for CallTool.
+// dialShim builds a new Server against sockPath, ready for CallTool. Dialing
+// itself stays lazy (Server's own contract): the socket connection is only
+// opened on the shim's first daemon-backed call.
 func dialShim(t *testing.T, sockPath string) *Server {
 	t.Helper()
-	conn, err := net.Dial("unix", sockPath)
-	if err != nil {
-		t.Fatalf("dial %s: %v", sockPath, err)
-	}
-	t.Cleanup(func() { _ = conn.Close() })
-	return NewServer(conn)
+	s := NewServer(func() (net.Conn, error) { return net.Dial("unix", sockPath) })
+	t.Cleanup(func() { _ = s.Close() })
+	return s
 }
 
 func mustOpenStore(t *testing.T) *store.Store {
