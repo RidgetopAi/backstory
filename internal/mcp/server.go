@@ -49,8 +49,8 @@ type rpcResponse struct {
 }
 
 // Server is the stdio<->socket MCP shim: it speaks JSON-RPC 2.0 line by line
-// over stdin/stdout, and forwards note/status tool calls to the daemon over
-// daemonConn. recall/timeline/confirm never touch daemonConn at all.
+// over stdin/stdout, and forwards note/status/recall tool calls to the
+// daemon over daemonConn. timeline/confirm never touch daemonConn at all.
 type Server struct {
 	daemonConn   net.Conn
 	daemonReader *bufio.Reader

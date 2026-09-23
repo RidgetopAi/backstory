@@ -11,14 +11,15 @@ import (
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
-// daemonMethodNote and daemonMethodStatus are the only DaemonRequest.Method
-// values the daemon side answers via the mcp shim's note/status tools.
-// recall/timeline/confirm never reach the socket at all: the shim returns
-// their not-implemented error itself (DONE WHEN clause 4 — "never touch the
-// store").
+// daemonMethodNote, daemonMethodStatus and daemonMethodRecall are the
+// DaemonRequest.Method values the daemon side answers via the mcp shim's
+// note/status/recall tools. timeline/confirm still never reach the socket
+// at all: the shim returns their not-implemented error itself (DONE WHEN
+// clause 4 — "never touch the store").
 const (
 	daemonMethodNote   = "note"
 	daemonMethodStatus = "status"
+	daemonMethodRecall = "recall"
 )
 
 // DaemonMethodBlock is the SessionStart block's daemon-side method
@@ -79,6 +80,8 @@ func dispatchDaemonRequest(line []byte, st *store.Store, procfs ident.ProcFS, id
 		return handleNote(st, identity, sessionID, id.ProjectKey, req.Params)
 	case daemonMethodStatus:
 		return handleStatus(st, id, sessionID)
+	case daemonMethodRecall:
+		return handleRecall(st, id, req.Params)
 	case DaemonMethodBlock:
 		return handleBlock(st, procfs, id, sessionID)
 	default:

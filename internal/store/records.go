@@ -262,6 +262,47 @@ func (s *Store) LatestRecord(projectKey string, kind RecordKind) (Record, bool, 
 	return rec, true, nil
 }
 
+// RecordsForProject returns every non-tombstoned record of kind in
+// projectKey, newest first (rowid DESC — insertion order, never ts;
+// SCHEMA.md invariant 10 applies to record ordering the same way it applies
+// to timeline_events), capped at limit rows. It is recall's decisions
+// query: unlike LatestRecord (one row), a caller wants every declared
+// decision for the project, most recent first.
+func (s *Store) RecordsForProject(projectKey string, kind RecordKind, limit int) ([]Record, error) {
+	rows, err := s.db.Query(`SELECT id FROM records
+		WHERE project_key = ? AND kind = ? AND tombstoned_at IS NULL
+		ORDER BY rowid DESC LIMIT ?`, projectKey, string(kind), limit)
+	if err != nil {
+		return nil, fmt.Errorf("store: records for project %s kind %s: %w", projectKey, kind, err)
+	}
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			return nil, fmt.Errorf("store: scan record id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, fmt.Errorf("store: records for project %s kind %s: %w", projectKey, kind, err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("store: records for project %s kind %s: %w", projectKey, kind, err)
+	}
+
+	out := make([]Record, 0, len(ids))
+	for _, id := range ids {
+		rec, err := s.GetRecord(id)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rec)
+	}
+	return out, nil
+}
+
 // UnconfirmedDraftCount counts inferred-tier records in projectKey with no
 // promoter and no expiry that has already passed — the SessionStart block's
 // attention slot (AGENT-CONTRACT.md §The SessionStart block).

@@ -13,7 +13,9 @@ func (s *Server) CallTool(name string, args json.RawMessage) (json.RawMessage, *
 		return s.callNote(args)
 	case ToolStatus:
 		return s.callStatus()
-	case ToolRecall, ToolTimeline, ToolConfirm:
+	case ToolRecall:
+		return s.callRecall(args)
+	case ToolTimeline, ToolConfirm:
 		return nil, notImplementedError(name)
 	default:
 		return nil, &RPCError{Code: CodeMethodNotFound, Message: "unknown tool " + name}
@@ -42,6 +44,25 @@ func (s *Server) callNote(args json.RawMessage) (json.RawMessage, *RPCError) {
 
 func (s *Server) callStatus() (json.RawMessage, *RPCError) {
 	return s.callDaemon(daemonMethodStatus, nil)
+}
+
+// callRecall re-serializes args through RecallParams' own field set before
+// forwarding, the same rule callNote applies to NoteParams: a "project"
+// field a caller declares is dropped here, before the request ever reaches
+// the daemon, never trusted as the anchor (AGENT-CONTRACT.md §Observed
+// identity — this punch's WHAT TO BUILD: "never a declared one").
+func (s *Server) callRecall(args json.RawMessage) (json.RawMessage, *RPCError) {
+	var p RecallParams
+	if len(args) > 0 {
+		if err := json.Unmarshal(args, &p); err != nil {
+			return nil, &RPCError{Code: CodeInvalidParams, Message: "invalid recall arguments: " + err.Error()}
+		}
+	}
+	clean, err := json.Marshal(p)
+	if err != nil {
+		return nil, &RPCError{Code: CodeInternal, Message: err.Error()}
+	}
+	return s.callDaemon(daemonMethodRecall, clean)
 }
 
 // callDaemon sends one DaemonRequest line to the daemon and reads back

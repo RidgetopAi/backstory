@@ -59,11 +59,14 @@ const DefaultHookTimeoutSeconds = 10
 
 // Stub markers and text for the one-line CLAUDE.md stub
 // (AGENT-CONTRACT.md §The skill: "one line pointing at the skill and the
-// tool").
+// tool"). StubLine's "only when no SessionStart block is present" clause
+// mirrors the skill's own rule (skill/SKILL.md line 2) — before this punch
+// (task d6ddfce3) the stub told the agent to call `recall` unconditionally,
+// contradicting the skill it points at.
 const (
 	StubMarkerBegin = "<!-- backstory:begin -->"
 	StubMarkerEnd   = "<!-- backstory:end -->"
-	StubLine        = "Backstory: call the `backstory` MCP tool's `recall`; see `~/.claude/skills/backstory/SKILL.md`."
+	StubLine        = "Backstory: if no SessionStart block is present, call the `backstory` MCP tool's `recall`; see `~/.claude/skills/backstory/SKILL.md`."
 )
 
 var stubBlock = StubMarkerBegin + "\n" + StubLine + "\n" + StubMarkerEnd + "\n"
@@ -400,33 +403,52 @@ func removeSessionStartHook(root map[string]any, timeoutSeconds int) (changed bo
 
 // --- CLAUDE.md stub ---
 
-// InstallStub appends the one-line marker-delimited stub to claudeMDPath,
-// creating the file if absent. It is idempotent: if the markers are already
-// present, nothing is written.
+// InstallStub writes the marker-delimited stub to claudeMDPath, creating the
+// file if absent. It is idempotent (a second call with the current stub
+// text changes zero bytes) and self-upgrading: a file already holding a
+// stub block from an older release (different text between the same
+// markers) has that block replaced in place with the current stubBlock,
+// leaving foreign content on either side of it untouched and never
+// producing a second marker pair.
 func InstallStub(claudeMDPath string) error {
 	data, statErr := os.ReadFile(claudeMDPath) //nolint:gosec // claudeMDPath is the caller-chosen CLAUDE.md location
 	if statErr != nil && !os.IsNotExist(statErr) {
 		return statErr
 	}
 	content := string(data)
-	if strings.Contains(content, StubMarkerBegin) {
-		return nil // already installed
-	}
 
 	mode := os.FileMode(0o600)
 	if info, err := os.Stat(claudeMDPath); err == nil {
 		mode = info.Mode().Perm()
 	}
 
-	if content != "" && !strings.HasSuffix(content, "\n") {
-		content += "\n"
+	beginIdx := strings.Index(content, StubMarkerBegin)
+	if beginIdx == -1 {
+		if content != "" && !strings.HasSuffix(content, "\n") {
+			content += "\n"
+		}
+		content += stubBlock
+		if err := os.MkdirAll(filepath.Dir(claudeMDPath), 0o750); err != nil {
+			return err
+		}
+		return writeAtomic(claudeMDPath, []byte(content), mode)
 	}
-	content += stubBlock
 
-	if err := os.MkdirAll(filepath.Dir(claudeMDPath), 0o750); err != nil {
-		return err
+	endIdx := strings.Index(content, StubMarkerEnd)
+	if endIdx == -1 {
+		return fmt.Errorf("%s: found %q without %q", claudeMDPath, StubMarkerBegin, StubMarkerEnd)
 	}
-	return writeAtomic(claudeMDPath, []byte(content), mode)
+	endIdx += len(StubMarkerEnd)
+	if endIdx < len(content) && content[endIdx] == '\n' {
+		endIdx++
+	}
+
+	if content[beginIdx:endIdx] == stubBlock {
+		return nil // already installed with the current text
+	}
+
+	newContent := content[:beginIdx] + stubBlock + content[endIdx:]
+	return writeAtomic(claudeMDPath, []byte(newContent), mode)
 }
 
 func stubStatus(claudeMDPath string) ItemStatus {

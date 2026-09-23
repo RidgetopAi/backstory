@@ -288,15 +288,17 @@ func TestSessionEndsWhenItsConnectionCloses(t *testing.T) {
 	}
 }
 
-// TestRecallTimelineConfirmAreNotImplementedAndNeverTouchTheStore is DONE
-// WHEN clause 4's last half.
-func TestRecallTimelineConfirmAreNotImplementedAndNeverTouchTheStore(t *testing.T) {
+// TestTimelineConfirmAreNotImplementedAndNeverTouchTheStore is DONE WHEN
+// clause 4's last half (task d6ddfce3 narrowed this from
+// recall/timeline/confirm to just timeline/confirm: recall is implemented
+// as of this punch — see internal/mcp/recall_test.go for its own coverage).
+func TestTimelineConfirmAreNotImplementedAndNeverTouchTheStore(t *testing.T) {
 	st := mustOpenStore(t)
 	sockPath := testDaemon(t, st, "claude", "/home/brian/proj", "proj-key")
 	shim := dialShim(t, sockPath)
 
 	before := countStoreRecords(t, st)
-	for _, tool := range []string{ToolRecall, ToolTimeline, ToolConfirm} {
+	for _, tool := range []string{ToolTimeline, ToolConfirm} {
 		_, rerr := shim.CallTool(tool, json.RawMessage(`{}`))
 		if rerr == nil {
 			t.Fatalf("CallTool(%s) = nil error, want CodeNotImplemented", tool)
@@ -306,6 +308,6 @@ func TestRecallTimelineConfirmAreNotImplementedAndNeverTouchTheStore(t *testing.
 		}
 	}
 	if got := countStoreRecords(t, st); got != before {
-		t.Errorf("record count = %d after recall/timeline/confirm, want unchanged %d (they must never touch the store)", got, before)
+		t.Errorf("record count = %d after timeline/confirm, want unchanged %d (they must never touch the store)", got, before)
 	}
 }
