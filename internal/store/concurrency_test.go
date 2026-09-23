@@ -25,6 +25,13 @@ import (
 // path must instead take its write lock at BEGIN (_txlock=immediate) so the
 // only busy case left is ordinary lock contention, which busy_timeout does
 // resolve by retrying.
+//
+// Mutation probe (removed `q.Add("_txlock", "immediate")` from store.go's
+// dsn(), restoring the deferred default): RED, 4/10 runs
+// (-run TestInsertRecordSucceedsUnderConcurrentTimelineWriter -count=10),
+// e.g. "InsertRecord 0/300: store: insert record: database is locked
+// (517)" (SQLITE_BUSY_SNAPSHOT) -- restoring the _txlock=immediate line
+// turns it back GREEN, 10/10.
 func TestInsertRecordSucceedsUnderConcurrentTimelineWriter(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "backstory.db")
 
