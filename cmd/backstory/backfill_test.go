@@ -26,7 +26,7 @@ func TestBackfillClaudeCLIAndDaemonIntegration(t *testing.T) {
 	t.Run("CLI prints summary and exits 0", func(t *testing.T) {
 		dataDir := t.TempDir()
 		cmd := exec.Command(bin, "backfill", "claude", "--root", fixtures) //nolint:gosec // bin is the binary this test just built; fixtures is this test's own testdata
-		cmd.Env = append(os.Environ(), "XDG_DATA_HOME="+dataDir)
+		cmd.Env = testXDGEnv("XDG_DATA_HOME=" + dataDir)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
 			t.Fatalf("backstory backfill claude: %v\n%s", err, out)
@@ -42,7 +42,7 @@ func TestBackfillClaudeCLIAndDaemonIntegration(t *testing.T) {
 		dataDir := t.TempDir()
 
 		cmd := exec.Command(bin, "daemon") //nolint:gosec // bin is the binary this test just built
-		cmd.Env = append(os.Environ(),
+		cmd.Env = testXDGEnv(
 			"XDG_RUNTIME_DIR="+runtimeDir,
 			"XDG_DATA_HOME="+dataDir,
 			"BACKSTORY_CLAUDE_ROOT="+fixtures,
@@ -69,7 +69,7 @@ func TestBackfillClaudeCLIAndDaemonIntegration(t *testing.T) {
 		dataDir := t.TempDir()
 
 		cmd := exec.Command(bin, "daemon") //nolint:gosec // bin is the binary this test just built
-		cmd.Env = append(os.Environ(),
+		cmd.Env = testXDGEnv(
 			"XDG_RUNTIME_DIR="+runtimeDir,
 			"XDG_DATA_HOME="+dataDir,
 			"BACKSTORY_CLAUDE_ROOT="+filepath.Join(t.TempDir(), "does-not-exist"),

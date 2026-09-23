@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"encoding/json"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"syscall"
@@ -36,7 +35,7 @@ func TestMCPSubprocessSpeaksStdioAgainstADaemonStartedInTheTest(t *testing.T) {
 
 	runtimeDir := t.TempDir()
 	dataDir := t.TempDir()
-	env := append(os.Environ(),
+	env := testXDGEnv(
 		"XDG_RUNTIME_DIR="+runtimeDir,
 		"XDG_DATA_HOME="+dataDir,
 	)

@@ -16,14 +16,14 @@ import (
 )
 
 // envWithout returns a copy of env with every entry for any of keys
-// removed — used to strip inherited XDG_RUNTIME_DIR / XDG_DATA_HOME before
-// appending fresh test values, so the result never carries a variable
-// twice. A duplicate entry is a real hazard here, not just noise: the
-// exec'd child resolves it to the LAST occurrence, but anything in the
-// test process itself that scans env by hand (as this file's tests used
-// to, via a now-deleted first-match envValue helper) would silently see
-// the FIRST occurrence instead — the invoking user's real dir, not the
-// test's temp one.
+// removed — used to strip inherited XDG_RUNTIME_DIR / XDG_DATA_HOME /
+// XDG_STATE_HOME before appending fresh test values, so the result never
+// carries a variable twice. A duplicate entry is a real hazard here, not
+// just noise: the exec'd child resolves it to the LAST occurrence, but
+// anything in the test process itself that scans env by hand (as this
+// file's tests used to, via a now-deleted first-match envValue helper)
+// would silently see the FIRST occurrence instead — the invoking user's
+// real dir, not the test's temp one.
 func envWithout(env []string, keys ...string) []string {
 	out := make([]string, 0, len(env))
 	for _, e := range env {
@@ -41,6 +41,18 @@ func envWithout(env []string, keys ...string) []string {
 	return out
 }
 
+// testXDGEnv returns os.Environ() with any inherited XDG_RUNTIME_DIR,
+// XDG_DATA_HOME, and XDG_STATE_HOME entries removed, then overrides (each
+// an already-formatted "KEY=value" string) appended. It is the one helper
+// every test in this package that spawns a backstory process must build
+// its child env through — hand-rolling append(os.Environ(), "XDG_RUNTIME_DIR=…")
+// lets an inherited value survive alongside the test's own, which is
+// exactly what let task 7c121b4b's first-match env reader pick the
+// invoking user's real runtime dir over the test's temp one.
+func testXDGEnv(overrides ...string) []string {
+	return append(envWithout(os.Environ(), "XDG_RUNTIME_DIR", "XDG_DATA_HOME", "XDG_STATE_HOME"), overrides...)
+}
+
 // startTestDaemon starts `backstory daemon` as a subprocess against fresh
 // runtime/data dirs and waits for its socket to appear. It returns the
 // store db path, the runtime dir it chose (so callers never need to dig it
@@ -52,7 +64,7 @@ func startTestDaemon(t *testing.T, bin string) (dbPath, runtimeDir string, env [
 	t.Helper()
 	runtimeDir = t.TempDir()
 	dataDir := t.TempDir()
-	env = append(envWithout(os.Environ(), "XDG_RUNTIME_DIR", "XDG_DATA_HOME"),
+	env = testXDGEnv(
 		"XDG_RUNTIME_DIR="+runtimeDir,
 		"XDG_DATA_HOME="+dataDir,
 	)
@@ -236,7 +248,7 @@ func TestHookSessionStartIdentityComesFromResolverNotPayload(t *testing.T) {
 func TestHookSessionStartNoSocketPrintsNothingExactlyOneStderrLineExit0(t *testing.T) {
 	bin := buildBackstory(t)
 	runtimeDir := t.TempDir() // no daemon ever started here: no socket file
-	env := append(os.Environ(), "XDG_RUNTIME_DIR="+runtimeDir)
+	env := testXDGEnv("XDG_RUNTIME_DIR=" + runtimeDir)
 
 	stdout, stderr, exitCode := runHookSubprocess(t, bin, env, map[string]any{
 		"session_id": "no-daemon-session",
@@ -279,5 +291,36 @@ func TestStartTestDaemonEnvHasNoDuplicateXDGVars(t *testing.T) {
 		if count != 1 {
 			t.Errorf("env has %d entries for %s, want exactly 1: %v", count, key, env)
 		}
+	}
+}
+
+// TestTestXDGEnvOverridesInheritedRuntimeDir guards the shared testXDGEnv
+// helper directly (task 5e87946c): if testXDGEnv ever stopped stripping an
+// inherited XDG_RUNTIME_DIR before appending the test's own value — say,
+// by keeping the inherited entry ahead of the override instead of dropping
+// it — the result would carry two entries, and a first-match reader would
+// silently resolve to the inherited one instead of the test's, reproducing
+// the class of bug task 7c121b4b fixed.
+func TestTestXDGEnvOverridesInheritedRuntimeDir(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", "/should-not-be-read/by-any-test")
+	want := t.TempDir()
+
+	env := testXDGEnv("XDG_RUNTIME_DIR=" + want)
+
+	count := 0
+	var got string
+	for _, e := range env {
+		if strings.HasPrefix(e, "XDG_RUNTIME_DIR=") {
+			count++
+			if count == 1 {
+				got = strings.TrimPrefix(e, "XDG_RUNTIME_DIR=")
+			}
+		}
+	}
+	if count != 1 {
+		t.Fatalf("env has %d XDG_RUNTIME_DIR entries, want exactly 1: %v", count, env)
+	}
+	if got != want {
+		t.Errorf("XDG_RUNTIME_DIR = %q, want %q", got, want)
 	}
 }
