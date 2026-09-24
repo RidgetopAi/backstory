@@ -314,11 +314,11 @@ func TestRecallAltitudeChangesItemCountUnderFixedBudget(t *testing.T) {
 	t.Logf("item counts under a %d-token budget: headline=%d summary=%d full=%d",
 		fixedBudget, counts["headline"], counts["summary"], counts["full"])
 
-	if !(counts["headline"] > counts["summary"]) {
+	if counts["headline"] <= counts["summary"] {
 		t.Errorf("headline kept %d items, summary kept %d: want headline strictly more (altitude not wired)",
 			counts["headline"], counts["summary"])
 	}
-	if !(counts["summary"] > counts["full"]) {
+	if counts["summary"] <= counts["full"] {
 		t.Errorf("summary kept %d items, full kept %d: want summary strictly more (altitude not wired)",
 			counts["summary"], counts["full"])
 	}

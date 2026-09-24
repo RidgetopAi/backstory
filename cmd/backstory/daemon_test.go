@@ -503,16 +503,20 @@ func requestRecallAsHarness(t *testing.T, harnessBin, sockPath, cwd, sessionID s
 // punch's DONE WHEN clause 1, proof kind "cmd/backstory tests": through the
 // MCP shim over a real daemon socket, recall with no anchor, called from a
 // test-spawned harness-named helper whose cwd is a seeded project, returns
-// that project's latest handoff first, then its decision records newest
-// first, then a recent-timeline summary; every record item carries its id
-// and provenance tier. A record from a different project seeded in the same
-// store does not appear. Clause 6: this test constructs its own
+// that project's whole ledger anchored on the project itself (task
+// cdf2f9eb's internal/recall engine call — no more v0-stub handoff/decision
+// special-casing), newest record first by sequence; every item carries its
+// id and provenance tier. A record from a different project seeded in the
+// same store does not appear. Clause 6: this test constructs its own
 // harness-named helper (requestRecallAsHarness -> buildHarnessClient)
 // rather than inheriting the suite's ancestry, the same pattern as
 // TestDaemonStartMigratesOldShapeStoreThroughNormalReadPath.
 //
-// RA-MUTATION-PROBE: handleRecall's projectKey filter replaced with "" (mcp/recall.go)
-// -> RED (this test: leaks the other project's decision id); restored -> GREEN.
+// RA-MUTATION-PROBE: handleRecall's `projectKey := id.ProjectKey`
+// (mcp/recall.go) replaced with "" -> RED (this test: ProjectKey no longer
+// equals the seeded project, and the other project's decision id leaks into
+// Items since a project-anchored recall with an empty project key matches
+// no project's records — either failure fires); restored -> GREEN.
 func TestDaemonRecallIsProjectAnchoredThroughHarnessSpawnedHelper(t *testing.T) {
 	bin := buildBackstory(t)
 	harnessBin := buildHarnessClient(t, harnessName)
@@ -558,31 +562,22 @@ func TestDaemonRecallIsProjectAnchoredThroughHarnessSpawnedHelper(t *testing.T) 
 	if result.ProjectKey != projectKey {
 		t.Errorf("ProjectKey = %q, want %q", result.ProjectKey, projectKey)
 	}
-	if result.Handoff == nil {
-		t.Fatalf("Handoff is nil, want the seeded handoff: %s", raw)
+	if result.Anchor != "project" {
+		t.Errorf("Anchor = %q, want project", result.Anchor)
 	}
-	if result.Handoff.ID != handoffID {
-		t.Errorf("Handoff.ID = %q, want %q", result.Handoff.ID, handoffID)
+	if len(result.Items) != 3 {
+		t.Fatalf("len(Items) = %d, want 3 (handoff + 2 decisions): %s", len(result.Items), raw)
 	}
-	if result.Handoff.Tier == "" {
-		t.Errorf("Handoff.Tier is empty, want a provenance tier")
-	}
-	if len(result.Decisions) != 2 {
-		t.Fatalf("len(Decisions) = %d, want 2: %s", len(result.Decisions), raw)
-	}
-	if result.Decisions[0].ID != newDecisionID {
-		t.Errorf("Decisions[0].ID = %q, want %q (the newer decision first)", result.Decisions[0].ID, newDecisionID)
-	}
-	if result.Decisions[1].ID != oldDecisionID {
-		t.Errorf("Decisions[1].ID = %q, want %q (the older decision second)", result.Decisions[1].ID, oldDecisionID)
-	}
-	for _, d := range result.Decisions {
-		if d.Tier == "" {
-			t.Errorf("decision %s has no Tier, want a provenance tier", d.ID)
+	wantOrder := []string{handoffID, newDecisionID, oldDecisionID}
+	for i, id := range wantOrder {
+		if result.Items[i].ID != id {
+			t.Errorf("Items[%d].ID = %q, want %q (newest first by sequence)", i, result.Items[i].ID, id)
 		}
 	}
-	if result.Timeline == "" {
-		t.Errorf("Timeline is empty, want a recent-timeline summary (a seeded event exists): %s", raw)
+	for _, item := range result.Items {
+		if item.Tier == "" {
+			t.Errorf("item %s has no Tier, want a provenance tier", item.ID)
+		}
 	}
 	if strings.Contains(raw, otherDecisionID) {
 		t.Errorf("recall for %s leaked a different project's decision id %s: %s", projectKey, otherDecisionID, raw)
@@ -642,14 +637,8 @@ func TestDaemonRecallOnEmptyProjectReturnsHonestEmptyResultThroughHarnessSpawned
 	if result.ProjectKey != projectKey {
 		t.Errorf("ProjectKey = %q, want %q", result.ProjectKey, projectKey)
 	}
-	if result.Handoff != nil {
-		t.Errorf("Handoff = %+v, want nil for an empty project", result.Handoff)
-	}
-	if len(result.Decisions) != 0 {
-		t.Errorf("Decisions = %+v, want empty for an empty project", result.Decisions)
-	}
-	if result.Timeline != "" {
-		t.Errorf("Timeline = %q, want empty for an empty project", result.Timeline)
+	if len(result.Items) != 0 {
+		t.Errorf("Items = %+v, want empty for an empty project", result.Items)
 	}
 
 	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
