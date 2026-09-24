@@ -23,6 +23,7 @@ commands:
   backfill  import transcripts from another tool (e.g. "backfill claude")
   delete    tombstone a record by id (human-only; "delete <id> [--yes]")
   capture   pause or resume capture ("capture off|on|status")
+  group     set/clear/list project groups (human-only; "group set|clear|list")
 `
 
 func main() {
@@ -53,6 +54,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runDelete(args[1:], stdin, stdout, stderr)
 	case "capture":
 		return runCapture(args[1:], stdout, stderr)
+	case "group":
+		return runGroup(args[1:], stdout, stderr)
 	default:
 		_, _ = fmt.Fprintf(stderr, "backstory: unknown command %q\n\n%s", args[0], usage)
 		return 2
