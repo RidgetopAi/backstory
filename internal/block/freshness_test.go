@@ -148,3 +148,23 @@ func TestRenderUnflaggedHandoffRendersExactlyAsBefore(t *testing.T) {
 		t.Errorf("unflagged handoff's attention slot mentioned possibly-stale; got:\n%s", out)
 	}
 }
+
+// --- Critic mutation probes (DONE WHEN clause 5) ---
+//
+// Mutation probe 1 — flag handoffs by age alone: in staleMarker/Render
+// (block.go), add a marker whenever time.Since(rec.TS) exceeds some
+// threshold, independent of store.HandoffFreshness's reasons -> RED
+// (TestRenderUnflaggedHandoffRendersExactlyAsBefore: the unflagged fixture,
+// which carries no about[] and no positive evidence, now renders a marker
+// it should not); restore the HandoffFreshness-only source -> GREEN.
+//
+// Mutation probe 2 — ignore a later affirm: in store.latestAffirmInforming
+// (internal/store/freshness.go), make it always return ok=false -> RED
+// (TestRenderResumeSlotMarkerClearsAfterAffirm: the marker survives the
+// confirm affirm instead of clearing); restore it -> GREEN.
+//
+// Mutation probe 3 — drop the marker from the Resume slot: in resumeSlot
+// (block.go), delete the `if marker := staleMarker(staleReasons); marker !=
+// "" { line += "\n" + marker }` block -> RED
+// (TestRenderResumeSlotShowsPossiblyStaleMarkerAndAttentionCountsIt: "⚠
+// possibly stale:" is missing from the Resume slot); restore it -> GREEN.
