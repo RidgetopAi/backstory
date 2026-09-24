@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // Repo is the git identity facts for a working directory.
@@ -124,4 +125,13 @@ func Key(cwd string, git Git, workspaces []string) string {
 		return repo.CommonDir + keySeparator + repo.RemoteURL
 	}
 	return repo.Toplevel
+}
+
+// IsWorkspaceKey reports whether key is a workspace identity (Key's
+// workspaceKeyPrefix result) rather than a real repo key — the check This
+// Week's project list (internal/week) and any other caller enumerating
+// project keys applies so a workspace never renders as a project (decision
+// bcc9fa54, AGENT-CONTRACT.md §Project = git repository identity).
+func IsWorkspaceKey(key string) bool {
+	return strings.HasPrefix(key, workspaceKeyPrefix)
 }

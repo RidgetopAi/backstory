@@ -14,19 +14,20 @@ import (
 const usage = `usage: backstory <command>
 
 commands:
-  version   print the build version
-  daemon    run the memory daemon
-  mcp       run the MCP stdio shim
-  status    print daemon status (project, capture, budget); non-zero if unreachable
-  hook      run a harness hook (session-start)
-  install   install or remove the Claude Code integration
-  backfill  import transcripts from another tool (e.g. "backfill claude")
-  delete    tombstone a record by id (human-only; "delete <id> [--yes]")
-  capture   pause or resume capture ("capture off|on|status")
-  recall    print a project's trust-annotated ledger narrative, read-only
-  timeline  print a project's observed events, read-only
-  group     set/clear/list project groups (human-only; "group set|clear|list")
-  export    write a project's markdown mirror for another tool to read
+  version    print the build version
+  daemon     run the memory daemon
+  mcp        run the MCP stdio shim
+  status     print daemon status (project, capture, budget); non-zero if unreachable
+  hook       run a harness hook (session-start)
+  install    install or remove the Claude Code integration
+  backfill   import transcripts from another tool (e.g. "backfill claude")
+  delete     tombstone a record by id (human-only; "delete <id> [--yes]")
+  capture    pause or resume capture ("capture off|on|status")
+  recall     print a project's trust-annotated ledger narrative, read-only
+  timeline   print a project's observed events, read-only
+  group      set/clear/list project groups (human-only; "group set|clear|list")
+  export     write a project's markdown mirror for another tool to read
+  this-week  print Attention, Where you left off, and The week, read-only
 `
 
 func main() {
@@ -65,6 +66,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runGroup(args[1:], stdout, stderr)
 	case "export":
 		return runExport(args[1:], stdout, stderr)
+	case "this-week":
+		return runThisWeek(args[1:], stdout, stderr)
 	default:
 		_, _ = fmt.Fprintf(stderr, "backstory: unknown command %q\n\n%s", args[0], usage)
 		return 2
