@@ -18,6 +18,10 @@ type fakeGit struct{}
 
 func (fakeGit) Repo(string) (project.Repo, bool) { return project.Repo{}, false }
 
+// State is unused by this package's tests but required to satisfy
+// project.Git.
+func (fakeGit) State(string) (project.State, bool) { return project.State{}, false }
+
 func mustOpenStore(t *testing.T) *store.Store {
 	t.Helper()
 	s, err := store.Open(filepath.Join(t.TempDir(), "backstory.db"))

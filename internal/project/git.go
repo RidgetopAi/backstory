@@ -28,6 +28,25 @@ func (RealGit) Repo(cwd string) (Repo, bool) {
 	return Repo{CommonDir: common, RemoteURL: remote, Toplevel: top}, true
 }
 
+// State implements Git by running git rev-parse/status in cwd. ok is false
+// when cwd is not inside a git working tree, or either git invocation
+// failed — the caller must never fall back to Uncommitted == 0 in that case.
+func (RealGit) State(cwd string) (State, bool) {
+	branch, ok := gitOutput(cwd, "rev-parse", "--abbrev-ref", "HEAD")
+	if !ok {
+		return State{}, false
+	}
+	status, ok := gitOutput(cwd, "status", "--porcelain")
+	if !ok {
+		return State{}, false
+	}
+	uncommitted := 0
+	if status != "" {
+		uncommitted = len(strings.Split(status, "\n"))
+	}
+	return State{Branch: branch, Uncommitted: uncommitted}, true
+}
+
 // firstRemoteURL returns the URL of the first remote `git remote` lists for
 // cwd's repo, or "" if none is configured.
 func firstRemoteURL(cwd string) string {

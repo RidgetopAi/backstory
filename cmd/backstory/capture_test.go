@@ -84,7 +84,7 @@ func TestCaptureOffBlocksNoteInsertsStatusReportsOffCaptureOnRestores(t *testing
 	dbPath, runtimeDir, env := startTestDaemon(t, bin)
 	sockPath := filepath.Join(runtimeDir, "backstory", "sock")
 	projectDir := t.TempDir()
-	projectKey := project.Key(projectDir, project.RealGit{})
+	projectKey := project.Key(projectDir, project.RealGit{}, nil)
 
 	// Sanity: capture starts on, both by the CLI's own read and by a note
 	// call actually succeeding.
