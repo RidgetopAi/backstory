@@ -8,12 +8,6 @@ import (
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
-// settingCaptureOn is the settings key status reads for "capture on/off"
-// (AGENT-CONTRACT.md §The five tools). Absent means on: capture-off is an
-// explicit human action (AGENT-CONTRACT.md §User-only powers), never the
-// default.
-const settingCaptureOn = "capture_on"
-
 // LiveSession is one entry of status's other_live_sessions list.
 type LiveSession struct {
 	Session   string `json:"session"`
@@ -40,8 +34,10 @@ type StatusResult struct {
 }
 
 // handleStatus never writes to the store; it only reads sessions, the
-// caller's own rate-cap usage, and the capture-on setting.
-func handleStatus(st *store.Store, id ident.Identity, sessionID string) DaemonResponse {
+// caller's own rate-cap usage, and captureOff — the capture-off flag file,
+// the same one handleNote refuses writes under and `backstory capture
+// off|on` flips (AGENT-CONTRACT.md §User-only powers).
+func handleStatus(st *store.Store, id ident.Identity, sessionID string, captureOff func() (bool, error)) DaemonResponse {
 	remaining, err := st.RemainingWriteBudget(sessionID)
 	if err != nil {
 		return errResponse("internal", err.Error())
@@ -65,11 +61,9 @@ func handleStatus(st *store.Store, id ident.Identity, sessionID string) DaemonRe
 		}
 	}
 
-	captureOn := true
-	if v, ok, err := st.GetSetting(settingCaptureOn); err != nil {
+	off, err := captureOff()
+	if err != nil {
 		return errResponse("internal", err.Error())
-	} else if ok {
-		captureOn = v != "false"
 	}
 
 	result, err := json.Marshal(StatusResult{
@@ -79,7 +73,7 @@ func handleStatus(st *store.Store, id ident.Identity, sessionID string) DaemonRe
 		Session:           sessionID,
 		OtherLiveSessions: others,
 		RemainingBudget:   remaining,
-		CaptureOn:         captureOn,
+		CaptureOn:         !off,
 		Reason:            id.Reason,
 	})
 	if err != nil {
