@@ -112,11 +112,11 @@ func Import(st *store.Store, opts Options) (Result, error) {
 	}
 	workspaces := opts.Workspaces
 	if workspaces == nil {
-		ws, err := project.DefaultWorkspaceDirs()
-		if err != nil {
-			return Result{}, err
+		// An unresolvable home dir means no default workspace, never a
+		// failed backfill (same rule as the daemon).
+		if ws, err := project.DefaultWorkspaceDirs(); err == nil {
+			workspaces = ws
 		}
-		workspaces = ws
 	}
 
 	files, err := filepath.Glob(filepath.Join(root, "*", "*.jsonl"))
