@@ -310,6 +310,41 @@ func TestResolveCwdSuccessLeavesReasonEmpty(t *testing.T) {
 	}
 }
 
+// TestResolveHarnessStartTicksComesFromMatchedHarnessProcess is the punch's
+// (32c6900d) acceptance clause 3's ident-level half: Resolve carries the
+// matched harness pid's /proc start time onto Identity.HarnessStartTicks, so
+// a session registry keyed on (HarnessPID, HarnessStartTicks) can tell a
+// live harness process apart from a later, unrelated process that reused
+// its pid — two fake trees with the SAME harness pid but DIFFERENT
+// StartTicks (standing in for "the kernel recycled this pid") must produce
+// two different HarnessStartTicks values, never the same one.
+func TestResolveHarnessStartTicksComesFromMatchedHarnessProcess(t *testing.T) {
+	first := fakeProcFS{
+		status: map[int]ident.Status{800: {PPid: 700, Name: "claude", StartTicks: 1000}},
+		cwd:    map[int]string{800: "/home/brian/proj"},
+	}
+	second := fakeProcFS{
+		status: map[int]ident.Status{800: {PPid: 700, Name: "claude", StartTicks: 2000}},
+		cwd:    map[int]string{800: "/home/brian/proj"},
+	}
+
+	r1 := &ident.Resolver{ProcFS: first}
+	id1 := r1.Resolve(ident.PeerCreds{UID: 1000, PID: 800})
+	if id1.HarnessStartTicks != 1000 {
+		t.Errorf("id1.HarnessStartTicks = %d, want 1000", id1.HarnessStartTicks)
+	}
+
+	r2 := &ident.Resolver{ProcFS: second}
+	id2 := r2.Resolve(ident.PeerCreds{UID: 1000, PID: 800})
+	if id2.HarnessStartTicks != 2000 {
+		t.Errorf("id2.HarnessStartTicks = %d, want 2000", id2.HarnessStartTicks)
+	}
+
+	if id1.HarnessStartTicks == id2.HarnessStartTicks {
+		t.Fatalf("HarnessStartTicks identical (%d) for the same pid under two different fake /proc trees, want distinct values — a recycled pid must be distinguishable", id1.HarnessStartTicks)
+	}
+}
+
 // TestResolveDoesNotSetDeclared makes sure Resolve never populates Declared
 // itself: that is strictly the socket layer's job, from the connection's
 // request, never from anything Resolve touches.

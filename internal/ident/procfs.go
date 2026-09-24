@@ -1,10 +1,17 @@
 package ident
 
-// Status is the subset of /proc/<pid>/status the resolver's ancestry walk
-// needs.
+// Status is the subset of /proc/<pid>/status (plus /proc/<pid>/stat's
+// starttime field) the resolver's ancestry walk needs.
 type Status struct {
 	PPid int
 	Name string
+	// StartTicks is /proc/<pid>/stat field 22 (starttime): the process's
+	// start time in clock ticks since boot. Combined with a pid it
+	// disambiguates a genuinely new process from the kernel recycling an old
+	// pid — the same technique ps/systemd use — so a session keyed on
+	// (harness, pid, StartTicks) never conflates two different processes
+	// that happened to share a pid.
+	StartTicks uint64
 }
 
 // ProcFS abstracts /proc so the resolver is tested against a fake tree
