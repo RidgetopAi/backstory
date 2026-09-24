@@ -161,6 +161,15 @@ func TestKnownHarnessConnectionsShareOneSession(t *testing.T) {
 // SAME "session" join key value, which doubles as DONE WHEN clause 4's
 // other half: a declared id shared by two different observed harness
 // processes must never merge them into one session.
+//
+// Process A has exited (runSessionHarness waits for it) by the time B
+// dials, so task 25b74537's exit sweep — triggered by B's own connection —
+// correctly ends and evicts A's session before B's status call: B must NOT
+// see it in other_live_sessions. (Before that task, a known harness's
+// session never ended on its own, so B's status listed A forever; see
+// TestHarnessExitEndsAndEvictsSession, internal/mcp/status_test.go, for the
+// dedicated proof of that eviction.) The row itself is never deleted, only
+// ended: the store still holds exactly 2 sessions.
 func TestTwoHarnessProcessesGetTwoSessions(t *testing.T) {
 	st := mustOpenStore(t)
 	sockPath := testDaemonRealProcFS(t, st, "proj-key")
@@ -185,18 +194,13 @@ func TestTwoHarnessProcessesGetTwoSessions(t *testing.T) {
 			declared, statusA.Session)
 	}
 
-	found := false
 	for _, other := range statusB.OtherLiveSessions {
 		if other.Session == statusA.Session {
-			found = true
+			t.Errorf("process B's other_live_sessions still lists process A's session %q, want it evicted (A had already exited)", other.Session)
 		}
 		if other.Session == statusB.Session {
 			t.Errorf("process B's status lists its own session %q in other_live_sessions", other.Session)
 		}
-	}
-	if !found {
-		t.Errorf("process B's other_live_sessions = %+v, want it to include process A's session %q",
-			statusB.OtherLiveSessions, statusA.Session)
 	}
 
 	if got := countSessions(t, st); got != 2 {
@@ -206,15 +210,17 @@ func TestTwoHarnessProcessesGetTwoSessions(t *testing.T) {
 
 // dialWithIdentity opens a fresh unix listener, accepts exactly one
 // connection under the given (fabricated) ident.Identity via
-// ServeDaemonConn, sends one DaemonRequest for method, and returns the
-// resulting StatusResult's Session. st and sessions are shared across
-// calls so a test can simulate several connections against the SAME daemon
-// state without needing genuinely different real processes for every
-// identity it wants to try — used here only for scenarios a real process
-// cannot deterministically reproduce (a specific /proc start time),
-// mirroring internal/ident/resolver_test.go's fakeProcFS pattern one layer
-// up the stack.
-func dialWithIdentity(t *testing.T, st *store.Store, sessions *SessionRegistry, id ident.Identity, method string) string {
+// ServeDaemonConn, sends one status DaemonRequest, and returns the
+// resulting StatusResult. st, sessions and procfs are shared across calls
+// so a test can simulate several connections against the SAME daemon state
+// without needing genuinely different real processes for every identity it
+// wants to try — used here only for scenarios a real process cannot
+// deterministically reproduce (a specific /proc start time), mirroring
+// internal/ident/resolver_test.go's fakeProcFS pattern one layer up the
+// stack. procfs backs task 25b74537's exit sweep exactly like a real
+// daemon's ServeDaemonConn call does; a scenario that must never trip the
+// sweep reports every fabricated identity's pid as alive there.
+func dialWithIdentity(t *testing.T, st *store.Store, sessions *SessionRegistry, procfs ident.ProcFS, id ident.Identity) StatusResult {
 	t.Helper()
 	sockPath := filepath.Join(t.TempDir(), "sock")
 	ln, err := net.Listen("unix", sockPath)
@@ -231,7 +237,7 @@ func dialWithIdentity(t *testing.T, st *store.Store, sessions *SessionRegistry, 
 			return
 		}
 		defer func() { _ = conn.Close() }()
-		ServeDaemonConn(id, conn, st, ident.RealProcFS{}, nil, sessions)
+		ServeDaemonConn(id, conn, st, procfs, nil, sessions)
 	}()
 
 	conn, err := net.Dial("unix", sockPath)
@@ -239,7 +245,7 @@ func dialWithIdentity(t *testing.T, st *store.Store, sessions *SessionRegistry, 
 		t.Fatalf("dial: %v", err)
 	}
 
-	req := DaemonRequest{Method: method}
+	req := DaemonRequest{Method: daemonMethodStatus}
 	b, err := json.Marshal(req)
 	if err != nil {
 		t.Fatalf("marshal request: %v", err)
@@ -271,36 +277,50 @@ func dialWithIdentity(t *testing.T, st *store.Store, sessions *SessionRegistry, 
 	case <-time.After(2 * time.Second):
 		t.Fatal("ServeDaemonConn did not return within 2s of the connection closing")
 	}
-	return result.Session
+	return result
 }
 
 // TestReusedHarnessPidWithDifferentStartTicksIsNewSession is the punch's
-// DONE WHEN clause 3: a harness pid reused by a new process — observed as
-// the same HarnessPID but a different ident.Identity.HarnessStartTicks,
-// exactly what internal/ident's real /proc-backed start-time read would
-// report for two unrelated processes that happen to share a recycled pid —
-// must be treated as a new session, never the old one. The same pid AND the
-// same start ticks, by contrast, must still reuse the original session.
+// (25b74537) DONE WHEN clause 2: a harness pid reused by a new process —
+// observed as the same HarnessPID but a different
+// ident.Identity.HarnessStartTicks, exactly what internal/ident's real
+// /proc-backed start-time read would report for two unrelated processes
+// that happen to share a recycled pid — must be treated as a new session,
+// never the old one. The same pid AND the same start ticks, by contrast,
+// must still reuse the original session: fakeProcFS reports pid 4242 alive
+// at ticks 1000 for the whole test, exactly what a real, continuously-alive
+// process's /proc entry would report, so the sweep never has reason to
+// evict the entry the "repeat" dial expects to find still cached — proving
+// the sweep does not evict a session just because a DIFFERENT dial in
+// between claimed a different start time for the same pid.
+//
+// RA-MUTATION-PROBE: SessionRegistry.sweep's `st.StartTicks != key.
+// StartTicks` half of the staleness check deleted (leaving only the
+// procfs.Status error case) -> RED (the reused-pid dial's stale entry is
+// never evicted, so status keeps reporting the exited identity as
+// pid-current); restored -> GREEN.
 func TestReusedHarnessPidWithDifferentStartTicksIsNewSession(t *testing.T) {
 	st := mustOpenStore(t)
 	if err := st.UpsertProject(store.Project{Key: "proj-key", Toplevel: "/proj", FirstSeen: time.Now()}); err != nil {
 		t.Fatalf("upsert project: %v", err)
 	}
 	sessions := NewSessionRegistry()
+	const pid = 4242
+	procfs := fakeProcFS{status: map[int]ident.Status{pid: {StartTicks: 1000}}}
 
-	base := ident.Identity{Kind: ident.KindAgent, Harness: "claude", HarnessPID: 4242, ProjectKey: "proj-key"}
+	base := ident.Identity{Kind: ident.KindAgent, Harness: "claude", HarnessPID: pid, ProjectKey: "proj-key"}
 
 	firstProcess := base
 	firstProcess.HarnessStartTicks = 1000
-	sidFirst := dialWithIdentity(t, st, sessions, firstProcess, daemonMethodStatus)
+	sidFirst := dialWithIdentity(t, st, sessions, procfs, firstProcess).Session
 
 	reusedPid := base
 	reusedPid.HarnessStartTicks = 2000
-	sidReused := dialWithIdentity(t, st, sessions, reusedPid, daemonMethodStatus)
+	sidReused := dialWithIdentity(t, st, sessions, procfs, reusedPid).Session
 
 	repeat := base
 	repeat.HarnessStartTicks = 1000
-	sidRepeat := dialWithIdentity(t, st, sessions, repeat, daemonMethodStatus)
+	sidRepeat := dialWithIdentity(t, st, sessions, procfs, repeat).Session
 
 	if sidFirst == sidReused {
 		t.Fatalf("pid %d reused by a process with a different /proc start time got the same session %q, want a new one",
@@ -309,5 +329,64 @@ func TestReusedHarnessPidWithDifferentStartTicksIsNewSession(t *testing.T) {
 	if sidRepeat != sidFirst {
 		t.Fatalf("same pid %d and the same start time got a different session (%q vs %q), want the original session reused",
 			base.HarnessPID, sidRepeat, sidFirst)
+	}
+}
+
+// TestStillAliveHarnessSessionsRemainMutuallyVisible guards against an
+// over-eager sweep: two DIFFERENT, both genuinely-still-alive (per
+// fakeProcFS) fabricated harness processes must keep seeing each other in
+// other_live_sessions across several connections each, exactly like
+// TestTwoHarnessProcessesGetTwoSessions' two real processes would if
+// neither had exited yet. Complements task 25b74537's exit sweep tests
+// (which all prove eviction) with the "never evicts a still-alive one"
+// half.
+func TestStillAliveHarnessSessionsRemainMutuallyVisible(t *testing.T) {
+	st := mustOpenStore(t)
+	if err := st.UpsertProject(store.Project{Key: "proj-key", Toplevel: "/proj", FirstSeen: time.Now()}); err != nil {
+		t.Fatalf("upsert project: %v", err)
+	}
+	sessions := NewSessionRegistry()
+	procfs := fakeProcFS{status: map[int]ident.Status{
+		5001: {StartTicks: 100},
+		5002: {StartTicks: 200},
+	}}
+
+	idA := ident.Identity{Kind: ident.KindAgent, Harness: "claude", HarnessPID: 5001, HarnessStartTicks: 100, ProjectKey: "proj-key"}
+	idB := ident.Identity{Kind: ident.KindAgent, Harness: "claude", HarnessPID: 5002, HarnessStartTicks: 200, ProjectKey: "proj-key"}
+
+	resultA := dialWithIdentity(t, st, sessions, procfs, idA)
+	// A second dial from each identity re-triggers the sweep without either
+	// process having "exited" in the fake — neither entry may be evicted.
+	resultB := dialWithIdentity(t, st, sessions, procfs, idB)
+	resultA2 := dialWithIdentity(t, st, sessions, procfs, idA)
+	resultB2 := dialWithIdentity(t, st, sessions, procfs, idB)
+
+	if resultA2.Session != resultA.Session {
+		t.Fatalf("process A's session changed across still-alive dials (%q vs %q), want it reused", resultA.Session, resultA2.Session)
+	}
+	if resultB2.Session != resultB.Session {
+		t.Fatalf("process B's session changed across still-alive dials (%q vs %q), want it reused", resultB.Session, resultB2.Session)
+	}
+
+	foundBInA := false
+	for _, other := range resultA2.OtherLiveSessions {
+		if other.Session == resultB.Session {
+			foundBInA = true
+		}
+	}
+	if !foundBInA {
+		t.Errorf("still-alive process A's other_live_sessions = %+v, want it to include still-alive process B's session %q",
+			resultA2.OtherLiveSessions, resultB.Session)
+	}
+
+	foundAInB := false
+	for _, other := range resultB2.OtherLiveSessions {
+		if other.Session == resultA.Session {
+			foundAInB = true
+		}
+	}
+	if !foundAInB {
+		t.Errorf("still-alive process B's other_live_sessions = %+v, want it to include still-alive process A's session %q",
+			resultB2.OtherLiveSessions, resultA.Session)
 	}
 }

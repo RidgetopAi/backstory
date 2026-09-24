@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"bufio"
+	"database/sql"
 	"encoding/json"
 	"net"
 	"os"
@@ -126,19 +127,24 @@ func TestStatusReportsNoReasonWhenCwdReadable(t *testing.T) {
 	}
 }
 
-// TestStatusListsSecondLiveSessionInSameProject is DONE WHEN clause 4's
-// second half: status lists a second live session in the same project when
-// one exists in the store.
+// TestHarnessExitEndsAndEvictsSession is the punch's (25b74537) DONE WHEN
+// clause 1: a test-spawned harness-named helper process opens a session and
+// exits (sessionharness dials, calls its one step, and exits — session_
+// test.go), and the daemon notices on the next connection (here, a second,
+// genuinely different real harness process's own status call): the exited
+// process's session gets ended_at set with an honest reason and is evicted
+// from the registry, so status from the second (still-live) helper no
+// longer lists it in other_live_sessions.
 //
-// Task 32c6900d changed what "a second live session" means: a store session
-// is now one observed harness PROCESS, not one connection (dialShim's own
-// backing connection would no longer do — two dials from this same test
-// process resolve to the identical observed identity and now correctly
-// share one session). Proving two distinct sessions exist requires two
-// genuinely different real processes, so this uses sessionharness
-// (session_test.go) instead of two dialShim instances against the same
-// testDaemon.
-func TestStatusListsSecondLiveSessionInSameProject(t *testing.T) {
+// Before task 25b74537, a known harness's session never ended on its own
+// (task 32c6900d), so process B's status listed process A's session
+// forever — this test's RED state without this task's fix.
+//
+// RA-MUTATION-PROBE: internal/mcp.ServeDaemonConn's `end` closure replaced
+// with a no-op (the end-on-harness-exit path removed) -> RED (process A's
+// session is never ended: ended_at stays NULL and process B's status keeps
+// listing it); restored -> GREEN.
+func TestHarnessExitEndsAndEvictsSession(t *testing.T) {
 	st := mustOpenStore(t)
 	sockPath := testDaemonRealProcFS(t, st, "proj-key")
 	bin := buildSessionHarness(t, sessionHarnessName)
@@ -150,10 +156,9 @@ func TestStatusListsSecondLiveSessionInSameProject(t *testing.T) {
 	}
 
 	// Process A has already exited by now (sessionharness dials, calls its
-	// one step, and exits) — its session must still be live, since a known
-	// harness's session no longer ends when a connection to it closes
-	// (task 32c6900d). Process B, a second real harness process, must be
-	// able to see it.
+	// one step, and exits). Process B is a second, genuinely different real
+	// harness process; its own connection is what triggers the sweep that
+	// must have ended and evicted A's now-stale session.
 	resultsB := runSessionHarness(t, bin, sockPath, []harnessStep{{Method: daemonMethodStatus}})
 	var resultB StatusResult
 	if err := json.Unmarshal(resultsB[0], &resultB); err != nil {
@@ -163,18 +168,36 @@ func TestStatusListsSecondLiveSessionInSameProject(t *testing.T) {
 		t.Fatalf("session B = %q, same as session A; want distinct sessions", resultB.Session)
 	}
 
-	found := false
 	for _, other := range resultB.OtherLiveSessions {
 		if other.Session == resultA.Session {
-			found = true
+			t.Errorf("status B's other_live_sessions still lists exited process A's session %q, want it evicted", other.Session)
 		}
 		if other.Session == resultB.Session {
 			t.Errorf("status B lists its own session %q in other_live_sessions", other.Session)
 		}
 	}
-	if !found {
-		t.Errorf("status B's other_live_sessions = %+v, want it to include session A (%q)",
-			resultB.OtherLiveSessions, resultA.Session)
+
+	live, err := st.LiveSessionsInProject("proj-key")
+	if err != nil {
+		t.Fatalf("LiveSessionsInProject: %v", err)
+	}
+	for _, s := range live {
+		if s.ID == resultA.Session {
+			t.Errorf("LiveSessionsInProject still lists exited process A's session %q", s.ID)
+		}
+	}
+
+	var endedAt sql.NullInt64
+	var exitKind sql.NullString
+	if err := st.DB().QueryRow(`SELECT ended_at, exit_kind FROM sessions WHERE id = ?`, resultA.Session).
+		Scan(&endedAt, &exitKind); err != nil {
+		t.Fatalf("query session A row: %v", err)
+	}
+	if !endedAt.Valid {
+		t.Errorf("session A's ended_at is NULL, want it set once the daemon noticed the harness exited")
+	}
+	if !exitKind.Valid || exitKind.String != ReasonHarnessExited {
+		t.Errorf("session A's exit_kind = %v, want %q", exitKind, ReasonHarnessExited)
 	}
 }
 

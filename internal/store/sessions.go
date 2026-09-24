@@ -113,6 +113,63 @@ func (s *Store) LiveSessionsInProject(projectKey string) ([]Session, error) {
 	return sessions, nil
 }
 
+// LiveSessionByHarnessSessionID returns the still-live (origin 'live',
+// ended_at IS NULL) session whose harness_session_id equals sessionID, if
+// one exists. The Claude backfill importer uses this to attach to a run
+// that is still being captured live instead of minting a second,
+// backfilled-origin session for the same run (task 25b74537) — matching on
+// harness_session_id alone, never pid, since the importer never observes a
+// pid at all.
+func (s *Store) LiveSessionByHarnessSessionID(sessionID string) (Session, bool, error) {
+	if sessionID == "" {
+		return Session{}, false, nil
+	}
+	row := s.db.QueryRow(`SELECT id, agent, harness_session_id, pid, cwd, project_key, workspace, window, started_at, origin
+		FROM sessions WHERE harness_session_id = ? AND ended_at IS NULL AND origin = ? LIMIT 1`,
+		sessionID, string(OriginLive))
+
+	var (
+		sess              Session
+		harnessSessionID  sql.NullString
+		pid               sql.NullInt64
+		projectKey        sql.NullString
+		workspace, window sql.NullString
+		startedAt         int64
+		origin            string
+	)
+	if err := row.Scan(&sess.ID, &sess.Agent, &harnessSessionID, &pid, &sess.CWD,
+		&projectKey, &workspace, &window, &startedAt, &origin); err != nil {
+		if err == sql.ErrNoRows {
+			return Session{}, false, nil
+		}
+		return Session{}, false, fmt.Errorf("store: live session for harness_session_id %s: %w", sessionID, err)
+	}
+	sess.HarnessSessionID = harnessSessionID.String
+	if pid.Valid {
+		p := int(pid.Int64)
+		sess.PID = &p
+	}
+	sess.ProjectKey = projectKey.String
+	sess.Workspace = workspace.String
+	sess.Window = window.String
+	sess.StartedAt = tsFromNanos(startedAt)
+	sess.Origin = SessionOrigin(origin)
+	return sess, true, nil
+}
+
+// SessionOrigin returns session id's origin — a caller deciding whether it
+// may end a session (e.g. the Claude backfill importer, which must never
+// end a still-live-origin session: that lifecycle belongs exclusively to
+// the daemon, task 25b74537) needs this without reading back the whole row.
+func (s *Store) SessionOrigin(id string) (SessionOrigin, error) {
+	var origin string
+	err := s.db.QueryRow(`SELECT origin FROM sessions WHERE id = ?`, id).Scan(&origin)
+	if err != nil {
+		return "", fmt.Errorf("store: session origin %s: %w", id, err)
+	}
+	return SessionOrigin(origin), nil
+}
+
 // EndSession records a session's end time and exit kind.
 func (s *Store) EndSession(id string, endedAt time.Time, exitKind string) error {
 	res, err := s.db.Exec(`UPDATE sessions SET ended_at = ?, exit_kind = ? WHERE id = ?`,
