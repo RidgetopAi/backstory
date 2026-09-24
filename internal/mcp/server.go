@@ -58,9 +58,9 @@ type rpcResponse struct {
 type Dialer func() (net.Conn, error)
 
 // Server is the stdio<->socket MCP shim: it speaks JSON-RPC 2.0 line by line
-// over stdin/stdout, and forwards note/status/recall tool calls to the
-// daemon over a connection it dials lazily via dial. timeline/confirm never
-// touch the daemon connection at all.
+// over stdin/stdout, and forwards note/status/recall/confirm tool calls to
+// the daemon over a connection it dials lazily via dial. timeline never
+// touches the daemon connection at all.
 type Server struct {
 	dial         Dialer
 	daemonConn   net.Conn
