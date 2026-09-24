@@ -25,5 +25,8 @@ func resolveHumanProjectKey(projectFlag string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("resolve current directory: %w", err)
 	}
-	return project.Key(cwd, project.RealGit{}), nil
+	// Same workspace rule as the daemon (decision bcc9fa54); no resolvable
+	// home dir just means no default workspace.
+	workspaces, _ := project.DefaultWorkspaceDirs()
+	return project.Key(cwd, project.RealGit{}, workspaces), nil
 }
