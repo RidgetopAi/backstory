@@ -339,8 +339,8 @@ func TestDaemonStartMigratesOldShapeStoreThroughNormalReadPath(t *testing.T) {
 	dbPath := filepath.Join(dataDir, "backstory", "backstory.db")
 	projectDir := t.TempDir()
 
-	projectKey := project.Key(projectDir, project.RealGit{})
-	if cwd, err := os.Getwd(); err == nil && projectKey == project.Key(cwd, project.RealGit{}) {
+	projectKey := project.Key(projectDir, project.RealGit{}, nil)
+	if cwd, err := os.Getwd(); err == nil && projectKey == project.Key(cwd, project.RealGit{}, nil) {
 		t.Fatalf("projectDir %q resolved to the same project key as this test's own cwd %q — the isolation this test depends on is broken", projectDir, cwd)
 	}
 
@@ -525,8 +525,8 @@ func TestDaemonRecallIsProjectAnchoredThroughHarnessSpawnedHelper(t *testing.T) 
 	projectDir := t.TempDir()
 	otherProjectDir := t.TempDir()
 
-	projectKey := project.Key(projectDir, project.RealGit{})
-	otherProjectKey := project.Key(otherProjectDir, project.RealGit{})
+	projectKey := project.Key(projectDir, project.RealGit{}, nil)
+	otherProjectKey := project.Key(otherProjectDir, project.RealGit{}, nil)
 	if projectKey == otherProjectKey {
 		t.Fatalf("projectDir %q and otherProjectDir %q resolved to the same project key %q — the isolation this test depends on is broken",
 			projectDir, otherProjectDir, projectKey)
@@ -618,7 +618,7 @@ func TestDaemonRecallOnEmptyProjectReturnsHonestEmptyResultThroughHarnessSpawned
 	runtimeDir := t.TempDir()
 	dataDir := t.TempDir()
 	projectDir := t.TempDir()
-	projectKey := project.Key(projectDir, project.RealGit{})
+	projectKey := project.Key(projectDir, project.RealGit{}, nil)
 
 	cmd := exec.Command(bin, "daemon") //nolint:gosec // bin is the binary this test just built, not external input
 	cmd.Env = testXDGEnv(
