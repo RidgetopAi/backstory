@@ -121,12 +121,25 @@ func (s *Store) Confirm(p ConfirmParams) (string, error) {
 		return "", fmt.Errorf("store: unknown confirm action %q", p.Action)
 	}
 
-	target, err := s.GetRecord(p.RecordID)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return "", &UnknownEdgeTargetError{Field: "record_id", ID: p.RecordID}
+	// promote and supersede need the target record's own fields (Tier,
+	// SessionID, ProjectKey) to validate against, so they fetch it here.
+	// contradict and affirm need nothing from the target beyond "it
+	// exists", which InsertRecordWithEdges's own atomic edge-target check
+	// already establishes inside the same transaction as the record
+	// insert — fetching it again here first would only shadow that check
+	// with a second, redundant one outside the transaction, the exact
+	// split this package's history (critic T1 on 14704ebe, task e7951178)
+	// exists to avoid.
+	var target Record
+	if p.Action == ConfirmPromote || p.Action == ConfirmSupersede {
+		var err error
+		target, err = s.GetRecord(p.RecordID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return "", &UnknownEdgeTargetError{Field: "record_id", ID: p.RecordID}
+			}
+			return "", err
 		}
-		return "", err
 	}
 
 	var promoter string
