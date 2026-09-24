@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -275,32 +276,11 @@ func (s *Store) RecordsForProject(projectKey string, kind RecordKind, limit int)
 	if err != nil {
 		return nil, fmt.Errorf("store: records for project %s kind %s: %w", projectKey, kind, err)
 	}
-	var ids []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			_ = rows.Close()
-			return nil, fmt.Errorf("store: scan record id: %w", err)
-		}
-		ids = append(ids, id)
-	}
-	if err := rows.Err(); err != nil {
-		_ = rows.Close()
+	ids, err := scanIDs(rows)
+	if err != nil {
 		return nil, fmt.Errorf("store: records for project %s kind %s: %w", projectKey, kind, err)
 	}
-	if err := rows.Close(); err != nil {
-		return nil, fmt.Errorf("store: records for project %s kind %s: %w", projectKey, kind, err)
-	}
-
-	out := make([]Record, 0, len(ids))
-	for _, id := range ids {
-		rec, err := s.GetRecord(id)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, rec)
-	}
-	return out, nil
+	return s.getRecords(ids)
 }
 
 // UnconfirmedDraftCount counts inferred-tier records in projectKey with no
@@ -339,6 +319,125 @@ func (s *Store) TombstoneRecord(id string, identity Identity) error {
 		return fmt.Errorf("store: tombstone record %s: not found", id)
 	}
 	return nil
+}
+
+// RecordsForProjectAll returns EVERY record for projectKey — every kind,
+// and including tombstoned ones (unlike RecordsForProject, which is
+// kind-scoped and excludes them) — newest first by sequence (rowid DESC;
+// SCHEMA.md invariant 10: order by sequence, never ts), capped at limit
+// rows. It is internal/recall's project-anchor query: a project anchor's
+// narrative is the project's whole ledger, and a tombstoned record must
+// still surface (recall omits its text, keeps its edges) rather than
+// vanish the way it does for RecordsForProject's kind-scoped callers.
+func (s *Store) RecordsForProjectAll(projectKey string, limit int) ([]Record, error) {
+	rows, err := s.db.Query(`SELECT id FROM records
+		WHERE project_key = ?
+		ORDER BY rowid DESC LIMIT ?`, projectKey, limit)
+	if err != nil {
+		return nil, fmt.Errorf("store: all records for project %s: %w", projectKey, err)
+	}
+	ids, err := scanIDs(rows)
+	if err != nil {
+		return nil, fmt.Errorf("store: all records for project %s: %w", projectKey, err)
+	}
+	return s.getRecords(ids)
+}
+
+// RecordsByIDs returns the records named by ids, newest first by sequence
+// (rowid DESC; SCHEMA.md invariant 10), including tombstoned ones. An id
+// with no matching record is silently skipped rather than erroring: a
+// caller resolving an edge walk over a set of ids expects to get back
+// whichever of them still exist, not a failure over one stale reference.
+func (s *Store) RecordsByIDs(ids []string) ([]Record, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	placeholders := make([]string, len(ids))
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	query := `SELECT id FROM records WHERE id IN (` + strings.Join(placeholders, ",") + `) ORDER BY rowid DESC`
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("store: records by ids: %w", err)
+	}
+	resolved, err := scanIDs(rows)
+	if err != nil {
+		return nil, fmt.Errorf("store: records by ids: %w", err)
+	}
+	return s.getRecords(resolved)
+}
+
+// FindRecordByIDPrefix resolves idOrPrefix to a record: an exact id match
+// wins outright, even if idOrPrefix also happens to prefix other ids.
+// Otherwise idOrPrefix must prefix EXACTLY one record's id to resolve —
+// zero matches and multiple (ambiguous) matches both report found=false,
+// the same honest non-answer, so an ambiguous short prefix never silently
+// guesses which record was meant.
+func (s *Store) FindRecordByIDPrefix(idOrPrefix string) (Record, bool, error) {
+	if idOrPrefix == "" {
+		return Record{}, false, nil
+	}
+	if rec, err := s.GetRecord(idOrPrefix); err == nil {
+		return rec, true, nil
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return Record{}, false, fmt.Errorf("store: find record by prefix %s: %w", idOrPrefix, err)
+	}
+
+	rows, err := s.db.Query(`SELECT id FROM records WHERE substr(id, 1, ?) = ?`, len(idOrPrefix), idOrPrefix)
+	if err != nil {
+		return Record{}, false, fmt.Errorf("store: find record by prefix %s: %w", idOrPrefix, err)
+	}
+	ids, err := scanIDs(rows)
+	if err != nil {
+		return Record{}, false, fmt.Errorf("store: find record by prefix %s: %w", idOrPrefix, err)
+	}
+	if len(ids) != 1 {
+		return Record{}, false, nil
+	}
+	rec, err := s.GetRecord(ids[0])
+	if err != nil {
+		return Record{}, false, fmt.Errorf("store: find record by prefix %s: %w", idOrPrefix, err)
+	}
+	return rec, true, nil
+}
+
+// getRecords loads each id in order via GetRecord, preserving ids' order.
+func (s *Store) getRecords(ids []string) ([]Record, error) {
+	out := make([]Record, 0, len(ids))
+	for _, id := range ids {
+		rec, err := s.GetRecord(id)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rec)
+	}
+	return out, nil
+}
+
+// scanIDs drains a `SELECT id FROM ...` rows into a slice, closing rows
+// itself (success or failure) so every caller does not repeat the same
+// scan/close/err bookkeeping.
+func scanIDs(rows *sql.Rows) ([]string, error) {
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			return nil, fmt.Errorf("scan id: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, fmt.Errorf("scan ids: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, fmt.Errorf("scan ids: %w", err)
+	}
+	return ids, nil
 }
 
 func marshalStrings(v []string) (string, error) {
