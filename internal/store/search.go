@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"fmt"
 	"time"
 )
@@ -30,6 +31,40 @@ func (s *Store) SearchRecords(query string, limit int) ([]SearchResult, error) {
 	if err != nil {
 		return nil, fmt.Errorf("store: search records: %w", err)
 	}
+	out, err := scanSearchResults(rows)
+	if err != nil {
+		return nil, fmt.Errorf("store: search records: %w", err)
+	}
+	return out, nil
+}
+
+// SearchRecordsInProject is SearchRecords scoped to a single project — the
+// query internal/recall's free-text anchor needs (PLAN.md §Phase 4: "free
+// text (FTS via SearchRecords, scoped to the project)"): SearchRecords
+// itself carries no project_key column to filter on the FTS side, so this
+// joins the same way and adds the one extra WHERE clause rather than
+// filtering matches after the fact.
+func (s *Store) SearchRecordsInProject(projectKey, query string, limit int) ([]SearchResult, error) {
+	rows, err := s.db.Query(`SELECT r.id, r.ts, r.kind, r.tier, r.text
+		FROM records_fts
+		JOIN records r ON r.rowid = records_fts.rowid
+		WHERE records_fts MATCH ? AND r.tombstoned_at IS NULL AND r.project_key = ?
+		ORDER BY rank, r.ts ASC
+		LIMIT ?`, query, projectKey, limit)
+	if err != nil {
+		return nil, fmt.Errorf("store: search records in project %s: %w", projectKey, err)
+	}
+	out, err := scanSearchResults(rows)
+	if err != nil {
+		return nil, fmt.Errorf("store: search records in project %s: %w", projectKey, err)
+	}
+	return out, nil
+}
+
+// scanSearchResults drains rows into a []SearchResult, closing rows itself
+// (success or failure) so SearchRecords and SearchRecordsInProject share one
+// copy of the scan/close bookkeeping instead of each repeating it.
+func scanSearchResults(rows *sql.Rows) ([]SearchResult, error) {
 	defer func() { _ = rows.Close() }()
 
 	var out []SearchResult
@@ -38,7 +73,7 @@ func (s *Store) SearchRecords(query string, limit int) ([]SearchResult, error) {
 		var ts int64
 		var kind, tier string
 		if err := rows.Scan(&r.ID, &ts, &kind, &tier, &r.Text); err != nil {
-			return nil, fmt.Errorf("store: scan search result: %w", err)
+			return nil, fmt.Errorf("scan search result: %w", err)
 		}
 		r.TS = tsFromNanos(ts)
 		r.Kind = RecordKind(kind)
@@ -46,7 +81,7 @@ func (s *Store) SearchRecords(query string, limit int) ([]SearchResult, error) {
 		out = append(out, r)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("store: search records: %w", err)
+		return nil, err
 	}
 	return out, nil
 }
