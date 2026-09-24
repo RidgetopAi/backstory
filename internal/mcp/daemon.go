@@ -3,6 +3,7 @@ package mcp
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"log"
 	"net"
 	"time"
@@ -30,6 +31,16 @@ const (
 // entirely — the block is not one of the five frozen v0 tools.
 const DaemonMethodBlock = "block"
 
+// errCaptureOff is startSession's captureOff-gated start callback's
+// sentinel error (task 9c62f9dc, SCHEMA.md invariant 8): it tells
+// ServeDaemonConn's caller apart from a genuine startSession failure so the
+// former is never logged as one, and — just as importantly — tells
+// SessionRegistry.SessionFor not to cache an empty session id against this
+// harness process. A cached empty id would wrongly survive capture being
+// switched back on, permanently starving that harness process of a real
+// session for the rest of the daemon's lifetime.
+var errCaptureOff = errors.New("mcp: capture is off, no session started")
+
 // ServeDaemonConn is the daemon side of the shim<->daemon wire protocol: the
 // socket.Handler cmd/backstory wires into socket.Listen. A store session is
 // one run of an observed harness process, never one socket connection
@@ -53,20 +64,33 @@ const DaemonMethodBlock = "block"
 // a request line claims, and the SessionStart block it renders is always
 // for id.ProjectKey, regardless of what a request line claims either.
 //
-// captureOff is checked fresh on every note request (SCHEMA.md invariant 8:
-// "honoured on every write path") and reported by status — the same
-// capture-off flag file cmd/backstory's `hook post-tool-use` already
-// refuses to record on, passed in by daemon.go rather than resolved here so
-// this package never has to know how the flag file's path is derived.
+// captureOff is checked fresh on every note and post_tool_use request
+// (SCHEMA.md invariant 8: "honoured on every write path"), reported by
+// status, and checked once more here before a session is ever started
+// (invariant 8 again: no sessions row is written while capture is off,
+// task 9c62f9dc) — the same capture-off flag file cmd/backstory's `hook
+// post-tool-use` already refuses to record on, passed in by daemon.go
+// rather than resolved here so this package never has to know how the flag
+// file's path is derived.
 func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs ident.ProcFS, logger *log.Logger, sessions *SessionRegistry, captureOff func() (bool, error)) {
 	end := func(sessionID, reason string) {
 		if err := st.EndSession(sessionID, time.Now(), reason); err != nil {
 			logf(logger, "mcp: end session %s: %v", sessionID, err)
 		}
 	}
-	sessionID, err := sessions.SessionFor(id, procfs, end, func() (string, error) { return startSession(st, id) })
+	start := func() (string, error) {
+		if off, err := captureOff(); err != nil {
+			return "", err
+		} else if off {
+			return "", errCaptureOff
+		}
+		return startSession(st, id)
+	}
+	sessionID, err := sessions.SessionFor(id, procfs, end, start)
 	if err != nil {
-		logf(logger, "mcp: start session for pid=%d: %v", id.PID, err)
+		if !errors.Is(err, errCaptureOff) {
+			logf(logger, "mcp: start session for pid=%d: %v", id.PID, err)
+		}
 	} else if id.HarnessPID == 0 {
 		defer end(sessionID, "eof")
 	}
@@ -105,7 +129,7 @@ func dispatchDaemonRequest(line []byte, st *store.Store, procfs ident.ProcFS, id
 	case DaemonMethodBlock:
 		return handleBlock(st, procfs, id, sessionID)
 	case DaemonMethodPostToolUse:
-		return handlePostToolUse(st, sessionID, req.Params)
+		return handlePostToolUse(st, sessionID, req.Params, captureOff)
 	default:
 		return errResponse("unknown-method", "unknown method "+req.Method)
 	}

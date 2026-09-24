@@ -66,7 +66,20 @@ type PostToolUseResult struct {
 // Bash additionally gets one tool.result event carrying Exit exactly as
 // p.Exit was observed — nil stays nil, never coerced to 0 (DONE WHEN clause
 // 2).
-func handlePostToolUse(st *store.Store, sessionID string, raw json.RawMessage) DaemonResponse {
+//
+// captureOff is checked before anything else, exactly like handleNote (task
+// 9c62f9dc, SCHEMA.md invariant 8: "honoured on every write path"). `backstory
+// hook post-tool-use` already refuses client-side before ever dialing the
+// daemon, but post_tool_use is reachable from any socket peer just like
+// note — the daemon itself, the only writer of timeline_events (invariant
+// 4), must refuse it too rather than trust the client's own check.
+func handlePostToolUse(st *store.Store, sessionID string, raw json.RawMessage, captureOff func() (bool, error)) DaemonResponse {
+	if off, err := captureOff(); err != nil {
+		return errResponse("internal", err.Error())
+	} else if off {
+		return errResponse("capture-off", "capture is paused; no events are written")
+	}
+
 	var p PostToolUseParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return errResponse("invalid-params", "invalid post_tool_use params: "+err.Error())
