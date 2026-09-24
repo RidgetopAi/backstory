@@ -201,6 +201,10 @@ func Build(p Params) (Result, error) {
 
 	sortAttention(attention)
 
+	// Empty, never nil: every list marshals as [] (PANEL-CONTRACT.md).
+	if attention == nil {
+		attention = []AttentionItem{}
+	}
 	res := Result{Attention: attention, WhereLeftOff: whereLeftOff, Week: weekGrid}
 	res.Rendered = render(res)
 	return res, nil
@@ -245,7 +249,7 @@ func buildProject(st *store.Store, projectKey string, since, now time.Time) (Pro
 		summary.CWD = sess.CWD
 	}
 
-	if last, ok, err := st.LastActivity(projectKey); err != nil {
+	if last, ok, err := st.LastActivity(projectKey, now); err != nil {
 		return ProjectSummary{}, nil, fmt.Errorf("week: last activity for %s: %w", projectKey, err)
 	} else if ok {
 		summary.LastActivity = last
@@ -529,7 +533,7 @@ func freshnessReasonSummary(reasons []store.FreshnessReason) string {
 // recall.staleReasonSummary's ids both already use for a freshness
 // reason's evidence.
 func freshnessEvidenceIDs(reasons []store.FreshnessReason) []string {
-	var ids []string
+	ids := []string{} // never null in --json (PANEL-CONTRACT.md)
 	for _, r := range reasons {
 		ids = append(ids, r.RecordIDs...)
 		ids = append(ids, intIDs(r.EventIDs)...)

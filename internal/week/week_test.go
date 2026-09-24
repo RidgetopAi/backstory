@@ -1,6 +1,7 @@
 package week
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -338,6 +339,23 @@ func TestBuildEmptyAttentionHasNoHeadingOrFillerLine(t *testing.T) {
 	}
 	if strings.Contains(res.Rendered, "Attention") {
 		t.Fatalf("Rendered text contains an Attention heading or filler line with nothing to flag:\n%s", res.Rendered)
+	}
+	// Nothing at all may come before the first real section: a bare filler
+	// line ("all good") with no heading must fail this too.
+	if !strings.HasPrefix(res.Rendered, "Where you left off:") {
+		t.Fatalf("Rendered text does not start with the Where you left off heading (filler before it?):\n%s", res.Rendered)
+	}
+	if b, err := json.Marshal(res.Attention); err != nil || string(b) != "[]" {
+		t.Fatalf("Attention marshals as %s (err %v), want []", b, err)
+	}
+}
+
+// TestFreshnessEvidenceIDsNeverNull: a stale reason with no ids must still
+// serialise evidence_ids as [], never null (PANEL-CONTRACT.md).
+func TestFreshnessEvidenceIDsNeverNull(t *testing.T) {
+	b, err := json.Marshal(freshnessEvidenceIDs(nil))
+	if err != nil || string(b) != "[]" {
+		t.Fatalf("freshnessEvidenceIDs(nil) marshals as %s (err %v), want []", b, err)
 	}
 }
 

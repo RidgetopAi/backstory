@@ -115,7 +115,8 @@ func (s *Store) ActiveProjectKeys(since time.Time) ([]string, error) {
 // timeline events, and record inserts — This Week's Where-you-left-off
 // "last activity time" (task 56d8c63d). ok is false when projectKey has no
 // activity of any of those three kinds at all.
-func (s *Store) LastActivity(projectKey string) (t time.Time, ok bool, err error) {
+// Activity after asOf is ignored, so the view is "as of" its own clock.
+func (s *Store) LastActivity(projectKey string, asOf time.Time) (t time.Time, ok bool, err error) {
 	var maxTS sql.NullInt64
 	err = s.db.QueryRow(`
 		SELECT MAX(ts) FROM (
@@ -126,7 +127,7 @@ func (s *Store) LastActivity(projectKey string) (t time.Time, ok bool, err error
 				WHERE s.project_key = ?
 			UNION ALL
 			SELECT ts FROM records WHERE project_key = ?
-		)`, projectKey, projectKey, projectKey).Scan(&maxTS)
+		) WHERE ts <= ?`, projectKey, projectKey, projectKey, tsToNanos(asOf)).Scan(&maxTS)
 	if err != nil {
 		return time.Time{}, false, fmt.Errorf("store: last activity for project %s: %w", projectKey, err)
 	}
