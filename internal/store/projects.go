@@ -31,3 +31,32 @@ func (s *Store) UpsertProject(p Project) error {
 	}
 	return nil
 }
+
+// ProjectsSeenSince returns the distinct project keys with at least one
+// session started at or after since, ordered by key. projects.first_seen
+// never advances past a project's first sighting (UpsertProject preserves
+// it on update), so it cannot answer "seen recently" on its own — this
+// reads activity off sessions.started_at instead, the signal `backstory
+// group list`'s "ungrouped projects seen this week" needs.
+func (s *Store) ProjectsSeenSince(since time.Time) ([]string, error) {
+	rows, err := s.db.Query(`SELECT DISTINCT project_key FROM sessions
+		WHERE project_key IS NOT NULL AND started_at >= ?
+		ORDER BY project_key`, tsToNanos(since))
+	if err != nil {
+		return nil, fmt.Errorf("store: projects seen since %s: %w", since, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := []string{}
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, fmt.Errorf("store: scan project key: %w", err)
+		}
+		out = append(out, key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: projects seen since %s: %w", since, err)
+	}
+	return out, nil
+}

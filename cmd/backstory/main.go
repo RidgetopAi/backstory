@@ -25,6 +25,7 @@ commands:
   capture   pause or resume capture ("capture off|on|status")
   recall    print a project's trust-annotated ledger narrative, read-only
   timeline  print a project's observed events, read-only
+  group     set/clear/list project groups (human-only; "group set|clear|list")
 `
 
 func main() {
@@ -59,6 +60,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runRecall(args[1:], stdout, stderr)
 	case "timeline":
 		return runTimeline(args[1:], stdout, stderr)
+	case "group":
+		return runGroup(args[1:], stdout, stderr)
 	default:
 		_, _ = fmt.Fprintf(stderr, "backstory: unknown command %q\n\n%s", args[0], usage)
 		return 2
