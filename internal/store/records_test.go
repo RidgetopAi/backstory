@@ -304,6 +304,151 @@ func TestInsertRecordEventCursorNotCallerSupplied(t *testing.T) {
 	}
 }
 
+// TestRecordsForProjectAllOrdersNewestFirstAndIncludesTombstoned checks
+// internal/recall's project-anchor query: every record for the project
+// (any kind), newest first by sequence, including a tombstoned one that
+// RecordsForProject (kind-scoped, tombstone-excluding) would never return.
+func TestRecordsForProjectAllOrdersNewestFirstAndIncludesTombstoned(t *testing.T) {
+	s := mustOpen(t, filepath.Join(t.TempDir(), "backstory.db"))
+	mustUpsertProject(t, s, "proj-a")
+	mustUpsertProject(t, s, "proj-b")
+	sessionA := mustStartSessionInProject(t, s, "proj-a")
+	sessionB := mustStartSessionInProject(t, s, "proj-b")
+
+	first := mustInsertNote(t, s, sessionA, "proj-a", "first")
+	second, err := s.InsertRecord(InsertRecordParams{
+		Identity: Identity{Kind: IdentityAgent}, Kind: KindDecision, Text: "second",
+		SessionID: sessionA, ProjectKey: "proj-a",
+	})
+	if err != nil {
+		t.Fatalf("InsertRecord second: %v", err)
+	}
+	if err := s.TombstoneRecord(second, Identity{Kind: IdentityHuman}); err != nil {
+		t.Fatalf("TombstoneRecord: %v", err)
+	}
+	third := mustInsertNote(t, s, sessionA, "proj-a", "third")
+	_ = mustInsertNote(t, s, sessionB, "proj-b", "other project, must not appear")
+
+	recs, err := s.RecordsForProjectAll("proj-a", 10)
+	if err != nil {
+		t.Fatalf("RecordsForProjectAll: %v", err)
+	}
+	if len(recs) != 3 {
+		t.Fatalf("RecordsForProjectAll returned %d records, want 3", len(recs))
+	}
+	gotIDs := []string{recs[0].ID, recs[1].ID, recs[2].ID}
+	wantIDs := []string{third, second, first}
+	for i := range wantIDs {
+		if gotIDs[i] != wantIDs[i] {
+			t.Errorf("RecordsForProjectAll[%d] = %q, want %q (newest-first by sequence): got order %v, want %v",
+				i, gotIDs[i], wantIDs[i], gotIDs, wantIDs)
+		}
+	}
+	if recs[1].TombstonedAt == nil {
+		t.Errorf("RecordsForProjectAll[1] (id %s) TombstonedAt = nil, want set (it was tombstoned)", recs[1].ID)
+	}
+}
+
+// TestRecordsByIDsOrdersNewestFirstAndSkipsMissing checks internal/recall's
+// edge-walk resolution: an arbitrary set of ids comes back ordered newest
+// first by sequence (never ts), and an id naming no record is silently
+// skipped rather than erroring.
+func TestRecordsByIDsOrdersNewestFirstAndSkipsMissing(t *testing.T) {
+	s := mustOpen(t, filepath.Join(t.TempDir(), "backstory.db"))
+	mustUpsertProject(t, s, "proj-a")
+	sessionID := mustStartSessionInProject(t, s, "proj-a")
+
+	a := mustInsertNote(t, s, sessionID, "proj-a", "a")
+	b := mustInsertNote(t, s, sessionID, "proj-a", "b")
+	c := mustInsertNote(t, s, sessionID, "proj-a", "c")
+
+	recs, err := s.RecordsByIDs([]string{a, "does-not-exist", c, b})
+	if err != nil {
+		t.Fatalf("RecordsByIDs: %v", err)
+	}
+	if len(recs) != 3 {
+		t.Fatalf("RecordsByIDs returned %d records, want 3 (the missing id skipped)", len(recs))
+	}
+	gotIDs := []string{recs[0].ID, recs[1].ID, recs[2].ID}
+	wantIDs := []string{c, b, a}
+	for i := range wantIDs {
+		if gotIDs[i] != wantIDs[i] {
+			t.Errorf("RecordsByIDs order = %v, want %v (newest-first by sequence)", gotIDs, wantIDs)
+		}
+	}
+}
+
+// TestFindRecordByIDPrefix covers an exact id match, a unique short prefix,
+// an ambiguous prefix (reported not-found, never a guess), and no match.
+func TestFindRecordByIDPrefix(t *testing.T) {
+	s := mustOpen(t, filepath.Join(t.TempDir(), "backstory.db"))
+	mustUpsertProject(t, s, "proj-a")
+	sessionID := mustStartSessionInProject(t, s, "proj-a")
+
+	unique := mustInsertNote(t, s, sessionID, "proj-a", "unique-prefixed record")
+
+	t.Run("exact id", func(t *testing.T) {
+		rec, ok, err := s.FindRecordByIDPrefix(unique)
+		if err != nil {
+			t.Fatalf("FindRecordByIDPrefix: %v", err)
+		}
+		if !ok || rec.ID != unique {
+			t.Fatalf("FindRecordByIDPrefix(%s) = %+v, ok=%v, want the exact record", unique, rec, ok)
+		}
+	})
+
+	t.Run("unique short prefix", func(t *testing.T) {
+		prefix := unique[:8]
+		rec, ok, err := s.FindRecordByIDPrefix(prefix)
+		if err != nil {
+			t.Fatalf("FindRecordByIDPrefix: %v", err)
+		}
+		if !ok || rec.ID != unique {
+			t.Fatalf("FindRecordByIDPrefix(%s) = %+v, ok=%v, want the record it uniquely prefixes", prefix, rec, ok)
+		}
+	})
+
+	t.Run("ambiguous prefix reports not found", func(t *testing.T) {
+		// Manufacture a second id sharing unique's first 8 characters so the
+		// prefix no longer resolves to exactly one record.
+		shared := unique[:8] + "ffffffff-ffff-ffff-ffff-ffffffffffff"
+		if _, err := s.db.Exec(`INSERT INTO records
+			(id, ts, kind, tier, text, about, session_id, project_key, evidence, outcome, promoter, expires_at)
+			VALUES (?, ?, ?, ?, 'collider', '[]', ?, ?, '[]', NULL, NULL, NULL)`,
+			shared, tsToNanos(time.Now()), string(KindNote), string(TierAgentDeclared), sessionID, "proj-a"); err != nil {
+			t.Fatalf("insert colliding record fixture: %v", err)
+		}
+
+		_, ok, err := s.FindRecordByIDPrefix(unique[:8])
+		if err != nil {
+			t.Fatalf("FindRecordByIDPrefix: %v", err)
+		}
+		if ok {
+			t.Fatalf("FindRecordByIDPrefix(%s) found=true with two matching records, want false (ambiguous)", unique[:8])
+		}
+	})
+
+	t.Run("no match", func(t *testing.T) {
+		_, ok, err := s.FindRecordByIDPrefix("no-such-id-prefix")
+		if err != nil {
+			t.Fatalf("FindRecordByIDPrefix: %v", err)
+		}
+		if ok {
+			t.Fatal("FindRecordByIDPrefix with no matching record found=true, want false")
+		}
+	})
+
+	t.Run("empty string never matches everything", func(t *testing.T) {
+		_, ok, err := s.FindRecordByIDPrefix("")
+		if err != nil {
+			t.Fatalf("FindRecordByIDPrefix: %v", err)
+		}
+		if ok {
+			t.Fatal(`FindRecordByIDPrefix("") found=true, want false`)
+		}
+	})
+}
+
 // mustInsertDraft inserts a records row directly with a caller-chosen tier,
 // promoter and expiry — InsertRecord derives tier from Identity and never
 // accepts an inferred tier or a promoter directly (AGENT-CONTRACT.md §The
