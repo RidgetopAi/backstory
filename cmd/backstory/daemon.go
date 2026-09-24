@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -19,6 +20,35 @@ import (
 	"github.com/RidgetopAi/backstory/internal/socket"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
+
+// fakeAncestryEnvVar names an env var carrying a JSON-encoded
+// []ident.FakeAncestryHop that, when set, replaces RealProcFS with an
+// ident.AnchoredFakeProcFS built from it for both the resolver's ancestry
+// walk and the block handler's liveness checks. Production never sets
+// this, so RealProcFS always backs both there; it exists purely so
+// cmd/backstory's own tests can pin exactly what /proc ancestry a hook
+// connection resolves to, instead of resolving identity against the REAL
+// /proc of whatever process happens to be running `go test` (task
+// fe2cff2a — see AnchoredFakeProcFS's doc comment for the bug this closes).
+const fakeAncestryEnvVar = "BACKSTORY_TEST_FAKE_ANCESTRY"
+
+// procFSForDaemon returns ident.RealProcFS{} unless fakeAncestryEnvVar is
+// set, in which case it parses the var's JSON []ident.FakeAncestryHop and
+// returns an *ident.AnchoredFakeProcFS built from it. The SAME instance
+// must back both the resolver and the block/session-sweep liveness checks
+// so a walk's minted synthetic ancestor pids stay resolvable across both
+// uses within one daemon process.
+func procFSForDaemon() (ident.ProcFS, error) {
+	raw := os.Getenv(fakeAncestryEnvVar)
+	if raw == "" {
+		return ident.RealProcFS{}, nil
+	}
+	var hops []ident.FakeAncestryHop
+	if err := json.Unmarshal([]byte(raw), &hops); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", fakeAncestryEnvVar, err)
+	}
+	return &ident.AnchoredFakeProcFS{Hops: hops}, nil
+}
 
 // firstLineDeadlineEnvVar overrides socket.Server.FirstLineDeadline for this
 // daemon process only — production never sets it, so the default (the
@@ -70,6 +100,12 @@ func runDaemon(_ []string, stdout, stderr io.Writer) int {
 
 	go runClaudeBackfillOnce(st, logger)
 
+	procfs, err := procFSForDaemon()
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "backstory daemon:", err)
+		return 1
+	}
+
 	// No resolvable home dir means no DEFAULT workspace, not a daemon that
 	// refuses to start: every repo still resolves to its own key, only the
 	// ~/projects-style parent loses its workspace label (decision bcc9fa54).
@@ -80,7 +116,7 @@ func runDaemon(_ []string, stdout, stderr io.Writer) int {
 	}
 
 	resolver := &ident.Resolver{
-		ProcFS: ident.RealProcFS{},
+		ProcFS: procfs,
 		ProjectKey: func(cwd string) string {
 			return project.Key(cwd, project.RealGit{}, workspaceDirs)
 		},
@@ -90,7 +126,7 @@ func runDaemon(_ []string, stdout, stderr io.Writer) int {
 	srv, err := socket.Listen(sockPath, resolver, func(id ident.Identity, conn net.Conn) {
 		defer func() { _ = conn.Close() }()
 		logIdentity(logger, id)
-		mcp.ServeDaemonConn(id, conn, st, ident.RealProcFS{}, project.RealGit{}, logger, sessions, captureOff)
+		mcp.ServeDaemonConn(id, conn, st, procfs, project.RealGit{}, logger, sessions, captureOff)
 	})
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory daemon:", err)
