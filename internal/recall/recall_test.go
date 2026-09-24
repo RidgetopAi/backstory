@@ -334,6 +334,49 @@ func TestBuildMarksTombstonedStatusOmitsText(t *testing.T) {
 	}
 }
 
+// TestBuildMarksTombstonedStatusKeepsEdges covers the other half of
+// SCHEMA.md invariant 1: a tombstoned record omits its text (covered by
+// TestBuildMarksTombstonedStatusOmitsText above) but keeps its edges.
+func TestBuildMarksTombstonedStatusKeepsEdges(t *testing.T) {
+	st := newTestStore(t)
+	mustUpsertProject(t, st, "proj-a")
+	sessionID := mustStartSession(t, st, "proj-a")
+
+	other := mustInsertRecord(t, st, sessionID, "proj-a", store.KindNote, "record linked to the one that will be tombstoned")
+	id := mustInsertRecord(t, st, sessionID, "proj-a", store.KindNote, "text that will be tombstoned")
+	mustLinkEdge(t, st, id, other, store.EdgeInforms, sessionID)
+
+	if err := st.TombstoneRecord(id, store.Identity{Kind: store.IdentityHuman}); err != nil {
+		t.Fatalf("TombstoneRecord: %v", err)
+	}
+
+	result, err := Build(st, ProjectAnchor("proj-a"), AltitudeFull, testBudget)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+
+	var found bool
+	for _, item := range result.Items {
+		if item.ID != id {
+			continue
+		}
+		found = true
+		if item.Status != StatusTombstoned {
+			t.Fatalf("tombstoned record's Status = %q, want %q", item.Status, StatusTombstoned)
+		}
+		if len(item.Edges) != 1 {
+			t.Fatalf("tombstoned record's Edges = %+v, want exactly one edge (the informs edge to %s); SCHEMA.md invariant 1: tombstone omits text, keeps edges", item.Edges, other)
+		}
+		e := item.Edges[0]
+		if e.Type != store.EdgeInforms || e.FromID != id || e.ToID != other {
+			t.Errorf("tombstoned record's edge = %+v, want informs %s -> %s", e, id, other)
+		}
+	}
+	if !found {
+		t.Fatalf("Build result missing the tombstoned record %s: %+v", id, result.Items)
+	}
+}
+
 func TestBuildMarksContradictedStatusWithEvidenceIDs(t *testing.T) {
 	st := newTestStore(t)
 	mustUpsertProject(t, st, "proj-a")
@@ -423,3 +466,9 @@ func TestBuildOrdersBySequenceDespiteDisagreeingTS(t *testing.T) {
 // (TestBuildAltitudesFitBudgetOnLargeFixture: EstimateTokens(Rendered)
 // exceeds the 500/2000/4000-token budgets on the 200-record fixture);
 // restore the guard -> GREEN.
+//
+// Mutation probe 4 — drop a tombstoned record's edges: in annotate()
+// (recall.go), add `item.Edges = nil` (or similar) inside the `if
+// rec.TombstonedAt != nil` branch -> RED
+// (TestBuildMarksTombstonedStatusKeepsEdges: "tombstoned record's Edges =
+// [], want exactly one edge"); remove it -> GREEN.

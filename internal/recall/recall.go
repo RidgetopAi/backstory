@@ -105,6 +105,11 @@ type Item struct {
 	// (SCHEMA.md invariant 1: recall omits a tombstoned record's text,
 	// keeps its edges).
 	Text string
+	// Edges are every edge touching this record, both directions, every
+	// type, unaffected by Status — in particular still populated when
+	// Status is StatusTombstoned, per SCHEMA.md invariant 1 ("keeps its
+	// edges").
+	Edges []store.Edge
 
 	Status Status
 	// SupersededByID is set only when Status is StatusSuperseded: the id of
@@ -247,22 +252,23 @@ func resolveTextAnchor(st *store.Store, projectKey, query string) ([]store.Recor
 // this precedence picks the single status callers see, always the
 // strongest one, rather than leaving it ambiguous which wins.
 func annotate(st *store.Store, rec store.Record) (Item, error) {
+	edges, err := st.EdgesTouching(rec.ID)
+	if err != nil {
+		return Item{}, fmt.Errorf("recall: annotate %s: %w", rec.ID, err)
+	}
+
 	item := Item{
 		ID:     rec.ID,
 		Kind:   rec.Kind,
 		Tier:   rec.Tier,
 		Text:   rec.Text,
 		Status: StatusCurrent,
+		Edges:  edges,
 	}
 	if rec.TombstonedAt != nil {
 		item.Status = StatusTombstoned
 		item.Text = ""
 		return item, nil
-	}
-
-	edges, err := st.EdgesTouching(rec.ID)
-	if err != nil {
-		return Item{}, fmt.Errorf("recall: annotate %s: %w", rec.ID, err)
 	}
 
 	for _, e := range edges {
