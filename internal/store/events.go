@@ -90,6 +90,64 @@ func (s *Store) EventsSinceID(projectKey string, sinceID int64) ([]TimelineEvent
 	if err != nil {
 		return nil, fmt.Errorf("store: events since %d for project %s: %w", sinceID, projectKey, err)
 	}
+	out, err := scanTimelineEvents(rows)
+	if err != nil {
+		return nil, fmt.Errorf("store: events since %d for project %s: %w", sinceID, projectKey, err)
+	}
+	return out, nil
+}
+
+// EventsForTimeline returns timeline events belonging to a session in
+// projectKey, filtered by since (a zero time.Time means no lower bound;
+// otherwise only events with ts >= since) and kind (empty means any kind),
+// always ordered by id ascending — sequence, never ts (SCHEMA.md invariant
+// 10) — even when since's bound is itself a ts comparison and a backfilled
+// session's clock disagrees with sequence order: two events that both pass
+// the ts bound keep their sequence order relative to each other in the
+// result, never reordered by ts. limit <= 0 means no limit; a positive
+// limit keeps the most recent limit events (by sequence), still returned
+// oldest-to-newest. It is `backstory timeline`'s query, read directly from
+// the store on the human path (PLAN.md §Phase 4 CLI, decision d9d456e7) —
+// unlike EventsSinceID's sequence-position boundary (the SessionStart
+// delta's own use), this bound is the caller's wall-clock --since value.
+func (s *Store) EventsForTimeline(projectKey string, since time.Time, kind string, limit int) ([]TimelineEvent, error) {
+	query := `SELECT id, ts, kind, session_id, source, payload, workspace, window FROM (
+		SELECT e.id, e.ts, e.kind, e.session_id, e.source, e.payload, e.workspace, e.window
+		FROM timeline_events e
+		JOIN sessions sess ON sess.id = e.session_id
+		WHERE sess.project_key = ?`
+	args := []any{projectKey}
+	if !since.IsZero() {
+		query += ` AND e.ts >= ?`
+		args = append(args, tsToNanos(since))
+	}
+	if kind != "" {
+		query += ` AND e.kind = ?`
+		args = append(args, kind)
+	}
+	query += ` ORDER BY e.id DESC`
+	if limit > 0 {
+		query += ` LIMIT ?`
+		args = append(args, limit)
+	}
+	query += `) ORDER BY id ASC`
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("store: timeline events for project %s: %w", projectKey, err)
+	}
+	out, err := scanTimelineEvents(rows)
+	if err != nil {
+		return nil, fmt.Errorf("store: timeline events for project %s: %w", projectKey, err)
+	}
+	return out, nil
+}
+
+// scanTimelineEvents drains rows of the (id, ts, kind, session_id, source,
+// payload, workspace, window) shape both EventsSinceID and
+// EventsForTimeline select, into TimelineEvent values in the rows' own
+// order. It always closes rows itself, even on a scan error.
+func scanTimelineEvents(rows *sql.Rows) ([]TimelineEvent, error) {
 	defer func() { _ = rows.Close() }()
 
 	out := []TimelineEvent{}
@@ -103,7 +161,7 @@ func (s *Store) EventsSinceID(projectKey string, sinceID int64) ([]TimelineEvent
 			workspace, window sql.NullString
 		)
 		if err := rows.Scan(&id, &ts, &kind, &sessionID, &source, &payload, &workspace, &window); err != nil {
-			return nil, fmt.Errorf("store: scan timeline event: %w", err)
+			return nil, fmt.Errorf("scan timeline event: %w", err)
 		}
 		out = append(out, TimelineEvent{
 			ID: id,
@@ -119,7 +177,7 @@ func (s *Store) EventsSinceID(projectKey string, sinceID int64) ([]TimelineEvent
 		})
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("store: events since %d for project %s: %w", sinceID, projectKey, err)
+		return nil, err
 	}
 	return out, nil
 }

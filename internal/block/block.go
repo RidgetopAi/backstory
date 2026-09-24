@@ -97,11 +97,18 @@ func Render(p Params) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("block: contradiction count: %w", err)
 	}
+	var staleReasons []store.FreshnessReason
+	if hasHandoff {
+		staleReasons, err = p.Store.HandoffFreshness(handoff)
+		if err != nil {
+			return "", fmt.Errorf("block: handoff freshness: %w", err)
+		}
+	}
 
-	slot1 := resumeSlot(handoff, hasHandoff)
+	slot1 := resumeSlot(handoff, hasHandoff, staleReasons)
 	slot2 := deltaSlot(deltaEvents)
 	slot3 := coordinationSlot(liveSessions, allEvents, p.SessionID, p.ProcFS)
-	slot4 := attentionSlot(draftCount, contradictionCount)
+	slot4 := attentionSlot(draftCount, contradictionCount, len(staleReasons) > 0)
 
 	if slot1 == "" && slot2 == "" && slot3 == "" && slot4 == "" {
 		return HeaderLine + "\n\n" + EmptyProjectLine, nil
@@ -123,7 +130,7 @@ func Render(p Params) (string, error) {
 // spelled out in prose (task 56317fe7 — measured on Brian's desktop: a
 // handoff's text named its predecessor in prose because the block carried
 // no id at all, so the chain never linked).
-func resumeSlot(rec store.Record, ok bool) string {
+func resumeSlot(rec store.Record, ok bool, staleReasons []store.FreshnessReason) string {
 	if !ok {
 		return ""
 	}
@@ -131,7 +138,46 @@ func resumeSlot(rec store.Record, ok bool) string {
 	if m := modeLine.FindStringSubmatch(rec.Text); m != nil {
 		line += "\nMODE: " + m[1]
 	}
+	if marker := staleMarker(staleReasons); marker != "" {
+		line += "\n" + marker
+	}
 	return line
+}
+
+// staleMarker renders the Resume slot's possibly-stale marker (decision
+// bcc9fa54, AGENT-CONTRACT.md §The SessionStart block): a short clause per
+// store.FreshnessReason plus the evidence ids it cites, e.g. "⚠ possibly
+// stale: 3 later edits to files it names (ids 12,13,14)". Empty when reasons
+// is empty — a fresh (or non-handoff-shaped) resume slot renders exactly as
+// it did before this marker existed.
+func staleMarker(reasons []store.FreshnessReason) string {
+	if len(reasons) == 0 {
+		return ""
+	}
+	clauses := make([]string, len(reasons))
+	for i, r := range reasons {
+		clauses[i] = staleReasonClause(r)
+	}
+	return "⚠ possibly stale: " + strings.Join(clauses, "; ")
+}
+
+func staleReasonClause(r store.FreshnessReason) string {
+	ids := make([]string, 0, len(r.RecordIDs)+len(r.EventIDs))
+	ids = append(ids, r.RecordIDs...)
+	for _, id := range r.EventIDs {
+		ids = append(ids, strconv.FormatInt(id, 10))
+	}
+	idList := strings.Join(ids, ",")
+	switch r.Kind {
+	case store.FreshnessContradicted:
+		return fmt.Sprintf("contradicted (ids %s)", idList)
+	case store.FreshnessLaterRecord:
+		return fmt.Sprintf("%d later record(s) share a path it names (ids %s)", len(r.RecordIDs), idList)
+	case store.FreshnessLaterActivity:
+		return fmt.Sprintf("%d later edit(s) to files it names (ids %s)", len(r.EventIDs), idList)
+	default:
+		return fmt.Sprintf("%s (ids %s)", r.Kind, idList)
+	}
 }
 
 // deltaSlot is slot 2: sessions, distinct files touched, and last exit
@@ -263,11 +309,19 @@ func pidAlive(procfs ident.ProcFS, pid *int) bool {
 	return err == nil
 }
 
-// attentionSlot is slot 4: unconfirmed inferred drafts plus contradictions
-// flagged against this project's records.
-func attentionSlot(draftCount, contradictionCount int) string {
-	if draftCount == 0 && contradictionCount == 0 {
+// attentionSlot is slot 4: unconfirmed inferred drafts, contradictions
+// flagged against this project's records, and whether the Resume slot's
+// handoff is possibly stale (decision bcc9fa54). The possibly-stale clause
+// is appended only when staleHandoff is true, so a project with no flagged
+// handoff renders the exact same "Attention: N unconfirmed draft(s), M
+// contradiction(s)" text this slot always has.
+func attentionSlot(draftCount, contradictionCount int, staleHandoff bool) string {
+	if draftCount == 0 && contradictionCount == 0 && !staleHandoff {
 		return ""
 	}
-	return fmt.Sprintf("Attention: %d unconfirmed draft(s), %d contradiction(s)", draftCount, contradictionCount)
+	line := fmt.Sprintf("Attention: %d unconfirmed draft(s), %d contradiction(s)", draftCount, contradictionCount)
+	if staleHandoff {
+		line += ", 1 possibly-stale handoff"
+	}
+	return line
 }

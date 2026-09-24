@@ -23,6 +23,8 @@ commands:
   backfill  import transcripts from another tool (e.g. "backfill claude")
   delete    tombstone a record by id (human-only; "delete <id> [--yes]")
   capture   pause or resume capture ("capture off|on|status")
+  recall    print a project's trust-annotated ledger narrative, read-only
+  timeline  print a project's observed events, read-only
   group     set/clear/list project groups (human-only; "group set|clear|list")
 `
 
@@ -54,6 +56,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runDelete(args[1:], stdin, stdout, stderr)
 	case "capture":
 		return runCapture(args[1:], stdout, stderr)
+	case "recall":
+		return runRecall(args[1:], stdout, stderr)
+	case "timeline":
+		return runTimeline(args[1:], stdout, stderr)
 	case "group":
 		return runGroup(args[1:], stdout, stderr)
 	default:
