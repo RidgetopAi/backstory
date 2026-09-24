@@ -191,12 +191,22 @@ existed, the backfill importer wrote a tool's file path under `detail` while the
 delta slot read `path` — two independent structs, silently disagreeing, so a project with
 thousands of tool events rendered "0 files touched".
 
-| kind            | Go type                | fields                                                  |
-|-----------------|-------------------------|----------------------------------------------------------|
-| `session.start` | `payload.SessionStart`  | `prompt`, `version?`, `git_branch?`                       |
-| `session.end`   | `payload.SessionEnd`    | `reason?`                                                 |
-| `tool.use`      | `payload.ToolUse`       | `tool_use_id?`, `name`, `path?` (file tools), `command?` (Bash) |
-| `tool.result`   | `payload.ToolResult`    | `tool_use_id?`, `is_error?`, `exit?`, `content?`          |
+| kind               | Go type                     | fields                                                  |
+|--------------------|------------------------------|----------------------------------------------------------|
+| `session.start`    | `payload.SessionStart`      | `prompt`, `version?`, `git_branch?`                       |
+| `session.end`      | `payload.SessionEnd`        | `reason?`                                                 |
+| `session.git_state`| `payload.SessionGitState`   | `branch?`, `uncommitted_count?`, `could_not_observe?`     |
+| `tool.use`         | `payload.ToolUse`           | `tool_use_id?`, `name`, `path?` (file tools), `command?` (Bash) |
+| `tool.result`      | `payload.ToolResult`        | `tool_use_id?`, `is_error?`, `exit?`, `content?`          |
+
+`session.git_state` is written only by the daemon's own live `EndSession` path
+(`internal/mcp/daemon.go`'s `recordSessionEndGitState`, task `c2573b35`) — the observed
+`git status --porcelain` state of the session's cwd at the moment a live session ends, so
+This Week's Attention can flag "ended with uncommitted changes" on positive evidence. A
+backfilled session never gets one: the importer replays a transcript that already ended,
+with no live cwd left to observe. `could_not_observe` is `true`, with `branch` and
+`uncommitted_count` both absent, when git failed or cwd was not a working tree — a writer
+must never record `uncommitted_count: 0` in that case (invariant 7 below).
 
 `tool.use.path` is set for the file-editing tools (Edit/Write/Read/MultiEdit/NotebookEdit);
 `command` is set for Bash; a tool outside both groups (Grep, Glob, WebFetch, ...) carries
