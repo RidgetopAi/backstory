@@ -358,6 +358,7 @@ func (s *Store) RecordsByIDs(ids []string) ([]Record, error) {
 		placeholders[i] = "?"
 		args[i] = id
 	}
+	//nolint:gosec // the concatenated part is only "?" placeholders (one per id), every value is still bound as a query arg below
 	query := `SELECT id FROM records WHERE id IN (` + strings.Join(placeholders, ",") + `) ORDER BY rowid DESC`
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
