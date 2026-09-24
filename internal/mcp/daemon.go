@@ -51,7 +51,13 @@ const DaemonMethodBlock = "block"
 // this connection writes is attributed to id.Kind's tier regardless of what
 // a request line claims, and the SessionStart block it renders is always
 // for id.ProjectKey, regardless of what a request line claims either.
-func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs ident.ProcFS, logger *log.Logger, sessions *SessionRegistry) {
+//
+// captureOff is checked fresh on every note request (SCHEMA.md invariant 8:
+// "honoured on every write path") and reported by status — the same
+// capture-off flag file cmd/backstory's `hook post-tool-use` already
+// refuses to record on, passed in by daemon.go rather than resolved here so
+// this package never has to know how the flag file's path is derived.
+func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs ident.ProcFS, logger *log.Logger, sessions *SessionRegistry, captureOff func() (bool, error)) {
 	sessionID, err := sessions.SessionFor(id, func() (string, error) { return startSession(st, id) })
 	if err != nil {
 		logf(logger, "mcp: start session for pid=%d: %v", id.PID, err)
@@ -68,7 +74,7 @@ func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs i
 	sc := bufio.NewScanner(conn)
 	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	for sc.Scan() {
-		resp := dispatchDaemonRequest(sc.Bytes(), st, procfs, identity, sessionID, id)
+		resp := dispatchDaemonRequest(sc.Bytes(), st, procfs, identity, sessionID, id, captureOff)
 		b, err := json.Marshal(resp)
 		if err != nil {
 			logf(logger, "mcp: marshal daemon response: %v", err)
@@ -80,16 +86,16 @@ func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs i
 	}
 }
 
-func dispatchDaemonRequest(line []byte, st *store.Store, procfs ident.ProcFS, identity store.Identity, sessionID string, id ident.Identity) DaemonResponse {
+func dispatchDaemonRequest(line []byte, st *store.Store, procfs ident.ProcFS, identity store.Identity, sessionID string, id ident.Identity, captureOff func() (bool, error)) DaemonResponse {
 	var req DaemonRequest
 	if err := json.Unmarshal(line, &req); err != nil {
 		return errResponse("invalid-request", err.Error())
 	}
 	switch req.Method {
 	case daemonMethodNote:
-		return handleNote(st, identity, sessionID, id.ProjectKey, req.Params)
+		return handleNote(st, identity, sessionID, id.ProjectKey, req.Params, captureOff)
 	case daemonMethodStatus:
-		return handleStatus(st, id, sessionID)
+		return handleStatus(st, id, sessionID, captureOff)
 	case daemonMethodRecall:
 		return handleRecall(st, id, req.Params)
 	case DaemonMethodBlock:

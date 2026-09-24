@@ -62,7 +62,7 @@ func testDaemonRealProcFS(t *testing.T, st *store.Store, projectKey string) stri
 	sockPath := filepath.Join(t.TempDir(), "sock")
 	srv, err := socket.Listen(sockPath, resolver, func(id ident.Identity, conn net.Conn) {
 		defer func() { _ = conn.Close() }()
-		ServeDaemonConn(id, conn, st, ident.RealProcFS{}, nil, sessions)
+		ServeDaemonConn(id, conn, st, ident.RealProcFS{}, nil, sessions, captureNeverOff)
 	})
 	if err != nil {
 		t.Fatalf("socket.Listen: %v", err)
@@ -231,7 +231,7 @@ func dialWithIdentity(t *testing.T, st *store.Store, sessions *SessionRegistry, 
 			return
 		}
 		defer func() { _ = conn.Close() }()
-		ServeDaemonConn(id, conn, st, ident.RealProcFS{}, nil, sessions)
+		ServeDaemonConn(id, conn, st, ident.RealProcFS{}, nil, sessions, captureNeverOff)
 	}()
 
 	conn, err := net.Dial("unix", sockPath)

@@ -51,7 +51,20 @@ var noteKinds = map[string]store.RecordKind{
 // store.InsertRecord. The tier in the returned NoteResult comes back from a
 // GetRecord read-after-write — the daemon never trusts its own belief about
 // what tier InsertRecord assigned; it reads what actually landed.
-func handleNote(st *store.Store, identity store.Identity, sessionID, projectKey string, raw json.RawMessage) DaemonResponse {
+//
+// captureOff is checked before anything else: SCHEMA.md invariant 8 ("no
+// events and no records are inserted" while the capture-off flag file is
+// present) applies to every write path, not just the client-side check
+// `backstory hook post-tool-use` already does before it ever dials the
+// daemon — note is reachable from any socket peer, so the daemon itself
+// must refuse it too.
+func handleNote(st *store.Store, identity store.Identity, sessionID, projectKey string, raw json.RawMessage, captureOff func() (bool, error)) DaemonResponse {
+	if off, err := captureOff(); err != nil {
+		return errResponse("internal", err.Error())
+	} else if off {
+		return errResponse("capture-off", "capture is paused; no records are written")
+	}
+
 	var p NoteParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return errResponse("invalid-params", "invalid note params: "+err.Error())
