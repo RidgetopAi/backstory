@@ -70,10 +70,16 @@ func runDaemon(_ []string, stdout, stderr io.Writer) int {
 
 	go runClaudeBackfillOnce(st, logger)
 
+	workspaceDirs, err := project.DefaultWorkspaceDirs()
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "backstory daemon:", err)
+		return 1
+	}
+
 	resolver := &ident.Resolver{
 		ProcFS: ident.RealProcFS{},
 		ProjectKey: func(cwd string) string {
-			return project.Key(cwd, project.RealGit{})
+			return project.Key(cwd, project.RealGit{}, workspaceDirs)
 		},
 	}
 

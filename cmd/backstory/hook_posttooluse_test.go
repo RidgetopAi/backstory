@@ -147,7 +147,7 @@ func TestHookPostToolUseEditRecordsOneLiveEventAndBlockCountsFile(t *testing.T) 
 		t.Errorf("stdout = %q, want empty (a PostToolUse hook's stdout is not injected as context)", stdout)
 	}
 
-	projectKey := project.Key(projectDir, project.RealGit{})
+	projectKey := project.Key(projectDir, project.RealGit{}, nil)
 	s := mustOpenTestStore(t, dbPath)
 	events := queryEventsForProject(t, s, projectKey)
 	if len(events) != 1 {
@@ -228,7 +228,7 @@ func TestHookPostToolUseProjectComesFromResolverNotDeclaredSession(t *testing.T)
 		t.Fatalf("second invocation exit code = %d, want 0 (stderr: %s)", exitB, stderrB)
 	}
 
-	projectKey := project.Key(projectDir, project.RealGit{})
+	projectKey := project.Key(projectDir, project.RealGit{}, nil)
 	s := mustOpenTestStore(t, dbPath)
 	events := queryEventsForProject(t, s, projectKey)
 	if len(events) != 2 {
@@ -268,8 +268,8 @@ func TestHookPostToolUseProjectComesFromRealCwdNotPayloadCWD(t *testing.T) {
 	}
 
 	s := mustOpenTestStore(t, dbPath)
-	realKey := project.Key(realProjectDir, project.RealGit{})
-	fakeKey := project.Key(fakeProjectDir, project.RealGit{})
+	realKey := project.Key(realProjectDir, project.RealGit{}, nil)
+	fakeKey := project.Key(fakeProjectDir, project.RealGit{}, nil)
 
 	realEvents := queryEventsForProject(t, s, realKey)
 	if len(realEvents) != 1 {
@@ -313,7 +313,7 @@ func TestHookPostToolUseBashRecordsCommandAndExitCode(t *testing.T) {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", exitCode, stderr)
 	}
 
-	projectKey := project.Key(projectDir, project.RealGit{})
+	projectKey := project.Key(projectDir, project.RealGit{}, nil)
 	s := mustOpenTestStore(t, dbPath)
 	events := queryEventsForProject(t, s, projectKey)
 	if len(events) != 2 {
@@ -386,7 +386,7 @@ func TestHookPostToolUseBashNoExitCodeRecordsNilNeverZero(t *testing.T) {
 		t.Fatalf("exit code = %d, want 0 (stderr: %s)", exitCode, stderr)
 	}
 
-	projectKey := project.Key(projectDir, project.RealGit{})
+	projectKey := project.Key(projectDir, project.RealGit{}, nil)
 	s := mustOpenTestStore(t, dbPath)
 	events := queryEventsForProject(t, s, projectKey)
 
@@ -475,7 +475,7 @@ func TestHookPostToolUseCaptureOffRecordsNothing(t *testing.T) {
 	// daemon's on-start Claude backfill (runClaudeBackfillOnce) may import
 	// real transcripts from this host's own $HOME/.claude/projects into
 	// unrelated projects, independent of anything this test does.
-	projectKey := project.Key(projectDir, project.RealGit{})
+	projectKey := project.Key(projectDir, project.RealGit{}, nil)
 	s := mustOpenTestStore(t, dbPath)
 	events := queryEventsForProject(t, s, projectKey)
 	if len(events) != 0 {
