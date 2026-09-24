@@ -97,6 +97,118 @@ func TestEventsSinceIDScopesToProject(t *testing.T) {
 	}
 }
 
+// TestEventsForTimelineOrdersBySequenceEvenWhenTSDisagree is `backstory
+// timeline`'s DONE WHEN clause 2 (SCHEMA.md invariant 10): two events that
+// both pass the --since bound must come back in sequence (insertion) order,
+// never resorted by ts, even though the second one inserted here carries an
+// EARLIER ts than the first (a backfilled session's file clock lying).
+//
+// Mutation probe (EventsForTimeline's `ORDER BY e.id ASC` on the outer
+// query changed to `ORDER BY ts ASC`, events.go): "events_test.go:...:
+// EventsForTimeline order = [second, first], want [first, second] (sequence
+// order; ts order would reverse them)" — restoring `ORDER BY id ASC` turns
+// it back GREEN.
+func TestEventsForTimelineOrdersBySequenceEvenWhenTSDisagree(t *testing.T) {
+	s := mustOpen(t, filepath.Join(t.TempDir(), "backstory.db"))
+	mustUpsertProject(t, s, "proj-a")
+	sessionID := mustStartSessionInProject(t, s, "proj-a")
+
+	base := time.Now()
+	first, err := s.AppendEvent(Event{TS: base.Add(2 * time.Minute), Kind: "tool.use", SessionID: sessionID, Source: "shell", Payload: "{}"})
+	if err != nil {
+		t.Fatalf("AppendEvent first: %v", err)
+	}
+	second, err := s.AppendEvent(Event{TS: base.Add(time.Minute), Kind: "tool.use", SessionID: sessionID, Source: "backfill", Payload: "{}"})
+	if err != nil {
+		t.Fatalf("AppendEvent second: %v", err)
+	}
+
+	events, err := s.EventsForTimeline("proj-a", base, "", 0)
+	if err != nil {
+		t.Fatalf("EventsForTimeline: %v", err)
+	}
+	if len(events) != 2 || events[0].ID != first || events[1].ID != second {
+		t.Fatalf("EventsForTimeline order = %v, want [%d, %d] (sequence order; ts order would reverse them)",
+			events, first, second)
+	}
+}
+
+// TestEventsForTimelineExcludesBeforeSinceBound checks the --since filter
+// itself: an event with ts strictly before the bound is dropped, one at or
+// after it is kept.
+func TestEventsForTimelineExcludesBeforeSinceBound(t *testing.T) {
+	s := mustOpen(t, filepath.Join(t.TempDir(), "backstory.db"))
+	mustUpsertProject(t, s, "proj-a")
+	sessionID := mustStartSessionInProject(t, s, "proj-a")
+
+	base := time.Now()
+	if _, err := s.AppendEvent(Event{TS: base.Add(-time.Hour), Kind: "a", SessionID: sessionID, Source: "shell", Payload: "{}"}); err != nil {
+		t.Fatalf("AppendEvent before bound: %v", err)
+	}
+	atBound, err := s.AppendEvent(Event{TS: base, Kind: "a", SessionID: sessionID, Source: "shell", Payload: "{}"})
+	if err != nil {
+		t.Fatalf("AppendEvent at bound: %v", err)
+	}
+
+	events, err := s.EventsForTimeline("proj-a", base, "", 0)
+	if err != nil {
+		t.Fatalf("EventsForTimeline: %v", err)
+	}
+	if len(events) != 1 || events[0].ID != atBound {
+		t.Fatalf("EventsForTimeline(proj-a, base, \"\", 0) = %v, want exactly [%d]", events, atBound)
+	}
+}
+
+// TestEventsForTimelineFiltersByKind checks the --kind filter: an event of
+// a different kind is excluded even though it passes the since bound.
+func TestEventsForTimelineFiltersByKind(t *testing.T) {
+	s := mustOpen(t, filepath.Join(t.TempDir(), "backstory.db"))
+	mustUpsertProject(t, s, "proj-a")
+	sessionID := mustStartSessionInProject(t, s, "proj-a")
+
+	if _, err := s.AppendEvent(Event{TS: time.Now(), Kind: "tool.result", SessionID: sessionID, Source: "shell", Payload: "{}"}); err != nil {
+		t.Fatalf("AppendEvent tool.result: %v", err)
+	}
+	wantID, err := s.AppendEvent(Event{TS: time.Now(), Kind: "tool.use", SessionID: sessionID, Source: "shell", Payload: "{}"})
+	if err != nil {
+		t.Fatalf("AppendEvent tool.use: %v", err)
+	}
+
+	events, err := s.EventsForTimeline("proj-a", time.Time{}, "tool.use", 0)
+	if err != nil {
+		t.Fatalf("EventsForTimeline: %v", err)
+	}
+	if len(events) != 1 || events[0].ID != wantID {
+		t.Fatalf(`EventsForTimeline(proj-a, zero, "tool.use", 0) = %v, want exactly [%d]`, events, wantID)
+	}
+}
+
+// TestEventsForTimelineLimitKeepsMostRecentInSequenceOrder checks --limit:
+// it keeps the most recent N events by sequence, still returned oldest-to-
+// newest.
+func TestEventsForTimelineLimitKeepsMostRecentInSequenceOrder(t *testing.T) {
+	s := mustOpen(t, filepath.Join(t.TempDir(), "backstory.db"))
+	mustUpsertProject(t, s, "proj-a")
+	sessionID := mustStartSessionInProject(t, s, "proj-a")
+
+	var ids []int64
+	for i := 0; i < 3; i++ {
+		id, err := s.AppendEvent(Event{TS: time.Now(), Kind: "a", SessionID: sessionID, Source: "shell", Payload: "{}"})
+		if err != nil {
+			t.Fatalf("AppendEvent %d: %v", i, err)
+		}
+		ids = append(ids, id)
+	}
+
+	events, err := s.EventsForTimeline("proj-a", time.Time{}, "", 2)
+	if err != nil {
+		t.Fatalf("EventsForTimeline: %v", err)
+	}
+	if len(events) != 2 || events[0].ID != ids[1] || events[1].ID != ids[2] {
+		t.Fatalf("EventsForTimeline(proj-a, zero, \"\", 2) = %v, want exactly [%d, %d]", events, ids[1], ids[2])
+	}
+}
+
 func mustStartSessionInProject(t *testing.T, s *Store, projectKey string) string {
 	t.Helper()
 	id, err := s.StartSession(StartSessionParams{
