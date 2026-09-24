@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/RidgetopAi/backstory/internal/ident"
+	"github.com/RidgetopAi/backstory/internal/payload"
+	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
@@ -50,14 +52,18 @@ const DaemonMethodBlock = "block"
 // anything on conn — AGENT-CONTRACT.md §Observed identity), so every record
 // this connection writes is attributed to id.Kind's tier regardless of what
 // a request line claims, and the SessionStart block it renders is always
-// for id.ProjectKey, regardless of what a request line claims either.
-func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs ident.ProcFS, logger *log.Logger, sessions *SessionRegistry) {
+// for id.ProjectKey, regardless of what a request line claims either. git
+// backs recordSessionEndGitState's session.git_state observation on that
+// same EOF path (task c2573b35); RealGit in production, a fake in tests.
+func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs ident.ProcFS, git project.Git, logger *log.Logger, sessions *SessionRegistry) {
 	sessionID, err := sessions.SessionFor(id, func() (string, error) { return startSession(st, id) })
 	if err != nil {
 		logf(logger, "mcp: start session for pid=%d: %v", id.PID, err)
 	} else if id.HarnessPID == 0 {
 		defer func() {
-			if err := st.EndSession(sessionID, time.Now(), "eof"); err != nil {
+			now := time.Now()
+			recordSessionEndGitState(st, git, sessionID, id.CWD, now, logger)
+			if err := st.EndSession(sessionID, now, "eof"); err != nil {
 				logf(logger, "mcp: end session %s: %v", sessionID, err)
 			}
 		}()
@@ -77,6 +83,36 @@ func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs i
 		if _, err := conn.Write(append(b, '\n')); err != nil {
 			return
 		}
+	}
+}
+
+// recordSessionEndGitState appends a session.git_state timeline event
+// observing cwd's git working tree state as a live session ends — the
+// evidence This Week's Attention needs to flag "ended with uncommitted
+// changes" on (task c2573b35, AGENT-CONTRACT.md's "the daemon alone mints
+// events"). Only ServeDaemonConn's own EOF path calls this: a backfilled
+// session is imported wholesale from a transcript that already ended, with
+// no live cwd left to observe, so it never gets this event. A failed
+// observation (git.State's ok == false: git failed, or cwd is not a working
+// tree at all) records payload.SessionGitState{CouldNotObserve: true} —
+// never a zero UncommittedCount, which would be indistinguishable from a
+// clean tree (SCHEMA.md invariant 7).
+func recordSessionEndGitState(st *store.Store, git project.Git, sessionID, cwd string, now time.Time, logger *log.Logger) {
+	p := payload.SessionGitState{CouldNotObserve: true}
+	if state, ok := git.State(cwd); ok {
+		count := state.Uncommitted
+		p = payload.SessionGitState{Branch: state.Branch, UncommittedCount: &count}
+	}
+	b, err := json.Marshal(p)
+	if err != nil {
+		logf(logger, "mcp: marshal session git state for %s: %v", sessionID, err)
+		return
+	}
+	if _, err := st.AppendEvent(store.Event{
+		TS: now, Kind: payload.KindSessionGitState, SessionID: sessionID,
+		Source: "daemon", Payload: string(b),
+	}); err != nil {
+		logf(logger, "mcp: append session git state for %s: %v", sessionID, err)
 	}
 }
 

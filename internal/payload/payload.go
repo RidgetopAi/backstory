@@ -14,10 +14,11 @@ package payload
 // belongs to (SCHEMA.md "Event kinds enum" is free text in v0; these are
 // the values every writer/reader in this codebase actually uses).
 const (
-	KindSessionStart = "session.start"
-	KindSessionEnd   = "session.end"
-	KindToolUse      = "tool.use"
-	KindToolResult   = "tool.result"
+	KindSessionStart    = "session.start"
+	KindSessionEnd      = "session.end"
+	KindSessionGitState = "session.git_state"
+	KindToolUse         = "tool.use"
+	KindToolResult      = "tool.result"
 )
 
 // SessionStart is the session.start event payload: the session's opening
@@ -31,6 +32,23 @@ type SessionStart struct {
 // SessionEnd is the session.end event payload.
 type SessionEnd struct {
 	Reason string `json:"reason,omitempty"`
+}
+
+// SessionGitState is the session.git_state event payload: the session's cwd
+// repo state observed at live session end (branch, count of
+// uncommitted/untracked files from `git status --porcelain`) — evidence
+// This Week's Attention needs to flag "ended with uncommitted changes"
+// (task c2573b35). CouldNotObserve is set, and Branch/UncommittedCount left
+// unset, when git failed or cwd was not a git working tree; a writer must
+// never fold that into UncommittedCount 0 (SCHEMA.md invariant 7: outcome is
+// three-state, could-not-observe is a value). Backfilled sessions never
+// carry this event: the importer replays a transcript's own recorded
+// history, and there is no live cwd left to observe once a session has
+// already ended.
+type SessionGitState struct {
+	Branch           string `json:"branch,omitempty"`
+	UncommittedCount *int   `json:"uncommitted_count,omitempty"`
+	CouldNotObserve  bool   `json:"could_not_observe,omitempty"`
 }
 
 // ToolUse is the tool.use event payload: Path is set for the file-editing

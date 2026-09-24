@@ -15,6 +15,10 @@ func (f fakeGit) Repo(cwd string) (project.Repo, bool) {
 	return r, ok
 }
 
+// State is unused by every test in this file (they exercise project.Key,
+// which only calls Repo) but is required to satisfy project.Git.
+func (f fakeGit) State(string) (project.State, bool) { return project.State{}, false }
+
 func TestKeyWorktreeAndMainCheckoutShareKey(t *testing.T) {
 	git := fakeGit{
 		"/home/b/main": {
