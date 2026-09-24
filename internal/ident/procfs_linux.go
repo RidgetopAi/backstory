@@ -16,7 +16,8 @@ import (
 // against the current process).
 type RealProcFS struct{}
 
-// Status reads /proc/<pid>/status for PPid and Name (comm).
+// Status reads /proc/<pid>/status for PPid and Name (comm), plus
+// /proc/<pid>/stat for StartTicks.
 func (RealProcFS) Status(pid int) (Status, error) {
 	path := "/proc/" + strconv.Itoa(pid) + "/status"
 	f, err := os.Open(path) //nolint:gosec // path is built from an int pid, not attacker input
@@ -43,7 +44,41 @@ func (RealProcFS) Status(pid int) (Status, error) {
 	if err := scanner.Err(); err != nil {
 		return Status{}, fmt.Errorf("ident: read %s: %w", path, err)
 	}
+
+	st.StartTicks, err = readStartTicks(pid)
+	if err != nil {
+		return Status{}, err
+	}
 	return st, nil
+}
+
+// readStartTicks reads /proc/<pid>/stat's field 22 (starttime). The comm
+// field (field 2) is parenthesized and may itself contain spaces or
+// parens, so the field split anchors on the LAST ")" in the line rather
+// than counting from the front — the same trick ps/procps use.
+func readStartTicks(pid int) (uint64, error) {
+	path := "/proc/" + strconv.Itoa(pid) + "/stat"
+	b, err := os.ReadFile(path) //nolint:gosec // path is built from an int pid, not attacker input
+	if err != nil {
+		return 0, fmt.Errorf("ident: read %s: %w", path, err)
+	}
+	s := string(b)
+	close := strings.LastIndexByte(s, ')')
+	if close == -1 || close+2 > len(s) {
+		return 0, fmt.Errorf("ident: parse %s: no comm field", path)
+	}
+	// fields[0] is state (stat field 3); starttime (stat field 22) is
+	// therefore fields[22-3] = fields[19].
+	fields := strings.Fields(s[close+2:])
+	const startTimeField = 19
+	if len(fields) <= startTimeField {
+		return 0, fmt.Errorf("ident: parse %s: too few fields after comm", path)
+	}
+	v, err := strconv.ParseUint(fields[startTimeField], 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("ident: parse starttime in %s: %w", path, err)
+	}
+	return v, nil
 }
 
 // Cwd resolves the /proc/<pid>/cwd symlink.

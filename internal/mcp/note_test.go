@@ -55,10 +55,11 @@ func testDaemon(t *testing.T, st *store.Store, harness, cwd, projectKey string) 
 	}
 	resolver := &ident.Resolver{ProcFS: procfs, ProjectKey: func(string) string { return projectKey }}
 
+	sessions := NewSessionRegistry()
 	sockPath := filepath.Join(t.TempDir(), "sock")
 	srv, err := socket.Listen(sockPath, resolver, func(id ident.Identity, conn net.Conn) {
 		defer func() { _ = conn.Close() }()
-		ServeDaemonConn(id, conn, st, procfs, nil)
+		ServeDaemonConn(id, conn, st, procfs, nil, sessions)
 	})
 	if err != nil {
 		t.Fatalf("socket.Listen: %v", err)

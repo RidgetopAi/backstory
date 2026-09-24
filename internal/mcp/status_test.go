@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bufio"
 	"encoding/json"
 	"net"
 	"os"
@@ -31,10 +32,11 @@ func testDaemonCwdErr(t *testing.T, st *store.Store, harness string) string {
 	// supplying a project key Resolve had no business computing.
 	resolver := &ident.Resolver{ProcFS: procfs}
 
+	sessions := NewSessionRegistry()
 	sockPath := filepath.Join(t.TempDir(), "sock")
 	srv, err := socket.Listen(sockPath, resolver, func(id ident.Identity, conn net.Conn) {
 		defer func() { _ = conn.Close() }()
-		ServeDaemonConn(id, conn, st, procfs, nil)
+		ServeDaemonConn(id, conn, st, procfs, nil, sessions)
 	})
 	if err != nil {
 		t.Fatalf("socket.Listen: %v", err)
@@ -127,59 +129,52 @@ func TestStatusReportsNoReasonWhenCwdReadable(t *testing.T) {
 // TestStatusListsSecondLiveSessionInSameProject is DONE WHEN clause 4's
 // second half: status lists a second live session in the same project when
 // one exists in the store.
+//
+// Task 32c6900d changed what "a second live session" means: a store session
+// is now one observed harness PROCESS, not one connection (dialShim's own
+// backing connection would no longer do — two dials from this same test
+// process resolve to the identical observed identity and now correctly
+// share one session). Proving two distinct sessions exist requires two
+// genuinely different real processes, so this uses sessionharness
+// (session_test.go) instead of two dialShim instances against the same
+// testDaemon.
 func TestStatusListsSecondLiveSessionInSameProject(t *testing.T) {
 	st := mustOpenStore(t)
-	sockPath := testDaemon(t, st, "claude", "/home/brian/proj", "proj-key")
+	sockPath := testDaemonRealProcFS(t, st, "proj-key")
+	bin := buildSessionHarness(t, sessionHarnessName)
 
-	shimA := dialShim(t, sockPath)
-	statusA, rerr := shimA.CallTool(ToolStatus, nil)
-	if rerr != nil {
-		t.Fatalf("CallTool(status) A: %v", rerr)
-	}
+	resultsA := runSessionHarness(t, bin, sockPath, []harnessStep{{Method: daemonMethodStatus}})
 	var resultA StatusResult
-	if err := json.Unmarshal(statusA, &resultA); err != nil {
+	if err := json.Unmarshal(resultsA[0], &resultA); err != nil {
 		t.Fatalf("unmarshal StatusResult A: %v", err)
 	}
 
-	shimB := dialShim(t, sockPath)
-	// A note from B keeps B's connection (and therefore its session) alive
-	// on the daemon side long enough for A's status call to observe it.
-	if _, rerr := shimB.CallTool(ToolNote, json.RawMessage(`{"kind":"note","text":"session B is live"}`)); rerr != nil {
-		t.Fatalf("CallTool(note) B: %v", rerr)
-	}
-	statusB, rerr := shimB.CallTool(ToolStatus, nil)
-	if rerr != nil {
-		t.Fatalf("CallTool(status) B: %v", rerr)
-	}
+	// Process A has already exited by now (sessionharness dials, calls its
+	// one step, and exits) — its session must still be live, since a known
+	// harness's session no longer ends when a connection to it closes
+	// (task 32c6900d). Process B, a second real harness process, must be
+	// able to see it.
+	resultsB := runSessionHarness(t, bin, sockPath, []harnessStep{{Method: daemonMethodStatus}})
 	var resultB StatusResult
-	if err := json.Unmarshal(statusB, &resultB); err != nil {
+	if err := json.Unmarshal(resultsB[0], &resultB); err != nil {
 		t.Fatalf("unmarshal StatusResult B: %v", err)
 	}
 	if resultB.Session == resultA.Session {
 		t.Fatalf("session B = %q, same as session A; want distinct sessions", resultB.Session)
 	}
 
-	statusA2, rerr := shimA.CallTool(ToolStatus, nil)
-	if rerr != nil {
-		t.Fatalf("CallTool(status) A again: %v", rerr)
-	}
-	var resultA2 StatusResult
-	if err := json.Unmarshal(statusA2, &resultA2); err != nil {
-		t.Fatalf("unmarshal StatusResult A2: %v", err)
-	}
-
 	found := false
-	for _, other := range resultA2.OtherLiveSessions {
-		if other.Session == resultB.Session {
+	for _, other := range resultB.OtherLiveSessions {
+		if other.Session == resultA.Session {
 			found = true
 		}
-		if other.Session == resultA.Session {
-			t.Errorf("status A lists its own session %q in other_live_sessions", other.Session)
+		if other.Session == resultB.Session {
+			t.Errorf("status B lists its own session %q in other_live_sessions", other.Session)
 		}
 	}
 	if !found {
-		t.Errorf("status A's other_live_sessions = %+v, want it to include session B (%q)",
-			resultA2.OtherLiveSessions, resultB.Session)
+		t.Errorf("status B's other_live_sessions = %+v, want it to include session A (%q)",
+			resultB.OtherLiveSessions, resultA.Session)
 	}
 }
 
@@ -218,16 +213,24 @@ func TestStatusReportsRemainingBudget(t *testing.T) {
 	}
 }
 
-// TestSessionEndsWhenItsConnectionCloses guards the other half of DONE WHEN
-// clause 4's "lists a second live session ... when one exists": a session
-// whose shim connection has closed must stop being live, or status would
-// report every peer that ever connected as still present forever. This
-// dials the daemon directly (rather than through dialShim/t.Cleanup) so the
-// test can close A's connection mid-test and observe ServeDaemonConn's
-// deferred EndSession actually landing before asserting on B's view.
-func TestSessionEndsWhenItsConnectionCloses(t *testing.T) {
+// TestUnknownHarnessSessionEndsWhenItsConnectionCloses guards the other half
+// of DONE WHEN clause 4's "lists a second live session ... when one
+// exists": a session whose connection has closed must stop being live, or
+// status would report every peer that ever connected as still present
+// forever. Task 32c6900d narrowed this to callers the daemon could not
+// attribute to a known harness process (id.HarnessPID == 0): the fake
+// resolver here reports a process name absent from ident.KnownHarnesses, so
+// this exercises exactly the "unknown harness keeps today's per-connection
+// behaviour" branch — see TestKnownHarnessSessionOutlivesConnectionClose
+// (same file) for the known-harness case this punch changed.
+//
+// This dials the daemon directly (rather than through dialShim/t.Cleanup)
+// so the test can close A's connection mid-test and observe
+// ServeDaemonConn's deferred EndSession actually landing before asserting
+// on B's view.
+func TestUnknownHarnessSessionEndsWhenItsConnectionCloses(t *testing.T) {
 	st := mustOpenStore(t)
-	sockPath := testDaemon(t, st, "claude", "/home/brian/proj", "proj-key")
+	sockPath := testDaemon(t, st, "not-a-known-harness", "/home/brian/proj", "proj-key")
 
 	var connA net.Conn
 	shimA := NewServer(func() (net.Conn, error) {
@@ -289,6 +292,73 @@ func TestSessionEndsWhenItsConnectionCloses(t *testing.T) {
 		if other.Session == resultA.Session {
 			t.Errorf("status B's other_live_sessions still lists ended session A (%s)", resultA.Session)
 		}
+	}
+}
+
+// TestKnownHarnessSessionOutlivesConnectionClose is task 32c6900d's DONE
+// WHEN clause 1 from the other direction: a caller the daemon DID attribute
+// to a known harness process must NOT have its session end just because one
+// connection to it closed — the harness process almost always outlives any
+// single short-lived hook connection, so ending the session here would
+// recreate the per-connection churn this task removes. Contrast with
+// TestUnknownHarnessSessionEndsWhenItsConnectionCloses (same file).
+//
+// RA-MUTATION-PROBE: ServeDaemonConn's `else if id.HarnessPID == 0` guard
+// (mcp/daemon.go) replaced with unconditional EndSession-on-close (i.e. the
+// pre-task-32c6900d behaviour) -> RED (session ends immediately, this test
+// times out waiting for it to still be live); restored -> GREEN.
+func TestKnownHarnessSessionOutlivesConnectionClose(t *testing.T) {
+	st := mustOpenStore(t)
+	sockPath := testDaemon(t, st, "claude", "/home/brian/proj", "proj-key")
+
+	conn, err := net.Dial("unix", sockPath)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	req := DaemonRequest{Method: daemonMethodStatus}
+	b, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	if _, err := conn.Write(append(b, '\n')); err != nil {
+		t.Fatalf("write request: %v", err)
+	}
+	line, err := bufio.NewReader(conn).ReadBytes('\n')
+	if err != nil {
+		t.Fatalf("read response: %v", err)
+	}
+	var resp DaemonResponse
+	if err := json.Unmarshal(line, &resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Error != nil {
+		t.Fatalf("daemon error: %s", resp.Error.Message)
+	}
+	var result StatusResult
+	if err := json.Unmarshal(resp.Result, &result); err != nil {
+		t.Fatalf("unmarshal StatusResult: %v", err)
+	}
+
+	if err := conn.Close(); err != nil {
+		t.Fatalf("close connection: %v", err)
+	}
+
+	// Give the daemon a moment to have observed the close, then confirm the
+	// session is STILL live — the opposite assertion from the unknown-harness
+	// test, and the whole point of this task's fix.
+	time.Sleep(100 * time.Millisecond)
+	sessions, err := st.LiveSessionsInProject("proj-key")
+	if err != nil {
+		t.Fatalf("LiveSessionsInProject: %v", err)
+	}
+	stillLive := false
+	for _, s := range sessions {
+		if s.ID == result.Session {
+			stillLive = true
+		}
+	}
+	if !stillLive {
+		t.Fatalf("known-harness session %s ended when its only connection closed, want it to stay live", result.Session)
 	}
 }
 

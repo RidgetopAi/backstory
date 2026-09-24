@@ -46,10 +46,15 @@ type Identity struct {
 	UID        int
 	PID        int
 	HarnessPID int
-	Harness    string
-	CWD        string
-	ProjectKey string
-	Declared   map[string]string
+	// HarnessStartTicks is the matched harness process's /proc start time
+	// (Status.StartTicks), captured alongside HarnessPID so a session
+	// registry keyed on the pair never conflates a live harness process with
+	// an unrelated later process that reused its pid.
+	HarnessStartTicks uint64
+	Harness           string
+	CWD               string
+	ProjectKey        string
+	Declared          map[string]string
 	// Reason names why CWD/ProjectKey are empty despite a harness being
 	// found, e.g. "cwd unreadable: permission denied" — the case a
 	// mount-sandboxed systemd --user unit's implicit user namespace

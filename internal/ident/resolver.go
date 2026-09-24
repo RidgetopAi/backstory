@@ -36,6 +36,7 @@ func (r *Resolver) Resolve(peer PeerCreds) Identity {
 		if name, ok := matchHarness(st.Name); ok {
 			id.Harness = name
 			id.HarnessPID = pid
+			id.HarnessStartTicks = st.StartTicks
 			break
 		}
 		if st.PPid == pid {
