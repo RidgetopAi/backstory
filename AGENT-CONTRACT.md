@@ -155,7 +155,9 @@ Then five fixed slots, in order, each optional, under a **user-set budget** (def
 hard-coded; the industry range is narrow (Hermes ~2,200 chars, omp 5,000 tokens, Claude
 auto-memory 200 lines / 25 KB).
 
-1. **Resume pointer** — the latest `handoff` for THIS project, its MODE line if present
+1. **Resume pointer** — the latest `handoff` for THIS project, rendered as `Resume: (id
+   <id>) <text>` so the id is available verbatim for `note`'s `supersedes`, its MODE line
+   if present
 2. **Delta** — timeline since that handoff, compressed to "N sessions, files touched, last
    exit codes"
 3. **Coordination** — "another session is live in this repo on branch X" (pid alive in
@@ -183,7 +185,8 @@ Tesla §1.9 counts eight lines: the `description:` line plus the seven body line
 4. when you choose between alternatives, `note decision` in one line — no ceremony.
 5. claim "done" only with `note outcome` pointing at a `timeline` event id; a claim without
    evidence is recorded as a claim.
-6. end with `note handoff`: what is true now, what is next, what not to do.
+6. end with `note handoff`: what is true now, what is next, what not to do — set
+   `supersedes` to the Resume slot's id when it showed one.
 7. inferred records are hints; declared records are claims; the timeline is fact.
 8. never put a secret in a note.
 

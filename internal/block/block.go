@@ -114,13 +114,20 @@ func Render(p Params) (string, error) {
 	return assemble(slot1, slot2, slot3, slot4, budgetTokens), nil
 }
 
-// resumeSlot is slot 1: the latest handoff's text, plus its MODE line when
-// the text carries one.
+// resumeSlot is slot 1: the latest handoff's record id, its text, plus its
+// MODE line when the text carries one. The id is rendered in full (never
+// truncated to a short form) because note's supersedes matches a record id
+// exactly (store.InsertRecordWithEdges), and it comes right after the
+// "Resume:" label, in a fixed "(id ...)" shape, so an agent writing the next
+// handoff can lift it verbatim into supersedes without needing the id
+// spelled out in prose (task 56317fe7 — measured on Brian's desktop: a
+// handoff's text named its predecessor in prose because the block carried
+// no id at all, so the chain never linked).
 func resumeSlot(rec store.Record, ok bool) string {
 	if !ok {
 		return ""
 	}
-	line := "Resume: " + rec.Text
+	line := "Resume: (id " + rec.ID + ") " + rec.Text
 	if m := modeLine.FindStringSubmatch(rec.Text); m != nil {
 		line += "\nMODE: " + m[1]
 	}
