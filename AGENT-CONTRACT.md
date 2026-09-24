@@ -163,12 +163,16 @@ auto-memory 200 lines / 25 KB).
 
 1. **Resume pointer** — the latest `handoff` for THIS project, rendered as `Resume: (id
    <id>) <text>` so the id is available verbatim for `note`'s `supersedes`, its MODE line
-   if present
+   if present, and a `⚠ possibly stale: ...` marker naming its reasons and evidence ids
+   when later positive evidence — a contradiction, a later record or timeline event
+   touching a path it names — flags it and no later `confirm affirm` on it has arrived
+   since (decision bcc9fa54)
 2. **Delta** — timeline since that handoff, compressed to "N sessions, files touched, last
    exit codes"
 3. **Coordination** — "another session is live in this repo on branch X" (pid alive in
    `/proc`, branch known)
-4. **Attention** — unconfirmed drafts count, flagged contradictions
+4. **Attention** — unconfirmed drafts count, flagged contradictions, and whether the Resume
+   handoff is possibly stale — cleared by `confirm affirm`
 5. **One line** — "ask backstory for more"
 
 The header plus these five slots are the whole of it. Harnesses with no SessionStart
@@ -186,7 +190,8 @@ Tesla §1.9 counts eight lines: the `description:` line plus the seven body line
 1. `description:` claims the intents — "what was I doing", "resume", "why did we",
    "backstory", "history", "last session".
 2. if a SessionStart block is present, do not re-fetch; else call `recall` for this
-   project once.
+   project once; if the Resume line carries a possibly-stale marker, verify it before
+   acting and `confirm affirm` it if still true.
 3. before changing a file whose recall shows a declared decision, read it.
 4. when you choose between alternatives, `note decision` in one line — no ceremony.
 5. claim "done" only with `note outcome` pointing at a `timeline` event id; a claim without
