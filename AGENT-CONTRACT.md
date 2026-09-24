@@ -83,7 +83,7 @@ descriptions carry the contract. No delete. No settings.
 | `recall` | anchor (project, path, ref, id, or free text) → ordered, trust-annotated narrative at an altitude, under a token budget; the `recall_thread` model |
 | `note` | the one write; returns the record id and its provenance tier |
 | `timeline` | events for my session / this project / since `<t>`, filtered — the observed truth an agent cites as evidence |
-| `confirm` | promote a draft, flag a contradiction with evidence, mark supersession — kept separate from `note` so the never-list is enforceable per tool |
+| `confirm` | promote a draft, flag a contradiction with evidence, mark supersession, or affirm a target still true (`affirm`) — kept separate from `note` so the never-list is enforceable per tool |
 | `status` | who I am (session, project as the daemon sees them), who else is live here, my budget, capture on/off |
 
 Schemas are snapshot-tested; changing a field turns the snapshot RED (`PLAN.md §First three

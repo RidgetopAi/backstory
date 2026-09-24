@@ -57,6 +57,42 @@ func (e *UnknownEdgeTargetError) Error() string {
 	return fmt.Sprintf("store: unknown %s target %q", e.Field, e.ID)
 }
 
+// Edge is a row read back from edges.
+type Edge struct {
+	FromID     string
+	ToID       string
+	Type       EdgeType
+	DeclaredBy string
+}
+
+// EdgesTouching returns every edge where id is either endpoint — both
+// directions, every type — the neighborhood internal/recall's record
+// anchor walks (SCHEMA.md's six edge types; PLAN.md §Phase 4: "walk its
+// edges ... one or two hops, both directions").
+func (s *Store) EdgesTouching(id string) ([]Edge, error) {
+	rows, err := s.db.Query(`SELECT from_id, to_id, type, declared_by FROM edges
+		WHERE from_id = ? OR to_id = ?`, id, id)
+	if err != nil {
+		return nil, fmt.Errorf("store: edges touching %s: %w", id, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []Edge
+	for rows.Next() {
+		var e Edge
+		var edgeType string
+		if err := rows.Scan(&e.FromID, &e.ToID, &edgeType, &e.DeclaredBy); err != nil {
+			return nil, fmt.Errorf("store: scan edge touching %s: %w", id, err)
+		}
+		e.Type = EdgeType(edgeType)
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: edges touching %s: %w", id, err)
+	}
+	return out, nil
+}
+
 // ContradictionCount counts `contradicts` edges whose to_id names a record
 // in projectKey — the SessionStart block's attention slot's other half
 // (AGENT-CONTRACT.md §The SessionStart block).

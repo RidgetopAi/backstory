@@ -84,6 +84,41 @@ func TestSearchRecordsTiebreaksEqualRankByTsAscending(t *testing.T) {
 	}
 }
 
+// TestSearchRecordsInProjectScopesToOneProject checks internal/recall's
+// free-text anchor query: a match in a different project never appears,
+// even though records_fts itself is not project-scoped (SearchRecords has
+// no project filter at all — SearchRecordsInProject exists specifically to
+// add one).
+func TestSearchRecordsInProjectScopesToOneProject(t *testing.T) {
+	s := mustOpen(t, filepath.Join(t.TempDir(), "backstory.db"))
+	mustUpsertProject(t, s, "proj-a")
+	mustUpsertProject(t, s, "proj-b")
+	sessionA := mustStartSessionInProject(t, s, "proj-a")
+	sessionB := mustStartSessionInProject(t, s, "proj-b")
+
+	inA, err := s.InsertRecord(InsertRecordParams{
+		Identity: Identity{Kind: IdentityAgent}, Kind: KindNote, Text: "widget refactor in proj-a",
+		SessionID: sessionA, ProjectKey: "proj-a",
+	})
+	if err != nil {
+		t.Fatalf("InsertRecord proj-a: %v", err)
+	}
+	if _, err := s.InsertRecord(InsertRecordParams{
+		Identity: Identity{Kind: IdentityAgent}, Kind: KindNote, Text: "widget refactor in proj-b",
+		SessionID: sessionB, ProjectKey: "proj-b",
+	}); err != nil {
+		t.Fatalf("InsertRecord proj-b: %v", err)
+	}
+
+	results, err := s.SearchRecordsInProject("proj-a", "widget", 10)
+	if err != nil {
+		t.Fatalf("SearchRecordsInProject: %v", err)
+	}
+	if len(results) != 1 || results[0].ID != inA {
+		t.Fatalf("SearchRecordsInProject(proj-a, widget) = %+v, want exactly proj-a's own match", results)
+	}
+}
+
 func TestSearchRecordsExcludesTombstoned(t *testing.T) {
 	s := mustOpen(t, filepath.Join(t.TempDir(), "backstory.db"))
 

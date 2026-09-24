@@ -138,7 +138,7 @@ func ToolsV0() []Tool {
 					},
 					"action": {
 						"type": "string",
-						"enum": ["promote", "contradict", "supersede"]
+						"enum": ["promote", "contradict", "supersede", "affirm"]
 					},
 					"evidence": {
 						"type": "array",

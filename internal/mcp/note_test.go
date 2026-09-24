@@ -60,6 +60,12 @@ func (f fakeGit) State(cwd string) (project.State, bool) {
 	return s, ok
 }
 
+// captureNeverOff is the captureOff callback every test in this package
+// that does not itself exercise capture-off passes to ServeDaemonConn: it
+// reports capture as always on, so none of these tests' note/status calls
+// are affected by the capture-off gate task fd620482 added.
+func captureNeverOff() (bool, error) { return false, nil }
+
 // testDaemon starts a real socket.Server over ServeDaemonConn, backed by st,
 // whose resolver reports the dialing pid's ancestry as harness at cwd in
 // projectKey — the fake ProcFS the punch's DONE WHEN clauses call for.
@@ -76,7 +82,7 @@ func testDaemon(t *testing.T, st *store.Store, harness, cwd, projectKey string) 
 	sockPath := filepath.Join(t.TempDir(), "sock")
 	srv, err := socket.Listen(sockPath, resolver, func(id ident.Identity, conn net.Conn) {
 		defer func() { _ = conn.Close() }()
-		ServeDaemonConn(id, conn, st, procfs, fakeGit{}, nil, sessions)
+		ServeDaemonConn(id, conn, st, procfs, fakeGit{}, nil, sessions, captureNeverOff)
 	})
 	if err != nil {
 		t.Fatalf("socket.Listen: %v", err)
