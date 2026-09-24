@@ -21,6 +21,13 @@
 // DaemonRequest line the way the block path does, and prints the tool's raw
 // JSON result to stdout.
 //
+// Any other method (e.g. "note") takes the same raw-DaemonRequest path as
+// "block", but forwards params-json as the request's Params — task
+// fd620482's capture-off test needs a real note request (kind/text), which
+// an empty Params would always fail validation on regardless of capture
+// state. A daemon error response (resp.Error != nil) is reported on stderr
+// with a non-zero exit, same as every other raw-path failure here.
+//
 // A failure at any step is reported on stderr with a non-zero exit.
 package main
 
@@ -67,7 +74,7 @@ func main() {
 		return
 	}
 
-	req := mcp.DaemonRequest{Session: sessionID, Method: method}
+	req := mcp.DaemonRequest{Session: sessionID, Method: method, Params: params}
 	b, err := json.Marshal(req)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "marshal", method, "request:", err)

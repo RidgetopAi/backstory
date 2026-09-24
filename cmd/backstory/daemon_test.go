@@ -256,6 +256,8 @@ const harnessName = "claude"
 // passed to execve, not argv[0], so exec'ing this binary directly (never
 // through a shell or PATH lookup) gives the daemon's ancestry walk a comm
 // of name regardless of what built or launched the test binary itself.
+//
+//nolint:unparam // every call site happens to pass harnessName ("claude") today because that's the one identity this package's tests need to spoof, not because name could be dropped: a future test against a different recognised harness (e.g. "codex") is exactly what this parameter exists for.
 func buildHarnessClient(t *testing.T, name string) string {
 	t.Helper()
 	found := false

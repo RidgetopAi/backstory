@@ -42,6 +42,55 @@ func TestContradictionCountCountsEdgesIntoProjectRecordsOnly(t *testing.T) {
 	}
 }
 
+// TestEdgesTouchingReturnsBothDirectionsAndEveryType checks internal/recall's
+// edge-walk primitive: edges where the record is either from_id or to_id,
+// across different edge types, and none where it is neither endpoint.
+func TestEdgesTouchingReturnsBothDirectionsAndEveryType(t *testing.T) {
+	s := mustOpen(t, filepath.Join(t.TempDir(), "backstory.db"))
+	mustUpsertProject(t, s, "proj-a")
+	sessionID := mustStartSessionInProject(t, s, "proj-a")
+
+	center := mustInsertNote(t, s, sessionID, "proj-a", "center")
+	outgoingTarget := mustInsertNote(t, s, sessionID, "proj-a", "informed by center")
+	incomingSource := mustInsertNote(t, s, sessionID, "proj-a", "supersedes center")
+	unrelatedA := mustInsertNote(t, s, sessionID, "proj-a", "unrelated a")
+	unrelatedB := mustInsertNote(t, s, sessionID, "proj-a", "unrelated b")
+
+	if err := s.LinkEdge(center, outgoingTarget, EdgeInforms, sessionID); err != nil {
+		t.Fatalf("LinkEdge informs (outgoing): %v", err)
+	}
+	if err := s.LinkEdge(incomingSource, center, EdgeSupersedes, sessionID); err != nil {
+		t.Fatalf("LinkEdge supersedes (incoming): %v", err)
+	}
+	if err := s.LinkEdge(unrelatedA, unrelatedB, EdgeInforms, sessionID); err != nil {
+		t.Fatalf("LinkEdge unrelated: %v", err)
+	}
+
+	edges, err := s.EdgesTouching(center)
+	if err != nil {
+		t.Fatalf("EdgesTouching: %v", err)
+	}
+	if len(edges) != 2 {
+		t.Fatalf("EdgesTouching(center) returned %d edges, want 2 (the unrelated edge must not appear): %+v", len(edges), edges)
+	}
+
+	var sawOutgoing, sawIncoming bool
+	for _, e := range edges {
+		switch {
+		case e.Type == EdgeInforms && e.FromID == center && e.ToID == outgoingTarget:
+			sawOutgoing = true
+		case e.Type == EdgeSupersedes && e.FromID == incomingSource && e.ToID == center:
+			sawIncoming = true
+		}
+	}
+	if !sawOutgoing {
+		t.Errorf("EdgesTouching(center) missing the outgoing informs edge: %+v", edges)
+	}
+	if !sawIncoming {
+		t.Errorf("EdgesTouching(center) missing the incoming supersedes edge: %+v", edges)
+	}
+}
+
 func mustInsertNote(t *testing.T, s *Store, sessionID, projectKey, text string) string {
 	t.Helper()
 	id, err := s.InsertRecord(InsertRecordParams{

@@ -20,7 +20,9 @@ func (s *Server) CallTool(name string, args json.RawMessage) (json.RawMessage, *
 		return s.callStatus()
 	case ToolRecall:
 		return s.callRecall(args)
-	case ToolTimeline, ToolConfirm:
+	case ToolConfirm:
+		return s.callConfirm(args)
+	case ToolTimeline:
 		return nil, notImplementedError(name)
 	default:
 		return nil, &RPCError{Code: CodeMethodNotFound, Message: "unknown tool " + name}
@@ -49,6 +51,22 @@ func (s *Server) callNote(args json.RawMessage) (json.RawMessage, *RPCError) {
 
 func (s *Server) callStatus() (json.RawMessage, *RPCError) {
 	return s.callDaemon(daemonMethodStatus, nil)
+}
+
+// callConfirm re-serializes args through ConfirmParams' own field set
+// before forwarding, the same never-list rule callNote applies to
+// NoteParams: a forged "tier" or "session" key is dropped here, before the
+// request ever reaches the daemon.
+func (s *Server) callConfirm(args json.RawMessage) (json.RawMessage, *RPCError) {
+	var p ConfirmParams
+	if err := json.Unmarshal(args, &p); err != nil {
+		return nil, &RPCError{Code: CodeInvalidParams, Message: "invalid confirm arguments: " + err.Error()}
+	}
+	clean, err := json.Marshal(p)
+	if err != nil {
+		return nil, &RPCError{Code: CodeInternal, Message: err.Error()}
+	}
+	return s.callDaemon(daemonMethodConfirm, clean)
 }
 
 // callRecall re-serializes args through RecallParams' own field set before

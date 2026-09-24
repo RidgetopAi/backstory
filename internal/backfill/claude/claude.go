@@ -221,11 +221,23 @@ func importFile(st *store.Store, git project.Git, workspaces []string, path stri
 	lastTS := parsedLines[len(parsedLines)-1].Timestamp
 
 	if !exists {
-		sessionID, err = createSession(st, git, workspaces, path, parsedLines, firstTS)
-		if err != nil {
+		// A run captured live already minted a session for this exact
+		// transcript (internal/mcp's startSession, keyed on the harness's
+		// own declared session id — the same field this transcript's
+		// sessionId carries) — attach to it instead of minting a second,
+		// backfilled-origin session for the same run (task 25b74537's
+		// clause 2: the daemon-side dedup task 32c6900d left unbuilt).
+		if live, ok, err := st.LiveSessionByHarnessSessionID(firstHarnessSessionID(parsedLines)); err != nil {
 			return fileStats{}, err
+		} else if ok {
+			sessionID = live.ID
+		} else {
+			sessionID, err = createSession(st, git, workspaces, path, parsedLines, firstTS)
+			if err != nil {
+				return fileStats{}, err
+			}
+			stats.sessionCreated = true
 		}
-		stats.sessionCreated = true
 
 		if _, err := st.AppendEvent(store.Event{
 			TS:        firstTS,
@@ -245,27 +257,42 @@ func importFile(st *store.Store, git project.Git, workspaces []string, path stri
 	}
 	stats.events += n
 
-	// Every run that processes new lines re-mints session.end as the
-	// session's current last event (append-only: an earlier run's
-	// session.end is never deleted or rewritten, so a session that has
-	// been backfilled twice has two session.end events, the later one
-	// last by rowid) and moves sessions.ended_at to this batch's last
-	// line — the transcript may still be growing, and each run's
-	// session.end/ended_at reflects what had been written as of that run.
-	sessionEndPayload, _ := json.Marshal(payload.SessionEnd{Reason: "eof"})
-	if _, err := st.AppendEvent(store.Event{
-		TS:        lastTS,
-		Kind:      EventSessionEnd,
-		SessionID: sessionID,
-		Source:    EventSource,
-		Payload:   string(sessionEndPayload),
-	}); err != nil {
+	// A session whose origin is 'live' has its end-of-life owned exclusively
+	// by the daemon (internal/mcp's SessionRegistry sweep, task 25b74537):
+	// backfill must never append its own session.end or call EndSession for
+	// one, on this run or any later rerun over the same still-growing
+	// transcript — doing so would end (or re-timestamp the ending of) a run
+	// the daemon may still consider live, and would double-count it in the
+	// SessionStart block's delta the moment the daemon's own sweep later
+	// disagrees. The cursor still advances either way, so a rerun never
+	// reprocesses these bytes.
+	origin, err := st.SessionOrigin(sessionID)
+	if err != nil {
 		return fileStats{}, err
 	}
-	stats.events++
+	if origin != store.OriginLive {
+		// Every run that processes new lines re-mints session.end as the
+		// session's current last event (append-only: an earlier run's
+		// session.end is never deleted or rewritten, so a session that has
+		// been backfilled twice has two session.end events, the later one
+		// last by rowid) and moves sessions.ended_at to this batch's last
+		// line — the transcript may still be growing, and each run's
+		// session.end/ended_at reflects what had been written as of that run.
+		sessionEndPayload, _ := json.Marshal(payload.SessionEnd{Reason: "eof"})
+		if _, err := st.AppendEvent(store.Event{
+			TS:        lastTS,
+			Kind:      EventSessionEnd,
+			SessionID: sessionID,
+			Source:    EventSource,
+			Payload:   string(sessionEndPayload),
+		}); err != nil {
+			return fileStats{}, err
+		}
+		stats.events++
 
-	if err := st.EndSession(sessionID, lastTS, "backfill"); err != nil {
-		return fileStats{}, err
+		if err := st.EndSession(sessionID, lastTS, "backfill"); err != nil {
+			return fileStats{}, err
+		}
 	}
 
 	if err := st.SetBackfillCursor(Source, path, store.BackfillCursor{
@@ -277,6 +304,23 @@ func importFile(st *store.Store, git project.Git, workspaces []string, path stri
 	}
 
 	return stats, nil
+}
+
+// firstHarnessSessionID returns the first non-empty sessionId field among
+// lines — the transcript's own harness-declared session id, which becomes
+// harness_session_id on the session this file's import creates or attaches
+// to, exactly like internal/mcp's startSession does for a live connection's
+// declared "session" join key (socket.DeclaredFields). Empty when no line
+// carries one, in which case a live-session match is never attempted (an
+// empty harness_session_id would otherwise ambiguously match every live
+// session with no declared id of its own).
+func firstHarnessSessionID(lines []transcriptLine) string {
+	for _, l := range lines {
+		if l.SessionID != "" {
+			return l.SessionID
+		}
+	}
+	return ""
 }
 
 // createSession resolves cwd/branch/version/project identity from a file's

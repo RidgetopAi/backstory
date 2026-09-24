@@ -87,7 +87,7 @@ func runDaemon(_ []string, stdout, stderr io.Writer) int {
 	srv, err := socket.Listen(sockPath, resolver, func(id ident.Identity, conn net.Conn) {
 		defer func() { _ = conn.Close() }()
 		logIdentity(logger, id)
-		mcp.ServeDaemonConn(id, conn, st, ident.RealProcFS{}, logger, sessions)
+		mcp.ServeDaemonConn(id, conn, st, ident.RealProcFS{}, logger, sessions, captureOff)
 	})
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory daemon:", err)
@@ -171,9 +171,11 @@ func socketPath() (string, error) {
 // same directory and fallback as socketPath, since it is the same
 // "omarchy toggle"-style flag file precedent (AGENT-CONTRACT.md §User-only
 // powers) checked from the same client processes that dial the socket.
-// Only `backstory hook post-tool-use` honours it today (task 04b1cb40); the
-// daemon-side write paths SCHEMA.md invariant 8 also names are pre-existing,
-// unimplemented scope this task does not touch.
+// `backstory hook post-tool-use` honours it client-side (task 04b1cb40,
+// before ever dialing the daemon); `backstory capture off|on` writes and
+// removes it; the daemon itself honours it on the note and status write
+// paths (task fd620482, SCHEMA.md invariant 8) via the captureOff callback
+// runDaemon passes to mcp.ServeDaemonConn below.
 func captureOffPath() (string, error) {
 	if dir := os.Getenv("XDG_RUNTIME_DIR"); dir != "" {
 		return filepath.Join(dir, "backstory", "capture-off"), nil

@@ -11,15 +11,16 @@ import (
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
-// daemonMethodNote, daemonMethodStatus and daemonMethodRecall are the
-// DaemonRequest.Method values the daemon side answers via the mcp shim's
-// note/status/recall tools. timeline/confirm still never reach the socket
-// at all: the shim returns their not-implemented error itself (DONE WHEN
-// clause 4 — "never touch the store").
+// daemonMethodNote, daemonMethodStatus, daemonMethodRecall and
+// daemonMethodConfirm are the DaemonRequest.Method values the daemon side
+// answers via the mcp shim's note/status/recall/confirm tools. timeline
+// still never reaches the socket at all: the shim returns its
+// not-implemented error itself.
 const (
-	daemonMethodNote   = "note"
-	daemonMethodStatus = "status"
-	daemonMethodRecall = "recall"
+	daemonMethodNote    = "note"
+	daemonMethodStatus  = "status"
+	daemonMethodRecall  = "recall"
+	daemonMethodConfirm = "confirm"
 )
 
 // DaemonMethodBlock is the SessionStart block's daemon-side method
@@ -51,16 +52,23 @@ const DaemonMethodBlock = "block"
 // this connection writes is attributed to id.Kind's tier regardless of what
 // a request line claims, and the SessionStart block it renders is always
 // for id.ProjectKey, regardless of what a request line claims either.
-func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs ident.ProcFS, logger *log.Logger, sessions *SessionRegistry) {
-	sessionID, err := sessions.SessionFor(id, func() (string, error) { return startSession(st, id) })
+//
+// captureOff is checked fresh on every note request (SCHEMA.md invariant 8:
+// "honoured on every write path") and reported by status — the same
+// capture-off flag file cmd/backstory's `hook post-tool-use` already
+// refuses to record on, passed in by daemon.go rather than resolved here so
+// this package never has to know how the flag file's path is derived.
+func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs ident.ProcFS, logger *log.Logger, sessions *SessionRegistry, captureOff func() (bool, error)) {
+	end := func(sessionID, reason string) {
+		if err := st.EndSession(sessionID, time.Now(), reason); err != nil {
+			logf(logger, "mcp: end session %s: %v", sessionID, err)
+		}
+	}
+	sessionID, err := sessions.SessionFor(id, procfs, end, func() (string, error) { return startSession(st, id) })
 	if err != nil {
 		logf(logger, "mcp: start session for pid=%d: %v", id.PID, err)
 	} else if id.HarnessPID == 0 {
-		defer func() {
-			if err := st.EndSession(sessionID, time.Now(), "eof"); err != nil {
-				logf(logger, "mcp: end session %s: %v", sessionID, err)
-			}
-		}()
+		defer end(sessionID, "eof")
 	}
 
 	identity := storeIdentity(id, sessionID)
@@ -68,7 +76,7 @@ func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs i
 	sc := bufio.NewScanner(conn)
 	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	for sc.Scan() {
-		resp := dispatchDaemonRequest(sc.Bytes(), st, procfs, identity, sessionID, id)
+		resp := dispatchDaemonRequest(sc.Bytes(), st, procfs, identity, sessionID, id, captureOff)
 		b, err := json.Marshal(resp)
 		if err != nil {
 			logf(logger, "mcp: marshal daemon response: %v", err)
@@ -80,18 +88,20 @@ func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs i
 	}
 }
 
-func dispatchDaemonRequest(line []byte, st *store.Store, procfs ident.ProcFS, identity store.Identity, sessionID string, id ident.Identity) DaemonResponse {
+func dispatchDaemonRequest(line []byte, st *store.Store, procfs ident.ProcFS, identity store.Identity, sessionID string, id ident.Identity, captureOff func() (bool, error)) DaemonResponse {
 	var req DaemonRequest
 	if err := json.Unmarshal(line, &req); err != nil {
 		return errResponse("invalid-request", err.Error())
 	}
 	switch req.Method {
 	case daemonMethodNote:
-		return handleNote(st, identity, sessionID, id.ProjectKey, req.Params)
+		return handleNote(st, identity, sessionID, id.ProjectKey, req.Params, captureOff)
 	case daemonMethodStatus:
-		return handleStatus(st, id, sessionID)
+		return handleStatus(st, id, sessionID, captureOff)
 	case daemonMethodRecall:
 		return handleRecall(st, id, req.Params)
+	case daemonMethodConfirm:
+		return handleConfirm(st, identity, sessionID, id.ProjectKey, req.Params)
 	case DaemonMethodBlock:
 		return handleBlock(st, procfs, id, sessionID)
 	case DaemonMethodPostToolUse:
@@ -113,12 +123,11 @@ func dispatchDaemonRequest(line []byte, st *store.Store, procfs ident.ProcFS, id
 // repository identity), never from anything a request declares.
 //
 // task 32c6900d scoped this fix to the daemon's own live-session bookkeeping
-// only: it does not touch internal/backfill/claude's transcript importer, so
-// a later backfill of a harness process's transcript can still add a SECOND
-// (backfilled-origin) session for the same run alongside its now-shared live
-// one. That importer already dedups at the event level (tool_use_id); a
-// session-level dedup against a still-live run's harness_session_id is a
-// separate, not-yet-built piece of work.
+// only, leaving a later backfill of the same run's transcript free to add a
+// second (backfilled-origin) session for it. task 25b74537 closed that gap
+// on the importer's side (internal/backfill/claude.Store.
+// LiveSessionByHarnessSessionID): a transcript whose harness_session_id
+// still matches a live session minted here attaches to it instead.
 func startSession(st *store.Store, id ident.Identity) (string, error) {
 	if id.ProjectKey != "" {
 		if err := st.UpsertProject(store.Project{
