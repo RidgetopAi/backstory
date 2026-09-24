@@ -134,7 +134,7 @@ func writeResponse(w io.Writer, resp rpcResponse) error {
 func (s *Server) dispatch(req rpcRequest) rpcResponse {
 	switch req.Method {
 	case "initialize":
-		return rpcResponse{Result: mustMarshal(initializeResult())}
+		return rpcResponse{Result: mustMarshal(initializeResult(req.Params))}
 	case "notifications/initialized":
 		return rpcResponse{}
 	case "tools/list":
@@ -163,9 +163,26 @@ func (s *Server) dispatchToolsCall(raw json.RawMessage) rpcResponse {
 	}
 	result, rerr := s.CallTool(p.Name, p.Arguments)
 	if rerr != nil {
-		return rpcResponse{Error: rerr}
+		if isProtocolLevelToolError(rerr.Code) {
+			return rpcResponse{Error: rerr}
+		}
+		// The tool itself was reached and rejected the call (bad
+		// arguments, a daemon-side failure): report it inside a
+		// CallToolResult, per the MCP spec, so Claude Code's session sees
+		// the message instead of a bare JSON-RPC error (this punch's DONE
+		// WHEN clause 2).
+		return rpcResponse{Result: mustMarshal(errorToolResult(rerr.Message))}
 	}
-	return rpcResponse{Result: result}
+	return rpcResponse{Result: mustMarshal(successToolResult(result))}
+}
+
+// isProtocolLevelToolError reports whether code names a JSON-RPC protocol
+// failure — the requested tool doesn't exist, or isn't implemented — as
+// opposed to a known tool being called and rejecting its own arguments or
+// backend call. Only protocol failures stay JSON-RPC errors; the tool
+// itself was never reached for either of these.
+func isProtocolLevelToolError(code int) bool {
+	return code == CodeMethodNotFound || code == CodeNotImplemented
 }
 
 type serverInfo struct {
@@ -179,9 +196,23 @@ type initializeResponse struct {
 	Capabilities    map[string]any `json:"capabilities"`
 }
 
-func initializeResult() initializeResponse {
+type initializeParams struct {
+	ProtocolVersion string `json:"protocolVersion"`
+}
+
+// initializeResult answers an initialize request. It echoes the client's
+// requested protocolVersion when this shim supports it (today that means
+// "equals ProtocolVersion" — there is only the one) rather than always
+// answering the pinned constant, per the MCP spec's version-negotiation
+// rule; an unrecognized or absent request falls back to ProtocolVersion.
+func initializeResult(raw json.RawMessage) initializeResponse {
+	pv := ProtocolVersion
+	var p initializeParams
+	if len(raw) > 0 && json.Unmarshal(raw, &p) == nil && p.ProtocolVersion == ProtocolVersion {
+		pv = p.ProtocolVersion
+	}
 	return initializeResponse{
-		ProtocolVersion: ProtocolVersion,
+		ProtocolVersion: pv,
 		ServerInfo:      serverInfo{Name: "backstory", Version: version.Version},
 		Capabilities:    map[string]any{"tools": map[string]any{}},
 	}

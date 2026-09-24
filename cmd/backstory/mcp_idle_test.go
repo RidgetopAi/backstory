@@ -182,9 +182,10 @@ func TestMCPShimSurvivesIdlePastFirstLineDeadlineThenSucceeds(t *testing.T) {
 	if noteResp.Error != nil {
 		t.Fatalf("tools/call(note) after idling past the deadline: %+v", noteResp.Error)
 	}
+	noteCall := requireCallToolResult(t, noteResp.Result)
 	var noteResult mcp.NoteResult
-	if err := json.Unmarshal(noteResp.Result, &noteResult); err != nil {
-		t.Fatalf("unmarshal note result: %v", err)
+	if err := json.Unmarshal(noteCall.StructuredContent, &noteResult); err != nil {
+		t.Fatalf("unmarshal note structuredContent: %v", err)
 	}
 	if noteResult.ID == "" {
 		t.Fatal("note result has no id")
