@@ -70,6 +70,10 @@ type Options struct {
 	// Git resolves project identity from a resolved cwd (AGENT-CONTRACT.md
 	// §Project = git repository identity). Nil uses project.RealGit{}.
 	Git project.Git
+	// Workspaces lists the parent-of-many-repos dirs a resolved cwd is
+	// checked against before falling back to a repo/path key (decision
+	// bcc9fa54). Nil uses project.DefaultWorkspaceDirs().
+	Workspaces []string
 }
 
 // Result is Import's one-line summary: `backstory backfill claude` prints
@@ -106,6 +110,14 @@ func Import(st *store.Store, opts Options) (Result, error) {
 	if git == nil {
 		git = project.RealGit{}
 	}
+	workspaces := opts.Workspaces
+	if workspaces == nil {
+		// An unresolvable home dir means no default workspace, never a
+		// failed backfill (same rule as the daemon).
+		if ws, err := project.DefaultWorkspaceDirs(); err == nil {
+			workspaces = ws
+		}
+	}
 
 	files, err := filepath.Glob(filepath.Join(root, "*", "*.jsonl"))
 	if err != nil {
@@ -116,7 +128,7 @@ func Import(st *store.Store, opts Options) (Result, error) {
 	var res Result
 	for _, f := range files {
 		res.FilesScanned++
-		stats, err := importFile(st, git, f)
+		stats, err := importFile(st, git, workspaces, f)
 		if err != nil {
 			return res, fmt.Errorf("backfill/claude: import %s: %w", f, err)
 		}
@@ -149,7 +161,7 @@ type fileStats struct {
 // (cwd/branch/version/project resolved from the batch, session.start and
 // session.end emitted); a later run against the same file only appends
 // tool.use/tool.result events for whatever lines were appended since.
-func importFile(st *store.Store, git project.Git, path string) (fileStats, error) {
+func importFile(st *store.Store, git project.Git, workspaces []string, path string) (fileStats, error) {
 	cursor, exists, err := st.GetBackfillCursor(Source, path)
 	if err != nil {
 		return fileStats{}, err
@@ -220,7 +232,7 @@ func importFile(st *store.Store, git project.Git, path string) (fileStats, error
 		} else if ok {
 			sessionID = live.ID
 		} else {
-			sessionID, err = createSession(st, git, path, parsedLines, firstTS)
+			sessionID, err = createSession(st, git, workspaces, path, parsedLines, firstTS)
 			if err != nil {
 				return fileStats{}, err
 			}
@@ -313,7 +325,7 @@ func firstHarnessSessionID(lines []transcriptLine) string {
 
 // createSession resolves cwd/branch/version/project identity from a file's
 // batch of parsed lines and mints its backfilled session.
-func createSession(st *store.Store, git project.Git, path string, lines []transcriptLine, firstTS time.Time) (string, error) {
+func createSession(st *store.Store, git project.Git, workspaces []string, path string, lines []transcriptLine, firstTS time.Time) (string, error) {
 	var cwd, gitBranch, version, harnessSessionID string
 	for _, l := range lines {
 		if cwd == "" && l.CWD != "" {
@@ -339,7 +351,7 @@ func createSession(st *store.Store, git project.Git, path string, lines []transc
 	if resolvedCWD == "" {
 		resolvedCWD = slugToPath(filepath.Base(filepath.Dir(path)))
 	}
-	projectKey := project.Key(resolvedCWD, git)
+	projectKey := project.Key(resolvedCWD, git, workspaces)
 
 	proj := store.Project{Key: projectKey, Toplevel: resolvedCWD, FirstSeen: time.Now()}
 	if repo, ok := git.Repo(resolvedCWD); ok {

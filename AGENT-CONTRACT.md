@@ -62,6 +62,12 @@ subdirectory and Claude's dashed-cwd transcript slug are all the same repository
   session and the events, never the key.
 - Backfill normalises Claude's slug back to a path and then to a repo key.
 - The "two agents in one repo" warning fires across worktrees because the key is shared.
+- **A workspace is not a project** (decision `bcc9fa54`): a folder that holds many repos
+  (default `~/projects`, list-valued, read from configuration — never hard-coded) must not
+  become a project of its own or be merged into some repo's history. A cwd that is a
+  workspace dir itself, or a non-git dir directly under one, resolves to a `workspace:`-
+  prefixed identity, distinct from any repo key. A cwd inside a git repo under a workspace
+  dir still resolves to that repo's own key, unchanged.
 
 ## Records carry `about[]`
 

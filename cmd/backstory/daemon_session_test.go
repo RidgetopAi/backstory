@@ -183,7 +183,7 @@ func TestOneHarnessProcessSharesOneSessionAcrossHookAndMCPCalls(t *testing.T) {
 		t.Errorf("final block = %q, want it to contain %q", finalBlock.Block, "Delta: 1 sessions, 0 files touched")
 	}
 
-	projectKey := project.Key(projectDir, project.RealGit{})
+	projectKey := project.Key(projectDir, project.RealGit{}, nil)
 	s := mustOpenTestStore(t, dbPath)
 	events := queryEventSessionsForProject(t, s, projectKey)
 	if len(events) != 5 {

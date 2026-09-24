@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/RidgetopAi/backstory/internal/ident"
+	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/socket"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
@@ -44,6 +45,21 @@ func (f fakeProcFS) Cwd(pid int) (string, error) {
 
 func (f fakeProcFS) Cmdline(int) ([]string, error) { return nil, nil }
 
+// fakeGit is a canned cwd -> project.State lookup: an entry absent from the
+// map reports could-not-observe (ok == false), exactly like a cwd that is
+// not a real git working tree — the case every testDaemon fixture cwd
+// (/home/brian/proj and friends) is actually in, since none of them are
+// backed by a real .git directory. session_end_test.go's tests populate
+// entries directly to exercise the observed-state path.
+type fakeGit map[string]project.State
+
+func (f fakeGit) Repo(string) (project.Repo, bool) { return project.Repo{}, false }
+
+func (f fakeGit) State(cwd string) (project.State, bool) {
+	s, ok := f[cwd]
+	return s, ok
+}
+
 // captureNeverOff is the captureOff callback every test in this package
 // that does not itself exercise capture-off passes to ServeDaemonConn: it
 // reports capture as always on, so none of these tests' note/status calls
@@ -66,7 +82,7 @@ func testDaemon(t *testing.T, st *store.Store, harness, cwd, projectKey string) 
 	sockPath := filepath.Join(t.TempDir(), "sock")
 	srv, err := socket.Listen(sockPath, resolver, func(id ident.Identity, conn net.Conn) {
 		defer func() { _ = conn.Close() }()
-		ServeDaemonConn(id, conn, st, procfs, nil, sessions, captureNeverOff)
+		ServeDaemonConn(id, conn, st, procfs, fakeGit{}, nil, sessions, captureNeverOff)
 	})
 	if err != nil {
 		t.Fatalf("socket.Listen: %v", err)
