@@ -30,22 +30,32 @@ const (
 const DaemonMethodBlock = "block"
 
 // ServeDaemonConn is the daemon side of the shim<->daemon wire protocol: the
-// socket.Handler cmd/backstory wires into socket.Listen. It starts a live
-// store session for the connecting Identity, dispatches DaemonRequest lines
-// against st until the connection closes, and ends the session on exit.
-// procfs backs the block method's coordination-slot liveness check
-// (block.Params.ProcFS); it is otherwise unused.
+// socket.Handler cmd/backstory wires into socket.Listen. A store session is
+// one run of an observed harness process, never one socket connection
+// (task 32c6900d): sessions resolves this connection's id to the live
+// session every other connection from the same harness process shares,
+// minting a new one via startSession only the first time that harness
+// process is observed. procfs backs the block method's coordination-slot
+// liveness check (block.Params.ProcFS); it is otherwise unused.
+//
+// A connection from an unidentified harness (id.HarnessPID == 0) keeps
+// today's per-connection behaviour exactly: sessions never registers or
+// reuses it, so it gets its own fresh session that ends when this
+// connection does. A connection from a known harness process never ends its
+// shared session on EOF — the process it belongs to almost always outlives
+// any single short-lived hook connection, so ending the session here would
+// just recreate the per-connection churn this fix removes.
 //
 // id is resolved purely from SO_PEERCRED + /proc ancestry (never from
 // anything on conn — AGENT-CONTRACT.md §Observed identity), so every record
 // this connection writes is attributed to id.Kind's tier regardless of what
 // a request line claims, and the SessionStart block it renders is always
 // for id.ProjectKey, regardless of what a request line claims either.
-func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs ident.ProcFS, logger *log.Logger) {
-	sessionID, err := startSession(st, id)
+func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs ident.ProcFS, logger *log.Logger, sessions *SessionRegistry) {
+	sessionID, err := sessions.SessionFor(id, func() (string, error) { return startSession(st, id) })
 	if err != nil {
 		logf(logger, "mcp: start session for pid=%d: %v", id.PID, err)
-	} else {
+	} else if id.HarnessPID == 0 {
 		defer func() {
 			if err := st.EndSession(sessionID, time.Now(), "eof"); err != nil {
 				logf(logger, "mcp: end session %s: %v", sessionID, err)
