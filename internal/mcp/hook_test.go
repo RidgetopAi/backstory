@@ -40,7 +40,7 @@ func testDaemonWithCapture(t *testing.T, st *store.Store, harness, cwd, projectK
 	sockPath := filepath.Join(t.TempDir(), "sock")
 	srv, err := socket.Listen(sockPath, resolver, func(id ident.Identity, conn net.Conn) {
 		defer func() { _ = conn.Close() }()
-		ServeDaemonConn(id, conn, st, procfs, nil, sessions, captureOff)
+		ServeDaemonConn(id, conn, st, procfs, fakeGit{}, nil, sessions, captureOff)
 	})
 	if err != nil {
 		t.Fatalf("socket.Listen: %v", err)

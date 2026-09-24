@@ -170,6 +170,18 @@ func (s *Store) SessionOrigin(id string) (SessionOrigin, error) {
 	return SessionOrigin(origin), nil
 }
 
+// SessionCWD returns the cwd session id was started in. The daemon's
+// session-end path needs the ENDED session's own cwd, not the cwd of
+// whichever connection happened to trigger the end (a registry sweep ends
+// other, dead harnesses' sessions — task c2573b35).
+func (s *Store) SessionCWD(id string) (string, error) {
+	var cwd string
+	if err := s.db.QueryRow(`SELECT cwd FROM sessions WHERE id = ?`, id).Scan(&cwd); err != nil {
+		return "", fmt.Errorf("store: session cwd %s: %w", id, err)
+	}
+	return cwd, nil
+}
+
 // EndSession records a session's end time and exit kind.
 func (s *Store) EndSession(id string, endedAt time.Time, exitKind string) error {
 	res, err := s.db.Exec(`UPDATE sessions SET ended_at = ?, exit_kind = ? WHERE id = ?`,

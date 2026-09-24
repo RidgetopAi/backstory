@@ -57,6 +57,18 @@ preceding `timeline_events` row by `ts`, best effort: a pre-migration record was
 assigned a sequence position at insert time, so its own `ts` is the only signal left, and
 that's exactly the lying-clock problem the column exists to stop relying on going forward.
 
+`project_groups` (decision `bcc9fa54`, task `57ec6e62`) is a user-owned grouping layer over
+`projects.key`, not a redefinition of project identity: identity stays observed (git common
+dir + first remote, invariant unchanged), while a group name is a label the human attaches
+on top, so `project_key` is the table's primary key — a project is in at most one group,
+and re-setting it moves it rather than adding a second membership. `SetProjectGroup` and
+`ClearProjectGroup` (`internal/store/groups.go`) take an `Identity` and reject anything that
+is not `IdentityHuman` (`ErrProjectGroupRequiresHuman`), the same pattern `TombstoneRecord`
+uses for `records.tombstoned_at` (invariant 1); the socket API exposes no write path for
+groups, only the CLI and panel (separate, later punches) do. `GroupOf` and `ListGroups` are
+read-only and take no `Identity`. Migration `0007_project_groups.sql` adds the table; it
+carries no data rewrite, since no prior schema version had anything to migrate into it.
+
 ```sql
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
@@ -137,6 +149,13 @@ CREATE TABLE settings (
   value  TEXT NOT NULL
 );
 
+CREATE TABLE project_groups (
+  project_key  TEXT PRIMARY KEY REFERENCES projects(key), -- a project is in at most one group
+  group_name   TEXT NOT NULL,
+  set_at       INTEGER NOT NULL           -- unix nanoseconds, UTC; last set/move time
+);
+CREATE INDEX project_groups_name ON project_groups(group_name);
+
 CREATE VIRTUAL TABLE records_fts USING fts5(
   text, content='records', content_rowid='rowid'
 );
@@ -191,12 +210,22 @@ existed, the backfill importer wrote a tool's file path under `detail` while the
 delta slot read `path` — two independent structs, silently disagreeing, so a project with
 thousands of tool events rendered "0 files touched".
 
-| kind            | Go type                | fields                                                  |
-|-----------------|-------------------------|----------------------------------------------------------|
-| `session.start` | `payload.SessionStart`  | `prompt`, `version?`, `git_branch?`                       |
-| `session.end`   | `payload.SessionEnd`    | `reason?`                                                 |
-| `tool.use`      | `payload.ToolUse`       | `tool_use_id?`, `name`, `path?` (file tools), `command?` (Bash) |
-| `tool.result`   | `payload.ToolResult`    | `tool_use_id?`, `is_error?`, `exit?`, `content?`          |
+| kind               | Go type                     | fields                                                  |
+|--------------------|------------------------------|----------------------------------------------------------|
+| `session.start`    | `payload.SessionStart`      | `prompt`, `version?`, `git_branch?`                       |
+| `session.end`      | `payload.SessionEnd`        | `reason?`                                                 |
+| `session.git_state`| `payload.SessionGitState`   | `branch?`, `uncommitted_count?`, `could_not_observe?`     |
+| `tool.use`         | `payload.ToolUse`           | `tool_use_id?`, `name`, `path?` (file tools), `command?` (Bash) |
+| `tool.result`      | `payload.ToolResult`        | `tool_use_id?`, `is_error?`, `exit?`, `content?`          |
+
+`session.git_state` is written only by the daemon's own live `EndSession` path
+(`internal/mcp/daemon.go`'s `recordSessionEndGitState`, task `c2573b35`) — the observed
+`git status --porcelain` state of the session's cwd at the moment a live session ends, so
+This Week's Attention can flag "ended with uncommitted changes" on positive evidence. A
+backfilled session never gets one: the importer replays a transcript that already ended,
+with no live cwd left to observe. `could_not_observe` is `true`, with `branch` and
+`uncommitted_count` both absent, when git failed or cwd was not a working tree — a writer
+must never record `uncommitted_count: 0` in that case (invariant 7 below).
 
 `tool.use.path` is set for the file-editing tools (Edit/Write/Read/MultiEdit/NotebookEdit);
 `command` is set for Bash; a tool outside both groups (Grep, Glob, WebFetch, ...) carries
