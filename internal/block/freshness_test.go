@@ -70,7 +70,7 @@ func TestRenderResumeSlotShowsPossiblyStaleMarkerAndAttentionCountsIt(t *testing
 	if idxResume < 0 || idxMarker < 0 || idxAttention < 0 {
 		t.Fatalf("missing Resume/marker/Attention; got:\n%s", out)
 	}
-	if !(idxResume < idxMarker && idxMarker < idxAttention) {
+	if idxResume >= idxMarker || idxMarker >= idxAttention {
 		t.Fatalf("marker not between Resume and Attention; got:\n%s", out)
 	}
 	if !strings.Contains(out, "later edit(s) to files it names") {
