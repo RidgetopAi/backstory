@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -25,18 +24,11 @@ var humanIdentity = store.Identity{Kind: store.IdentityHuman, Actor: "human"}
 // busy_timeout (internal/store/store.go) make it safe to open alongside a
 // live daemon.
 func runDelete(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	fs := flag.NewFlagSet("delete", flag.ContinueOnError)
-	yes := fs.Bool("yes", false, "skip the confirmation prompt")
-	fs.SetOutput(stderr)
-	if err := fs.Parse(args); err != nil {
+	id, yes, err := parseDeleteArgs(args)
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "backstory delete:", err)
 		return 2
 	}
-	rest := fs.Args()
-	if len(rest) != 1 {
-		_, _ = fmt.Fprintln(stderr, "backstory delete: usage: backstory delete <id> [--yes]")
-		return 2
-	}
-	id := rest[0]
 
 	dbPath, err := storePath()
 	if err != nil {
@@ -56,7 +48,7 @@ func runDelete(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	if !*yes {
+	if !yes {
 		if !isTerminal(stdin) {
 			_, _ = fmt.Fprintln(stderr, "backstory delete: refusing to delete without --yes on a non-interactive session")
 			return 1
@@ -73,6 +65,30 @@ func runDelete(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	_, _ = fmt.Fprintln(stdout, "tombstoned", id)
 	return 0
+}
+
+// parseDeleteArgs parses `delete <id> [--yes]`. The standard library's
+// flag.FlagSet stops parsing flags at the first non-flag argument, which
+// would misparse the documented "<id> [--yes]" order (id first) as an
+// unknown extra positional argument, so this walks args itself and accepts
+// --yes in either position relative to id.
+func parseDeleteArgs(args []string) (id string, yes bool, err error) {
+	for _, a := range args {
+		switch {
+		case a == "--yes" || a == "-yes":
+			yes = true
+		case strings.HasPrefix(a, "-"):
+			return "", false, fmt.Errorf("unknown flag %q; usage: backstory delete <id> [--yes]", a)
+		case id != "":
+			return "", false, fmt.Errorf("usage: backstory delete <id> [--yes]")
+		default:
+			id = a
+		}
+	}
+	if id == "" {
+		return "", false, fmt.Errorf("usage: backstory delete <id> [--yes]")
+	}
+	return id, yes, nil
 }
 
 // confirmDelete prints rec's kind and first line and reads one y/N answer
