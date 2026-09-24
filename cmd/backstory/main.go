@@ -21,6 +21,8 @@ commands:
   hook      run a harness hook (session-start)
   install   install or remove the Claude Code integration
   backfill  import transcripts from another tool (e.g. "backfill claude")
+  delete    tombstone a record by id (human-only; "delete <id> [--yes]")
+  capture   pause or resume capture ("capture off|on|status")
 `
 
 func main() {
@@ -47,6 +49,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runInstall(args[1:], stdout, stderr)
 	case "backfill":
 		return runBackfill(args[1:], stdout, stderr)
+	case "delete":
+		return runDelete(args[1:], stdin, stdout, stderr)
+	case "capture":
+		return runCapture(args[1:], stdout, stderr)
 	default:
 		_, _ = fmt.Fprintf(stderr, "backstory: unknown command %q\n\n%s", args[0], usage)
 		return 2
