@@ -12,8 +12,24 @@ import (
 	"time"
 
 	"github.com/RidgetopAi/backstory/internal/block"
+	"github.com/RidgetopAi/backstory/internal/ident"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
+
+// noHarnessAncestry is the synthetic /proc ancestry this file's hook tests
+// inject by default: a single hop whose process name matches no entry in
+// ident.KnownHarnesses, so every connecting hook resolves to HarnessPID 0 —
+// deterministically, regardless of whatever real ancestry the process
+// actually running `go test` has. Before this existed, startTestDaemon
+// always left the daemon on RealProcFS, so a hook subprocess's SO_PEERCRED
+// pid walked the REAL /proc tree of the test binary: from inside a Claude
+// Code session, a real "claude" ancestor sitting somewhere above the test
+// binary made two independent hook invocations resolve to the SAME real
+// harness ancestor and collapse into one SessionRegistry entry
+// (internal/mcp/session_registry.go, task 32c6900d's "one session per
+// harness process"), silently breaking any test that expected two
+// independent session rows — task fe2cff2a.
+var noHarnessAncestry = []ident.FakeAncestryHop{{Name: "not-a-harness"}}
 
 // envWithout returns a copy of env with every entry for any of keys
 // removed — used to strip inherited XDG_RUNTIME_DIR / XDG_DATA_HOME /
@@ -60,7 +76,17 @@ func testXDGEnv(overrides ...string) []string {
 // share to reach this daemon. Any inherited XDG_RUNTIME_DIR / XDG_DATA_HOME
 // is stripped before the fresh ones are appended, so env carries each
 // exactly once.
-func startTestDaemon(t *testing.T, bin string) (dbPath, runtimeDir string, env []string) {
+//
+// ancestry, when non-empty, is JSON-encoded onto the daemon's env as
+// BACKSTORY_TEST_FAKE_ANCESTRY (cmd/backstory/daemon.go), so the daemon
+// resolves every connection's identity against that synthetic /proc chain
+// instead of the real filesystem — no cmd/backstory test may resolve
+// identity from the real /proc of the process running `go test` (task
+// fe2cff2a). Omitted, startTestDaemon leaves the daemon on RealProcFS
+// unchanged, for callers (e.g. daemon_session_test.go) that deliberately
+// give their peer process itself a real, known-harness name and need the
+// real ancestry walk to observe it.
+func startTestDaemon(t *testing.T, bin string, ancestry ...ident.FakeAncestryHop) (dbPath, runtimeDir string, env []string) {
 	t.Helper()
 	runtimeDir = t.TempDir()
 	dataDir := t.TempDir()
@@ -68,6 +94,13 @@ func startTestDaemon(t *testing.T, bin string) (dbPath, runtimeDir string, env [
 		"XDG_RUNTIME_DIR="+runtimeDir,
 		"XDG_DATA_HOME="+dataDir,
 	)
+	if len(ancestry) > 0 {
+		b, err := json.Marshal(ancestry)
+		if err != nil {
+			t.Fatalf("marshal fake ancestry: %v", err)
+		}
+		env = append(env, fakeAncestryEnvVar+"="+string(b))
+	}
 
 	cmd := exec.Command(bin, "daemon") //nolint:gosec // bin is the binary this test just built
 	cmd.Env = env
@@ -150,7 +183,7 @@ func querySessionByHarnessSessionID(t *testing.T, s *store.Store, harnessSession
 // harness_session_id = the payload's session_id.
 func TestHookSessionStartPrintsBlockAndRecordsHarnessSessionID(t *testing.T) {
 	bin := buildBackstory(t)
-	dbPath, _, env := startTestDaemon(t, bin)
+	dbPath, _, env := startTestDaemon(t, bin, noHarnessAncestry...)
 
 	stdout, stderr, exitCode := runHookSubprocess(t, bin, env, map[string]any{
 		"session_id":      "claude-session-abc123",
@@ -186,22 +219,51 @@ func TestHookSessionStartPrintsBlockAndRecordsHarnessSessionID(t *testing.T) {
 // DONE WHEN clause 1's identity requirement: "the session's identity/tier
 // still comes from the daemon's resolver (a payload naming a different
 // session_id or a tier changes nothing about identity)". Two hook
-// invocations against the same daemon, from the same test process (so the
-// real SO_PEERCRED + /proc ancestry the resolver observes is identical both
-// times), differ only in their payload's session_id and one extra field
-// (tier) no daemon request schema even has a slot for. Both resulting
-// sessions must show the SAME daemon-observed agent and cwd; only
-// harness_session_id — a join key — may differ.
+// invocations against the same daemon, both resolving against the SAME
+// injected noHarnessAncestry (so their observed identity is identical by
+// construction, deterministically, regardless of whatever real /proc
+// ancestry the process running `go test` happens to have — task fe2cff2a),
+// differ only in their payload's session_id and one extra field (tier) no
+// daemon request schema even has a slot for. Both resulting sessions must
+// show the SAME daemon-observed agent and cwd; only harness_session_id — a
+// join key — may differ.
+//
+// TestHookSessionStartIdentityHoldsRegardlessOfHarnessAncestry below is
+// this same assertion run twice more, under two DIFFERENT injected
+// ancestries (one that matches a known harness, one that doesn't) — the
+// punch's proof that the result is independent of ancestry, not just
+// pinned to one arbitrarily chosen fake tree. See
+// assertHookIdentityComesFromResolverNotPayload's doc comment for the
+// mutation probe this test's assertions were built against.
+func TestHookSessionStartIdentityComesFromResolverNotPayload(t *testing.T) {
+	assertHookIdentityComesFromResolverNotPayload(t, noHarnessAncestry, ident.HarnessUnknown)
+}
+
+// assertHookIdentityComesFromResolverNotPayload is
+// TestHookSessionStartIdentityComesFromResolverNotPayload's assertion body,
+// factored out so TestHookSessionStartIdentityHoldsRegardlessOfHarnessAncestry
+// below can run it twice, under two different injected ancestries, and
+// prove the result is identical either way (task fe2cff2a, DONE WHEN clause
+// 1). Two hook invocations against the same daemon, both resolving against
+// the SAME injected ancestry, differ only in their payload's session_id and
+// one extra field (tier) no daemon request schema even has a slot for —
+// tier is not a field sessionStartPayload even declares; a real harness
+// would never send it, but a hostile or buggy one might, and it must be
+// silently dropped exactly like NoteParams drops it (AGENT-CONTRACT.md
+// §The never-list, item 2). wantAgent is what rowA.Agent (and rowB.Agent)
+// must equal — the ancestry's own declared identity, so a passing run also
+// proves the injected ancestry actually took effect rather than trivially
+// resolving to the same default both times.
 //
 // Mutation probe (mcp/daemon.go's startSession made the declared "session"
 // join key override CWD: `cwd := id.CWD; if v := id.Declared["session"];
-// v != "" { cwd = v }`): "hook_test.go:186: session A cwd = \"session-A\",
-// session B cwd = \"session-B\"; want identical (identity comes from the
-// resolver, not the payload)" -- restoring `CWD: id.CWD` turns it back
-// GREEN.
-func TestHookSessionStartIdentityComesFromResolverNotPayload(t *testing.T) {
+// v != "" { cwd = v }`): "session A cwd = \"session-A\", session B cwd =
+// \"session-B\"; want identical (identity comes from the resolver, not the
+// payload)" -- restoring `CWD: id.CWD` turns it back GREEN.
+func assertHookIdentityComesFromResolverNotPayload(t *testing.T, ancestry []ident.FakeAncestryHop, wantAgent string) {
+	t.Helper()
 	bin := buildBackstory(t)
-	dbPath, _, env := startTestDaemon(t, bin)
+	dbPath, _, env := startTestDaemon(t, bin, ancestry...)
 
 	_, stderrA, exitA := runHookSubprocess(t, bin, env, map[string]any{
 		"session_id": "session-A",
@@ -211,10 +273,6 @@ func TestHookSessionStartIdentityComesFromResolverNotPayload(t *testing.T) {
 		t.Fatalf("first hook invocation exit code = %d, want 0 (stderr: %s)", exitA, stderrA)
 	}
 
-	// tier is not a field sessionStartPayload even declares; a real harness
-	// would never send it, but a hostile or buggy one might, and it must be
-	// silently dropped exactly like NoteParams drops it (AGENT-CONTRACT.md
-	// §The never-list, item 2).
 	_, stderrB, exitB := runHookSubprocess(t, bin, env, map[string]any{
 		"session_id": "session-B",
 		"cwd":        "/home/brian/proj",
@@ -228,6 +286,9 @@ func TestHookSessionStartIdentityComesFromResolverNotPayload(t *testing.T) {
 	rowA := querySessionByHarnessSessionID(t, s, "session-A")
 	rowB := querySessionByHarnessSessionID(t, s, "session-B")
 
+	if rowA.Agent != wantAgent {
+		t.Errorf("session A agent = %q, want %q (the injected ancestry's own identity)", rowA.Agent, wantAgent)
+	}
 	if rowA.Agent != rowB.Agent {
 		t.Errorf("session A agent = %q, session B agent = %q; want identical (identity comes from the resolver, not the payload)",
 			rowA.Agent, rowB.Agent)
@@ -239,6 +300,35 @@ func TestHookSessionStartIdentityComesFromResolverNotPayload(t *testing.T) {
 	if rowA.HarnessSessionID == rowB.HarnessSessionID {
 		t.Errorf("harness_session_id did not differ between the two payloads; the fixture is not exercising the join key")
 	}
+}
+
+// TestHookSessionStartIdentityHoldsRegardlessOfHarnessAncestry is the
+// punch's DONE WHEN clause 1: the identity-comes-from-resolver-not-payload
+// assertion must hold whether or not the connecting hook's ancestry happens
+// to include a real harness process — it must never depend on whatever real
+// ancestry the process invoking `go test` itself has (task fe2cff2a,
+// MEASURED 2026-09-24: the unmodified test failed 4/4 when run from a shell
+// with a real `claude` ancestor two hops up, because both hook invocations
+// resolved to that SAME real harness process and collapsed into one
+// SessionRegistry entry — internal/mcp/session_registry.go, task 32c6900d's
+// "one session per harness process" — so session B's row was never
+// created). It runs assertHookIdentityComesFromResolverNotPayload twice:
+// once under an ancestry that matches no known harness, once under one that
+// matches "claude" two hops up, via AnchoredFakeProcFS — so BOTH runs are
+// fully synthetic and neither ever reads a real /proc entry, meaning the
+// outcome cannot depend on whether this test happened to be invoked from
+// inside a Claude Code session or not.
+func TestHookSessionStartIdentityHoldsRegardlessOfHarnessAncestry(t *testing.T) {
+	t.Run("no harness in ancestry", func(t *testing.T) {
+		assertHookIdentityComesFromResolverNotPayload(t, noHarnessAncestry, ident.HarnessUnknown)
+	})
+	t.Run("claude ancestor two hops up", func(t *testing.T) {
+		harnessAncestry := []ident.FakeAncestryHop{
+			{Name: "wrapper"},
+			{Name: "claude", Cwd: "/home/brian/proj"},
+		}
+		assertHookIdentityComesFromResolverNotPayload(t, harnessAncestry, "claude")
+	})
 }
 
 // TestHookSessionStartNoSocketPrintsNothingExactlyOneStderrLineExit0 is the
