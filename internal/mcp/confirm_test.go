@@ -3,6 +3,7 @@ package mcp
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -11,57 +12,63 @@ import (
 )
 
 // TestConfirmPromoteEndToEnd is the punch's DONE WHEN clause 1, promote
-// path: confirm through the shim -> socket -> daemon -> store inserts a new
-// confirm record whose id and edge (informs -> the draft) the CallToolResult
-// text names, and the edge is readable back from the store directly. The
-// draft is inserted directly through the store at tier=inferred, attributed
-// to a session id distinct from this connection's own real session (no
-// inference pass is wired up yet to write one through the tool surface
-// itself), so the promoting call is genuinely a different session's
-// promotion, not a self-promotion.
+// path: confirm through tools/call -> socket -> daemon -> store inserts a
+// new confirm record whose id and edge (informs -> the draft) the
+// CallToolResult text names, and the edge is readable back from the store
+// directly. The draft is inserted directly through the store at
+// tier=inferred, attributed to a session id distinct from this connection's
+// own real session (no inference pass is wired up yet to write one through
+// the tool surface itself), so the promoting call is genuinely a different
+// session's promotion, not a self-promotion.
 func TestConfirmPromoteEndToEnd(t *testing.T) {
 	st := mustOpenStore(t)
 	sockPath := testDaemon(t, st, "claude", "/home/brian/proj", "proj-key")
-	shim := dialShim(t, sockPath)
+	s := NewServer(func() (net.Conn, error) { return net.Dial("unix", sockPath) })
+	t.Cleanup(func() { _ = s.Close() })
 
 	draftID := mustInsertInferredDraftDirect(t, st, "proj-key", "inferred: chose sqlite")
 
-	raw, rerr := shim.CallTool(ToolConfirm, json.RawMessage(
+	resp := serveOneToolCall(t, s, ToolConfirm, json.RawMessage(
 		fmt.Sprintf(`{"record_id":%q,"action":"promote"}`, draftID)))
-	if rerr != nil {
-		t.Fatalf("CallTool(confirm promote): %v", rerr)
+	if resp.Error != nil {
+		t.Fatalf("tools/call(confirm promote) error: %+v", resp.Error)
 	}
-	var result ConfirmResult
-	if err := json.Unmarshal(raw, &result); err != nil {
-		t.Fatalf("unmarshal ConfirmResult: %v", err)
+	result := requireCallToolResult(t, resp.Result)
+	if result.IsError {
+		t.Fatalf("tools/call(confirm promote) isError = true, want false: %s", result.Content[0].Text)
 	}
-	if result.ID == "" {
-		t.Fatal("ConfirmResult.ID is empty")
+	var confirmed ConfirmResult
+	if err := json.Unmarshal(result.StructuredContent, &confirmed); err != nil {
+		t.Fatalf("unmarshal structuredContent as ConfirmResult: %v", err)
 	}
-	if result.ID == draftID {
+	if confirmed.ID == "" {
+		t.Fatal("structuredContent has no id")
+	}
+	if confirmed.ID == draftID {
 		t.Fatal("ConfirmResult.ID equals the draft's own id, want a NEW confirm record")
 	}
-	if result.Tier != string(store.TierAgentDeclared) {
-		t.Errorf("ConfirmResult.Tier = %q, want %q", result.Tier, store.TierAgentDeclared)
+	if confirmed.Tier != string(store.TierAgentDeclared) {
+		t.Errorf("ConfirmResult.Tier = %q, want %q", confirmed.Tier, store.TierAgentDeclared)
 	}
-	if result.EdgeType != string(store.EdgeInforms) {
-		t.Errorf("ConfirmResult.EdgeType = %q, want %q", result.EdgeType, store.EdgeInforms)
+	if confirmed.EdgeType != string(store.EdgeInforms) {
+		t.Errorf("ConfirmResult.EdgeType = %q, want %q", confirmed.EdgeType, store.EdgeInforms)
 	}
-	if result.TargetID != draftID {
-		t.Errorf("ConfirmResult.TargetID = %q, want %q", result.TargetID, draftID)
+	if confirmed.TargetID != draftID {
+		t.Errorf("ConfirmResult.TargetID = %q, want %q", confirmed.TargetID, draftID)
 	}
 
 	// The CallToolResult's rendered text names both the new record id and
 	// the edge it created (id + edge_type + target_id all round-trip
-	// through the same JSON text block every successful tool call uses).
-	if !strings.Contains(string(raw), result.ID) {
-		t.Errorf("CallToolResult text = %q, want it to name the new confirm record id %q", raw, result.ID)
+	// through the same content[0].text block every successful tool call
+	// uses).
+	if !strings.Contains(result.Content[0].Text, confirmed.ID) {
+		t.Errorf("content[0].text = %q, want it to name the new confirm record id %q", result.Content[0].Text, confirmed.ID)
 	}
-	if !strings.Contains(string(raw), string(store.EdgeInforms)) {
-		t.Errorf("CallToolResult text = %q, want it to name the edge type %q", raw, store.EdgeInforms)
+	if !strings.Contains(result.Content[0].Text, string(store.EdgeInforms)) {
+		t.Errorf("content[0].text = %q, want it to name the edge type %q", result.Content[0].Text, store.EdgeInforms)
 	}
 
-	rec, err := st.GetRecord(result.ID)
+	rec, err := st.GetRecord(confirmed.ID)
 	if err != nil {
 		t.Fatalf("GetRecord: %v", err)
 	}
@@ -70,32 +77,42 @@ func TestConfirmPromoteEndToEnd(t *testing.T) {
 	}
 	var n int
 	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM edges WHERE from_id = ? AND to_id = ? AND type = 'informs'`,
-		result.ID, draftID).Scan(&n); err != nil {
+		confirmed.ID, draftID).Scan(&n); err != nil {
 		t.Fatalf("count informs edge: %v", err)
 	}
 	if n != 1 {
-		t.Errorf("informs edge %s -> %s count = %d, want 1", result.ID, draftID, n)
+		t.Errorf("informs edge %s -> %s count = %d, want 1", confirmed.ID, draftID, n)
 	}
 }
 
 // TestConfirmPromoteSameSessionRejectedEndToEnd drives SCHEMA.md invariant
-// 3 through the full shim -> socket -> daemon -> store path: the SAME
-// session that (stood in for) inferring a draft cannot promote it.
+// 3 through the full tools/call -> socket -> daemon -> store path: the SAME
+// session that (stood in for) inferring a draft cannot promote it, and the
+// rejection comes back as a CallToolResult with isError:true (not a
+// JSON-RPC error), the same shape note's own rejections use.
 func TestConfirmPromoteSameSessionRejectedEndToEnd(t *testing.T) {
 	st := mustOpenStore(t)
 	sockPath := testDaemon(t, st, "claude", "/home/brian/proj", "proj-key")
-	shim := dialShim(t, sockPath)
+	s := NewServer(func() (net.Conn, error) { return net.Dial("unix", sockPath) })
+	t.Cleanup(func() { _ = s.Close() })
 
-	draft := writeInferredDraft(t, st, shim, "proj-key", "inferred: chose sqlite")
+	draft := writeInferredDraft(t, st, s, "proj-key", "inferred: chose sqlite")
 
 	before := countStoreRecords(t, st)
-	_, rerr := shim.CallTool(ToolConfirm, json.RawMessage(
+	resp := serveOneToolCall(t, s, ToolConfirm, json.RawMessage(
 		fmt.Sprintf(`{"record_id":%q,"action":"promote"}`, draft.draftID)))
-	if rerr == nil {
-		t.Fatal("CallTool(confirm promote) by the drafting session = nil error, want an error")
+	if resp.Error != nil {
+		t.Fatalf("tools/call(confirm promote) by the drafting session came back as a JSON-RPC error %+v, want a CallToolResult with isError:true", resp.Error)
 	}
-	if rerr.Code != CodeInvalidParams {
-		t.Errorf("error code = %d, want %d (CodeInvalidParams)", rerr.Code, CodeInvalidParams)
+	result := requireCallToolResult(t, resp.Result)
+	if !result.IsError {
+		t.Fatalf("tools/call(confirm promote) by the drafting session isError = false, want true: %s", result.Content[0].Text)
+	}
+	if !strings.Contains(result.Content[0].Text, "session") {
+		t.Errorf("content[0].text = %q, want it to name the same-session rejection", result.Content[0].Text)
+	}
+	if len(result.StructuredContent) != 0 {
+		t.Errorf("structuredContent = %s, want empty on a rejected call", result.StructuredContent)
 	}
 	if got := countStoreRecords(t, st); got != before {
 		t.Errorf("record count = %d after a rejected self-promotion, want unchanged %d", got, before)
@@ -106,16 +123,10 @@ func TestConfirmPromoteSameSessionRejectedEndToEnd(t *testing.T) {
 func TestConfirmContradictEndToEnd(t *testing.T) {
 	st := mustOpenStore(t)
 	sockPath := testDaemon(t, st, "claude", "/home/brian/proj", "proj-key")
-	shim := dialShim(t, sockPath)
+	s := NewServer(func() (net.Conn, error) { return net.Dial("unix", sockPath) })
+	t.Cleanup(func() { _ = s.Close() })
 
-	targetRaw, rerr := shim.CallTool(ToolNote, json.RawMessage(`{"kind":"outcome","text":"tests are green"}`))
-	if rerr != nil {
-		t.Fatalf("CallTool(note) target: %v", rerr)
-	}
-	var target NoteResult
-	if err := json.Unmarshal(targetRaw, &target); err != nil {
-		t.Fatalf("unmarshal target: %v", err)
-	}
+	target := mustNoteViaToolsCall(t, s, `{"kind":"outcome","text":"tests are green"}`)
 	sessionID := recordSessionID(t, st, target.ID)
 
 	evID, err := st.AppendEvent(store.Event{
@@ -125,56 +136,58 @@ func TestConfirmContradictEndToEnd(t *testing.T) {
 		t.Fatalf("AppendEvent: %v", err)
 	}
 
-	raw, rerr := shim.CallTool(ToolConfirm, json.RawMessage(
+	resp := serveOneToolCall(t, s, ToolConfirm, json.RawMessage(
 		fmt.Sprintf(`{"record_id":%q,"action":"contradict","evidence":[%d]}`, target.ID, evID)))
-	if rerr != nil {
-		t.Fatalf("CallTool(confirm contradict): %v", rerr)
+	if resp.Error != nil {
+		t.Fatalf("tools/call(confirm contradict) error: %+v", resp.Error)
 	}
-	var result ConfirmResult
-	if err := json.Unmarshal(raw, &result); err != nil {
-		t.Fatalf("unmarshal ConfirmResult: %v", err)
+	result := requireCallToolResult(t, resp.Result)
+	if result.IsError {
+		t.Fatalf("tools/call(confirm contradict) isError = true, want false: %s", result.Content[0].Text)
 	}
-	if result.EdgeType != string(store.EdgeContradicts) {
-		t.Errorf("ConfirmResult.EdgeType = %q, want %q", result.EdgeType, store.EdgeContradicts)
+	var confirmed ConfirmResult
+	if err := json.Unmarshal(result.StructuredContent, &confirmed); err != nil {
+		t.Fatalf("unmarshal structuredContent as ConfirmResult: %v", err)
 	}
-	if !strings.Contains(string(raw), result.ID) || !strings.Contains(string(raw), string(store.EdgeContradicts)) {
-		t.Errorf("CallToolResult text = %q, want it to name the new record id and the contradicts edge", raw)
+	if confirmed.EdgeType != string(store.EdgeContradicts) {
+		t.Errorf("ConfirmResult.EdgeType = %q, want %q", confirmed.EdgeType, store.EdgeContradicts)
+	}
+	if !strings.Contains(result.Content[0].Text, confirmed.ID) || !strings.Contains(result.Content[0].Text, string(store.EdgeContradicts)) {
+		t.Errorf("content[0].text = %q, want it to name the new record id and the contradicts edge", result.Content[0].Text)
 	}
 
 	var n int
 	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM edges WHERE from_id = ? AND to_id = ? AND type = 'contradicts'`,
-		result.ID, target.ID).Scan(&n); err != nil {
+		confirmed.ID, target.ID).Scan(&n); err != nil {
 		t.Fatalf("count contradicts edge: %v", err)
 	}
 	if n != 1 {
-		t.Errorf("contradicts edge %s -> %s count = %d, want 1", result.ID, target.ID, n)
+		t.Errorf("contradicts edge %s -> %s count = %d, want 1", confirmed.ID, target.ID, n)
 	}
 }
 
 // TestConfirmContradictWithNoEvidenceEndToEnd is DONE WHEN clause 2's first
-// half, driven through the MCP server.
+// half, driven through the MCP server's tools/call path.
 func TestConfirmContradictWithNoEvidenceEndToEnd(t *testing.T) {
 	st := mustOpenStore(t)
 	sockPath := testDaemon(t, st, "claude", "/home/brian/proj", "proj-key")
-	shim := dialShim(t, sockPath)
+	s := NewServer(func() (net.Conn, error) { return net.Dial("unix", sockPath) })
+	t.Cleanup(func() { _ = s.Close() })
 
-	targetRaw, rerr := shim.CallTool(ToolNote, json.RawMessage(`{"kind":"outcome","text":"tests are green"}`))
-	if rerr != nil {
-		t.Fatalf("CallTool(note) target: %v", rerr)
-	}
-	var target NoteResult
-	if err := json.Unmarshal(targetRaw, &target); err != nil {
-		t.Fatalf("unmarshal target: %v", err)
-	}
+	target := mustNoteViaToolsCall(t, s, `{"kind":"outcome","text":"tests are green"}`)
 
 	before := countStoreRecords(t, st)
-	_, rerr = shim.CallTool(ToolConfirm, json.RawMessage(
+	resp := serveOneToolCall(t, s, ToolConfirm, json.RawMessage(
 		fmt.Sprintf(`{"record_id":%q,"action":"contradict"}`, target.ID)))
-	if rerr == nil {
-		t.Fatal("CallTool(confirm contradict) with no evidence = nil error, want an error")
+	if resp.Error != nil {
+		t.Fatalf("tools/call(confirm contradict) with no evidence came back as a JSON-RPC error %+v, want a CallToolResult with isError:true", resp.Error)
 	}
-	if rerr.Code != CodeInvalidParams {
-		t.Errorf("error code = %d, want %d (CodeInvalidParams)", rerr.Code, CodeInvalidParams)
+	result := requireCallToolResult(t, resp.Result)
+	if !result.IsError {
+		t.Fatalf("tools/call(confirm contradict) with no evidence isError = false, want true: %s", result.Content[0].Text)
+	}
+	if !strings.Contains(result.Content[0].Text, "evidence") {
+		t.Errorf("content[0].text = %q, want it to name \"evidence\"", result.Content[0].Text)
 	}
 	if got := countStoreRecords(t, st); got != before {
 		t.Errorf("record count = %d after a rejected contradict, want unchanged %d", got, before)
@@ -189,33 +202,36 @@ func TestConfirmContradictWithNoEvidenceEndToEnd(t *testing.T) {
 }
 
 // TestConfirmContradictWithUnknownEvidenceEndToEnd is DONE WHEN clause 2's
-// second half, driven through the MCP server: an evidence id not present in
-// timeline_events for the caller's project is rejected and writes nothing.
+// second half, driven through the MCP server's tools/call path: an evidence
+// id not present in timeline_events for the caller's project is rejected
+// and writes nothing.
 func TestConfirmContradictWithUnknownEvidenceEndToEnd(t *testing.T) {
 	st := mustOpenStore(t)
 	sockPath := testDaemon(t, st, "claude", "/home/brian/proj", "proj-key")
-	shim := dialShim(t, sockPath)
+	s := NewServer(func() (net.Conn, error) { return net.Dial("unix", sockPath) })
+	t.Cleanup(func() { _ = s.Close() })
 
-	targetRaw, rerr := shim.CallTool(ToolNote, json.RawMessage(`{"kind":"outcome","text":"tests are green"}`))
-	if rerr != nil {
-		t.Fatalf("CallTool(note) target: %v", rerr)
-	}
-	var target NoteResult
-	if err := json.Unmarshal(targetRaw, &target); err != nil {
-		t.Fatalf("unmarshal target: %v", err)
-	}
+	target := mustNoteViaToolsCall(t, s, `{"kind":"outcome","text":"tests are green"}`)
 
 	before := countStoreRecords(t, st)
-	_, rerr = shim.CallTool(ToolConfirm, json.RawMessage(
+	resp := serveOneToolCall(t, s, ToolConfirm, json.RawMessage(
 		fmt.Sprintf(`{"record_id":%q,"action":"contradict","evidence":[999999]}`, target.ID)))
-	if rerr == nil {
-		t.Fatal("CallTool(confirm contradict) with an unknown evidence id = nil error, want an error")
+	if resp.Error != nil {
+		t.Fatalf("tools/call(confirm contradict) with an unknown evidence id came back as a JSON-RPC error %+v, want a CallToolResult with isError:true", resp.Error)
 	}
-	if rerr.Code != CodeInvalidParams {
-		t.Errorf("error code = %d, want %d (CodeInvalidParams)", rerr.Code, CodeInvalidParams)
+	result := requireCallToolResult(t, resp.Result)
+	if !result.IsError {
+		t.Fatalf("tools/call(confirm contradict) with an unknown evidence id isError = false, want true: %s", result.Content[0].Text)
 	}
 	if got := countStoreRecords(t, st); got != before {
 		t.Errorf("record count = %d after a rejected contradict, want unchanged %d", got, before)
+	}
+	var edgeCount int
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM edges`).Scan(&edgeCount); err != nil {
+		t.Fatalf("count edges: %v", err)
+	}
+	if edgeCount != 0 {
+		t.Errorf("edge count = %d after a rejected contradict, want 0", edgeCount)
 	}
 }
 
@@ -223,40 +239,38 @@ func TestConfirmContradictWithUnknownEvidenceEndToEnd(t *testing.T) {
 func TestConfirmSupersedeEndToEnd(t *testing.T) {
 	st := mustOpenStore(t)
 	sockPath := testDaemon(t, st, "claude", "/home/brian/proj", "proj-key")
-	shim := dialShim(t, sockPath)
+	s := NewServer(func() (net.Conn, error) { return net.Dial("unix", sockPath) })
+	t.Cleanup(func() { _ = s.Close() })
 
-	targetRaw, rerr := shim.CallTool(ToolNote, json.RawMessage(`{"kind":"handoff","text":"first handoff"}`))
-	if rerr != nil {
-		t.Fatalf("CallTool(note) target: %v", rerr)
-	}
-	var target NoteResult
-	if err := json.Unmarshal(targetRaw, &target); err != nil {
-		t.Fatalf("unmarshal target: %v", err)
-	}
+	target := mustNoteViaToolsCall(t, s, `{"kind":"handoff","text":"first handoff"}`)
 
-	raw, rerr := shim.CallTool(ToolConfirm, json.RawMessage(
+	resp := serveOneToolCall(t, s, ToolConfirm, json.RawMessage(
 		fmt.Sprintf(`{"record_id":%q,"action":"supersede"}`, target.ID)))
-	if rerr != nil {
-		t.Fatalf("CallTool(confirm supersede): %v", rerr)
+	if resp.Error != nil {
+		t.Fatalf("tools/call(confirm supersede) error: %+v", resp.Error)
 	}
-	var result ConfirmResult
-	if err := json.Unmarshal(raw, &result); err != nil {
-		t.Fatalf("unmarshal ConfirmResult: %v", err)
+	result := requireCallToolResult(t, resp.Result)
+	if result.IsError {
+		t.Fatalf("tools/call(confirm supersede) isError = true, want false: %s", result.Content[0].Text)
 	}
-	if result.EdgeType != string(store.EdgeSupersedes) {
-		t.Errorf("ConfirmResult.EdgeType = %q, want %q", result.EdgeType, store.EdgeSupersedes)
+	var confirmed ConfirmResult
+	if err := json.Unmarshal(result.StructuredContent, &confirmed); err != nil {
+		t.Fatalf("unmarshal structuredContent as ConfirmResult: %v", err)
 	}
-	if !strings.Contains(string(raw), result.ID) || !strings.Contains(string(raw), string(store.EdgeSupersedes)) {
-		t.Errorf("CallToolResult text = %q, want it to name the new record id and the supersedes edge", raw)
+	if confirmed.EdgeType != string(store.EdgeSupersedes) {
+		t.Errorf("ConfirmResult.EdgeType = %q, want %q", confirmed.EdgeType, store.EdgeSupersedes)
+	}
+	if !strings.Contains(result.Content[0].Text, confirmed.ID) || !strings.Contains(result.Content[0].Text, string(store.EdgeSupersedes)) {
+		t.Errorf("content[0].text = %q, want it to name the new record id and the supersedes edge", result.Content[0].Text)
 	}
 
 	var n int
 	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM edges WHERE from_id = ? AND to_id = ? AND type = 'supersedes'`,
-		result.ID, target.ID).Scan(&n); err != nil {
+		confirmed.ID, target.ID).Scan(&n); err != nil {
 		t.Fatalf("count supersedes edge: %v", err)
 	}
 	if n != 1 {
-		t.Errorf("supersedes edge %s -> %s count = %d, want 1", result.ID, target.ID, n)
+		t.Errorf("supersedes edge %s -> %s count = %d, want 1", confirmed.ID, target.ID, n)
 	}
 }
 
@@ -265,61 +279,61 @@ func TestConfirmSupersedeEndToEnd(t *testing.T) {
 func TestConfirmAffirmEndToEnd(t *testing.T) {
 	st := mustOpenStore(t)
 	sockPath := testDaemon(t, st, "claude", "/home/brian/proj", "proj-key")
-	shim := dialShim(t, sockPath)
+	s := NewServer(func() (net.Conn, error) { return net.Dial("unix", sockPath) })
+	t.Cleanup(func() { _ = s.Close() })
 
-	targetRaw, rerr := shim.CallTool(ToolNote, json.RawMessage(`{"kind":"handoff","text":"resume from here"}`))
-	if rerr != nil {
-		t.Fatalf("CallTool(note) target: %v", rerr)
-	}
-	var target NoteResult
-	if err := json.Unmarshal(targetRaw, &target); err != nil {
-		t.Fatalf("unmarshal target: %v", err)
-	}
+	target := mustNoteViaToolsCall(t, s, `{"kind":"handoff","text":"resume from here"}`)
 
-	raw, rerr := shim.CallTool(ToolConfirm, json.RawMessage(
+	resp := serveOneToolCall(t, s, ToolConfirm, json.RawMessage(
 		fmt.Sprintf(`{"record_id":%q,"action":"affirm","text":"still true"}`, target.ID)))
-	if rerr != nil {
-		t.Fatalf("CallTool(confirm affirm): %v", rerr)
+	if resp.Error != nil {
+		t.Fatalf("tools/call(confirm affirm) error: %+v", resp.Error)
 	}
-	var result ConfirmResult
-	if err := json.Unmarshal(raw, &result); err != nil {
-		t.Fatalf("unmarshal ConfirmResult: %v", err)
+	result := requireCallToolResult(t, resp.Result)
+	if result.IsError {
+		t.Fatalf("tools/call(confirm affirm) isError = true, want false: %s", result.Content[0].Text)
 	}
-	if result.EdgeType != string(store.EdgeInforms) {
-		t.Errorf("ConfirmResult.EdgeType = %q, want %q", result.EdgeType, store.EdgeInforms)
+	var confirmed ConfirmResult
+	if err := json.Unmarshal(result.StructuredContent, &confirmed); err != nil {
+		t.Fatalf("unmarshal structuredContent as ConfirmResult: %v", err)
 	}
-	if !strings.Contains(string(raw), result.ID) || !strings.Contains(string(raw), string(store.EdgeInforms)) {
-		t.Errorf("CallToolResult text = %q, want it to name the new record id and the informs edge", raw)
+	if confirmed.EdgeType != string(store.EdgeInforms) {
+		t.Errorf("ConfirmResult.EdgeType = %q, want %q", confirmed.EdgeType, store.EdgeInforms)
+	}
+	if !strings.Contains(result.Content[0].Text, confirmed.ID) || !strings.Contains(result.Content[0].Text, string(store.EdgeInforms)) {
+		t.Errorf("content[0].text = %q, want it to name the new record id and the informs edge", result.Content[0].Text)
 	}
 
 	var n int
 	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM edges WHERE from_id = ? AND to_id = ? AND type = 'informs'`,
-		result.ID, target.ID).Scan(&n); err != nil {
+		confirmed.ID, target.ID).Scan(&n); err != nil {
 		t.Fatalf("count informs edge: %v", err)
 	}
 	if n != 1 {
-		t.Errorf("informs edge %s -> %s count = %d, want 1", result.ID, target.ID, n)
+		t.Errorf("informs edge %s -> %s count = %d, want 1", confirmed.ID, target.ID, n)
 	}
 }
 
 // TestConfirmMissingRecordIDIsRejectedAndInsertsNothing exercises confirm's
 // own required-field validation, the same way note.go's missing-kind test
-// does for note.
+// does for note, through tools/call.
 func TestConfirmMissingRecordIDIsRejectedAndInsertsNothing(t *testing.T) {
 	st := mustOpenStore(t)
 	sockPath := testDaemon(t, st, "claude", "/home/brian/proj", "proj-key")
-	shim := dialShim(t, sockPath)
+	s := NewServer(func() (net.Conn, error) { return net.Dial("unix", sockPath) })
+	t.Cleanup(func() { _ = s.Close() })
 
 	before := countStoreRecords(t, st)
-	_, rerr := shim.CallTool(ToolConfirm, json.RawMessage(`{"action":"affirm"}`))
-	if rerr == nil {
-		t.Fatal("CallTool(confirm) with no record_id = nil error, want an error naming \"record_id\"")
+	resp := serveOneToolCall(t, s, ToolConfirm, json.RawMessage(`{"action":"affirm"}`))
+	if resp.Error != nil {
+		t.Fatalf("tools/call(confirm) with no record_id came back as a JSON-RPC error %+v, want a CallToolResult with isError:true", resp.Error)
 	}
-	if rerr.Code != CodeInvalidParams {
-		t.Errorf("error code = %d, want %d (CodeInvalidParams)", rerr.Code, CodeInvalidParams)
+	result := requireCallToolResult(t, resp.Result)
+	if !result.IsError {
+		t.Fatalf("tools/call(confirm) with no record_id isError = false, want true: %s", result.Content[0].Text)
 	}
-	if !strings.Contains(rerr.Message, "record_id") {
-		t.Errorf("error message = %q, want it to name \"record_id\"", rerr.Message)
+	if !strings.Contains(result.Content[0].Text, "record_id") {
+		t.Errorf("content[0].text = %q, want it to name \"record_id\"", result.Content[0].Text)
 	}
 	if got := countStoreRecords(t, st); got != before {
 		t.Errorf("record count = %d after a rejected confirm, want unchanged %d", got, before)
@@ -330,28 +344,23 @@ func TestConfirmMissingRecordIDIsRejectedAndInsertsNothing(t *testing.T) {
 func TestConfirmUnknownActionIsRejectedAndInsertsNothing(t *testing.T) {
 	st := mustOpenStore(t)
 	sockPath := testDaemon(t, st, "claude", "/home/brian/proj", "proj-key")
-	shim := dialShim(t, sockPath)
+	s := NewServer(func() (net.Conn, error) { return net.Dial("unix", sockPath) })
+	t.Cleanup(func() { _ = s.Close() })
 
-	targetRaw, rerr := shim.CallTool(ToolNote, json.RawMessage(`{"kind":"note","text":"a target"}`))
-	if rerr != nil {
-		t.Fatalf("CallTool(note) target: %v", rerr)
-	}
-	var target NoteResult
-	if err := json.Unmarshal(targetRaw, &target); err != nil {
-		t.Fatalf("unmarshal target: %v", err)
-	}
+	target := mustNoteViaToolsCall(t, s, `{"kind":"note","text":"a target"}`)
 
 	before := countStoreRecords(t, st)
-	_, rerr = shim.CallTool(ToolConfirm, json.RawMessage(
+	resp := serveOneToolCall(t, s, ToolConfirm, json.RawMessage(
 		fmt.Sprintf(`{"record_id":%q,"action":"banana"}`, target.ID)))
-	if rerr == nil {
-		t.Fatal("CallTool(confirm) with action=banana = nil error, want an error naming \"action\"")
+	if resp.Error != nil {
+		t.Fatalf("tools/call(confirm) with action=banana came back as a JSON-RPC error %+v, want a CallToolResult with isError:true", resp.Error)
 	}
-	if rerr.Code != CodeInvalidParams {
-		t.Errorf("error code = %d, want %d (CodeInvalidParams)", rerr.Code, CodeInvalidParams)
+	result := requireCallToolResult(t, resp.Result)
+	if !result.IsError {
+		t.Fatalf("tools/call(confirm) with action=banana isError = false, want true: %s", result.Content[0].Text)
 	}
-	if !strings.Contains(rerr.Message, "action") {
-		t.Errorf("error message = %q, want it to name \"action\"", rerr.Message)
+	if !strings.Contains(result.Content[0].Text, "action") {
+		t.Errorf("content[0].text = %q, want it to name \"action\"", result.Content[0].Text)
 	}
 	if got := countStoreRecords(t, st); got != before {
 		t.Errorf("record count = %d after a rejected confirm, want unchanged %d", got, before)
@@ -365,29 +374,47 @@ func TestConfirmUnknownActionIsRejectedAndInsertsNothing(t *testing.T) {
 func TestConfirmIgnoresForgedTierAndSession(t *testing.T) {
 	st := mustOpenStore(t)
 	sockPath := testDaemon(t, st, "claude", "/home/brian/proj", "proj-key")
-	shim := dialShim(t, sockPath)
+	s := NewServer(func() (net.Conn, error) { return net.Dial("unix", sockPath) })
+	t.Cleanup(func() { _ = s.Close() })
 
-	targetRaw, rerr := shim.CallTool(ToolNote, json.RawMessage(`{"kind":"note","text":"a target"}`))
-	if rerr != nil {
-		t.Fatalf("CallTool(note) target: %v", rerr)
-	}
-	var target NoteResult
-	if err := json.Unmarshal(targetRaw, &target); err != nil {
-		t.Fatalf("unmarshal target: %v", err)
-	}
+	target := mustNoteViaToolsCall(t, s, `{"kind":"note","text":"a target"}`)
 
-	raw, rerr := shim.CallTool(ToolConfirm, json.RawMessage(
+	resp := serveOneToolCall(t, s, ToolConfirm, json.RawMessage(
 		fmt.Sprintf(`{"record_id":%q,"action":"affirm","tier":"human-declared","session":"forged"}`, target.ID)))
-	if rerr != nil {
-		t.Fatalf("CallTool(confirm): %v", rerr)
+	if resp.Error != nil {
+		t.Fatalf("tools/call(confirm) error: %+v", resp.Error)
 	}
-	var result ConfirmResult
-	if err := json.Unmarshal(raw, &result); err != nil {
-		t.Fatalf("unmarshal ConfirmResult: %v", err)
+	result := requireCallToolResult(t, resp.Result)
+	if result.IsError {
+		t.Fatalf("tools/call(confirm) isError = true, want false: %s", result.Content[0].Text)
 	}
-	if result.Tier != string(store.TierAgentDeclared) {
-		t.Fatalf("ConfirmResult.Tier = %q, want %q (forged tier must not apply)", result.Tier, store.TierAgentDeclared)
+	var confirmed ConfirmResult
+	if err := json.Unmarshal(result.StructuredContent, &confirmed); err != nil {
+		t.Fatalf("unmarshal structuredContent as ConfirmResult: %v", err)
 	}
+	if confirmed.Tier != string(store.TierAgentDeclared) {
+		t.Fatalf("ConfirmResult.Tier = %q, want %q (forged tier must not apply)", confirmed.Tier, store.TierAgentDeclared)
+	}
+}
+
+// mustNoteViaToolsCall drives a note through s's tools/call path (not
+// Server.CallTool directly) and returns its NoteResult, for confirm tests
+// that need a target record already anchored in this connection's session.
+func mustNoteViaToolsCall(t *testing.T, s *Server, argsJSON string) NoteResult {
+	t.Helper()
+	resp := serveOneToolCall(t, s, ToolNote, json.RawMessage(argsJSON))
+	if resp.Error != nil {
+		t.Fatalf("tools/call(note) target: %+v", resp.Error)
+	}
+	result := requireCallToolResult(t, resp.Result)
+	if result.IsError {
+		t.Fatalf("tools/call(note) target isError = true, want false: %s", result.Content[0].Text)
+	}
+	var note NoteResult
+	if err := json.Unmarshal(result.StructuredContent, &note); err != nil {
+		t.Fatalf("unmarshal structuredContent as NoteResult: %v", err)
+	}
+	return note
 }
 
 // mustInsertInferredDraftDirect mints a genuine second store session (a real
@@ -424,21 +451,14 @@ type inferredDraft struct {
 	sessionID string
 }
 
-// writeInferredDraft writes a note through shim (establishing/using this
-// connection's live session), reads back its session id, then inserts a
-// SEPARATE tier=inferred record directly through the store attributed to
-// that same session — standing in for a draft Phase 5's (not yet built)
-// inference pass would have written through this session.
-func writeInferredDraft(t *testing.T, st *store.Store, shim *Server, projectKey, text string) inferredDraft {
+// writeInferredDraft writes a note through s's tools/call path (establishing/
+// using this connection's live session), reads back its session id, then
+// inserts a SEPARATE tier=inferred record directly through the store
+// attributed to that same session — standing in for a draft Phase 5's (not
+// yet built) inference pass would have written through this session.
+func writeInferredDraft(t *testing.T, st *store.Store, s *Server, projectKey, text string) inferredDraft {
 	t.Helper()
-	raw, rerr := shim.CallTool(ToolNote, json.RawMessage(`{"kind":"note","text":"session anchor"}`))
-	if rerr != nil {
-		t.Fatalf("CallTool(note) session anchor: %v", rerr)
-	}
-	var anchor NoteResult
-	if err := json.Unmarshal(raw, &anchor); err != nil {
-		t.Fatalf("unmarshal anchor: %v", err)
-	}
+	anchor := mustNoteViaToolsCall(t, s, `{"kind":"note","text":"session anchor"}`)
 	sessionID := recordSessionID(t, st, anchor.ID)
 
 	draftID, err := st.InsertRecord(store.InsertRecordParams{
