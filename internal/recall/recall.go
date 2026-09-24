@@ -91,6 +91,15 @@ const (
 	StatusSuperseded   Status = "superseded"
 	StatusTombstoned   Status = "tombstoned"
 	StatusContradicted Status = "contradicted"
+	// StatusPossiblyStale is a handoff-only status (decision bcc9fa54):
+	// positive evidence — a contradiction, a later same-project record, or a
+	// later timeline event — arrived after the handoff's event_cursor with
+	// no later `confirm affirm` informing it since. It takes precedence over
+	// StatusContradicted for handoff records (store.HandoffFreshness folds
+	// that same contradiction in as its own reason, affirm-aware in a way
+	// the plain StatusContradicted check below never is); no other kind can
+	// carry it.
+	StatusPossiblyStale Status = "possibly-stale"
 )
 
 // Item is one ledger record in a recall result.
@@ -120,6 +129,10 @@ type Item struct {
 	// the timeline event ids the contradicting record cited as its own
 	// evidence, reached only via a `contradicts` edge into this record.
 	ContradictionEvidence []int64
+	// StaleReasons is set only when Status is StatusPossiblyStale: every
+	// reason store.HandoffFreshness found, each carrying its own evidence
+	// ids.
+	StaleReasons []store.FreshnessReason
 }
 
 // Result is Build's return value: the items that made the altitude's
@@ -279,6 +292,22 @@ func annotate(st *store.Store, rec store.Record) (Item, error) {
 		}
 	}
 
+	// A handoff's contradiction signal is folded into HandoffFreshness's own
+	// reasons (FreshnessContradicted), affirm-aware in a way the plain
+	// StatusContradicted check below is not, so a handoff never falls
+	// through to that check at all — flagged or not.
+	if rec.Kind == store.KindHandoff {
+		reasons, err := st.HandoffFreshness(rec)
+		if err != nil {
+			return Item{}, fmt.Errorf("recall: annotate %s: freshness: %w", rec.ID, err)
+		}
+		if len(reasons) > 0 {
+			item.Status = StatusPossiblyStale
+			item.StaleReasons = reasons
+		}
+		return item, nil
+	}
+
 	for _, e := range edges {
 		if e.Type == store.EdgeContradicts && e.ToID == rec.ID {
 			evidenceRec, err := st.GetRecord(e.FromID)
@@ -386,11 +415,36 @@ func statusLabel(item Item) string {
 		return "tombstoned"
 	case StatusContradicted:
 		return "contradicted (evidence " + joinInt64s(item.ContradictionEvidence) + ")"
+	case StatusPossiblyStale:
+		return "possibly stale: " + staleReasonSummary(item.StaleReasons)
 	case StatusCurrent:
 		return "current"
 	default:
 		return "current"
 	}
+}
+
+// staleReasonSummary renders every reason in item.StaleReasons as "<kind>
+// (ids <evidence>)", joined with "; ".
+func staleReasonSummary(reasons []store.FreshnessReason) string {
+	parts := make([]string, len(reasons))
+	for i, r := range reasons {
+		ids := make([]string, 0, len(r.RecordIDs)+len(r.EventIDs))
+		for _, id := range r.RecordIDs {
+			ids = append(ids, shortID(id))
+		}
+		ids = append(ids, intsToStrs(r.EventIDs)...)
+		parts[i] = fmt.Sprintf("%s (ids %s)", r.Kind, strings.Join(ids, ","))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func intsToStrs(ids []int64) []string {
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		out[i] = strconv.FormatInt(id, 10)
+	}
+	return out
 }
 
 func firstLine(text string) string {
