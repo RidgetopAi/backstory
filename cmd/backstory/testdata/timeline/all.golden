@@ -1,0 +1,5 @@
+1 · 2026-01-01T00:00:00Z · session.start · sess-timeline-fixture
+2 · 2026-01-01T00:02:00Z · tool.use · sess-timeline-fixture
+3 · 2026-01-01T00:01:00Z · tool.use · sess-timeline-fixture
+4 · 2026-01-01T00:03:00Z · tool.result · sess-timeline-fixture
+5 · 2026-01-01T00:04:00Z · session.end · sess-timeline-fixture

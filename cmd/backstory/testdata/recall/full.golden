@@ -1,0 +1,8 @@
+cccc3333 · decision · human-declared · current
+Actually ship v1 with Go and a Rust FFI for search.
+
+bbbb2222 · note · agent-declared · current
+The recall engine walks a project's whole ledger and renders it at an altitude under a token budget, the recall_thread model PLAN.md describes: headline is one line per item, summary is a short body per item, and full is each item's complete text with no truncation at all regardless of length.
+
+aaaa1111 · decision · human-declared · superseded by cccc3333
+Ship v1 with Go for the CLI binary.
