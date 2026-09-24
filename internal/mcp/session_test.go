@@ -210,7 +210,7 @@ func TestTwoHarnessProcessesGetTwoSessions(t *testing.T) {
 
 // dialWithIdentity opens a fresh unix listener, accepts exactly one
 // connection under the given (fabricated) ident.Identity via
-// ServeDaemonConn, sends one DaemonRequest for method, and returns the
+// ServeDaemonConn, sends one status DaemonRequest, and returns the
 // resulting StatusResult. st, sessions and procfs are shared across calls
 // so a test can simulate several connections against the SAME daemon state
 // without needing genuinely different real processes for every identity it
@@ -220,7 +220,7 @@ func TestTwoHarnessProcessesGetTwoSessions(t *testing.T) {
 // stack. procfs backs task 25b74537's exit sweep exactly like a real
 // daemon's ServeDaemonConn call does; a scenario that must never trip the
 // sweep reports every fabricated identity's pid as alive there.
-func dialWithIdentity(t *testing.T, st *store.Store, sessions *SessionRegistry, procfs ident.ProcFS, id ident.Identity, method string) StatusResult {
+func dialWithIdentity(t *testing.T, st *store.Store, sessions *SessionRegistry, procfs ident.ProcFS, id ident.Identity) StatusResult {
 	t.Helper()
 	sockPath := filepath.Join(t.TempDir(), "sock")
 	ln, err := net.Listen("unix", sockPath)
@@ -245,7 +245,7 @@ func dialWithIdentity(t *testing.T, st *store.Store, sessions *SessionRegistry, 
 		t.Fatalf("dial: %v", err)
 	}
 
-	req := DaemonRequest{Method: method}
+	req := DaemonRequest{Method: daemonMethodStatus}
 	b, err := json.Marshal(req)
 	if err != nil {
 		t.Fatalf("marshal request: %v", err)
@@ -312,15 +312,15 @@ func TestReusedHarnessPidWithDifferentStartTicksIsNewSession(t *testing.T) {
 
 	firstProcess := base
 	firstProcess.HarnessStartTicks = 1000
-	sidFirst := dialWithIdentity(t, st, sessions, procfs, firstProcess, daemonMethodStatus).Session
+	sidFirst := dialWithIdentity(t, st, sessions, procfs, firstProcess).Session
 
 	reusedPid := base
 	reusedPid.HarnessStartTicks = 2000
-	sidReused := dialWithIdentity(t, st, sessions, procfs, reusedPid, daemonMethodStatus).Session
+	sidReused := dialWithIdentity(t, st, sessions, procfs, reusedPid).Session
 
 	repeat := base
 	repeat.HarnessStartTicks = 1000
-	sidRepeat := dialWithIdentity(t, st, sessions, procfs, repeat, daemonMethodStatus).Session
+	sidRepeat := dialWithIdentity(t, st, sessions, procfs, repeat).Session
 
 	if sidFirst == sidReused {
 		t.Fatalf("pid %d reused by a process with a different /proc start time got the same session %q, want a new one",
@@ -354,12 +354,12 @@ func TestStillAliveHarnessSessionsRemainMutuallyVisible(t *testing.T) {
 	idA := ident.Identity{Kind: ident.KindAgent, Harness: "claude", HarnessPID: 5001, HarnessStartTicks: 100, ProjectKey: "proj-key"}
 	idB := ident.Identity{Kind: ident.KindAgent, Harness: "claude", HarnessPID: 5002, HarnessStartTicks: 200, ProjectKey: "proj-key"}
 
-	resultA := dialWithIdentity(t, st, sessions, procfs, idA, daemonMethodStatus)
+	resultA := dialWithIdentity(t, st, sessions, procfs, idA)
 	// A second dial from each identity re-triggers the sweep without either
 	// process having "exited" in the fake — neither entry may be evicted.
-	resultB := dialWithIdentity(t, st, sessions, procfs, idB, daemonMethodStatus)
-	resultA2 := dialWithIdentity(t, st, sessions, procfs, idA, daemonMethodStatus)
-	resultB2 := dialWithIdentity(t, st, sessions, procfs, idB, daemonMethodStatus)
+	resultB := dialWithIdentity(t, st, sessions, procfs, idB)
+	resultA2 := dialWithIdentity(t, st, sessions, procfs, idA)
+	resultB2 := dialWithIdentity(t, st, sessions, procfs, idB)
 
 	if resultA2.Session != resultA.Session {
 		t.Fatalf("process A's session changed across still-alive dials (%q vs %q), want it reused", resultA.Session, resultA2.Session)
