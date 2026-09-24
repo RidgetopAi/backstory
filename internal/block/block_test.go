@@ -202,6 +202,38 @@ func TestRenderAllFiveSlotsPopulatedInOrderWithModeLine(t *testing.T) {
 	}
 }
 
+// TestRenderResumeSlotCarriesTheHandoffRecordID is the punch's DONE WHEN
+// clause 1 (task 56317fe7, decision 1e53165a): the Resume slot names the
+// stored handoff's own record id — read back from the store independently
+// of Render, so the test cannot pass by coincidence — in a fixed "(id ...)"
+// position right after the "Resume:" label, so an agent can lift it
+// verbatim into note's supersedes.
+//
+// Mutation probe: drop rec.ID from resumeSlot's line (block.go) -> RED (out
+// no longer contains handoff.ID); restore -> GREEN.
+func TestRenderResumeSlotCarriesTheHandoffRecordID(t *testing.T) {
+	s := newTestStore(t)
+	mustUpsertProject(t, s, testProjectKey)
+	self := mustStartSession(t, s, "claude", "/proj", 100)
+
+	handoff := mustInsertHandoff(t, s, self, "shipped the resume id")
+
+	out, err := block.Render(block.Params{
+		Store: s, ProcFS: fakeProcFS{}, ProjectKey: testProjectKey, SessionID: self, Harness: "claude",
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+
+	if handoff.ID == "" {
+		t.Fatalf("test fixture bug: stored handoff has no id")
+	}
+	wantLine := "Resume: (id " + handoff.ID + ") shipped the resume id"
+	if !strings.Contains(out, wantLine) {
+		t.Fatalf("Resume slot does not carry the handoff's record id %q; got:\n%s", handoff.ID, out)
+	}
+}
+
 // TestRenderEachSlotIndependentlyOmittedWhenEmpty is clause (b): with three
 // of the four data slots populated and one deliberately empty, the empty
 // one's label is absent and the other three remain, for all four slots in
