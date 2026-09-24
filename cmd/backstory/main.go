@@ -26,6 +26,7 @@ commands:
   recall    print a project's trust-annotated ledger narrative, read-only
   timeline  print a project's observed events, read-only
   group     set/clear/list project groups (human-only; "group set|clear|list")
+  export    write a project's markdown mirror for another tool to read
 `
 
 func main() {
@@ -62,6 +63,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runTimeline(args[1:], stdout, stderr)
 	case "group":
 		return runGroup(args[1:], stdout, stderr)
+	case "export":
+		return runExport(args[1:], stdout, stderr)
 	default:
 		_, _ = fmt.Fprintf(stderr, "backstory: unknown command %q\n\n%s", args[0], usage)
 		return 2
