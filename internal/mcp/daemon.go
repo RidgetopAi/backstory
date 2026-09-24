@@ -101,13 +101,24 @@ func dispatchDaemonRequest(line []byte, st *store.Store, procfs ident.ProcFS, id
 	}
 }
 
-// startSession opens a live store session for a newly connected identity.
+// startSession opens a live store session for a newly connected identity —
+// called by SessionRegistry.SessionFor's start callback, so it only actually
+// runs the first time a given harness process is observed (or every time,
+// for an unidentified caller with no stable process identity to key on).
 // The session's pid is the harness's, when the ancestry walk found one;
 // otherwise it falls back to the immediate peer pid. sessions.project_key
 // and records.project_key both foreign-key into projects, so a project this
 // daemon has never seen before is upserted first — the resolver computes
 // ProjectKey from git identity alone (AGENT-CONTRACT.md §Project = git
 // repository identity), never from anything a request declares.
+//
+// task 32c6900d scoped this fix to the daemon's own live-session bookkeeping
+// only: it does not touch internal/backfill/claude's transcript importer, so
+// a later backfill of a harness process's transcript can still add a SECOND
+// (backfilled-origin) session for the same run alongside its now-shared live
+// one. That importer already dedups at the event level (tool_use_id); a
+// session-level dedup against a still-live run's harness_session_id is a
+// separate, not-yet-built piece of work.
 func startSession(st *store.Store, id ident.Identity) (string, error) {
 	if id.ProjectKey != "" {
 		if err := st.UpsertProject(store.Project{
