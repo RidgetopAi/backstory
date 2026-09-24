@@ -230,9 +230,16 @@ func TestHookPostToolUseProjectComesFromResolverNotDeclaredSession(t *testing.T)
 
 	projectKey := project.Key(projectDir, project.RealGit{})
 	s := mustOpenTestStore(t, dbPath)
-	events := queryEventsForProject(t, s, projectKey)
+	// Only tool.use events: a session ending also records session.git_state
+	// (task c2573b35), which says nothing about where captures land.
+	var events []toolEventRow
+	for _, e := range queryEventsForProject(t, s, projectKey) {
+		if e.Kind == "tool.use" {
+			events = append(events, e)
+		}
+	}
 	if len(events) != 2 {
-		t.Fatalf("project has %d events after two live captures from the same real cwd, want 2 — "+
+		t.Fatalf("project has %d tool.use events after two live captures from the same real cwd, want 2 — "+
 			"a declared session_id must never change which project (or whether) an event is recorded: %#v",
 			len(events), events)
 	}

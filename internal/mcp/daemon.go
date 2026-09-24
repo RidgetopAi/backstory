@@ -54,9 +54,8 @@ const DaemonMethodBlock = "block"
 // this connection writes is attributed to id.Kind's tier regardless of what
 // a request line claims, and the SessionStart block it renders is always
 // for id.ProjectKey, regardless of what a request line claims either. git
-// backs recordSessionEndGitState's session.git_state observation on this
-// connection's own EOF path (task c2573b35); RealGit in production, a fake
-// in tests.
+// backs the session.git_state observation every live session end records
+// (liveSessionEnder, task c2573b35); RealGit in production, a fake in tests.
 //
 // captureOff is checked fresh on every note request (SCHEMA.md invariant 8:
 // "honoured on every write path") and reported by status — the same
@@ -64,19 +63,12 @@ const DaemonMethodBlock = "block"
 // refuses to record on, passed in by daemon.go rather than resolved here so
 // this package never has to know how the flag file's path is derived.
 func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs ident.ProcFS, git project.Git, logger *log.Logger, sessions *SessionRegistry, captureOff func() (bool, error)) {
-	end := func(sessionID, reason string) {
-		if err := st.EndSession(sessionID, time.Now(), reason); err != nil {
-			logf(logger, "mcp: end session %s: %v", sessionID, err)
-		}
-	}
+	end := liveSessionEnder(st, git, logger)
 	sessionID, err := sessions.SessionFor(id, procfs, end, func() (string, error) { return startSession(st, id) })
 	if err != nil {
 		logf(logger, "mcp: start session for pid=%d: %v", id.PID, err)
 	} else if id.HarnessPID == 0 {
-		defer func() {
-			recordSessionEndGitState(st, git, sessionID, id.CWD, time.Now(), logger)
-			end(sessionID, "eof")
-		}()
+		defer end(sessionID, "eof")
 	}
 
 	identity := storeIdentity(id, sessionID)
@@ -96,6 +88,27 @@ func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs i
 	}
 }
 
+// liveSessionEnder returns the one callback every live-session end goes
+// through: this connection's own EOF and the registry sweep that ends dead
+// harnesses' sessions (task 25b74537's ReasonHarnessExited). Each end first
+// records session.git_state for the ENDED session's own cwd (read back from
+// its row — a sweep ends sessions this connection never owned), then ends
+// it. A cwd that cannot be read back records could-not-observe.
+func liveSessionEnder(st *store.Store, git project.Git, logger *log.Logger) func(sessionID, reason string) {
+	return func(sessionID, reason string) {
+		now := time.Now()
+		cwd, err := st.SessionCWD(sessionID)
+		if err != nil {
+			logf(logger, "mcp: read cwd for ending session %s: %v", sessionID, err)
+			cwd = ""
+		}
+		recordSessionEndGitState(st, git, sessionID, cwd, now, logger)
+		if err := st.EndSession(sessionID, now, reason); err != nil {
+			logf(logger, "mcp: end session %s: %v", sessionID, err)
+		}
+	}
+}
+
 // recordSessionEndGitState appends a session.git_state timeline event
 // observing cwd's git working tree state as a live session ends — the
 // evidence This Week's Attention needs to flag "ended with uncommitted
@@ -109,7 +122,9 @@ func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs i
 // clean tree (SCHEMA.md invariant 7).
 func recordSessionEndGitState(st *store.Store, git project.Git, sessionID, cwd string, now time.Time, logger *log.Logger) {
 	p := payload.SessionGitState{CouldNotObserve: true}
-	if state, ok := git.State(cwd); ok {
+	// An unknown cwd is could-not-observe: git.State("") would observe the
+	// DAEMON's own working directory instead.
+	if state, ok := git.State(cwd); cwd != "" && ok {
 		count := state.Uncommitted
 		p = payload.SessionGitState{Branch: state.Branch, UncommittedCount: &count}
 	}

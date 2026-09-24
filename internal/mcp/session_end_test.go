@@ -141,6 +141,9 @@ func endLiveSession(t *testing.T, st *store.Store, sockPath, projectKey string) 
 // session, carrying its branch and UncommittedCount == 3.
 func TestSessionEndRecordsGitStateWithUncommittedCount(t *testing.T) {
 	st := mustOpenStore(t)
+	if err := st.UpsertProject(store.Project{Key: "proj-a", Toplevel: "/home/b/repo-a", FirstSeen: time.Now()}); err != nil {
+		t.Fatalf("UpsertProject: %v", err)
+	}
 	const cwd = "/home/brian/dirty-repo"
 	git := fakeGit{cwd: project.State{Branch: "feature/widget", Uncommitted: 3}}
 	sockPath := testDaemonWithGit(t, st, "not-a-known-harness", cwd, "proj-key", git)
@@ -179,6 +182,9 @@ func TestSessionEndRecordsGitStateWithUncommittedCount(t *testing.T) {
 // during development: both runs pasted in the task's commit history.
 func TestSessionEndRecordsCouldNotObserveNeverZeroCount(t *testing.T) {
 	st := mustOpenStore(t)
+	if err := st.UpsertProject(store.Project{Key: "proj-a", Toplevel: "/home/b/repo-a", FirstSeen: time.Now()}); err != nil {
+		t.Fatalf("UpsertProject: %v", err)
+	}
 	const cwd = "/home/brian/not-a-repo"
 	git := fakeGit{} // empty: cwd has no entry, so State reports ok == false
 	sockPath := testDaemonWithGit(t, st, "not-a-known-harness", cwd, "proj-key", git)
@@ -198,5 +204,60 @@ func TestSessionEndRecordsCouldNotObserveNeverZeroCount(t *testing.T) {
 	}
 	if got.Branch != "" {
 		t.Errorf("Branch = %q, want empty on could-not-observe", got.Branch)
+	}
+}
+
+// TestSweepEndedHarnessSessionRecordsItsOwnGitState: a Claude Code session
+// is ended by the registry sweep (ReasonHarnessExited), not by its own
+// connection's EOF, and the sweep runs on some OTHER connection. The end
+// callback must still record session.git_state, for the ENDED session's own
+// cwd read back from its row.
+func TestSweepEndedHarnessSessionRecordsItsOwnGitState(t *testing.T) {
+	st := mustOpenStore(t)
+	if err := st.UpsertProject(store.Project{Key: "proj-a", Toplevel: "/home/b/repo-a", FirstSeen: time.Now()}); err != nil {
+		t.Fatalf("UpsertProject: %v", err)
+	}
+	pid := 4242
+	swept, err := st.StartSession(store.StartSessionParams{
+		Agent: "claude", PID: &pid, CWD: "/home/b/repo-a", ProjectKey: "proj-a",
+		StartedAt: time.Now(), Origin: store.OriginLive,
+	})
+	if err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+	git := fakeGit{
+		"/home/b/repo-a": {Branch: "feature", Uncommitted: 2},
+		"/home/b/other":  {Branch: "main", Uncommitted: 9},
+	}
+
+	liveSessionEnder(st, git, nil)(swept, ReasonHarnessExited)
+
+	got := gitStateEventsForSession(t, st, swept)
+	if len(got) != 1 {
+		t.Fatalf("session.git_state events for swept session = %d, want 1", len(got))
+	}
+	if got[0].CouldNotObserve || got[0].Branch != "feature" || got[0].UncommittedCount == nil || *got[0].UncommittedCount != 2 {
+		t.Fatalf("swept session git state = %+v, want branch feature, 2 uncommitted", got[0])
+	}
+}
+
+// TestSessionEndWithUnknownCwdRecordsCouldNotObserve: an empty cwd must not
+// be handed to git (it would observe the daemon's own directory).
+func TestSessionEndWithUnknownCwdRecordsCouldNotObserve(t *testing.T) {
+	st := mustOpenStore(t)
+	if err := st.UpsertProject(store.Project{Key: "proj-a", Toplevel: "/home/b/repo-a", FirstSeen: time.Now()}); err != nil {
+		t.Fatalf("UpsertProject: %v", err)
+	}
+	id, err := st.StartSession(store.StartSessionParams{
+		Agent: "claude", ProjectKey: "proj-a", StartedAt: time.Now(), Origin: store.OriginLive,
+	})
+	if err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+	liveSessionEnder(st, fakeGit{"": {Branch: "daemon-dir", Uncommitted: 5}}, nil)(id, ReasonHarnessExited)
+
+	got := gitStateEventsForSession(t, st, id)
+	if len(got) != 1 || !got[0].CouldNotObserve || got[0].UncommittedCount != nil {
+		t.Fatalf("git state for unknown cwd = %+v, want one could-not-observe event", got)
 	}
 }
