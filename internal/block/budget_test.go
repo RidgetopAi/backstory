@@ -63,19 +63,20 @@ func itoa(n int) string {
 }
 
 // TestBudgetCutsDeltaBeforeAttentionBeforeCoordination is the punch's DONE
-// WHEN clause 3: at a 220 token budget with overflowing content, the output
-// measures <= 220 by block.EstimateTokens, slot 2 (delta) and slot 4
+// WHEN clause 3: at a 230 token budget with overflowing content, the output
+// measures <= 230 by block.EstimateTokens, slot 2 (delta) and slot 4
 // (attention) are cut but slot 3 (coordination) is not, and HeaderLine,
 // slot 1 (resume), and slot 5 (the final line) survive. The budget was
-// raised from 200 to 220 (task 6ae45e80, decision 1e53165a): HeaderLine now
-// counts against every render's token budget too, so the fixture needs
-// enough headroom for HeaderLine plus slot 1, slot 3, and the final line to
-// fit once slot 2 and slot 4 are cut.
+// raised from 200 to 220 (task 6ae45e80, decision 1e53165a) for HeaderLine
+// counting against the budget, then to 230 (task 56317fe7): slot 1 grew by
+// the handoff's record id (block.go's resumeSlot), so the fixture needs
+// enough headroom for HeaderLine plus the now-larger slot 1, slot 3, and the
+// final line to fit once slot 2 and slot 4 are cut.
 //
 // Mutation probe (assemble's `if EstimateTokens(join()) <= budgetTokens {
 // return join() }` short-circuited to an unconditional `return join()`,
-// budget.go): "budget_test.go:98: EstimateTokens(out) = 241, want <= 220"
-// (this test) -- restoring the budget check turns it back GREEN.
+// budget.go): out exceeds 230 tokens (this test) -- restoring the budget
+// check turns it back GREEN.
 func TestBudgetCutsDeltaBeforeAttentionBeforeCoordination(t *testing.T) {
 	s, self := overflowingScenario(t)
 
@@ -127,7 +128,7 @@ func TestBudgetCutsDeltaBeforeAttentionBeforeCoordination(t *testing.T) {
 	}
 }
 
-const budgetTokens = 220
+const budgetTokens = 230
 
 // orderPinScenario builds a fixture for the cut-order pinning test: one
 // other live session (a small, constant slot 3), optionally events for

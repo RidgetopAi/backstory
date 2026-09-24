@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -353,5 +354,77 @@ func TestNoteExpiredClaimParsesExpires(t *testing.T) {
 	}
 	if rec.ExpiresAt == nil {
 		t.Fatal("stored record has no ExpiresAt")
+	}
+}
+
+// resumeIDPattern extracts the id block.Render's Resume slot carries
+// (block.go's resumeSlot: "Resume: (id <uuid>) <text>"), the exact shape an
+// agent would lift out of the rendered block to fill in note's supersedes.
+var resumeIDPattern = regexp.MustCompile(`Resume: \(id ([^)]+)\)`)
+
+// TestBlockResumeIDRoundTripsIntoNoteSupersedesEdge is the punch's DONE
+// WHEN clause 2 (task 56317fe7, decision 1e53165a): block -> note with
+// supersedes -> edge present, end to end. A first handoff is written
+// through the note tool; the daemon's own rendered SessionStart block (the
+// "block" daemon method cmd/backstory's session-start hook calls, wired
+// through the SAME ServeDaemonConn a real hook reaches) is asked to name
+// that handoff's id; the id extracted from the block text — exactly as the
+// block shows it, not the id the test already had in hand — is then used,
+// unmodified, as a second handoff's supersedes. The store must show one
+// supersedes edge from the second handoff to the first.
+//
+// Mutation probe: drop the id from block.go's resumeSlot -> RED
+// (resumeIDPattern finds no match in the block text, or the extracted id
+// mismatches the stored handoff's, well before the edge assertion ever
+// runs); restore -> GREEN.
+func TestBlockResumeIDRoundTripsIntoNoteSupersedesEdge(t *testing.T) {
+	st := mustOpenStore(t)
+	sockPath := testDaemon(t, st, "claude", "/home/brian/proj", "proj-key")
+	shim := dialShim(t, sockPath)
+
+	raw, rerr := shim.CallTool(ToolNote, json.RawMessage(`{"kind":"handoff","text":"shipped the delta slot"}`))
+	if rerr != nil {
+		t.Fatalf("CallTool(note) first handoff: %v", rerr)
+	}
+	var first NoteResult
+	if err := json.Unmarshal(raw, &first); err != nil {
+		t.Fatalf("unmarshal first NoteResult: %v", err)
+	}
+
+	blockRaw, rerr := shim.callDaemon(DaemonMethodBlock, nil)
+	if rerr != nil {
+		t.Fatalf("callDaemon(block): %v", rerr)
+	}
+	var blockResult BlockResult
+	if err := json.Unmarshal(blockRaw, &blockResult); err != nil {
+		t.Fatalf("unmarshal BlockResult: %v", err)
+	}
+
+	m := resumeIDPattern.FindStringSubmatch(blockResult.Block)
+	if m == nil {
+		t.Fatalf("block text carries no Resume id; got:\n%s", blockResult.Block)
+	}
+	blockID := m[1]
+	if blockID != first.ID {
+		t.Fatalf("block's Resume id = %q, want the stored handoff's id %q", blockID, first.ID)
+	}
+
+	raw2, rerr := shim.CallTool(ToolNote, json.RawMessage(
+		fmt.Sprintf(`{"kind":"handoff","text":"picked up from there","supersedes":%q}`, blockID)))
+	if rerr != nil {
+		t.Fatalf("CallTool(note) second handoff with supersedes: %v", rerr)
+	}
+	var second NoteResult
+	if err := json.Unmarshal(raw2, &second); err != nil {
+		t.Fatalf("unmarshal second NoteResult: %v", err)
+	}
+
+	var n int
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM edges WHERE from_id = ? AND to_id = ? AND type = 'supersedes'`,
+		second.ID, first.ID).Scan(&n); err != nil {
+		t.Fatalf("count supersedes edge: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("supersedes edge %s -> %s count = %d, want 1", second.ID, first.ID, n)
 	}
 }
