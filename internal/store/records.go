@@ -299,6 +299,37 @@ func (s *Store) UnconfirmedDraftCount(projectKey string, now time.Time) (int, er
 	return n, nil
 }
 
+// ExpiredClaimsWithoutOutcome returns every non-tombstoned kind=claim
+// record in projectKey whose expires_at is set and at or before asOf, and
+// which carries no `produced_outcome` edge on either endpoint — This
+// Week's Attention "a claim record that expired with no outcome record
+// linked to it" kind (task 56d8c63d): EdgeProducedOutcome names the edge an
+// outcome record gets, pointing at the claim it fulfils, when one is
+// written for it (store.EdgeProducedOutcome); nothing wired that write up
+// before this punch, so an expired claim with no such edge is exactly the
+// gap this Attention item flags.
+func (s *Store) ExpiredClaimsWithoutOutcome(projectKey string, asOf time.Time) ([]Record, error) {
+	rows, err := s.db.Query(`
+		SELECT id FROM records
+		WHERE project_key = ? AND kind = ? AND tombstoned_at IS NULL
+		AND expires_at IS NOT NULL AND expires_at <= ?
+		AND id NOT IN (
+			SELECT from_id FROM edges WHERE type = ?
+			UNION
+			SELECT to_id FROM edges WHERE type = ?
+		)
+		ORDER BY rowid ASC`,
+		projectKey, string(KindClaim), tsToNanos(asOf), string(EdgeProducedOutcome), string(EdgeProducedOutcome))
+	if err != nil {
+		return nil, fmt.Errorf("store: expired claims without outcome for project %s: %w", projectKey, err)
+	}
+	ids, err := scanIDs(rows)
+	if err != nil {
+		return nil, fmt.Errorf("store: expired claims without outcome for project %s: %w", projectKey, err)
+	}
+	return s.getRecords(ids)
+}
+
 // TombstoneRecord sets records.tombstoned_at and nothing else — the sole
 // mutable column, and the sole human-only power (AGENT-CONTRACT.md
 // §User-only powers). It refuses any identity other than IdentityHuman.

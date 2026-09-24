@@ -1,6 +1,8 @@
 package store
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -59,4 +61,131 @@ func (s *Store) ProjectsSeenSince(since time.Time) ([]string, error) {
 		return nil, fmt.Errorf("store: projects seen since %s: %w", since, err)
 	}
 	return out, nil
+}
+
+// GetProject reads back a single projects row by key. found is false when
+// no session or backfill has ever upserted this key.
+func (s *Store) GetProject(key string) (Project, bool, error) {
+	var (
+		p                    Project
+		commonDir, remoteURL sql.NullString
+		firstSeen            int64
+	)
+	err := s.db.QueryRow(`SELECT key, git_common_dir, remote_url, toplevel, first_seen
+		FROM projects WHERE key = ?`, key).
+		Scan(&p.Key, &commonDir, &remoteURL, &p.Toplevel, &firstSeen)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Project{}, false, nil
+	}
+	if err != nil {
+		return Project{}, false, fmt.Errorf("store: get project %s: %w", key, err)
+	}
+	p.GitCommonDir = commonDir.String
+	p.RemoteURL = remoteURL.String
+	p.FirstSeen = tsFromNanos(firstSeen)
+	return p, true, nil
+}
+
+// ActiveProjectKeys returns every distinct project_key with a session
+// started, a timeline event, or a record inserted at or after since —
+// This Week's "one row per project with activity in the last 7 days"
+// (decision 9be5c1d5, task 56d8c63d). It returns whatever project_key
+// values appear, workspace identities (project.IsWorkspaceKey) included:
+// filtering those out is the caller's job, so this package keeps dealing
+// only in opaque project_key strings rather than importing internal/project.
+func (s *Store) ActiveProjectKeys(since time.Time) ([]string, error) {
+	rows, err := s.db.Query(`
+		SELECT DISTINCT project_key FROM (
+			SELECT project_key, started_at AS ts FROM sessions WHERE project_key IS NOT NULL
+			UNION ALL
+			SELECT s.project_key, e.ts FROM timeline_events e
+				JOIN sessions s ON s.id = e.session_id
+				WHERE s.project_key IS NOT NULL
+			UNION ALL
+			SELECT project_key, ts FROM records WHERE project_key IS NOT NULL
+		)
+		WHERE ts >= ?`, tsToNanos(since))
+	if err != nil {
+		return nil, fmt.Errorf("store: active project keys since %s: %w", since, err)
+	}
+	return scanIDs(rows)
+}
+
+// LastActivity returns the latest of projectKey's own session starts,
+// timeline events, and record inserts — This Week's Where-you-left-off
+// "last activity time" (task 56d8c63d). ok is false when projectKey has no
+// activity of any of those three kinds at all.
+func (s *Store) LastActivity(projectKey string) (t time.Time, ok bool, err error) {
+	var maxTS sql.NullInt64
+	err = s.db.QueryRow(`
+		SELECT MAX(ts) FROM (
+			SELECT started_at AS ts FROM sessions WHERE project_key = ?
+			UNION ALL
+			SELECT e.ts FROM timeline_events e
+				JOIN sessions s ON s.id = e.session_id
+				WHERE s.project_key = ?
+			UNION ALL
+			SELECT ts FROM records WHERE project_key = ?
+		)`, projectKey, projectKey, projectKey).Scan(&maxTS)
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("store: last activity for project %s: %w", projectKey, err)
+	}
+	if !maxTS.Valid {
+		return time.Time{}, false, nil
+	}
+	return tsFromNanos(maxTS.Int64), true, nil
+}
+
+// LatestSessionForProject returns projectKey's most recently started
+// session, any origin, live or ended — This Week's Where-you-left-off "cwd
+// to reopen" (task 56d8c63d): the cwd rarely moves week to week, so the
+// most recent session overall, not just one started within the window, is
+// the right one to reopen.
+func (s *Store) LatestSessionForProject(projectKey string) (Session, bool, error) {
+	var id string
+	err := s.db.QueryRow(`SELECT id FROM sessions WHERE project_key = ?
+		ORDER BY started_at DESC LIMIT 1`, projectKey).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Session{}, false, nil
+	}
+	if err != nil {
+		return Session{}, false, fmt.Errorf("store: latest session for project %s: %w", projectKey, err)
+	}
+	sess, err := s.getSession(id)
+	if err != nil {
+		return Session{}, false, err
+	}
+	return sess, true, nil
+}
+
+// getSession reads back a single sessions row by id, the shared scan logic
+// LatestSessionForProject uses.
+func (s *Store) getSession(id string) (Session, error) {
+	var (
+		sess              Session
+		harnessSessionID  sql.NullString
+		pid               sql.NullInt64
+		projectKey        sql.NullString
+		workspace, window sql.NullString
+		startedAt         int64
+		origin            string
+	)
+	err := s.db.QueryRow(`SELECT id, agent, harness_session_id, pid, cwd, project_key, workspace, window, started_at, origin
+		FROM sessions WHERE id = ?`, id).
+		Scan(&sess.ID, &sess.Agent, &harnessSessionID, &pid, &sess.CWD,
+			&projectKey, &workspace, &window, &startedAt, &origin)
+	if err != nil {
+		return Session{}, fmt.Errorf("store: get session %s: %w", id, err)
+	}
+	sess.HarnessSessionID = harnessSessionID.String
+	if pid.Valid {
+		p := int(pid.Int64)
+		sess.PID = &p
+	}
+	sess.ProjectKey = projectKey.String
+	sess.Workspace = workspace.String
+	sess.Window = window.String
+	sess.StartedAt = tsFromNanos(startedAt)
+	sess.Origin = SessionOrigin(origin)
+	return sess, nil
 }

@@ -1,6 +1,10 @@
 package store
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+	"time"
+)
 
 // EdgeType is edges.type.
 type EdgeType string
@@ -105,4 +109,56 @@ func (s *Store) ContradictionCount(projectKey string) (int, error) {
 		return 0, fmt.Errorf("store: contradiction count for project %s: %w", projectKey, err)
 	}
 	return n, nil
+}
+
+// Contradiction is one `contradicts` edge into a record in projectKey, with
+// the contradicting record's own evidence — This Week's Attention "flagged
+// contradictions" kind (task 56d8c63d).
+type Contradiction struct {
+	// TargetID is the contradicted record (the edge's to_id).
+	TargetID string
+	// SourceID is the contradicting record (the edge's from_id) — the
+	// kind=confirm record store.Confirm's contradict action minted.
+	SourceID string
+	// Evidence is SourceID's own evidence timeline event ids, the positive
+	// evidence the contradiction was raised on (AGENT-CONTRACT.md
+	// §Outcomes: "contradiction only on positive evidence").
+	Evidence []int64
+}
+
+// ContradictionsSince returns every `contradicts` edge whose to_id names a
+// record in projectKey and whose from_id (the contradicting record) was
+// itself inserted at or after since, oldest first by that record's own
+// sequence. edges carries no timestamp column of its own (SCHEMA.md), so
+// "this week" is judged by the contradicting record's own ts — the record
+// whose insert is what brought the edge into existence in the first place.
+func (s *Store) ContradictionsSince(projectKey string, since time.Time) ([]Contradiction, error) {
+	rows, err := s.db.Query(`
+		SELECT e.to_id, e.from_id, c.evidence FROM edges e
+		JOIN records r ON r.id = e.to_id
+		JOIN records c ON c.id = e.from_id
+		WHERE e.type = ? AND r.project_key = ? AND c.ts >= ?
+		ORDER BY c.rowid ASC`,
+		string(EdgeContradicts), projectKey, tsToNanos(since))
+	if err != nil {
+		return nil, fmt.Errorf("store: contradictions since %s for project %s: %w", since, projectKey, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	var out []Contradiction
+	for rows.Next() {
+		var targetID, sourceID, evidenceJSON string
+		if err := rows.Scan(&targetID, &sourceID, &evidenceJSON); err != nil {
+			return nil, fmt.Errorf("store: scan contradiction: %w", err)
+		}
+		var evidence []int64
+		if err := json.Unmarshal([]byte(evidenceJSON), &evidence); err != nil {
+			return nil, fmt.Errorf("store: parse contradiction evidence for %s: %w", sourceID, err)
+		}
+		out = append(out, Contradiction{TargetID: targetID, SourceID: sourceID, Evidence: evidence})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: contradictions since %s for project %s: %w", since, projectKey, err)
+	}
+	return out, nil
 }
