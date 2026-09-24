@@ -254,7 +254,7 @@ func TestGroupSetHereResolvesGitProjectKey(t *testing.T) {
 
 	repoDir := t.TempDir()
 	initGitRepo(t, repoDir)
-	wantKey := project.Key(repoDir, project.RealGit{})
+	wantKey := project.Key(repoDir, project.RealGit{}, nil)
 
 	stdout, stderr, code := runBackstoryGroup(t, bin, env, repoDir, "set", "work", "--here")
 	if code != 0 {

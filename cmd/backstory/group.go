@@ -249,7 +249,10 @@ func resolveHereProjectKey(st *store.Store) (string, error) {
 	if !ok {
 		return "", errNotAProject(cwd)
 	}
-	key := project.Key(cwd, git)
+	// Same workspace rule as the daemon (decision bcc9fa54); no resolvable
+	// home dir just means no default workspace.
+	workspaces, _ := project.DefaultWorkspaceDirs()
+	key := project.Key(cwd, git, workspaces)
 	if err := st.UpsertProject(store.Project{
 		Key:          key,
 		GitCommonDir: repo.CommonDir,
