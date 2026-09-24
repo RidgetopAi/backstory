@@ -21,12 +21,26 @@ type Repo struct {
 	Toplevel string
 }
 
+// State is a git working tree's observed state at a point in time: the
+// current branch and the count of uncommitted/untracked files (`git status
+// --porcelain`).
+type State struct {
+	Branch      string
+	Uncommitted int
+}
+
 // Git resolves git facts for a working directory. Tests inject a fake; the
 // production implementation is RealGit (git.go).
 type Git interface {
 	// Repo reports the git identity facts for cwd. ok is false when cwd is
 	// not inside a git working tree at all.
 	Repo(cwd string) (Repo, bool)
+	// State reports cwd's current branch and uncommitted/untracked file
+	// count. ok is false when cwd is not inside a git working tree, or a git
+	// command itself failed — a caller must never fall back to Uncommitted
+	// == 0 in that case (SCHEMA.md invariant 7: could-not-observe is a
+	// value, never folded into a false/zero reading).
+	State(cwd string) (State, bool)
 }
 
 // keySeparator joins CommonDir and RemoteURL in Key's output. It used to be
