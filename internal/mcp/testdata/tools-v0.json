@@ -126,7 +126,8 @@
             "enum": [
               "promote",
               "contradict",
-              "supersede"
+              "supersede",
+              "affirm"
             ]
           },
           "evidence": {
