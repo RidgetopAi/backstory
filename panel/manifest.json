@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "backstory.this-week",
+  "name": "This Week",
+  "version": "1.0.0",
+  "author": "Backstory",
+  "description": "Attention, Where you left off, and The week, read from `backstory this-week --json`",
+  "kinds": ["panel"],
+  "entryPoints": { "panel": "Panel.qml" }
+}
