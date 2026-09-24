@@ -230,7 +230,7 @@ func TestSweepEndedHarnessSessionRecordsItsOwnGitState(t *testing.T) {
 		"/home/b/other":  {Branch: "main", Uncommitted: 9},
 	}
 
-	liveSessionEnder(st, git, nil)(swept, ReasonHarnessExited)
+	liveSessionEnder(st, git, nil, captureNeverOff)(swept, ReasonHarnessExited)
 
 	got := gitStateEventsForSession(t, st, swept)
 	if len(got) != 1 {
@@ -254,10 +254,39 @@ func TestSessionEndWithUnknownCwdRecordsCouldNotObserve(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartSession: %v", err)
 	}
-	liveSessionEnder(st, fakeGit{"": {Branch: "daemon-dir", Uncommitted: 5}}, nil)(id, ReasonHarnessExited)
+	liveSessionEnder(st, fakeGit{"": {Branch: "daemon-dir", Uncommitted: 5}}, nil, captureNeverOff)(id, ReasonHarnessExited)
 
 	got := gitStateEventsForSession(t, st, id)
 	if len(got) != 1 || !got[0].CouldNotObserve || got[0].UncommittedCount != nil {
 		t.Fatalf("git state for unknown cwd = %+v, want one could-not-observe event", got)
+	}
+}
+
+// TestSessionEndWhileCaptureOffRecordsNoGitState: turning capture off
+// mid-session must stop the session-end git-state write too (invariant 8);
+// the session itself still ends.
+func TestSessionEndWhileCaptureOffRecordsNoGitState(t *testing.T) {
+	st := mustOpenStore(t)
+	if err := st.UpsertProject(store.Project{Key: "proj-a", Toplevel: "/home/b/repo-a", FirstSeen: time.Now()}); err != nil {
+		t.Fatalf("UpsertProject: %v", err)
+	}
+	id, err := st.StartSession(store.StartSessionParams{
+		Agent: "claude", CWD: "/home/b/repo-a", ProjectKey: "proj-a", StartedAt: time.Now(), Origin: store.OriginLive,
+	})
+	if err != nil {
+		t.Fatalf("StartSession: %v", err)
+	}
+	captureAlwaysOff := func() (bool, error) { return true, nil }
+	liveSessionEnder(st, fakeGit{"/home/b/repo-a": {Branch: "main", Uncommitted: 1}}, nil, captureAlwaysOff)(id, ReasonHarnessExited)
+
+	if got := gitStateEventsForSession(t, st, id); len(got) != 0 {
+		t.Fatalf("session.git_state events while capture off = %d, want 0", len(got))
+	}
+	live, err := st.LiveSessionsInProject("proj-a")
+	if err != nil {
+		t.Fatalf("LiveSessionsInProject: %v", err)
+	}
+	if len(live) != 0 {
+		t.Fatalf("session still live after end with capture off: %+v", live)
 	}
 }

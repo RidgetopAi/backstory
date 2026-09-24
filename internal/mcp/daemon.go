@@ -3,6 +3,7 @@ package mcp
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"log"
 	"net"
 	"time"
@@ -32,6 +33,16 @@ const (
 // entirely — the block is not one of the five frozen v0 tools.
 const DaemonMethodBlock = "block"
 
+// errCaptureOff is startSession's captureOff-gated start callback's
+// sentinel error (task 9c62f9dc, SCHEMA.md invariant 8): it tells
+// ServeDaemonConn's caller apart from a genuine startSession failure so the
+// former is never logged as one, and — just as importantly — tells
+// SessionRegistry.SessionFor not to cache an empty session id against this
+// harness process. A cached empty id would wrongly survive capture being
+// switched back on, permanently starving that harness process of a real
+// session for the rest of the daemon's lifetime.
+var errCaptureOff = errors.New("mcp: capture is off, no session started")
+
 // ServeDaemonConn is the daemon side of the shim<->daemon wire protocol: the
 // socket.Handler cmd/backstory wires into socket.Listen. A store session is
 // one run of an observed harness process, never one socket connection
@@ -57,16 +68,29 @@ const DaemonMethodBlock = "block"
 // backs the session.git_state observation every live session end records
 // (liveSessionEnder, task c2573b35); RealGit in production, a fake in tests.
 //
-// captureOff is checked fresh on every note request (SCHEMA.md invariant 8:
-// "honoured on every write path") and reported by status — the same
-// capture-off flag file cmd/backstory's `hook post-tool-use` already
-// refuses to record on, passed in by daemon.go rather than resolved here so
-// this package never has to know how the flag file's path is derived.
+// captureOff is checked fresh on every note and post_tool_use request
+// (SCHEMA.md invariant 8: "honoured on every write path"), reported by
+// status, and checked once more here before a session is ever started
+// (invariant 8 again: no sessions row is written while capture is off,
+// task 9c62f9dc) — the same capture-off flag file cmd/backstory's `hook
+// post-tool-use` already refuses to record on, passed in by daemon.go
+// rather than resolved here so this package never has to know how the flag
+// file's path is derived.
 func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs ident.ProcFS, git project.Git, logger *log.Logger, sessions *SessionRegistry, captureOff func() (bool, error)) {
-	end := liveSessionEnder(st, git, logger)
-	sessionID, err := sessions.SessionFor(id, procfs, end, func() (string, error) { return startSession(st, id) })
+	end := liveSessionEnder(st, git, logger, captureOff)
+	start := func() (string, error) {
+		if off, err := captureOff(); err != nil {
+			return "", err
+		} else if off {
+			return "", errCaptureOff
+		}
+		return startSession(st, id)
+	}
+	sessionID, err := sessions.SessionFor(id, procfs, end, start)
 	if err != nil {
-		logf(logger, "mcp: start session for pid=%d: %v", id.PID, err)
+		if !errors.Is(err, errCaptureOff) {
+			logf(logger, "mcp: start session for pid=%d: %v", id.PID, err)
+		}
 	} else if id.HarnessPID == 0 {
 		defer end(sessionID, "eof")
 	}
@@ -93,8 +117,9 @@ func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs i
 // harnesses' sessions (task 25b74537's ReasonHarnessExited). Each end first
 // records session.git_state for the ENDED session's own cwd (read back from
 // its row — a sweep ends sessions this connection never owned), then ends
-// it. A cwd that cannot be read back records could-not-observe.
-func liveSessionEnder(st *store.Store, git project.Git, logger *log.Logger) func(sessionID, reason string) {
+// it. A cwd that cannot be read back records could-not-observe; nothing is
+// recorded while capture is off.
+func liveSessionEnder(st *store.Store, git project.Git, logger *log.Logger, captureOff func() (bool, error)) func(sessionID, reason string) {
 	return func(sessionID, reason string) {
 		now := time.Now()
 		cwd, err := st.SessionCWD(sessionID)
@@ -102,7 +127,12 @@ func liveSessionEnder(st *store.Store, git project.Git, logger *log.Logger) func
 			logf(logger, "mcp: read cwd for ending session %s: %v", sessionID, err)
 			cwd = ""
 		}
-		recordSessionEndGitState(st, git, sessionID, cwd, now, logger)
+		// Capture off (or unreadable) → no session.git_state event: it is a
+		// timeline write like any other (SCHEMA.md invariant 8, task
+		// 9c62f9dc). Ending the session row still happens.
+		if off, err := captureOff(); err == nil && !off {
+			recordSessionEndGitState(st, git, sessionID, cwd, now, logger)
+		}
 		if err := st.EndSession(sessionID, now, reason); err != nil {
 			logf(logger, "mcp: end session %s: %v", sessionID, err)
 		}
@@ -159,7 +189,7 @@ func dispatchDaemonRequest(line []byte, st *store.Store, procfs ident.ProcFS, id
 	case DaemonMethodBlock:
 		return handleBlock(st, procfs, id, sessionID)
 	case DaemonMethodPostToolUse:
-		return handlePostToolUse(st, sessionID, req.Params)
+		return handlePostToolUse(st, sessionID, req.Params, captureOff)
 	default:
 		return errResponse("unknown-method", "unknown method "+req.Method)
 	}
