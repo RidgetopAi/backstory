@@ -240,8 +240,9 @@ func TestBuildAttentionAllFourKindsWithEvidenceIDs(t *testing.T) {
 	if len(contradictions[0].EvidenceIDs) == 0 {
 		t.Errorf("contradiction evidence ids empty, want at least one")
 	}
-	_ = target
-	_ = source
+	if !strings.Contains(contradictions[0].Reason, shortID(target)) || !strings.Contains(contradictions[0].Reason, shortID(source)) {
+		t.Errorf("contradiction reason = %q, want it to name both %s and %s", contradictions[0].Reason, target, source)
+	}
 
 	// (d) expired claim, no linked outcome.
 	expired := byKind[AttentionExpiredClaim]
