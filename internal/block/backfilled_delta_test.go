@@ -16,6 +16,9 @@ type fakeGit struct{}
 
 func (fakeGit) Repo(string) (project.Repo, bool) { return project.Repo{}, false }
 
+// State is unused by this test but required to satisfy project.Git.
+func (fakeGit) State(string) (project.State, bool) { return project.State{}, false }
+
 // TestRenderBackfilledDeltaCountsDistinctFilePathsNotZero is the punch's
 // clause 2 (task 8ba5487a), end-to-end: import a fixture Claude transcript
 // through the real backfill importer, then render the block for that

@@ -2,10 +2,13 @@ package mcp
 
 import (
 	"encoding/json"
-	"time"
+	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/RidgetopAi/backstory/internal/block"
 	"github.com/RidgetopAi/backstory/internal/ident"
+	"github.com/RidgetopAi/backstory/internal/recall"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
@@ -16,55 +19,165 @@ import (
 // overrides one independently.
 const DefaultRecallBudgetTokens = block.DefaultBudgetTokens
 
-// maxRecallDecisions bounds recall's decisions query itself, independent of
-// the token budget that trims the response afterward: a project with
-// thousands of declared decisions must not make every recall call load them
-// all into memory before the budget ever gets a chance to cut the list
-// down. Generous enough that the token budget is normally what limits
-// output first.
-const maxRecallDecisions = 200
-
-// RecallParams is recall's argument shape for v0 (this punch's minimal,
-// project-anchored recall — PLAN.md's `recall_thread` altitude/trust-
-// narrative engine is Phase 4, out of scope here). It deliberately has no
-// Project field even though the frozen v0 schema advertises one: "the
-// caller's own project as the daemon OBSERVES it, never a declared one" —
-// the same rule NoteParams applies to tier/session, applied here to
-// project. Query and altitude are schema fields reserved for the Phase 4
-// engine; unmarshaling into this struct drops them the same way.
+// RecallParams is recall's argument shape (decision d9d456e7): budget_tokens
+// plus the two fields the frozen v0 schema reserves for this punch, query
+// and altitude. It deliberately has no Project field even though the frozen
+// schema advertises one: "the caller's own project as the daemon OBSERVES
+// it, never a declared one" — the same rule NoteParams applies to
+// tier/session, applied here to project — a "project" key a caller sends is
+// silently dropped by json.Unmarshal, never read.
 type RecallParams struct {
-	BudgetTokens int `json:"budget_tokens,omitempty"`
+	Query        string `json:"query,omitempty"`
+	Altitude     string `json:"altitude,omitempty"`
+	BudgetTokens int    `json:"budget_tokens,omitempty"`
 }
 
-// RecallItem is one ledger record in a recall result: enough to identify it
-// (ID) and to weigh how much to trust it (Tier) — AGENT-CONTRACT.md's
-// "trust-annotated" requirement, minus the Phase 4 narrative altitude.
+// altitudeSummary etc. are RecallParams.Altitude's accepted wire values, per
+// decision d9d456e7's own wording ("altitude headline|summary|full, default
+// summary"). "detail" is also accepted, as an alias for full: it is the
+// frozen schema's own declared enum value (tools-v0.json), and the schema
+// itself is out of scope for this punch (no snapshot changes), so a caller
+// that only ever reads the advertised schema must still get a sensible
+// answer rather than an invalid-params rejection.
+const (
+	altitudeHeadline = "headline"
+	altitudeSummary  = "summary"
+	altitudeFull     = "full"
+	altitudeDetail   = "detail"
+)
+
+// parseAltitude maps RecallParams.Altitude's wire value to the engine's
+// recall.Altitude, defaulting an empty value to summary, and reports the
+// canonical value actually used (so RecallResult.Altitude always names a
+// real altitude, never the empty string or the "detail" alias).
+func parseAltitude(raw string) (recall.Altitude, string, error) {
+	switch raw {
+	case "", altitudeSummary:
+		return recall.AltitudeSummary, altitudeSummary, nil
+	case altitudeHeadline:
+		return recall.AltitudeHeadline, altitudeHeadline, nil
+	case altitudeFull, altitudeDetail:
+		return recall.AltitudeFull, altitudeFull, nil
+	default:
+		return "", "", fmt.Errorf("unknown altitude %q", raw)
+	}
+}
+
+// resolveAnchor turns a caller's query into a recall.Anchor (decision
+// d9d456e7's WHAT TO BUILD: "anchor = the caller's observed project unless
+// query names a record id or free text"): empty query anchors on the
+// caller's own project; a query that resolves to an existing record's id or
+// a prefix unique to one anchors on that record's neighbourhood; anything
+// else anchors as free text, scoped to projectKey — "the project is ALWAYS
+// the caller's observed one, never a declared one" applies here exactly as
+// it does to the project anchor, so the free-text anchor is never given any
+// other project's key.
+func resolveAnchor(st *store.Store, projectKey, query string) (recall.Anchor, error) {
+	q := strings.TrimSpace(query)
+	if q == "" {
+		return recall.ProjectAnchor(projectKey), nil
+	}
+	if _, ok, err := st.FindRecordByIDPrefix(q); err != nil {
+		return recall.Anchor{}, fmt.Errorf("resolve recall anchor: %w", err)
+	} else if ok {
+		return recall.RecordAnchor(q), nil
+	}
+	return recall.TextAnchor(projectKey, q), nil
+}
+
+// summaryTextChars bounds how much of an item's text this tool shows at
+// summary altitude, mirroring internal/recall's own per-item cap
+// (recall.summaryBodyChars): recall.Build's own Items always carry the full
+// body (only its Rendered narrative is altitude-shaped, and that narrative
+// renders ids short — this tool needs full ids in its own item list, never
+// truncated, so a caller can quote one back verbatim), so altitude-shaping
+// each item's Text for the wire is this tool's own job.
+const summaryTextChars = 240
+
+// renderItemText renders one item's body at altitude: headline keeps only
+// its first line, full keeps it whole, summary truncates to
+// summaryTextChars — the same three-way split PLAN.md §Phase 4 describes
+// for the recall_thread narrative, applied to this tool's own per-item text
+// field instead of a joined narrative string.
+func renderItemText(text string, altitude recall.Altitude) string {
+	switch altitude {
+	case recall.AltitudeHeadline:
+		if i := strings.IndexByte(text, '\n'); i >= 0 {
+			return text[:i]
+		}
+		return text
+	case recall.AltitudeFull:
+		return text
+	default:
+		r := []rune(text)
+		if len(r) > summaryTextChars {
+			return string(r[:summaryTextChars]) + "…"
+		}
+		return text
+	}
+}
+
+// trustMark renders item's provenance status as the human-readable trust
+// mark this punch's GOAL requires ("trust marks visible in the tool
+// output"): a superseded item names the id of the record that superseded
+// it, in the "superseded → <id>" shape a human (or an agent) reads directly
+// off the tool's CallToolResult text without decoding a status enum.
+func trustMark(item recall.Item) string {
+	switch item.Status {
+	case recall.StatusSuperseded:
+		return "superseded → " + item.SupersededByID
+	case recall.StatusTombstoned:
+		return "tombstoned"
+	case recall.StatusContradicted:
+		if len(item.ContradictionEvidence) == 0 {
+			return "contradicted"
+		}
+		return "contradicted → evidence " + joinInt64s(item.ContradictionEvidence)
+	default:
+		return "current"
+	}
+}
+
+func joinInt64s(ids []int64) string {
+	strs := make([]string, len(ids))
+	for i, v := range ids {
+		strs[i] = strconv.FormatInt(v, 10)
+	}
+	return strings.Join(strs, ",")
+}
+
+// RecallItem is one recall.Item rendered for the wire: ID is always the
+// record's full id, never shortened (a caller matches it against a record
+// it already holds, or quotes it back in a future note's `supersedes`);
+// Tier is the record's stored tier, verbatim; Mark is the trust annotation
+// (this punch's GOAL).
 type RecallItem struct {
 	ID   string `json:"id"`
 	Kind string `json:"kind"`
 	Tier string `json:"tier"`
-	Text string `json:"text"`
-	TS   string `json:"ts"`
+	Mark string `json:"mark"`
+	Text string `json:"text,omitempty"`
 }
 
-// RecallResult is recall's v0 return value: the caller's own project's
-// latest handoff, its declared decisions newest first, and a compressed
-// recent-timeline summary — in that order (AGENT-CONTRACT.md §The five
-// tools; this punch's WHAT TO BUILD). ProjectKey is always set, even when
-// every other field is empty, so an empty result still names the project it
-// is honestly empty for (DONE WHEN clause 3).
+// RecallResult is recall's Phase 4 return value: the caller's own project
+// (always — DONE WHEN's "never a declared one" rule), which anchor kind the
+// query resolved to, the altitude actually used, and the ordered,
+// trust-annotated item set recall.Build produced.
 type RecallResult struct {
 	ProjectKey string       `json:"project_key"`
-	Handoff    *RecallItem  `json:"handoff,omitempty"`
-	Decisions  []RecallItem `json:"decisions,omitempty"`
-	Timeline   string       `json:"timeline,omitempty"`
+	Anchor     string       `json:"anchor"`
+	Query      string       `json:"query,omitempty"`
+	Altitude   string       `json:"altitude"`
+	Items      []RecallItem `json:"items"`
 }
 
-// handleRecall serves the recall socket method. It never reads anything a
-// request line declares about identity or project (id.ProjectKey is the
-// daemon's own observation, the same rule handleBlock follows for the
-// SessionStart block) — a request naming a different project cannot make
-// recall answer for it.
+// handleRecall serves the recall socket method by running the caller's
+// query through internal/recall (decision d9d456e7: "replace the v0 stub
+// ... with a call into internal/recall"). It never reads anything a request
+// line declares about identity or project (id.ProjectKey is the daemon's
+// own observation, the same rule handleBlock follows for the SessionStart
+// block) — a request naming a different project cannot make recall answer
+// for it.
 func handleRecall(st *store.Store, id ident.Identity, raw json.RawMessage) DaemonResponse {
 	var p RecallParams
 	if len(raw) > 0 {
@@ -76,96 +189,45 @@ func handleRecall(st *store.Store, id ident.Identity, raw json.RawMessage) Daemo
 	if budgetTokens <= 0 {
 		budgetTokens = DefaultRecallBudgetTokens
 	}
+	altitude, altitudeUsed, err := parseAltitude(p.Altitude)
+	if err != nil {
+		return errResponse("invalid-params", `invalid "altitude": `+err.Error())
+	}
 
 	projectKey := id.ProjectKey
 
-	handoffRec, hasHandoff, err := st.LatestRecord(projectKey, store.KindHandoff)
-	if err != nil {
-		return errResponse("internal", err.Error())
-	}
-	decisionRecs, err := st.RecordsForProject(projectKey, store.KindDecision, maxRecallDecisions)
+	anchor, err := resolveAnchor(st, projectKey, p.Query)
 	if err != nil {
 		return errResponse("internal", err.Error())
 	}
 
-	// The recent-timeline summary covers the same span the SessionStart
-	// block's delta slot does: since the latest handoff's event cursor, or
-	// every project event when there is none (block.Render's own rule) —
-	// recall's timeline summary is "what happened since the last handoff",
-	// not an unbounded project history.
-	var sinceID int64
-	if hasHandoff {
-		sinceID = handoffRec.EventCursor
-	}
-	events, err := st.EventsSinceID(projectKey, sinceID)
+	built, err := recall.Build(st, anchor, altitude, budgetTokens)
 	if err != nil {
 		return errResponse("internal", err.Error())
 	}
-	timelineSummary := block.DeltaSummary(events)
 
-	result := assembleRecall(projectKey, handoffRec, hasHandoff, decisionRecs, timelineSummary, budgetTokens)
+	items := make([]RecallItem, len(built.Items))
+	for i, item := range built.Items {
+		items[i] = RecallItem{
+			ID:   item.ID,
+			Kind: string(item.Kind),
+			Tier: string(item.Tier),
+			Mark: trustMark(item),
+			Text: renderItemText(item.Text, altitude),
+		}
+	}
+
+	result := RecallResult{
+		ProjectKey: projectKey,
+		Anchor:     string(anchor.Kind),
+		Query:      p.Query,
+		Altitude:   altitudeUsed,
+		Items:      items,
+	}
 
 	b, err := json.Marshal(result)
 	if err != nil {
 		return errResponse("internal", err.Error())
 	}
 	return DaemonResponse{Result: b}
-}
-
-// assembleRecall builds RecallResult and trims it to budgetTokens by
-// cutting from the end: the timeline summary first, then decisions from the
-// oldest (decisionRecs is already newest-first, so "oldest" is the tail of
-// the slice) — the handoff is never cut, truncated, or dropped (this
-// punch's DONE WHEN clause 2: "the handoff survives"), unlike the
-// SessionStart block's own budget cut, which as a last resort truncates its
-// resume slot's text.
-func assembleRecall(projectKey string, handoffRec store.Record, hasHandoff bool, decisionRecs []store.Record, timelineSummary string, budgetTokens int) RecallResult {
-	var handoffItem *RecallItem
-	handoffTokens := 0
-	if hasHandoff {
-		item := toRecallItem(handoffRec)
-		handoffItem = &item
-		handoffTokens = block.EstimateTokens(item.Text)
-	}
-
-	decisionItems := make([]RecallItem, len(decisionRecs))
-	decisionTokens := make([]int, len(decisionRecs))
-	total := handoffTokens
-	for i, rec := range decisionRecs {
-		decisionItems[i] = toRecallItem(rec)
-		decisionTokens[i] = block.EstimateTokens(decisionItems[i].Text)
-		total += decisionTokens[i]
-	}
-
-	timelineTokens := block.EstimateTokens(timelineSummary)
-	total += timelineTokens
-
-	includeTimeline := timelineSummary != ""
-	if includeTimeline && total > budgetTokens {
-		total -= timelineTokens
-		includeTimeline = false
-	}
-
-	kept := len(decisionItems)
-	for kept > 0 && total > budgetTokens {
-		kept--
-		total -= decisionTokens[kept]
-	}
-	decisionItems = decisionItems[:kept]
-
-	result := RecallResult{ProjectKey: projectKey, Handoff: handoffItem, Decisions: decisionItems}
-	if includeTimeline {
-		result.Timeline = timelineSummary
-	}
-	return result
-}
-
-func toRecallItem(rec store.Record) RecallItem {
-	return RecallItem{
-		ID:   rec.ID,
-		Kind: string(rec.Kind),
-		Tier: string(rec.Tier),
-		Text: rec.Text,
-		TS:   rec.TS.UTC().Format(time.RFC3339),
-	}
 }

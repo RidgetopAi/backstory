@@ -70,10 +70,19 @@ func runDaemon(_ []string, stdout, stderr io.Writer) int {
 
 	go runClaudeBackfillOnce(st, logger)
 
+	// No resolvable home dir means no DEFAULT workspace, not a daemon that
+	// refuses to start: every repo still resolves to its own key, only the
+	// ~/projects-style parent loses its workspace label (decision bcc9fa54).
+	workspaceDirs, err := project.DefaultWorkspaceDirs()
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "backstory daemon: no default workspace dirs:", err)
+		workspaceDirs = nil
+	}
+
 	resolver := &ident.Resolver{
 		ProcFS: ident.RealProcFS{},
 		ProjectKey: func(cwd string) string {
-			return project.Key(cwd, project.RealGit{})
+			return project.Key(cwd, project.RealGit{}, workspaceDirs)
 		},
 	}
 
@@ -81,7 +90,7 @@ func runDaemon(_ []string, stdout, stderr io.Writer) int {
 	srv, err := socket.Listen(sockPath, resolver, func(id ident.Identity, conn net.Conn) {
 		defer func() { _ = conn.Close() }()
 		logIdentity(logger, id)
-		mcp.ServeDaemonConn(id, conn, st, ident.RealProcFS{}, logger, sessions, captureOff)
+		mcp.ServeDaemonConn(id, conn, st, ident.RealProcFS{}, project.RealGit{}, logger, sessions, captureOff)
 	})
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory daemon:", err)

@@ -1,0 +1,36 @@
+# Maintainer: RidgetopAi <backstory@ridgetop.ai>
+#
+# `.SRCINFO` is generated, not hand-edited: after bumping `pkgver` here, run
+#   makepkg --printsrcinfo > .SRCINFO
+# from this directory and commit both files together. This PKGBUILD is not
+# pushed to the AUR by anything in this repo or its CI — that push, like
+# marketplace submission, requires Brian's explicit approval (see
+# RELEASING.md). `make release-check` only validates this file locally; it
+# builds nothing and publishes nothing.
+pkgname=backstory
+pkgver=0.0.0
+pkgrel=1
+pkgdesc="OS memory daemon for Omarchy: systemd --user service, SQLite/FTS5 store, unix socket + MCP stdio shim"
+arch=('x86_64')
+url="https://github.com/RidgetopAi/backstory"
+license=('MIT')
+depends=('glibc')
+makedepends=('go')
+source=("$pkgname-$pkgver.tar.gz::https://github.com/RidgetopAi/backstory/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+	cd "$pkgname-$pkgver"
+	export CGO_ENABLED=0
+	go build -trimpath \
+		-ldflags "-s -w -X github.com/RidgetopAi/backstory/internal/version.Version=v$pkgver" \
+		-o bin/backstory \
+		./cmd/backstory
+}
+
+package() {
+	cd "$pkgname-$pkgver"
+	install -Dm755 bin/backstory "$pkgdir/usr/bin/backstory"
+	install -Dm644 ops/backstory.service "$pkgdir/usr/lib/systemd/user/backstory.service"
+	install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
