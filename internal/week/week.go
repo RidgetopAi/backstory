@@ -7,7 +7,6 @@ package week
 import (
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -35,6 +34,12 @@ const maxRecordsPerProject = 1000
 // Params is Build's input.
 type Params struct {
 	Store *store.Store
+	// Git resolves a project's toplevel repo identity for decision
+	// f3fa04c7's per-repo handoff resolution (store.HandoffForLabel) when a
+	// project's latest session lives inside a workspace. nil is safe as
+	// long as no active project's session resolves to a workspace home —
+	// the case every existing (pre-workspace) caller and test exercises.
+	Git project.Git
 	// Now is the reference instant for the window and every "possibly
 	// stale" / "expired" check. Zero means time.Now().
 	Now time.Time
@@ -178,10 +183,15 @@ func Build(p Params) (Result, error) {
 		return Result{}, err
 	}
 
+	workspaces, err := project.DefaultWorkspaceDirs()
+	if err != nil {
+		workspaces = nil
+	}
+
 	var attention []AttentionItem
 	summaries := make(map[string]ProjectSummary, len(keys))
 	for _, key := range keys {
-		summary, items, err := buildProject(p.Store, key, since, now)
+		summary, items, err := buildProject(p.Store, key, since, now, p.Git, workspaces)
 		if err != nil {
 			return Result{}, err
 		}
@@ -194,7 +204,7 @@ func Build(p Params) (Result, error) {
 		return Result{}, err
 	}
 
-	weekGrid, err := buildWeekGrid(p.Store, keys, since, now)
+	weekGrid, err := buildWeekGrid(p.Store, keys, since, now, workspaces)
 	if err != nil {
 		return Result{}, err
 	}
@@ -234,18 +244,19 @@ func activeProjectKeys(st *store.Store, since time.Time) ([]string, error) {
 // AttentionItem it contributes. Both read the SAME handoff +
 // store.HandoffFreshness call, so the summary's HandoffStale flag and an
 // AttentionPossiblyStaleHandoff item can never disagree with each other.
-func buildProject(st *store.Store, projectKey string, since, now time.Time) (ProjectSummary, []AttentionItem, error) {
+func buildProject(st *store.Store, projectKey string, since, now time.Time, git project.Git, workspaces []string) (ProjectSummary, []AttentionItem, error) {
 	summary := ProjectSummary{ProjectKey: projectKey}
 
-	name, err := displayName(st, projectKey)
+	name, err := displayName(st, projectKey, workspaces)
 	if err != nil {
 		return ProjectSummary{}, nil, err
 	}
 	summary.DisplayName = name
 
-	if sess, ok, err := st.LatestSessionForProject(projectKey); err != nil {
+	sess, hasSess, err := st.LatestSessionForProject(projectKey)
+	if err != nil {
 		return ProjectSummary{}, nil, fmt.Errorf("week: latest session for %s: %w", projectKey, err)
-	} else if ok {
+	} else if hasSess {
 		summary.CWD = sess.CWD
 	}
 
@@ -257,7 +268,7 @@ func buildProject(st *store.Store, projectKey string, since, now time.Time) (Pro
 
 	var attention []AttentionItem
 
-	handoff, hasHandoff, err := st.LatestRecord(projectKey, store.KindHandoff)
+	handoff, hasHandoff, err := projectHandoff(st, projectKey, sess, hasSess, name, git, workspaces)
 	if err != nil {
 		return ProjectSummary{}, nil, fmt.Errorf("week: latest handoff for %s: %w", projectKey, err)
 	}
@@ -313,6 +324,24 @@ func buildProject(st *store.Store, projectKey string, since, now time.Time) (Pro
 	}
 
 	return summary, attention, nil
+}
+
+// projectHandoff resolves projectKey's own handoff for the Where-you-left-
+// off / Attention slot (decision f3fa04c7): when projectKey's latest
+// session lives inside a workspace, ALL handoffs are filed under that
+// workspace's home key (HOME), never under projectKey's own key — so this
+// looks up the home's newest handoff whose own session's labels include
+// projectKey's label (store.HandoffForLabel), the same per-repo filter
+// block's Resume slot applies. Outside any workspace (or with no session at
+// all), this is exactly the old st.LatestRecord(projectKey, KindHandoff)
+// call, unchanged.
+func projectHandoff(st *store.Store, projectKey string, sess store.Session, hasSess bool, label string, git project.Git, workspaces []string) (store.Record, bool, error) {
+	if hasSess {
+		if home, ok := project.WorkspaceHome(sess.CWD, workspaces); ok && home != projectKey {
+			return st.HandoffForLabel(home, label, git, workspaces)
+		}
+	}
+	return st.LatestRecord(projectKey, store.KindHandoff)
 }
 
 // uncommittedSessionEndItems is Attention kind (b): a session.git_state
@@ -410,7 +439,7 @@ func buildWhereLeftOff(st *store.Store, keys []string, summaries map[string]Proj
 // 9be5c1d5 clause 3). It fetches each project's window-bounded events and
 // records once, then buckets them by day in Go, rather than issuing one
 // query per (project, day) pair.
-func buildWeekGrid(st *store.Store, keys []string, since, now time.Time) ([]DayProjectStats, error) {
+func buildWeekGrid(st *store.Store, keys []string, since, now time.Time, workspaces []string) ([]DayProjectStats, error) {
 	days := make([]time.Time, WindowDays)
 	for i := range days {
 		days[i] = since.AddDate(0, 0, i)
@@ -418,7 +447,7 @@ func buildWeekGrid(st *store.Store, keys []string, since, now time.Time) ([]DayP
 
 	var out []DayProjectStats
 	for _, key := range keys {
-		name, err := displayName(st, key)
+		name, err := displayName(st, key, workspaces)
 		if err != nil {
 			return nil, err
 		}
@@ -500,12 +529,16 @@ func dayStats(events []store.TimelineEvent, records []store.Record, dayStart, da
 	}
 }
 
-// displayName is projectKey's human-readable name: the basename of its
-// stored toplevel path, or projectKey itself when the project has no
-// projects row (should not happen for a key ActiveProjectKeys returned,
-// since every session/record write upserts one first, but a caller must
-// never crash over a stale or hand-seeded key that skipped it).
-func displayName(st *store.Store, projectKey string) (string, error) {
+// displayName is projectKey's human-readable name: its stored toplevel
+// path, made workspace-relative when it lives inside a workspace ("
+// projects/omarcade", decision f3fa04c7's LABELS display rule) — else the
+// basename it always was (project.WorkspaceRelativeName's fallback is
+// exactly the old filepath.Base(toplevel), so this is a strict superset) —
+// or projectKey itself when the project has no projects row (should not
+// happen for a key ActiveProjectKeys returned, since every session/record
+// write upserts one first, but a caller must never crash over a stale or
+// hand-seeded key that skipped it).
+func displayName(st *store.Store, projectKey string, workspaces []string) (string, error) {
 	proj, ok, err := st.GetProject(projectKey)
 	if err != nil {
 		return "", fmt.Errorf("week: get project %s: %w", projectKey, err)
@@ -513,7 +546,7 @@ func displayName(st *store.Store, projectKey string) (string, error) {
 	if !ok || proj.Toplevel == "" {
 		return projectKey, nil
 	}
-	return filepath.Base(filepath.Clean(proj.Toplevel)), nil
+	return project.WorkspaceRelativeName(proj.Toplevel, workspaces), nil
 }
 
 // freshnessReasonSummary renders reasons as "<kind>, <kind>, ..." — This

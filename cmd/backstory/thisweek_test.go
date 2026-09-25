@@ -22,6 +22,13 @@ import (
 // mustInsertFixtureRecord uses for its own golden determinism.
 var thisWeekFixtureNow = time.Date(2026, 1, 8, 18, 0, 0, 0, time.UTC)
 
+// fixtureWorkspaceDir is the fixed (never t.TempDir()-random) workspace dir
+// every this-week golden test configures via BACKSTORY_WORKSPACE_DIRS
+// (runThisWeekCLI): a literal path, like every other fixture path in this
+// file, so the workspace-relative display labels (task 482b2320, decision
+// f3fa04c7) it produces are byte-for-byte reproducible in the golden.
+const fixtureWorkspaceDir = "/home/brian/projects"
+
 // date builds a fixture timestamp in January 2026 — every call site in
 // this file falls within thisWeekFixtureNow's 7-day window, 2026-01-02
 // through 2026-01-08.
@@ -92,6 +99,12 @@ func mustInsertThisWeekRecord(t *testing.T, st *store.Store, r fixtureRecord) {
 //     "widget-suite" (store.SetProjectGroup), no attention of their own —
 //     DONE WHEN clause 3's group collapse, exercised end to end through the
 //     CLI.
+//   - acme-week-omarcade / acme-week-vidflow: two repos under the fixed
+//     workspace fixtureWorkspaceDir, each with its own handoff filed under
+//     the WORKSPACE's home key (exactly what HOME files a real one under) —
+//     task 482b2320's DONE WHEN clause 5: separate where_left_off rows with
+//     display_name projects/omarcade and projects/vidflow, each resolving
+//     its OWN handoff out of the shared home.
 func buildThisWeekFixtureStore(t *testing.T, dataDir string) {
 	t.Helper()
 	dbPath := filepath.Join(dataDir, "backstory", "backstory.db")
@@ -177,6 +190,48 @@ func buildThisWeekFixtureStore(t *testing.T, dataDir string) {
 		About: []string{"thing.go"}, ExpiresAt: &expiresAt,
 	})
 
+	// --- acme-week-omarcade / acme-week-vidflow: two repos sharing one
+	// workspace HOME (task 482b2320, decision f3fa04c7). Both handoffs are
+	// filed under the workspace's own key, exactly as internal/mcp's HOME
+	// rule would file them for a session started inside either repo.
+	const omarcadeProject = "acme-week-omarcade"
+	const vidflowProject = "acme-week-vidflow"
+	const workspaceHome = "workspace:" + fixtureWorkspaceDir
+	if err := st.UpsertProject(store.Project{Key: workspaceHome, Toplevel: fixtureWorkspaceDir, FirstSeen: date(3, 8, 0)}); err != nil {
+		t.Fatalf("UpsertProject(%s): %v", workspaceHome, err)
+	}
+	if err := st.UpsertProject(store.Project{Key: omarcadeProject, Toplevel: fixtureWorkspaceDir + "/omarcade", FirstSeen: date(3, 8, 0)}); err != nil {
+		t.Fatalf("UpsertProject(%s): %v", omarcadeProject, err)
+	}
+	if err := st.UpsertProject(store.Project{Key: vidflowProject, Toplevel: fixtureWorkspaceDir + "/vidflow", FirstSeen: date(3, 8, 0)}); err != nil {
+		t.Fatalf("UpsertProject(%s): %v", vidflowProject, err)
+	}
+	sessOmarcade, err := st.StartSession(store.StartSessionParams{
+		ID: "sess-omarcade-1", Agent: "claude", CWD: fixtureWorkspaceDir + "/omarcade", ProjectKey: omarcadeProject,
+		StartedAt: date(3, 8, 0), Origin: store.OriginLive,
+	})
+	if err != nil {
+		t.Fatalf("StartSession(omarcade): %v", err)
+	}
+	mustAppendEvent(t, st, store.Event{TS: date(3, 8, 0), Kind: "session.start", SessionID: sessOmarcade, Source: "shell", Payload: `{}`})
+	mustInsertThisWeekRecord(t, st, fixtureRecord{
+		ID: "handoff-omarcade", ProjectKey: workspaceHome, SessionID: sessOmarcade, TS: date(3, 8, 5),
+		Kind: store.KindHandoff, Tier: store.TierAgentDeclared, Text: "Resume: ship omarcade's feature",
+	})
+
+	sessVidflow, err := st.StartSession(store.StartSessionParams{
+		ID: "sess-vidflow-1", Agent: "claude", CWD: fixtureWorkspaceDir + "/vidflow", ProjectKey: vidflowProject,
+		StartedAt: date(3, 9, 0), Origin: store.OriginLive,
+	})
+	if err != nil {
+		t.Fatalf("StartSession(vidflow): %v", err)
+	}
+	mustAppendEvent(t, st, store.Event{TS: date(3, 9, 0), Kind: "session.start", SessionID: sessVidflow, Source: "shell", Payload: `{}`})
+	mustInsertThisWeekRecord(t, st, fixtureRecord{
+		ID: "handoff-vidflow", ProjectKey: workspaceHome, SessionID: sessVidflow, TS: date(3, 9, 5),
+		Kind: store.KindHandoff, Tier: store.TierAgentDeclared, Text: "Resume: ship vidflow's feature",
+	})
+
 	// --- acme-week-group-a / acme-week-group-b: grouped, nothing to flag.
 	const groupAProject = "acme-week-group-a"
 	const groupBProject = "acme-week-group-b"
@@ -222,10 +277,13 @@ func mustAppendEvent(t *testing.T, st *store.Store, e store.Event) int64 {
 
 // runThisWeekCLI runs `backstory this-week` in-process against dataDir's
 // store, with thisWeekNow pinned to thisWeekFixtureNow for the duration of
-// the call.
+// the call, and BACKSTORY_WORKSPACE_DIRS pinned to fixtureWorkspaceDir
+// (task 482b2320) so every golden output's workspace-relative display
+// labels are independent of the invoking environment's own $HOME.
 func runThisWeekCLI(t *testing.T, dataDir string, args ...string) (stdout, stderr string, code int) {
 	t.Helper()
 	t.Setenv("XDG_DATA_HOME", dataDir)
+	t.Setenv("BACKSTORY_WORKSPACE_DIRS", fixtureWorkspaceDir)
 	orig := thisWeekNow
 	thisWeekNow = func() time.Time { return thisWeekFixtureNow }
 	t.Cleanup(func() { thisWeekNow = orig })
@@ -291,11 +349,36 @@ func TestThisWeekGoldenJSON(t *testing.T) {
 	if len(parsed.Attention) != 4 {
 		t.Fatalf("attention items = %d, want 4 (got %+v)", len(parsed.Attention), parsed.Attention)
 	}
-	if len(parsed.WhereLeftOff) != 4 {
-		t.Fatalf("where_left_off rows = %d, want 4 (3 standalone + 1 group; got %+v)", len(parsed.WhereLeftOff), parsed.WhereLeftOff)
+	if len(parsed.WhereLeftOff) != 6 {
+		t.Fatalf("where_left_off rows = %d, want 6 (3 standalone + 1 group + omarcade + vidflow; got %+v)", len(parsed.WhereLeftOff), parsed.WhereLeftOff)
 	}
-	if len(parsed.Week) != 5 {
-		t.Fatalf("week entries = %d, want 5 (got %+v)", len(parsed.Week), parsed.Week)
+	if len(parsed.Week) != 7 {
+		t.Fatalf("week entries = %d, want 7 (got %+v)", len(parsed.Week), parsed.Week)
+	}
+
+	// task 482b2320, decision f3fa04c7's DONE WHEN clause 5: omarcade and
+	// vidflow each get their OWN where_left_off row, each resolving its OWN
+	// handoff out of the shared workspace home, with a workspace-relative
+	// display_name.
+	names := map[string]projectSummaryJSON{}
+	for _, row := range parsed.WhereLeftOff {
+		if row.Project != nil {
+			names[row.Project.DisplayName] = *row.Project
+		}
+	}
+	omarcade, ok := names["projects/omarcade"]
+	if !ok {
+		t.Fatalf("no where_left_off row with display_name projects/omarcade; got %+v", parsed.WhereLeftOff)
+	}
+	if omarcade.HandoffFirstLine != "Resume: ship omarcade's feature" {
+		t.Errorf("omarcade row handoff_first_line = %q, want its OWN handoff, not vidflow's", omarcade.HandoffFirstLine)
+	}
+	vidflow, ok := names["projects/vidflow"]
+	if !ok {
+		t.Fatalf("no where_left_off row with display_name projects/vidflow; got %+v", parsed.WhereLeftOff)
+	}
+	if vidflow.HandoffFirstLine != "Resume: ship vidflow's feature" {
+		t.Errorf("vidflow row handoff_first_line = %q, want its OWN handoff, not omarcade's", vidflow.HandoffFirstLine)
 	}
 }
 

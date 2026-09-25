@@ -7,6 +7,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/store"
 	"github.com/RidgetopAi/backstory/internal/week"
 )
@@ -45,7 +46,7 @@ func runThisWeek(args []string, stdout, stderr io.Writer) int {
 	}
 	defer func() { _ = st.Close() }()
 
-	result, err := week.Build(week.Params{Store: st, Now: thisWeekNow()})
+	result, err := week.Build(week.Params{Store: st, Git: project.RealGit{}, Now: thisWeekNow()})
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory this-week:", err)
 		return 1
