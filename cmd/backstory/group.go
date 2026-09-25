@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -22,6 +23,16 @@ import (
 // but it lives here, named, rather than as a literal duration where it is
 // used.
 const groupListRecentWindow = 7 * 24 * time.Hour
+
+// groupListNow returns the reference instant `backstory group list`'s own
+// "seen this week" window (groupListRecentWindow) is computed back from —
+// a package var, the same pattern thisweek.go's own thisWeekNow already
+// establishes, so a test can pin it to a fixed instant instead of the real
+// wall clock (task 4fe02e30 round 6: the group-list golden/parity tests
+// need the SAME reference instant this-week's own thisWeekNow override
+// uses, so a session seeded at one fixed fixture date shows up as "seen"
+// in both this-week's window and group list's).
+var groupListNow = time.Now
 
 // runGroup dispatches `backstory group set|clear|list`.
 func runGroup(args []string, stdout, stderr io.Writer) int {
@@ -74,7 +85,7 @@ func runGroupSet(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
-	if err := st.SetProjectGroup(humanIdentity, groupName, projectKey); err != nil {
+	if err := st.SetProjectGroup(humanIdentity, groupName, projectKey, resolveWorkspaceDirs()); err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory group set:", err)
 		return 1
 	}
@@ -110,7 +121,7 @@ func runGroupClear(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 
-	if err := st.ClearProjectGroup(humanIdentity, projectKey); err != nil {
+	if err := st.ClearProjectGroup(humanIdentity, projectKey, resolveWorkspaceDirs()); err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory group clear:", err)
 		return 1
 	}
@@ -172,20 +183,31 @@ func runGroupList(args []string, stdout, stderr io.Writer) int {
 	}
 	defer func() { _ = st.Close() }()
 
+	workspaceDirs := resolveWorkspaceDirs()
+
 	memberships, err := st.ListGroups()
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory group list:", err)
 		return 1
 	}
-	seen, err := st.ProjectsSeenSince(time.Now().Add(-groupListRecentWindow))
+	seen, err := st.ProjectsSeenSince(groupListNow().Add(-groupListRecentWindow))
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory group list:", err)
 		return 1
 	}
+	// Canonicalized and deduped (task 4fe02e30 round 6 defect B): `seen`
+	// comes straight off sessions.project_key, so a folder with history
+	// under both its legacy plain key and its workspace-prefixed key
+	// appears twice there — collapsed to ONE entry, matching the `projects`
+	// array's own legacy/workspace merge (dedupeLegacyWorkspaceKeys), so
+	// `ungrouped` and `groups[].projects` below never show the legacy key
+	// as its own row.
+	seen = canonicalizeAndDedupeKeys(seen, workspaceDirs)
 
 	// ListGroups already orders by group_name then project_key, so a single
 	// pass preserves that order for both the group list and each group's
-	// project list.
+	// project list. SetProjectGroup canonicalizes projectKey before writing,
+	// so memberships already carries only canonical keys.
 	grouped := map[string]bool{}
 	byGroup := map[string][]string{}
 	var groupOrder []string
@@ -203,9 +225,10 @@ func runGroupList(args []string, stdout, stderr io.Writer) int {
 			ungrouped = append(ungrouped, key)
 		}
 	}
+	sort.Strings(ungrouped)
 
 	if *jsonOut {
-		projects, err := buildGroupListProjects(st)
+		projects, err := buildGroupListProjects(st, workspaceDirs)
 		if err != nil {
 			_, _ = fmt.Fprintln(stderr, "backstory group list:", err)
 			return 1
@@ -242,6 +265,44 @@ func runGroupList(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
+// resolveWorkspaceDirs resolves the configured workspace directories once,
+// here, at the process entry (task 482b2320, decision f3fa04c7's clause 7:
+// workspace dirs are resolved by the caller, never internally by
+// internal/week or internal/store) — every `backstory group` subcommand
+// that touches project_groups or ProjectsSeenSince needs this same list to
+// canonicalize a legacy plain key to its workspace-prefixed form (task
+// 4fe02e30 round 6 defect B). nil (never resolved) is safe: it just means
+// no key is ever seen as a workspace legacy form, the same "no workspace
+// configured" fallback DefaultWorkspaceDirs' own callers already used.
+func resolveWorkspaceDirs() []string {
+	workspaceDirs, err := project.DefaultWorkspaceDirs()
+	if err != nil {
+		return nil
+	}
+	return workspaceDirs
+}
+
+// canonicalizeAndDedupeKeys resolves every key through
+// store.CanonicalProjectKey(key, workspaceDirs) and removes duplicates,
+// keeping first-occurrence order — `backstory group list`'s `seen` (task
+// 4fe02e30 round 6 defect B): a folder with sessions recorded under both
+// its legacy plain key and its workspace-prefixed key must collapse to the
+// one canonical entry, the same merge dedupeLegacyWorkspaceKeys already
+// applies to the `projects` array's own key set.
+func canonicalizeAndDedupeKeys(keys []string, workspaceDirs []string) []string {
+	seen := make(map[string]bool, len(keys))
+	out := make([]string, 0, len(keys))
+	for _, k := range keys {
+		canon := store.CanonicalProjectKey(k, workspaceDirs)
+		if seen[canon] {
+			continue
+		}
+		seen[canon] = true
+		out = append(out, canon)
+	}
+	return out
+}
+
 // buildGroupListProjects computes `backstory group list --json`'s
 // `projects` array: every project key backstory knows about
 // (store.AllProjectKeys), a legacy plain key merged into its workspace key
@@ -250,20 +311,12 @@ func runGroupList(args []string, stdout, stderr io.Writer) int {
 // second copy of the workspace-relative display rule (round 5 desk defect:
 // a git project_key's last path segment is "<repo>.git", not the repo's
 // real name) — and group from store.GroupOf ("" when ungrouped).
-func buildGroupListProjects(st *store.Store) ([]groupListProject, error) {
+func buildGroupListProjects(st *store.Store, workspaceDirs []string) ([]groupListProject, error) {
 	keys, err := st.AllProjectKeys()
 	if err != nil {
 		return nil, fmt.Errorf("all project keys: %w", err)
 	}
 	keys = dedupeLegacyWorkspaceKeys(keys)
-
-	// Resolved once here, at the process entry, never inside internal/week
-	// (task 482b2320, decision f3fa04c7's clause 7) — the same pattern
-	// runThisWeek's own workspaceDirs resolution follows.
-	workspaceDirs, err := project.DefaultWorkspaceDirs()
-	if err != nil {
-		workspaceDirs = nil
-	}
 
 	out := make([]groupListProject, 0, len(keys))
 	for _, key := range keys {
@@ -271,7 +324,7 @@ func buildGroupListProjects(st *store.Store) ([]groupListProject, error) {
 		if err != nil {
 			return nil, fmt.Errorf("display name for %s: %w", key, err)
 		}
-		groupName, grouped, err := st.GroupOf(key)
+		groupName, grouped, err := st.GroupOf(key, workspaceDirs)
 		if err != nil {
 			return nil, fmt.Errorf("group of %s: %w", key, err)
 		}

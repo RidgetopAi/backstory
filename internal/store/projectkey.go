@@ -49,3 +49,23 @@ func projectKeyMatches(candidate, key string) bool {
 	}
 	return false
 }
+
+// CanonicalProjectKey resolves key to the form group storage and lookup
+// treat as canonical (task 4fe02e30 round 6 defect B): key itself, unless
+// key IS the plain legacy form of one of workspaceDirs
+// (project.WorkspaceKeyForLegacy) — the path a pre-workspace build wrote
+// for the same folder before the re-key (79f7b20e) minted the workspace:
+// prefix — in which case the workspace-prefixed key. GroupOf,
+// SetProjectGroup and ClearProjectGroup all resolve their projectKey
+// through this BEFORE any group table read or write, so `group set|clear`
+// on either form of the same folder's key agree, and a group lookup for
+// history recorded under the legacy key finds a group set on the
+// workspace key (the store alias projectKeyAliases already resolves the
+// read the other way, workspace -> legacy, for a read whose query key IS
+// the workspace form; this is the query key itself starting out legacy).
+func CanonicalProjectKey(key string, workspaceDirs []string) string {
+	if canon, ok := project.WorkspaceKeyForLegacy(key, workspaceDirs); ok {
+		return canon
+	}
+	return key
+}

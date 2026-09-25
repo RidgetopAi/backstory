@@ -62,7 +62,7 @@ func groupOfOrFatal(t *testing.T, dbPath, projectKey string) (string, bool) {
 		t.Fatalf("store.Open(%s): %v", dbPath, err)
 	}
 	defer func() { _ = st.Close() }()
-	name, ok, err := st.GroupOf(projectKey)
+	name, ok, err := st.GroupOf(projectKey, nil)
 	if err != nil {
 		t.Fatalf("GroupOf(%s): %v", projectKey, err)
 	}

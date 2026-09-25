@@ -27,8 +27,12 @@ type GroupMembership struct {
 // it was previously in (project_key is project_groups' primary key, so a
 // project is in at most one group at a time; re-setting it is a move, not
 // an additional membership). It refuses any identity other than
-// IdentityHuman and leaves the table unchanged when it does.
-func (s *Store) SetProjectGroup(identity Identity, groupName, projectKey string) error {
+// IdentityHuman and leaves the table unchanged when it does. projectKey is
+// resolved through CanonicalProjectKey(projectKey, workspaceDirs) before
+// the write, so a group set on a folder's legacy plain key and its
+// workspace-prefixed key land in the SAME row (task 4fe02e30 round 6
+// defect B).
+func (s *Store) SetProjectGroup(identity Identity, groupName, projectKey string, workspaceDirs []string) error {
 	if identity.Kind != IdentityHuman {
 		return ErrProjectGroupRequiresHuman
 	}
@@ -38,6 +42,7 @@ func (s *Store) SetProjectGroup(identity Identity, groupName, projectKey string)
 	if projectKey == "" {
 		return fmt.Errorf("store: set project group: project key required")
 	}
+	projectKey = CanonicalProjectKey(projectKey, workspaceDirs)
 	_, err := s.db.Exec(`INSERT INTO project_groups (project_key, group_name, set_at)
 		VALUES (?, ?, ?)
 		ON CONFLICT(project_key) DO UPDATE SET
@@ -53,11 +58,15 @@ func (s *Store) SetProjectGroup(identity Identity, groupName, projectKey string)
 // ClearProjectGroup removes projectKey from whatever group it is in.
 // Clearing a project that is not in any group is a no-op, not an error. It
 // refuses any identity other than IdentityHuman and leaves the table
-// unchanged when it does.
-func (s *Store) ClearProjectGroup(identity Identity, projectKey string) error {
+// unchanged when it does. projectKey is resolved through
+// CanonicalProjectKey(projectKey, workspaceDirs) first, the same as
+// SetProjectGroup, so `group clear` on either form of a folder's key
+// reverses whichever form `group set` actually stored under.
+func (s *Store) ClearProjectGroup(identity Identity, projectKey string, workspaceDirs []string) error {
 	if identity.Kind != IdentityHuman {
 		return ErrProjectGroupRequiresHuman
 	}
+	projectKey = CanonicalProjectKey(projectKey, workspaceDirs)
 	if _, err := s.db.Exec(`DELETE FROM project_groups WHERE project_key = ?`, projectKey); err != nil {
 		return fmt.Errorf("store: clear project group %s: %w", projectKey, err)
 	}
@@ -65,12 +74,18 @@ func (s *Store) ClearProjectGroup(identity Identity, projectKey string) error {
 }
 
 // GroupOf returns projectKey's current group and whether it is in one at
-// all — checking projectKey's read-side alias set (projectKeyAliases) in
-// order, so a workspace project not itself grouped since the re-key still
-// reports whatever group a human set on its legacy key before it. It is
-// read-only and takes no Identity: reading a project's group is not a
-// human-only power, only setting or clearing one is.
-func (s *Store) GroupOf(projectKey string) (string, bool, error) {
+// all. projectKey is first resolved through
+// CanonicalProjectKey(projectKey, workspaceDirs) — task 4fe02e30 round 6
+// defect B: a caller querying by a folder's legacy plain key (This Week's
+// own repoKey identity for pre-workspace session history) must find the
+// group a human set on that folder's workspace-prefixed key — then checked
+// against projectKey's read-side alias set (projectKeyAliases) in order,
+// so a workspace project not itself grouped since the re-key still reports
+// whatever group a human set on its legacy key before it. It is read-only
+// and takes no Identity: reading a project's group is not a human-only
+// power, only setting or clearing one is.
+func (s *Store) GroupOf(projectKey string, workspaceDirs []string) (string, bool, error) {
+	projectKey = CanonicalProjectKey(projectKey, workspaceDirs)
 	for _, key := range projectKeyAliases(projectKey) {
 		var name string
 		err := s.db.QueryRow(`SELECT group_name FROM project_groups WHERE project_key = ?`, key).Scan(&name)
