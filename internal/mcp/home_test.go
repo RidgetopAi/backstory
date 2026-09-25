@@ -15,7 +15,7 @@ import (
 // uses for the same purpose.
 func initGitRepo(t *testing.T, dir string) {
 	t.Helper()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatalf("mkdir %s: %v", dir, err)
 	}
 	cmd := exec.Command("git", "init", "-q", dir) //nolint:gosec // fixed literal git subcommand, dir is this test's own t.TempDir()
