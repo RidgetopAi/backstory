@@ -7,6 +7,7 @@ import (
 	"io"
 
 	"github.com/RidgetopAi/backstory/internal/block"
+	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/recall"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
@@ -64,7 +65,11 @@ func runRecall(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	result, err := recall.Build(st, anchor, altitude, *budget)
+	// Resolved once here, at the process entry, never inside internal/recall
+	// or internal/store (task 482b2320, decision f3fa04c7's clause 7).
+	workspaces, _ := project.DefaultWorkspaceDirs()
+
+	result, err := recall.Build(st, anchor, altitude, *budget, workspaces)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory recall:", err)
 		return 1

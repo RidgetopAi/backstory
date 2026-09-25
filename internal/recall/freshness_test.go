@@ -88,7 +88,7 @@ func mustAffirm(t *testing.T, st *store.Store, sessionID, targetID string) {
 // returns the Item for handoffID.
 func buildHandoffItem(t *testing.T, st *store.Store, handoffID string) Item {
 	t.Helper()
-	result, err := Build(st, ProjectAnchor(freshnessProjectKey), AltitudeFull, testBudget)
+	result, err := Build(st, ProjectAnchor(freshnessProjectKey), AltitudeFull, testBudget, nil)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}

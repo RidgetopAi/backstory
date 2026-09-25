@@ -41,7 +41,7 @@ func TestHandoffHomeIsWorkspaceForRepoUnderIt(t *testing.T) {
 	workspaceDir := filepath.Join(tmp, "projects")
 	omarcadeDir := filepath.Join(workspaceDir, "omarcade")
 	initGitRepo(t, omarcadeDir)
-	t.Setenv("BACKSTORY_WORKSPACE_DIRS", workspaceDir)
+	workspaces := []string{workspaceDir}
 
 	ownKey := project.Key(omarcadeDir, project.RealGit{}, []string{workspaceDir})
 	wantHome := "workspace:" + filepath.Clean(workspaceDir)
@@ -50,7 +50,7 @@ func TestHandoffHomeIsWorkspaceForRepoUnderIt(t *testing.T) {
 	}
 
 	st := mustOpenStore(t)
-	sockPath := testDaemon(t, st, "claude", omarcadeDir, ownKey)
+	sockPath := testDaemonWithWorkspaces(t, st, "claude", omarcadeDir, ownKey, workspaces)
 	shim := dialShim(t, sockPath)
 
 	raw, rerr := shim.CallTool(ToolNote, json.RawMessage(`{"kind":"handoff","text":"shipped the omarcade feature"}`))
@@ -80,12 +80,12 @@ func TestHandoffOutsideAnyWorkspaceKeepsRepoKey(t *testing.T) {
 	workspaceDir := filepath.Join(tmp, "projects")
 	standaloneDir := filepath.Join(tmp, "standalone-repo")
 	initGitRepo(t, standaloneDir)
-	t.Setenv("BACKSTORY_WORKSPACE_DIRS", workspaceDir)
+	workspaces := []string{workspaceDir}
 
 	ownKey := project.Key(standaloneDir, project.RealGit{}, []string{workspaceDir})
 
 	st := mustOpenStore(t)
-	sockPath := testDaemon(t, st, "claude", standaloneDir, ownKey)
+	sockPath := testDaemonWithWorkspaces(t, st, "claude", standaloneDir, ownKey, workspaces)
 	shim := dialShim(t, sockPath)
 
 	raw, rerr := shim.CallTool(ToolNote, json.RawMessage(`{"kind":"handoff","text":"shipped the standalone feature"}`))
@@ -114,12 +114,12 @@ func TestNonHandoffRecordKeepsSessionOwnKeyUnderWorkspace(t *testing.T) {
 	workspaceDir := filepath.Join(tmp, "projects")
 	omarcadeDir := filepath.Join(workspaceDir, "omarcade")
 	initGitRepo(t, omarcadeDir)
-	t.Setenv("BACKSTORY_WORKSPACE_DIRS", workspaceDir)
+	workspaces := []string{workspaceDir}
 
 	ownKey := project.Key(omarcadeDir, project.RealGit{}, []string{workspaceDir})
 
 	st := mustOpenStore(t)
-	sockPath := testDaemon(t, st, "claude", omarcadeDir, ownKey)
+	sockPath := testDaemonWithWorkspaces(t, st, "claude", omarcadeDir, ownKey, workspaces)
 	shim := dialShim(t, sockPath)
 
 	raw, rerr := shim.CallTool(ToolNote, json.RawMessage(`{"kind":"decision","text":"chose the approach"}`))

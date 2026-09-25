@@ -21,7 +21,7 @@ import (
 // restore -> GREEN.
 func TestHandoffFreshnessScopesToHomeAcrossRepos(t *testing.T) {
 	workspaceDir := "/tmp/fixture-freshness/projects"
-	t.Setenv("BACKSTORY_WORKSPACE_DIRS", workspaceDir)
+	workspaces := []string{workspaceDir}
 
 	home := "workspace:" + workspaceDir
 	omarcadeKey := workspaceDir + "/omarcade"
@@ -57,7 +57,7 @@ func TestHandoffFreshnessScopesToHomeAcrossRepos(t *testing.T) {
 	}
 	editID := mustAppendToolUseEvent(t, s, sessOmarcade, "Edit", fileF)
 
-	reasons, err := s.HandoffFreshness(handoff)
+	reasons, err := s.HandoffFreshness(handoff, workspaces)
 	if err != nil {
 		t.Fatalf("HandoffFreshness: %v", err)
 	}

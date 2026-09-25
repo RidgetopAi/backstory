@@ -20,15 +20,16 @@ type BlockResult struct {
 // exactly as the daemon observed it (id.ProjectKey) — never from anything a
 // request line claims — excluding the caller's own session from slot 3's
 // coordination list.
-func handleBlock(st *store.Store, procfs ident.ProcFS, id ident.Identity, sessionID string, git project.Git) DaemonResponse {
+func handleBlock(st *store.Store, procfs ident.ProcFS, id ident.Identity, sessionID string, git project.Git, workspaces []string) DaemonResponse {
 	text, err := block.Render(block.Params{
-		Store:      st,
-		ProcFS:     procfs,
-		ProjectKey: id.ProjectKey,
-		SessionID:  sessionID,
-		Harness:    id.Harness,
-		CWD:        id.CWD,
-		Git:        git,
+		Store:         st,
+		ProcFS:        procfs,
+		ProjectKey:    id.ProjectKey,
+		SessionID:     sessionID,
+		Harness:       id.Harness,
+		CWD:           id.CWD,
+		Git:           git,
+		WorkspaceDirs: workspaces,
 	})
 	if err != nil {
 		return errResponse("internal", err.Error())

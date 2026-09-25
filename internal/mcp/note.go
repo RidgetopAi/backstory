@@ -59,7 +59,7 @@ var noteKinds = map[string]store.RecordKind{
 // `backstory hook post-tool-use` already does before it ever dials the
 // daemon — note is reachable from any socket peer, so the daemon itself
 // must refuse it too.
-func handleNote(st *store.Store, identity store.Identity, sessionID, projectKey, cwd string, raw json.RawMessage, captureOff func() (bool, error)) DaemonResponse {
+func handleNote(st *store.Store, identity store.Identity, sessionID, projectKey, cwd string, workspaces []string, raw json.RawMessage, captureOff func() (bool, error)) DaemonResponse {
 	if off, err := captureOff(); err != nil {
 		return errResponse("internal", err.Error())
 	} else if off {
@@ -91,7 +91,7 @@ func handleNote(st *store.Store, identity store.Identity, sessionID, projectKey,
 	}
 
 	if kind == store.KindHandoff {
-		if home, ok := handoffHomeKey(cwd); ok {
+		if home, ok := handoffHomeKey(cwd, workspaces); ok {
 			if err := ensureHomeProject(st, home); err != nil {
 				return errResponse("internal", err.Error())
 			}
@@ -156,17 +156,16 @@ func handleNote(st *store.Store, identity store.Identity, sessionID, projectKey,
 // the enclosing workspace's key when the writing session's own folder (cwd)
 // is a configured workspace dir or lives inside one, at any depth
 // (project.WorkspaceHome) — reusing internal/project's own workspace rule
-// and DefaultWorkspaceDirs rather than a second copy of either. ok is false
-// for a session outside every configured workspace (a repo with no
-// workspace at all, or cwd empty), in which case the caller keeps the
-// session's own project_key: only handoffs are re-homed; every other record
-// kind, and the session's own observed identity, are untouched.
-func handoffHomeKey(cwd string) (string, bool) {
+// rather than a second copy of it. workspaces is the caller's
+// already-resolved workspace directory list (task 482b2320, decision
+// f3fa04c7's clause 7): mcp never resolves workspace dirs itself (no
+// project.DefaultWorkspaceDirs call, no env read). ok is false for a
+// session outside every configured workspace (a repo with no workspace at
+// all, or cwd empty), in which case the caller keeps the session's own
+// project_key: only handoffs are re-homed; every other record kind, and the
+// session's own observed identity, are untouched.
+func handoffHomeKey(cwd string, workspaces []string) (string, bool) {
 	if cwd == "" {
-		return "", false
-	}
-	workspaces, err := project.DefaultWorkspaceDirs()
-	if err != nil {
 		return "", false
 	}
 	return project.WorkspaceHome(cwd, workspaces)

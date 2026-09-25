@@ -71,13 +71,13 @@ func TestRenderResumeFiltersHomeByRepoAndNamesLabelAtWorkspaceRoot(t *testing.T)
 		t.Fatalf("InsertRecord H2: %v", err)
 	}
 
-	t.Setenv("BACKSTORY_WORKSPACE_DIRS", workspaceDir)
+	workspaces := []string{workspaceDir}
 	git := resumeHomeFakeGit{omarcadeDir: true, vidflowDir: true}
 
 	t.Run("inside omarcade resumes H1, the repo's own handoff, not the newer H2", func(t *testing.T) {
 		out, err := block.Render(block.Params{
 			Store: s, ProcFS: fakeProcFS{}, ProjectKey: omarcadeDir, SessionID: "caller-session",
-			CWD: omarcadeDir, Git: git, Now: time.Now(),
+			CWD: omarcadeDir, Git: git, WorkspaceDirs: workspaces, Now: time.Now(),
 		})
 		if err != nil {
 			t.Fatalf("Render: %v", err)
@@ -93,7 +93,7 @@ func TestRenderResumeFiltersHomeByRepoAndNamesLabelAtWorkspaceRoot(t *testing.T)
 	t.Run("at the workspace root resumes H2, the home's newest, and names its label", func(t *testing.T) {
 		out, err := block.Render(block.Params{
 			Store: s, ProcFS: fakeProcFS{}, ProjectKey: home, SessionID: "caller-session",
-			CWD: workspaceDir, Git: git, Now: time.Now(),
+			CWD: workspaceDir, Git: git, WorkspaceDirs: workspaces, Now: time.Now(),
 		})
 		if err != nil {
 			t.Fatalf("Render: %v", err)

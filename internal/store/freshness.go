@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/RidgetopAi/backstory/internal/payload"
-	"github.com/RidgetopAi/backstory/internal/project"
 )
 
 // FreshnessReasonKind names why HandoffFreshness flags a handoff possibly
@@ -46,7 +45,14 @@ type FreshnessReason struct {
 // about[] can only ever be flagged by FreshnessContradicted: the other two
 // reasons require an about[] path in common, which is impossible against an
 // empty set. A nil/empty return means h is fresh.
-func (s *Store) HandoffFreshness(h Record) ([]FreshnessReason, error) {
+//
+// workspaces is the caller's already-resolved workspace directory list
+// (task 482b2320, decision f3fa04c7's clause 7): the store package never
+// resolves workspace dirs itself (no project.DefaultWorkspaceDirs call, no
+// env read) so it behaves identically regardless of the calling process's
+// environment. nil is safe — homeMembership then finds no session whose
+// folder resolves inside a workspace, matching the pre-workspace scope.
+func (s *Store) HandoffFreshness(h Record, workspaces []string) ([]FreshnessReason, error) {
 	boundaryID := h.ID
 	boundaryEventCursor := h.EventCursor
 	if affirmID, affirmCursor, ok, err := s.latestAffirmInforming(h.ID); err != nil {
@@ -56,7 +62,7 @@ func (s *Store) HandoffFreshness(h Record) ([]FreshnessReason, error) {
 		boundaryEventCursor = affirmCursor
 	}
 
-	memberKeys, sessionIDs, err := s.homeMembership(h.ProjectKey)
+	memberKeys, sessionIDs, err := s.homeMembership(h.ProjectKey, workspaces)
 	if err != nil {
 		return nil, err
 	}
@@ -100,12 +106,7 @@ func (s *Store) HandoffFreshness(h Record) ([]FreshnessReason, error) {
 // its own root, still matches its own records). Replaces the old
 // "handoff's own project_key" scope HandoffFreshness's later-record/
 // later-activity checks used before this punch.
-func (s *Store) homeMembership(handoffProjectKey string) (memberKeys []string, sessionIDs []string, err error) {
-	workspaces, wsErr := project.DefaultWorkspaceDirs()
-	if wsErr != nil {
-		workspaces = nil
-	}
-
+func (s *Store) homeMembership(handoffProjectKey string, workspaces []string) (memberKeys []string, sessionIDs []string, err error) {
 	sessions, err := s.sessionsForHome(handoffProjectKey, workspaces)
 	if err != nil {
 		return nil, nil, fmt.Errorf("store: home membership for %s: %w", handoffProjectKey, err)

@@ -44,6 +44,14 @@ type Params struct {
 	// calling a nil Git, the same "no workspace activity to resolve" case
 	// every pre-workspace caller and test already exercises.
 	Git project.Git
+	// WorkspaceDirs is the caller's already-resolved workspace directory
+	// list (task 482b2320, decision f3fa04c7's clause 7): week never
+	// resolves workspace dirs itself (no project.DefaultWorkspaceDirs call,
+	// no env read), so its output depends only on what the caller passes,
+	// never on the process environment. nil is safe the same way a nil Git
+	// is: Build then finds no active project_key resolves inside a
+	// workspace.
+	WorkspaceDirs []string
 	// Now is the reference instant for the window and every "possibly
 	// stale" / "expired" check. Zero means time.Now().
 	Now time.Time
@@ -187,10 +195,7 @@ func Build(p Params) (Result, error) {
 		return Result{}, err
 	}
 
-	workspaces, err := project.DefaultWorkspaceDirs()
-	if err != nil {
-		workspaces = nil
-	}
+	workspaces := p.WorkspaceDirs
 
 	var attention []AttentionItem
 	summaries := make(map[string]ProjectSummary, len(repoKeys))
@@ -368,7 +373,7 @@ func buildProject(st *store.Store, projectKey string, since, now time.Time, git 
 		summary.HandoffID = handoff.ID
 		summary.HandoffFirstLine = firstLine(handoff.Text)
 
-		reasons, err := st.HandoffFreshness(handoff)
+		reasons, err := st.HandoffFreshness(handoff, workspaces)
 		if err != nil {
 			return ProjectSummary{}, nil, fmt.Errorf("week: handoff freshness for %s: %w", projectKey, err)
 		}
@@ -603,7 +608,7 @@ func buildHomeLabelProject(st *store.Store, home string, loc store.ActiveWorkLoc
 		summary.HandoffID = handoff.ID
 		summary.HandoffFirstLine = firstLine(handoff.Text)
 
-		reasons, err := st.HandoffFreshness(handoff)
+		reasons, err := st.HandoffFreshness(handoff, workspaces)
 		if err != nil {
 			return ProjectSummary{}, nil, fmt.Errorf("week: handoff freshness for label %s: %w", loc.Label, err)
 		}

@@ -70,6 +70,13 @@ type Params struct {
 	// session's) repo identity for label purposes (project.Label). Only
 	// read when CWD is non-empty; a caller that sets CWD must also set Git.
 	Git project.Git
+	// WorkspaceDirs is the caller's already-resolved workspace directory
+	// list (task 482b2320, decision f3fa04c7's clause 7): block never
+	// resolves workspace dirs itself (no project.DefaultWorkspaceDirs call,
+	// no env read), so its Resume behavior depends only on what the caller
+	// passes, never on the process environment. nil disables every
+	// home-scoped Resume behavior the same way an empty CWD does.
+	WorkspaceDirs []string
 	// Now is the reference time for expiry checks (slot 4) and the delta
 	// cutoff (slot 2). Zero means time.Now().
 	Now time.Time
@@ -81,7 +88,7 @@ func Render(p Params) (string, error) {
 		p.Now = time.Now()
 	}
 
-	handoff, hasHandoff, resumeLabel, err := resolveResumeHandoff(p.Store, p.ProjectKey, p.CWD, p.Git)
+	handoff, hasHandoff, resumeLabel, err := resolveResumeHandoff(p.Store, p.ProjectKey, p.CWD, p.Git, p.WorkspaceDirs)
 	if err != nil {
 		return "", fmt.Errorf("block: resolve resume handoff: %w", err)
 	}
@@ -111,7 +118,7 @@ func Render(p Params) (string, error) {
 	}
 	var staleReasons []store.FreshnessReason
 	if hasHandoff {
-		staleReasons, err = p.Store.HandoffFreshness(handoff)
+		staleReasons, err = p.Store.HandoffFreshness(handoff, p.WorkspaceDirs)
 		if err != nil {
 			return "", fmt.Errorf("block: handoff freshness: %w", err)
 		}
@@ -167,14 +174,10 @@ func resumeSlot(rec store.Record, ok bool, staleReasons []store.FreshnessReason,
 // workspace involved at all (cwd empty, or outside every configured
 // workspace), the pre-f3fa04c7 behavior — the newest handoff for
 // projectKey, unchanged, no label.
-func resolveResumeHandoff(st *store.Store, projectKey, cwd string, git project.Git) (store.Record, bool, string, error) {
+func resolveResumeHandoff(st *store.Store, projectKey, cwd string, git project.Git, workspaces []string) (store.Record, bool, string, error) {
 	if cwd == "" {
 		h, ok, err := st.LatestRecord(projectKey, store.KindHandoff)
 		return h, ok, "", err
-	}
-	workspaces, err := project.DefaultWorkspaceDirs()
-	if err != nil {
-		workspaces = nil
 	}
 	home, ok := project.WorkspaceHome(cwd, workspaces)
 	if !ok {

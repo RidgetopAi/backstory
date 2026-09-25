@@ -76,7 +76,7 @@ var errCaptureOff = errors.New("mcp: capture is off, no session started")
 // post-tool-use` already refuses to record on, passed in by daemon.go
 // rather than resolved here so this package never has to know how the flag
 // file's path is derived.
-func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs ident.ProcFS, git project.Git, logger *log.Logger, sessions *SessionRegistry, captureOff func() (bool, error)) {
+func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs ident.ProcFS, git project.Git, logger *log.Logger, sessions *SessionRegistry, captureOff func() (bool, error), workspaces []string) {
 	end := liveSessionEnder(st, git, logger, captureOff)
 	start := func() (string, error) {
 		if off, err := captureOff(); err != nil {
@@ -100,7 +100,7 @@ func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs i
 	sc := bufio.NewScanner(conn)
 	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	for sc.Scan() {
-		resp := dispatchDaemonRequest(sc.Bytes(), st, procfs, identity, sessionID, id, git, captureOff)
+		resp := dispatchDaemonRequest(sc.Bytes(), st, procfs, identity, sessionID, id, git, captureOff, workspaces)
 		b, err := json.Marshal(resp)
 		if err != nil {
 			logf(logger, "mcp: marshal daemon response: %v", err)
@@ -171,7 +171,7 @@ func recordSessionEndGitState(st *store.Store, git project.Git, sessionID, cwd s
 	}
 }
 
-func dispatchDaemonRequest(line []byte, st *store.Store, procfs ident.ProcFS, identity store.Identity, sessionID string, id ident.Identity, git project.Git, captureOff func() (bool, error)) DaemonResponse {
+func dispatchDaemonRequest(line []byte, st *store.Store, procfs ident.ProcFS, identity store.Identity, sessionID string, id ident.Identity, git project.Git, captureOff func() (bool, error), workspaces []string) DaemonResponse {
 
 	var req DaemonRequest
 	if err := json.Unmarshal(line, &req); err != nil {
@@ -179,15 +179,15 @@ func dispatchDaemonRequest(line []byte, st *store.Store, procfs ident.ProcFS, id
 	}
 	switch req.Method {
 	case daemonMethodNote:
-		return handleNote(st, identity, sessionID, id.ProjectKey, id.CWD, req.Params, captureOff)
+		return handleNote(st, identity, sessionID, id.ProjectKey, id.CWD, workspaces, req.Params, captureOff)
 	case daemonMethodStatus:
 		return handleStatus(st, id, sessionID, captureOff)
 	case daemonMethodRecall:
-		return handleRecall(st, id, req.Params)
+		return handleRecall(st, id, req.Params, workspaces)
 	case daemonMethodConfirm:
 		return handleConfirm(st, identity, sessionID, id.ProjectKey, req.Params)
 	case DaemonMethodBlock:
-		return handleBlock(st, procfs, id, sessionID, git)
+		return handleBlock(st, procfs, id, sessionID, git, workspaces)
 	case DaemonMethodPostToolUse:
 		return handlePostToolUse(st, sessionID, req.Params, captureOff)
 	default:
