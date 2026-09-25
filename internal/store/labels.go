@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/RidgetopAi/backstory/internal/payload"
 	"github.com/RidgetopAi/backstory/internal/project"
@@ -22,13 +24,35 @@ import (
 // Labels are returned sorted, for a deterministic result independent of
 // event insertion order.
 func (s *Store) sessionLabels(sess Session, git project.Git, workspaces []string) ([]string, error) {
+	dirs, err := s.sessionLabelDirs(sess, git, workspaces)
+	if err != nil {
+		return nil, err
+	}
+	labels := make([]string, 0, len(dirs))
+	for label := range dirs {
+		labels = append(labels, label)
+	}
+	sort.Strings(labels)
+	return labels, nil
+}
+
+// sessionLabelDirs is sessionLabels' own extraction, kept alongside each
+// label's representative directory — the repo toplevel when the touched
+// file's directory resolves to a git working tree, else the directory
+// itself (mirroring project.Label's own resolution, which returns only the
+// label string, not the directory it decided on). This is ActiveHomeLabels'
+// own need: a label with no direct per-repo project_key of its own still
+// needs a CWD / project.Key input (decision f3fa04c7 clause 5, task
+// 482b2320). A session with no file-touching events maps its one fallback
+// label (project.Label(sess.CWD, ...)) to sess.CWD itself, exactly as
+// sessionLabels' old single-label fallback did.
+func (s *Store) sessionLabelDirs(sess Session, git project.Git, workspaces []string) (map[string]string, error) {
 	events, err := s.eventsForSessionID(sess.ID)
 	if err != nil {
-		return nil, fmt.Errorf("store: session labels for %s: %w", sess.ID, err)
+		return nil, fmt.Errorf("store: session label dirs for %s: %w", sess.ID, err)
 	}
 
-	seen := map[string]bool{}
-	var labels []string
+	dirs := map[string]string{}
 	for _, e := range events {
 		if e.Kind != payload.KindToolUse {
 			continue
@@ -40,17 +64,114 @@ func (s *Store) sessionLabels(sess Session, git project.Git, workspaces []string
 		if tu.Path == "" || !payload.IsMutatingFileTool(tu.Name) {
 			continue
 		}
-		label := project.LabelForPath(tu.Path, git, workspaces)
-		if !seen[label] {
-			seen[label] = true
-			labels = append(labels, label)
+		label, dir := labelAndDir(tu.Path, git, workspaces)
+		if _, ok := dirs[label]; !ok {
+			dirs[label] = dir
 		}
 	}
-	if len(labels) == 0 {
-		return []string{project.Label(sess.CWD, git, workspaces)}, nil
+	if len(dirs) == 0 {
+		dirs[project.Label(sess.CWD, git, workspaces)] = sess.CWD
 	}
-	sort.Strings(labels)
-	return labels, nil
+	return dirs, nil
+}
+
+// labelAndDir is project.LabelForPath applied to path, alongside the
+// directory it resolved the label from (project.Label's own toplevel when
+// path's directory is inside a git working tree, else the directory
+// itself) — the one-git-shellout-per-path version of what LabelForPath and
+// a separate toplevel lookup would otherwise do as two calls.
+func labelAndDir(path string, git project.Git, workspaces []string) (label, dir string) {
+	fileDir := filepath.Dir(path)
+	if repo, ok := git.Repo(fileDir); ok {
+		return project.WorkspaceRelativeName(repo.Toplevel, workspaces), repo.Toplevel
+	}
+	return project.WorkspaceRelativeName(fileDir, workspaces), fileDir
+}
+
+// ActiveWorkLocation is one active label's own aggregate identity within a
+// home — the unit This Week's per-label rows (decision f3fa04c7 clause 5,
+// task 482b2320) build from when a home's sessions carry no direct per-repo
+// project_key of their own: a session started at the workspace root itself,
+// whose file-touching events resolve to a repo/folder that never got its
+// own session.
+type ActiveWorkLocation struct {
+	Label        string
+	Dir          string
+	LastActivity time.Time
+	SessionIDs   []string
+}
+
+// ActiveHomeLabels returns every work-location label (sessionLabels) with
+// activity in [since, asOf], contributed by any session whose folder
+// resolves to home (sessionHomeKey) — decision f3fa04c7 clause 5's home-wide
+// label scan: a home's active work locations are the union of every one of
+// its sessions' own OBSERVED labels, independent of whether that session's
+// own project_key happens to equal a per-repo key. Sorted by label.
+func (s *Store) ActiveHomeLabels(home string, since, asOf time.Time, git project.Git, workspaces []string) ([]ActiveWorkLocation, error) {
+	sessions, err := s.sessionsForHome(home, workspaces)
+	if err != nil {
+		return nil, fmt.Errorf("store: active home labels for %s: %w", home, err)
+	}
+
+	byLabel := map[string]*ActiveWorkLocation{}
+	for _, sess := range sessions {
+		last, ok, err := s.sessionLastActivity(sess, asOf)
+		if err != nil {
+			return nil, fmt.Errorf("store: active home labels for %s: %w", home, err)
+		}
+		if !ok || last.Before(since) {
+			continue
+		}
+		dirs, err := s.sessionLabelDirs(sess, git, workspaces)
+		if err != nil {
+			return nil, fmt.Errorf("store: active home labels for %s: %w", home, err)
+		}
+		for label, dir := range dirs {
+			loc, ok := byLabel[label]
+			if !ok {
+				loc = &ActiveWorkLocation{Label: label, Dir: dir}
+				byLabel[label] = loc
+			}
+			loc.SessionIDs = append(loc.SessionIDs, sess.ID)
+			if last.After(loc.LastActivity) {
+				loc.LastActivity = last
+			}
+		}
+	}
+
+	out := make([]ActiveWorkLocation, 0, len(byLabel))
+	for _, loc := range byLabel {
+		sort.Strings(loc.SessionIDs)
+		out = append(out, *loc)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Label < out[j].Label })
+	return out, nil
+}
+
+// sessionLastActivity is sess's own last-activity instant — its start, any
+// of its own timeline events, or any record it wrote — bounded above by
+// asOf, the session-scoped analog of LastActivity's project-scoped "as of"
+// rule (This Week's per-label rows need session-level granularity: a home's
+// sessions can span many project_key values, decision f3fa04c7 clause 5).
+// ok is false only if sess.StartedAt is itself after asOf and it has no
+// other activity at or before asOf either.
+func (s *Store) sessionLastActivity(sess Session, asOf time.Time) (time.Time, bool, error) {
+	var maxTS sql.NullInt64
+	err := s.db.QueryRow(`
+		SELECT MAX(ts) FROM (
+			SELECT ? AS ts
+			UNION ALL
+			SELECT ts FROM timeline_events WHERE session_id = ?
+			UNION ALL
+			SELECT ts FROM records WHERE session_id = ?
+		) WHERE ts <= ?`, tsToNanos(sess.StartedAt), sess.ID, sess.ID, tsToNanos(asOf)).Scan(&maxTS)
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("store: session last activity for %s: %w", sess.ID, err)
+	}
+	if !maxTS.Valid {
+		return time.Time{}, false, nil
+	}
+	return tsFromNanos(maxTS.Int64), true, nil
 }
 
 // sessionHomeKey is the home key sess's own folder resolves to (decision

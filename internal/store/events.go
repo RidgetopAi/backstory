@@ -200,6 +200,38 @@ func (s *Store) eventsSinceIDForSessions(sessionIDs []string, sinceID int64) ([]
 	return out, nil
 }
 
+// EventsForSessionsSince returns every timeline event belonging to one of
+// sessionIDs with ts >= since, ordered by id ascending — This Week's
+// per-label week-grid event source (decision f3fa04c7 clause 5, task
+// 482b2320): scoped by an explicit session set, the same reason
+// eventsSinceIDForSessions exists, but bounded by wall-clock time (the
+// window's own since bound) rather than a sequence cursor. An empty
+// sessionIDs returns no rows without querying.
+func (s *Store) EventsForSessionsSince(sessionIDs []string, since time.Time) ([]TimelineEvent, error) {
+	if len(sessionIDs) == 0 {
+		return nil, nil
+	}
+	placeholders := make([]string, len(sessionIDs))
+	args := make([]any, 0, len(sessionIDs)+1)
+	for i, id := range sessionIDs {
+		placeholders[i] = "?"
+		args = append(args, id)
+	}
+	args = append(args, tsToNanos(since))
+	//nolint:gosec // the concatenated part is only "?" placeholders (one per session id), every value is still bound as a query arg below
+	query := `SELECT id, ts, kind, session_id, source, payload, workspace, window FROM timeline_events
+		WHERE session_id IN (` + strings.Join(placeholders, ",") + `) AND ts >= ? ORDER BY id ASC`
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("store: events for sessions since %s: %w", since, err)
+	}
+	out, err := scanTimelineEvents(rows)
+	if err != nil {
+		return nil, fmt.Errorf("store: events for sessions since %s: %w", since, err)
+	}
+	return out, nil
+}
+
 // scanTimelineEvents drains rows of the (id, ts, kind, session_id, source,
 // payload, workspace, window) shape both EventsSinceID and
 // EventsForTimeline select, into TimelineEvent values in the rows' own

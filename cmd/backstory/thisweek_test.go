@@ -190,46 +190,32 @@ func buildThisWeekFixtureStore(t *testing.T, dataDir string) {
 		About: []string{"thing.go"}, ExpiresAt: &expiresAt,
 	})
 
-	// --- acme-week-omarcade / acme-week-vidflow: two repos sharing one
-	// workspace HOME (task 482b2320, decision f3fa04c7). Both handoffs are
-	// filed under the workspace's own key, exactly as internal/mcp's HOME
-	// rule would file them for a session started inside either repo.
-	const omarcadeProject = "acme-week-omarcade"
-	const vidflowProject = "acme-week-vidflow"
+	// --- omarcade / vidflow: ONE session whose folder is the workspace
+	// root itself (task 482b2320, decision f3fa04c7 clause 5) — NOT a
+	// session started inside either repo — whose file-touching events edit
+	// files in both omarcade and vidflow, and which notes ONE handoff. This
+	// is DONE WHEN clause 5's own scenario: This Week must fan a single
+	// home session's OBSERVED labels (never its about[], never a direct
+	// per-repo project_key it never had) out into two separate
+	// where_left_off rows and week bars, with workspace-relative
+	// display_name projects/omarcade and projects/vidflow.
 	const workspaceHome = "workspace:" + fixtureWorkspaceDir
 	if err := st.UpsertProject(store.Project{Key: workspaceHome, Toplevel: fixtureWorkspaceDir, FirstSeen: date(3, 8, 0)}); err != nil {
 		t.Fatalf("UpsertProject(%s): %v", workspaceHome, err)
 	}
-	if err := st.UpsertProject(store.Project{Key: omarcadeProject, Toplevel: fixtureWorkspaceDir + "/omarcade", FirstSeen: date(3, 8, 0)}); err != nil {
-		t.Fatalf("UpsertProject(%s): %v", omarcadeProject, err)
-	}
-	if err := st.UpsertProject(store.Project{Key: vidflowProject, Toplevel: fixtureWorkspaceDir + "/vidflow", FirstSeen: date(3, 8, 0)}); err != nil {
-		t.Fatalf("UpsertProject(%s): %v", vidflowProject, err)
-	}
-	sessOmarcade, err := st.StartSession(store.StartSessionParams{
-		ID: "sess-omarcade-1", Agent: "claude", CWD: fixtureWorkspaceDir + "/omarcade", ProjectKey: omarcadeProject,
+	sessWorkspaceRoot, err := st.StartSession(store.StartSessionParams{
+		ID: "sess-workspace-root-1", Agent: "claude", CWD: fixtureWorkspaceDir, ProjectKey: workspaceHome,
 		StartedAt: date(3, 8, 0), Origin: store.OriginLive,
 	})
 	if err != nil {
-		t.Fatalf("StartSession(omarcade): %v", err)
+		t.Fatalf("StartSession(workspace-root): %v", err)
 	}
-	mustAppendEvent(t, st, store.Event{TS: date(3, 8, 0), Kind: "session.start", SessionID: sessOmarcade, Source: "shell", Payload: `{}`})
+	mustAppendEvent(t, st, store.Event{TS: date(3, 8, 0), Kind: "session.start", SessionID: sessWorkspaceRoot, Source: "shell", Payload: `{}`})
+	mustAppendEvent(t, st, store.Event{TS: date(3, 8, 1), Kind: "tool.use", SessionID: sessWorkspaceRoot, Source: "shell", Payload: `{"name":"Edit","path":"` + fixtureWorkspaceDir + `/omarcade/main.go"}`})
+	mustAppendEvent(t, st, store.Event{TS: date(3, 9, 1), Kind: "tool.use", SessionID: sessWorkspaceRoot, Source: "shell", Payload: `{"name":"Edit","path":"` + fixtureWorkspaceDir + `/vidflow/main.go"}`})
 	mustInsertThisWeekRecord(t, st, fixtureRecord{
-		ID: "handoff-omarcade", ProjectKey: workspaceHome, SessionID: sessOmarcade, TS: date(3, 8, 5),
-		Kind: store.KindHandoff, Tier: store.TierAgentDeclared, Text: "Resume: ship omarcade's feature",
-	})
-
-	sessVidflow, err := st.StartSession(store.StartSessionParams{
-		ID: "sess-vidflow-1", Agent: "claude", CWD: fixtureWorkspaceDir + "/vidflow", ProjectKey: vidflowProject,
-		StartedAt: date(3, 9, 0), Origin: store.OriginLive,
-	})
-	if err != nil {
-		t.Fatalf("StartSession(vidflow): %v", err)
-	}
-	mustAppendEvent(t, st, store.Event{TS: date(3, 9, 0), Kind: "session.start", SessionID: sessVidflow, Source: "shell", Payload: `{}`})
-	mustInsertThisWeekRecord(t, st, fixtureRecord{
-		ID: "handoff-vidflow", ProjectKey: workspaceHome, SessionID: sessVidflow, TS: date(3, 9, 5),
-		Kind: store.KindHandoff, Tier: store.TierAgentDeclared, Text: "Resume: ship vidflow's feature",
+		ID: "handoff-workspace-root", ProjectKey: workspaceHome, SessionID: sessWorkspaceRoot, TS: date(3, 9, 5),
+		Kind: store.KindHandoff, Tier: store.TierAgentDeclared, Text: "Resume: ship omarcade and vidflow's shared feature",
 	})
 
 	// --- acme-week-group-a / acme-week-group-b: grouped, nothing to flag.
@@ -356,29 +342,44 @@ func TestThisWeekGoldenJSON(t *testing.T) {
 		t.Fatalf("week entries = %d, want 7 (got %+v)", len(parsed.Week), parsed.Week)
 	}
 
-	// task 482b2320, decision f3fa04c7's DONE WHEN clause 5: omarcade and
-	// vidflow each get their OWN where_left_off row, each resolving its OWN
-	// handoff out of the shared workspace home, with a workspace-relative
-	// display_name.
+	// task 482b2320, decision f3fa04c7's DONE WHEN clause 5: the ONE
+	// workspace-root session's OBSERVED labels {projects/omarcade,
+	// projects/vidflow} each get their OWN where_left_off row (never an
+	// empty where_left_off), workspace-relative display_name, both
+	// resolving the SAME handoff — the only one in the home, whose session's
+	// labels include both.
 	names := map[string]projectSummaryJSON{}
 	for _, row := range parsed.WhereLeftOff {
 		if row.Project != nil {
 			names[row.Project.DisplayName] = *row.Project
 		}
 	}
+	const wantHandoff = "Resume: ship omarcade and vidflow's shared feature"
 	omarcade, ok := names["projects/omarcade"]
 	if !ok {
 		t.Fatalf("no where_left_off row with display_name projects/omarcade; got %+v", parsed.WhereLeftOff)
 	}
-	if omarcade.HandoffFirstLine != "Resume: ship omarcade's feature" {
-		t.Errorf("omarcade row handoff_first_line = %q, want its OWN handoff, not vidflow's", omarcade.HandoffFirstLine)
+	if omarcade.HandoffFirstLine != wantHandoff {
+		t.Errorf("omarcade row handoff_first_line = %q, want %q", omarcade.HandoffFirstLine, wantHandoff)
 	}
 	vidflow, ok := names["projects/vidflow"]
 	if !ok {
 		t.Fatalf("no where_left_off row with display_name projects/vidflow; got %+v", parsed.WhereLeftOff)
 	}
-	if vidflow.HandoffFirstLine != "Resume: ship vidflow's feature" {
-		t.Errorf("vidflow row handoff_first_line = %q, want its OWN handoff, not omarcade's", vidflow.HandoffFirstLine)
+	if vidflow.HandoffFirstLine != wantHandoff {
+		t.Errorf("vidflow row handoff_first_line = %q, want %q", vidflow.HandoffFirstLine, wantHandoff)
+	}
+
+	// week bars per label: at least one day-entry for each label.
+	weekLabels := map[string]bool{}
+	for _, d := range parsed.Week {
+		weekLabels[d.DisplayName] = true
+	}
+	if !weekLabels["projects/omarcade"] {
+		t.Errorf("no week entry with display_name projects/omarcade; got %+v", parsed.Week)
+	}
+	if !weekLabels["projects/vidflow"] {
+		t.Errorf("no week entry with display_name projects/vidflow; got %+v", parsed.Week)
 	}
 }
 

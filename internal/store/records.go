@@ -440,6 +440,38 @@ func (s *Store) FindRecordByIDPrefix(idOrPrefix string) (Record, bool, error) {
 	return rec, true, nil
 }
 
+// RecordsForSessionsSince returns every non-tombstoned record whose
+// session_id is one of sessionIDs with ts >= since, newest first by
+// sequence (rowid DESC; SCHEMA.md invariant 10) — This Week's per-label
+// week-grid records-written tally (decision f3fa04c7 clause 5, task
+// 482b2320): a label with no per-repo project_key of its own has no
+// project_key to scope a records query by, so this scopes by the label's
+// own contributing sessions instead. An empty sessionIDs returns no rows
+// without querying.
+func (s *Store) RecordsForSessionsSince(sessionIDs []string, since time.Time) ([]Record, error) {
+	if len(sessionIDs) == 0 {
+		return nil, nil
+	}
+	placeholders := make([]string, len(sessionIDs))
+	args := make([]any, 0, len(sessionIDs)+1)
+	for i, id := range sessionIDs {
+		placeholders[i] = "?"
+		args = append(args, id)
+	}
+	args = append(args, tsToNanos(since))
+	//nolint:gosec // the concatenated part is only "?" placeholders (one per session id), every value is still bound as a query arg below
+	query := `SELECT id FROM records WHERE session_id IN (` + strings.Join(placeholders, ",") + `) AND ts >= ? AND tombstoned_at IS NULL ORDER BY rowid DESC`
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("store: records for sessions since %s: %w", since, err)
+	}
+	ids, err := scanIDs(rows)
+	if err != nil {
+		return nil, fmt.Errorf("store: records for sessions since %s: %w", since, err)
+	}
+	return s.getRecords(ids)
+}
+
 // getRecords loads each id in order via GetRecord, preserving ids' order.
 func (s *Store) getRecords(ids []string) ([]Record, error) {
 	out := make([]Record, 0, len(ids))
