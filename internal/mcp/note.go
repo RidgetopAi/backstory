@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
@@ -58,7 +59,7 @@ var noteKinds = map[string]store.RecordKind{
 // `backstory hook post-tool-use` already does before it ever dials the
 // daemon — note is reachable from any socket peer, so the daemon itself
 // must refuse it too.
-func handleNote(st *store.Store, identity store.Identity, sessionID, projectKey string, raw json.RawMessage, captureOff func() (bool, error)) DaemonResponse {
+func handleNote(st *store.Store, identity store.Identity, sessionID, projectKey, cwd string, raw json.RawMessage, captureOff func() (bool, error)) DaemonResponse {
 	if off, err := captureOff(); err != nil {
 		return errResponse("internal", err.Error())
 	} else if off {
@@ -87,6 +88,15 @@ func handleNote(st *store.Store, identity store.Identity, sessionID, projectKey 
 			return errResponse("invalid-params", `invalid "expires": `+err.Error())
 		}
 		expiresAt = &t
+	}
+
+	if kind == store.KindHandoff {
+		if home, ok := handoffHomeKey(cwd); ok {
+			if err := ensureHomeProject(st, home); err != nil {
+				return errResponse("internal", err.Error())
+			}
+			projectKey = home
+		}
 	}
 
 	edges := make([]store.EdgeSpec, 0, len(p.Links)+1)
@@ -140,4 +150,40 @@ func handleNote(st *store.Store, identity store.Identity, sessionID, projectKey 
 		return errResponse("internal", err.Error())
 	}
 	return DaemonResponse{Result: result}
+}
+
+// handoffHomeKey resolves a kind=handoff record's HOME (decision f3fa04c7):
+// the enclosing workspace's key when the writing session's own folder (cwd)
+// is a configured workspace dir or lives inside one, at any depth
+// (project.WorkspaceHome) — reusing internal/project's own workspace rule
+// and DefaultWorkspaceDirs rather than a second copy of either. ok is false
+// for a session outside every configured workspace (a repo with no
+// workspace at all, or cwd empty), in which case the caller keeps the
+// session's own project_key: only handoffs are re-homed; every other record
+// kind, and the session's own observed identity, are untouched.
+func handoffHomeKey(cwd string) (string, bool) {
+	if cwd == "" {
+		return "", false
+	}
+	workspaces, err := project.DefaultWorkspaceDirs()
+	if err != nil {
+		return "", false
+	}
+	return project.WorkspaceHome(cwd, workspaces)
+}
+
+// ensureHomeProject upserts a projects row for a handoff's home key before
+// the record insert that references it: records.project_key is a foreign
+// key into projects(key), and a workspace's own project row is otherwise
+// only ever created by a session started AT the workspace root itself
+// (startSession's own UpsertProject, keyed on THAT session's observed
+// project_key) — a session living inside one of the workspace's repos never
+// creates it. Idempotent: UpsertProject preserves first_seen on update, so
+// calling this on every rehomed handoff is harmless.
+func ensureHomeProject(st *store.Store, home string) error {
+	dir, ok := project.WorkspaceLegacyKey(home)
+	if !ok {
+		return nil // home is always workspace-prefixed here; defensive only
+	}
+	return st.UpsertProject(store.Project{Key: home, Toplevel: dir, FirstSeen: time.Now()})
 }
