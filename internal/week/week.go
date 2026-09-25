@@ -7,7 +7,6 @@ package week
 import (
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -35,6 +34,24 @@ const maxRecordsPerProject = 1000
 // Params is Build's input.
 type Params struct {
 	Store *store.Store
+	// Git resolves a project's toplevel repo identity for decision
+	// f3fa04c7's per-repo handoff resolution (store.HandoffForLabel) when a
+	// project's latest session lives inside a workspace, and (clause 5,
+	// task 482b2320) for deriving a home's own active work-location labels
+	// from its sessions' observed file-touching events. nil is safe as long
+	// as no active project_key in the window is itself a workspace
+	// identity: Build skips home-label derivation entirely rather than
+	// calling a nil Git, the same "no workspace activity to resolve" case
+	// every pre-workspace caller and test already exercises.
+	Git project.Git
+	// WorkspaceDirs is the caller's already-resolved workspace directory
+	// list (task 482b2320, decision f3fa04c7's clause 7): week never
+	// resolves workspace dirs itself (no project.DefaultWorkspaceDirs call,
+	// no env read), so its output depends only on what the caller passes,
+	// never on the process environment. nil is safe the same way a nil Git
+	// is: Build then finds no active project_key resolves inside a
+	// workspace.
+	WorkspaceDirs []string
 	// Now is the reference instant for the window and every "possibly
 	// stale" / "expired" check. Zero means time.Now().
 	Now time.Time
@@ -173,31 +190,85 @@ func Build(p Params) (Result, error) {
 	}
 	since := windowStart(now)
 
-	keys, err := activeProjectKeys(p.Store, since)
+	repoKeys, homeKeys, err := partitionActiveProjectKeys(p.Store, since)
 	if err != nil {
 		return Result{}, err
 	}
 
+	workspaces := p.WorkspaceDirs
+
 	var attention []AttentionItem
-	summaries := make(map[string]ProjectSummary, len(keys))
-	for _, key := range keys {
-		summary, items, err := buildProject(p.Store, key, since, now)
+	summaries := make(map[string]ProjectSummary, len(repoKeys))
+	identities := make([]string, 0, len(repoKeys))
+	coveredLabels := map[string]bool{}
+
+	for _, key := range repoKeys {
+		summary, items, err := buildProject(p.Store, key, since, now, p.Git, workspaces)
 		if err != nil {
 			return Result{}, err
 		}
 		summaries[key] = summary
+		identities = append(identities, key)
+		coveredLabels[summary.DisplayName] = true
 		attention = append(attention, items...)
 	}
 
-	whereLeftOff, err := buildWhereLeftOff(p.Store, keys, summaries)
+	// Work-location labels (decision f3fa04c7 clause 5, task 482b2320): a
+	// home's sessions can touch repos that never got a direct session of
+	// their own (a session started at the workspace root itself), so those
+	// repos never surface as an active project_key above — their own
+	// row/week-bars come from the home's active labels instead. A label
+	// already covered by a repoKey's own display name above (the ordinary
+	// case: a session started directly inside the repo) is skipped here so
+	// the same repo never produces two rows. p.Git == nil skips this
+	// entirely rather than resolving any label: Params.Git's own contract
+	// ("nil is safe as long as no active project's session resolves to a
+	// workspace home") extends to this home-wide scan, so a caller with no
+	// workspace-active session to worry about (every pre-workspace test)
+	// keeps working with no Git at all, exactly as before this punch.
+	var homeUnits []homeLabelUnit
+	for _, home := range homeKeys {
+		if p.Git == nil {
+			break
+		}
+		locs, err := p.Store.ActiveHomeLabels(home, since, now, p.Git, workspaces)
+		if err != nil {
+			return Result{}, fmt.Errorf("week: active home labels for %s: %w", home, err)
+		}
+		for _, loc := range locs {
+			if coveredLabels[loc.Label] {
+				continue
+			}
+			coveredLabels[loc.Label] = true
+
+			key := project.Key(loc.Dir, p.Git, workspaces)
+			summary, items, err := buildHomeLabelProject(p.Store, home, loc, key, p.Git, workspaces)
+			if err != nil {
+				return Result{}, err
+			}
+			identity := homeLabelIdentity(home, loc.Label)
+			summaries[identity] = summary
+			identities = append(identities, identity)
+			attention = append(attention, items...)
+			homeUnits = append(homeUnits, homeLabelUnit{loc: loc, key: key})
+		}
+	}
+
+	whereLeftOff, err := buildWhereLeftOff(p.Store, identities, summaries)
 	if err != nil {
 		return Result{}, err
 	}
 
-	weekGrid, err := buildWeekGrid(p.Store, keys, since, now)
+	weekGrid, err := buildWeekGrid(p.Store, repoKeys, since, now, workspaces)
 	if err != nil {
 		return Result{}, err
 	}
+	homeWeekGrid, err := buildHomeLabelWeekGrid(p.Store, homeUnits, since, now, p.Git, workspaces)
+	if err != nil {
+		return Result{}, err
+	}
+	weekGrid = append(weekGrid, homeWeekGrid...)
+	sortWeekGrid(weekGrid)
 
 	sortAttention(attention)
 
@@ -210,42 +281,79 @@ func Build(p Params) (Result, error) {
 	return res, nil
 }
 
-// activeProjectKeys resolves the window's project set: every project_key
-// with activity since the window start, workspace identities excluded
-// (decision bcc9fa54: "a workspace is not a project"), sorted for a
-// deterministic iteration order.
-func activeProjectKeys(st *store.Store, since time.Time) ([]string, error) {
+// partitionActiveProjectKeys splits ActiveProjectKeys(since) into repo keys
+// (This Week's original one-row-per-project set, workspace identities
+// excluded per decision bcc9fa54: "a workspace is not a project") and home
+// keys — workspace identities themselves active in the window, either
+// because a handoff was filed there (HOME) or because a session started at
+// the workspace root itself (decision f3fa04c7 clause 5). Both lists are
+// sorted for a deterministic iteration order.
+func partitionActiveProjectKeys(st *store.Store, since time.Time) (repoKeys, homeKeys []string, err error) {
 	all, err := st.ActiveProjectKeys(since)
 	if err != nil {
-		return nil, fmt.Errorf("week: active project keys: %w", err)
+		return nil, nil, fmt.Errorf("week: active project keys: %w", err)
 	}
-	keys := make([]string, 0, len(all))
 	for _, k := range all {
 		if project.IsWorkspaceKey(k) {
-			continue
+			homeKeys = append(homeKeys, k)
+		} else {
+			repoKeys = append(repoKeys, k)
 		}
-		keys = append(keys, k)
 	}
-	sort.Strings(keys)
-	return keys, nil
+	sort.Strings(repoKeys)
+	sort.Strings(homeKeys)
+	return repoKeys, homeKeys, nil
+}
+
+// homeLabelIdentity is the internal (never-displayed) identity a home
+// label's ProjectSummary is keyed and sorted by: home and label joined by a
+// NUL byte, a separator no real project_key or label can contain in
+// practice (the same reasoning project.Key's own keySeparator comment
+// gives), so it can never collide with a repoKey's own identity string.
+func homeLabelIdentity(home, label string) string {
+	return home + "\x00" + label
+}
+
+// homeLabelUnit carries one active home label's own store.ActiveWorkLocation
+// alongside the project.Key already resolved for it (buildHomeLabelProject's
+// own computation, reused rather than recomputed) — buildHomeLabelWeekGrid's
+// input.
+type homeLabelUnit struct {
+	loc store.ActiveWorkLocation
+	key string
+}
+
+// sortWeekGrid orders Week entries most-recent-day-first, project_key as
+// the tie-break — the same order buildWeekGrid's own sort applied before
+// home-label entries existed, now applied once to the merged repo + home
+// label grid.
+func sortWeekGrid(grid []DayProjectStats) {
+	sort.SliceStable(grid, func(i, j int) bool {
+		a, b := grid[i], grid[j]
+		if !a.Day.Equal(b.Day) {
+			return a.Day.After(b.Day)
+		}
+		return a.ProjectKey < b.ProjectKey
+	})
 }
 
 // buildProject computes one active project's ProjectSummary and every
 // AttentionItem it contributes. Both read the SAME handoff +
 // store.HandoffFreshness call, so the summary's HandoffStale flag and an
 // AttentionPossiblyStaleHandoff item can never disagree with each other.
-func buildProject(st *store.Store, projectKey string, since, now time.Time) (ProjectSummary, []AttentionItem, error) {
+func buildProject(st *store.Store, projectKey string, since, now time.Time, git project.Git, workspaces []string) (ProjectSummary, []AttentionItem, error) {
 	summary := ProjectSummary{ProjectKey: projectKey}
 
-	name, err := displayName(st, projectKey)
+	name, err := displayName(st, projectKey, workspaces)
 	if err != nil {
 		return ProjectSummary{}, nil, err
 	}
 	summary.DisplayName = name
 
-	if sess, ok, err := st.LatestSessionForProject(projectKey); err != nil {
+	sess, hasSess, err := st.LatestSessionForProject(projectKey)
+	if err != nil {
 		return ProjectSummary{}, nil, fmt.Errorf("week: latest session for %s: %w", projectKey, err)
-	} else if ok {
+	} else if hasSess {
 		summary.CWD = sess.CWD
 	}
 
@@ -257,7 +365,7 @@ func buildProject(st *store.Store, projectKey string, since, now time.Time) (Pro
 
 	var attention []AttentionItem
 
-	handoff, hasHandoff, err := st.LatestRecord(projectKey, store.KindHandoff)
+	handoff, hasHandoff, err := projectHandoff(st, projectKey, sess, hasSess, name, git, workspaces)
 	if err != nil {
 		return ProjectSummary{}, nil, fmt.Errorf("week: latest handoff for %s: %w", projectKey, err)
 	}
@@ -265,7 +373,7 @@ func buildProject(st *store.Store, projectKey string, since, now time.Time) (Pro
 		summary.HandoffID = handoff.ID
 		summary.HandoffFirstLine = firstLine(handoff.Text)
 
-		reasons, err := st.HandoffFreshness(handoff)
+		reasons, err := st.HandoffFreshness(handoff, workspaces)
 		if err != nil {
 			return ProjectSummary{}, nil, fmt.Errorf("week: handoff freshness for %s: %w", projectKey, err)
 		}
@@ -313,6 +421,24 @@ func buildProject(st *store.Store, projectKey string, since, now time.Time) (Pro
 	}
 
 	return summary, attention, nil
+}
+
+// projectHandoff resolves projectKey's own handoff for the Where-you-left-
+// off / Attention slot (decision f3fa04c7): when projectKey's latest
+// session lives inside a workspace, ALL handoffs are filed under that
+// workspace's home key (HOME), never under projectKey's own key — so this
+// looks up the home's newest handoff whose own session's labels include
+// projectKey's label (store.HandoffForLabel), the same per-repo filter
+// block's Resume slot applies. Outside any workspace (or with no session at
+// all), this is exactly the old st.LatestRecord(projectKey, KindHandoff)
+// call, unchanged.
+func projectHandoff(st *store.Store, projectKey string, sess store.Session, hasSess bool, label string, git project.Git, workspaces []string) (store.Record, bool, error) {
+	if hasSess {
+		if home, ok := project.WorkspaceHome(sess.CWD, workspaces); ok && home != projectKey {
+			return st.HandoffForLabel(home, label, git, workspaces)
+		}
+	}
+	return st.LatestRecord(projectKey, store.KindHandoff)
 }
 
 // uncommittedSessionEndItems is Attention kind (b): a session.git_state
@@ -410,7 +536,7 @@ func buildWhereLeftOff(st *store.Store, keys []string, summaries map[string]Proj
 // 9be5c1d5 clause 3). It fetches each project's window-bounded events and
 // records once, then buckets them by day in Go, rather than issuing one
 // query per (project, day) pair.
-func buildWeekGrid(st *store.Store, keys []string, since, now time.Time) ([]DayProjectStats, error) {
+func buildWeekGrid(st *store.Store, keys []string, since, now time.Time, workspaces []string) ([]DayProjectStats, error) {
 	days := make([]time.Time, WindowDays)
 	for i := range days {
 		days[i] = since.AddDate(0, 0, i)
@@ -418,7 +544,7 @@ func buildWeekGrid(st *store.Store, keys []string, since, now time.Time) ([]DayP
 
 	var out []DayProjectStats
 	for _, key := range keys {
-		name, err := displayName(st, key)
+		name, err := displayName(st, key, workspaces)
 		if err != nil {
 			return nil, err
 		}
@@ -445,14 +571,149 @@ func buildWeekGrid(st *store.Store, keys []string, since, now time.Time) ([]DayP
 		}
 	}
 
-	sort.SliceStable(out, func(i, j int) bool {
-		a, b := out[i], out[j]
-		if !a.Day.Equal(b.Day) {
-			return a.Day.After(b.Day)
-		}
-		return a.ProjectKey < b.ProjectKey
-	})
+	sortWeekGrid(out)
 	return out, nil
+}
+
+// buildHomeLabelProject computes a synthetic ProjectSummary for a
+// work-location label whose only observed activity comes from a home
+// session with no per-repo project_key of its own (decision f3fa04c7 clause
+// 5, task 482b2320): a session started at the workspace root itself, whose
+// file-touching events resolve to a repo/folder that never got its own
+// session. Its handoff resolves exactly as projectHandoff's home-scoped
+// branch does (store.HandoffForLabel), and the same store.HandoffFreshness
+// call feeds both the summary's HandoffStale flag and any
+// AttentionPossiblyStaleHandoff item, so the two can never disagree — the
+// same invariant buildProject's own handoff handling keeps. Unlike
+// buildProject, this contributes no uncommitted/contradiction/expired-claim
+// Attention items: those all read a real project_key's own record scope
+// (session.git_state events, decisions, claims), which a label backed only
+// by a home session's file paths never carries one of its own (class
+// members deferred: documented in this task's commit, not silently
+// dropped).
+func buildHomeLabelProject(st *store.Store, home string, loc store.ActiveWorkLocation, key string, git project.Git, workspaces []string) (ProjectSummary, []AttentionItem, error) {
+	summary := ProjectSummary{
+		ProjectKey:   key,
+		DisplayName:  loc.Label,
+		CWD:          loc.Dir,
+		LastActivity: loc.LastActivity,
+	}
+
+	var attention []AttentionItem
+	handoff, hasHandoff, err := st.HandoffForLabel(home, loc.Label, git, workspaces)
+	if err != nil {
+		return ProjectSummary{}, nil, fmt.Errorf("week: handoff for label %s: %w", loc.Label, err)
+	}
+	if hasHandoff {
+		summary.HandoffID = handoff.ID
+		summary.HandoffFirstLine = firstLine(handoff.Text)
+
+		reasons, err := st.HandoffFreshness(handoff, workspaces)
+		if err != nil {
+			return ProjectSummary{}, nil, fmt.Errorf("week: handoff freshness for label %s: %w", loc.Label, err)
+		}
+		if len(reasons) > 0 {
+			summary.HandoffStale = true
+			attention = append(attention, AttentionItem{
+				Kind:        AttentionPossiblyStaleHandoff,
+				ProjectKey:  summary.ProjectKey,
+				Reason:      "handoff possibly stale: " + freshnessReasonSummary(reasons),
+				EvidenceIDs: freshnessEvidenceIDs(reasons),
+			})
+		}
+	}
+
+	return summary, attention, nil
+}
+
+// buildHomeLabelWeekGrid computes The week's per-label bars (decision
+// f3fa04c7 clause 5, task 482b2320) for every home label built above: the
+// per-repo-key analog of buildWeekGrid, but scoped by a label's own
+// contributing sessions (store.EventsForSessionsSince /
+// RecordsForSessionsSince) rather than by project_key, since a home label
+// has no project_key of its own with records filed under it.
+func buildHomeLabelWeekGrid(st *store.Store, units []homeLabelUnit, since, now time.Time, git project.Git, workspaces []string) ([]DayProjectStats, error) {
+	days := make([]time.Time, WindowDays)
+	for i := range days {
+		days[i] = since.AddDate(0, 0, i)
+	}
+
+	var out []DayProjectStats
+	for _, u := range units {
+		events, err := st.EventsForSessionsSince(u.loc.SessionIDs, since)
+		if err != nil {
+			return nil, fmt.Errorf("week: events for label %s: %w", u.loc.Label, err)
+		}
+		records, err := st.RecordsForSessionsSince(u.loc.SessionIDs, since)
+		if err != nil {
+			return nil, fmt.Errorf("week: records for label %s: %w", u.loc.Label, err)
+		}
+
+		for _, day := range days {
+			dayEnd := day.AddDate(0, 0, 1)
+			stats := homeLabelDayStats(events, records, u.loc.Label, day, dayEnd, now, git, workspaces)
+			if stats.Sessions == 0 && stats.FilesTouched == 0 && stats.RecordsWritten == 0 {
+				continue
+			}
+			stats.Day = day
+			stats.ProjectKey = u.key
+			stats.DisplayName = u.loc.Label
+			out = append(out, stats)
+		}
+	}
+	return out, nil
+}
+
+// homeLabelDayStats is dayStats' own bucketing, narrowed to one label: a
+// session under a home can touch more than one label the same day, so
+// (unlike dayStats, where every event in the input unambiguously belongs to
+// one project) sessions and filesTouched only count a file-touching event
+// whose own path resolves (project.LabelForPath) to label — a bare
+// session.start or a Read carries no file identity, so it never counts
+// toward any one label here. recordsWritten counts every record ts in the
+// day among the label's own contributing sessions (RecordsForSessionsSince
+// is already scoped to those): a session that notes one handoff covering
+// several labels attributes that one record to each label its session
+// touched, since the record itself names no single repo of its own.
+func homeLabelDayStats(events []store.TimelineEvent, records []store.Record, label string, dayStart, dayEnd, now time.Time, git project.Git, workspaces []string) DayProjectStats {
+	if dayEnd.After(now) {
+		dayEnd = now
+	}
+
+	sessions := map[string]bool{}
+	files := map[string]bool{}
+	var recordsWritten int
+
+	for _, e := range events {
+		if e.TS.Before(dayStart) || !e.TS.Before(dayEnd) {
+			continue
+		}
+		if e.Kind != payload.KindToolUse {
+			continue
+		}
+		var tu payload.ToolUse
+		if json.Unmarshal([]byte(e.Payload), &tu) != nil || tu.Path == "" || !payload.IsMutatingFileTool(tu.Name) {
+			continue
+		}
+		if project.LabelForPath(tu.Path, git, workspaces) != label {
+			continue
+		}
+		files[tu.Path] = true
+		if e.SessionID != "" {
+			sessions[e.SessionID] = true
+		}
+	}
+	for _, r := range records {
+		if !r.TS.Before(dayStart) && r.TS.Before(dayEnd) {
+			recordsWritten++
+		}
+	}
+
+	return DayProjectStats{
+		Sessions:       len(sessions),
+		FilesTouched:   len(files),
+		RecordsWritten: recordsWritten,
+	}
 }
 
 // dayStats buckets events and records into [dayStart, dayEnd): sessions is
@@ -500,12 +761,16 @@ func dayStats(events []store.TimelineEvent, records []store.Record, dayStart, da
 	}
 }
 
-// displayName is projectKey's human-readable name: the basename of its
-// stored toplevel path, or projectKey itself when the project has no
-// projects row (should not happen for a key ActiveProjectKeys returned,
-// since every session/record write upserts one first, but a caller must
-// never crash over a stale or hand-seeded key that skipped it).
-func displayName(st *store.Store, projectKey string) (string, error) {
+// displayName is projectKey's human-readable name: its stored toplevel
+// path, made workspace-relative when it lives inside a workspace ("
+// projects/omarcade", decision f3fa04c7's LABELS display rule) — else the
+// basename it always was (project.WorkspaceRelativeName's fallback is
+// exactly the old filepath.Base(toplevel), so this is a strict superset) —
+// or projectKey itself when the project has no projects row (should not
+// happen for a key ActiveProjectKeys returned, since every session/record
+// write upserts one first, but a caller must never crash over a stale or
+// hand-seeded key that skipped it).
+func displayName(st *store.Store, projectKey string, workspaces []string) (string, error) {
 	proj, ok, err := st.GetProject(projectKey)
 	if err != nil {
 		return "", fmt.Errorf("week: get project %s: %w", projectKey, err)
@@ -513,7 +778,7 @@ func displayName(st *store.Store, projectKey string) (string, error) {
 	if !ok || proj.Toplevel == "" {
 		return projectKey, nil
 	}
-	return filepath.Base(filepath.Clean(proj.Toplevel)), nil
+	return project.WorkspaceRelativeName(proj.Toplevel, workspaces), nil
 }
 
 // freshnessReasonSummary renders reasons as "<kind>, <kind>, ..." — This

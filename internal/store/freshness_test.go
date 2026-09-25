@@ -124,7 +124,7 @@ func TestHandoffFreshnessReasonA_Contradicted(t *testing.T) {
 	h := mustInsertHandoff(t, s, sessionID, []string{"a.go"})
 	contradiction := mustContradict(t, s, sessionID, h.ID)
 
-	reasons, err := s.HandoffFreshness(h)
+	reasons, err := s.HandoffFreshness(h, nil)
 	if err != nil {
 		t.Fatalf("HandoffFreshness: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestHandoffFreshnessReasonB_LaterRecordSharingAbout(t *testing.T) {
 	h := mustInsertHandoff(t, s, sessionID, []string{"a.go", "b.go"})
 	later := mustInsertNoteAbout(t, s, sessionID, []string{"b.go", "c.go"})
 
-	reasons, err := s.HandoffFreshness(h)
+	reasons, err := s.HandoffFreshness(h, nil)
 	if err != nil {
 		t.Fatalf("HandoffFreshness: %v", err)
 	}
@@ -170,7 +170,7 @@ func TestHandoffFreshnessReasonB_EarlierRecordDoesNotFlag(t *testing.T) {
 	_ = mustInsertNoteAbout(t, s, sessionID, []string{"a.go"})
 	h := mustInsertHandoff(t, s, sessionID, []string{"a.go"})
 
-	reasons, err := s.HandoffFreshness(h)
+	reasons, err := s.HandoffFreshness(h, nil)
 	if err != nil {
 		t.Fatalf("HandoffFreshness: %v", err)
 	}
@@ -191,7 +191,7 @@ func TestHandoffFreshnessReasonC_LaterEventTouchingAbout(t *testing.T) {
 	editID := mustAppendToolUseEvent(t, s, sessionID, "Edit", "a.go")
 	_ = mustAppendToolUseEvent(t, s, sessionID, "Edit", "unrelated.go") // different path: must not flag
 
-	reasons, err := s.HandoffFreshness(h)
+	reasons, err := s.HandoffFreshness(h, nil)
 	if err != nil {
 		t.Fatalf("HandoffFreshness: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestHandoffFreshnessClearedByAffirmThenReflaggedByNewEvidence(t *testing.T)
 	h := mustInsertHandoff(t, s, sessionID, []string{"a.go"})
 	firstContradiction := mustContradict(t, s, sessionID, h.ID)
 
-	reasons, err := s.HandoffFreshness(h)
+	reasons, err := s.HandoffFreshness(h, nil)
 	if err != nil {
 		t.Fatalf("HandoffFreshness (before affirm): %v", err)
 	}
@@ -225,7 +225,7 @@ func TestHandoffFreshnessClearedByAffirmThenReflaggedByNewEvidence(t *testing.T)
 
 	mustAffirm(t, s, sessionID, h.ID)
 
-	reasons, err = s.HandoffFreshness(h)
+	reasons, err = s.HandoffFreshness(h, nil)
 	if err != nil {
 		t.Fatalf("HandoffFreshness (after affirm): %v", err)
 	}
@@ -235,7 +235,7 @@ func TestHandoffFreshnessClearedByAffirmThenReflaggedByNewEvidence(t *testing.T)
 
 	secondContradiction := mustContradict(t, s, sessionID, h.ID)
 
-	reasons, err = s.HandoffFreshness(h)
+	reasons, err = s.HandoffFreshness(h, nil)
 	if err != nil {
 		t.Fatalf("HandoffFreshness (after re-contradiction): %v", err)
 	}
@@ -281,7 +281,7 @@ func TestHandoffFreshnessPromoteDoesNotClearLikeAffirmDoes(t *testing.T) {
 		t.Fatalf("Confirm promote: %v", err)
 	}
 
-	reasons, err := s.HandoffFreshness(h)
+	reasons, err := s.HandoffFreshness(h, nil)
 	if err != nil {
 		t.Fatalf("HandoffFreshness: %v", err)
 	}
@@ -297,7 +297,7 @@ func TestHandoffFreshnessNoLaterActivityNotFlagged(t *testing.T) {
 	s, sessionID := newFreshnessFixture(t)
 	h := mustInsertHandoff(t, s, sessionID, []string{"a.go"})
 
-	reasons, err := s.HandoffFreshness(h)
+	reasons, err := s.HandoffFreshness(h, nil)
 	if err != nil {
 		t.Fatalf("HandoffFreshness: %v", err)
 	}
@@ -323,7 +323,7 @@ func TestHandoffFreshnessOldWithNoLaterActivityNotFlagged(t *testing.T) {
 		t.Fatalf("test fixture bug: handoff ts %v is not older than 30 days", h.TS)
 	}
 
-	reasons, err := s.HandoffFreshness(h)
+	reasons, err := s.HandoffFreshness(h, nil)
 	if err != nil {
 		t.Fatalf("HandoffFreshness: %v", err)
 	}
@@ -344,7 +344,7 @@ func TestHandoffFreshnessNoAboutOnlyFlaggableByContradiction(t *testing.T) {
 	_ = mustInsertNoteAbout(t, s, sessionID, []string{"a.go"})
 	_ = mustAppendToolUseEvent(t, s, sessionID, "Edit", "a.go")
 
-	reasons, err := s.HandoffFreshness(h)
+	reasons, err := s.HandoffFreshness(h, nil)
 	if err != nil {
 		t.Fatalf("HandoffFreshness (no about, later activity elsewhere): %v", err)
 	}
@@ -353,7 +353,7 @@ func TestHandoffFreshnessNoAboutOnlyFlaggableByContradiction(t *testing.T) {
 	}
 
 	contradiction := mustContradict(t, s, sessionID, h.ID)
-	reasons, err = s.HandoffFreshness(h)
+	reasons, err = s.HandoffFreshness(h, nil)
 	if err != nil {
 		t.Fatalf("HandoffFreshness (no about, contradicted): %v", err)
 	}

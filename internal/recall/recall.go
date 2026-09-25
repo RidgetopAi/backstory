@@ -148,8 +148,12 @@ type Result struct {
 // record anchor — annotates each with its trust tier and status, and
 // renders the result at altitude under budgetTokens, using the same
 // estimator the SessionStart block budgets against (block.EstimateTokens).
-// It only reads st.
-func Build(st *store.Store, anchor Anchor, altitude Altitude, budgetTokens int) (Result, error) {
+// It only reads st. workspaces is the caller's already-resolved workspace
+// directory list (task 482b2320, decision f3fa04c7's clause 7): recall
+// never resolves workspace dirs itself (no project.DefaultWorkspaceDirs
+// call, no env read) — it only needs the list to pass through to
+// store.HandoffFreshness when annotating a handoff's possibly-stale status.
+func Build(st *store.Store, anchor Anchor, altitude Altitude, budgetTokens int, workspaces []string) (Result, error) {
 	recs, err := resolve(st, anchor)
 	if err != nil {
 		return Result{}, err
@@ -157,7 +161,7 @@ func Build(st *store.Store, anchor Anchor, altitude Altitude, budgetTokens int) 
 
 	items := make([]Item, len(recs))
 	for i, rec := range recs {
-		item, err := annotate(st, rec)
+		item, err := annotate(st, rec, workspaces)
 		if err != nil {
 			return Result{}, err
 		}
@@ -264,7 +268,7 @@ func resolveTextAnchor(st *store.Store, projectKey, query string) ([]store.Recor
 // than one condition (e.g. a tombstoned record superseded before deletion);
 // this precedence picks the single status callers see, always the
 // strongest one, rather than leaving it ambiguous which wins.
-func annotate(st *store.Store, rec store.Record) (Item, error) {
+func annotate(st *store.Store, rec store.Record, workspaces []string) (Item, error) {
 	edges, err := st.EdgesTouching(rec.ID)
 	if err != nil {
 		return Item{}, fmt.Errorf("recall: annotate %s: %w", rec.ID, err)
@@ -297,7 +301,7 @@ func annotate(st *store.Store, rec store.Record) (Item, error) {
 	// StatusContradicted check below is not, so a handoff never falls
 	// through to that check at all — flagged or not.
 	if rec.Kind == store.KindHandoff {
-		reasons, err := st.HandoffFreshness(rec)
+		reasons, err := st.HandoffFreshness(rec, workspaces)
 		if err != nil {
 			return Item{}, fmt.Errorf("recall: annotate %s: freshness: %w", rec.ID, err)
 		}

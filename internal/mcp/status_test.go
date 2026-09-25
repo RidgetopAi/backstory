@@ -37,7 +37,7 @@ func testDaemonCwdErr(t *testing.T, st *store.Store, harness string) string {
 	sockPath := filepath.Join(t.TempDir(), "sock")
 	srv, err := socket.Listen(sockPath, resolver, func(id ident.Identity, conn net.Conn) {
 		defer func() { _ = conn.Close() }()
-		ServeDaemonConn(id, conn, st, procfs, fakeGit{}, nil, sessions, captureNeverOff)
+		ServeDaemonConn(id, conn, st, procfs, fakeGit{}, nil, sessions, captureNeverOff, nil)
 	})
 	if err != nil {
 		t.Fatalf("socket.Listen: %v", err)

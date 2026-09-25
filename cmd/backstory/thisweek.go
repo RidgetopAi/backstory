@@ -7,6 +7,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/store"
 	"github.com/RidgetopAi/backstory/internal/week"
 )
@@ -45,7 +46,14 @@ func runThisWeek(args []string, stdout, stderr io.Writer) int {
 	}
 	defer func() { _ = st.Close() }()
 
-	result, err := week.Build(week.Params{Store: st, Now: thisWeekNow()})
+	// Resolved once here, at the process entry, never inside internal/week
+	// (task 482b2320, decision f3fa04c7's clause 7).
+	workspaceDirs, err := project.DefaultWorkspaceDirs()
+	if err != nil {
+		workspaceDirs = nil
+	}
+
+	result, err := week.Build(week.Params{Store: st, Git: project.RealGit{}, WorkspaceDirs: workspaceDirs, Now: thisWeekNow()})
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory this-week:", err)
 		return 1

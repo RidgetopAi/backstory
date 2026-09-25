@@ -85,7 +85,7 @@ standalone row; `project` is present only on a standalone row. A panel branches 
 | Field                | Type    | Always present | Meaning |
 |-----------------------|---------|-----------------|---------|
 | `project_key`         | string  | yes | `internal/project.Key`'s output. |
-| `display_name`        | string  | yes | The basename of the project's stored toplevel path (falls back to `project_key` if the project has no `projects` row, which should not happen for anything this endpoint lists). |
+| `display_name`        | string  | yes | The project's stored toplevel path, made workspace-relative (`projects/omarcade`) when it lives inside a configured workspace dir, else its basename (falls back to `project_key` if the project has no `projects` row, which should not happen for anything this endpoint lists). |
 | `cwd`                 | string  | yes | The most recently started session's cwd — where a click-to-reopen action should open a terminal. |
 | `last_activity`       | string (RFC3339Nano, UTC) | yes | The latest of the project's own session starts, timeline events, and record inserts. |
 | `handoff_id`          | string  | only if the project has a handoff record | The latest handoff's record id. |

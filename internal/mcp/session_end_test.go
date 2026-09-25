@@ -33,7 +33,7 @@ func testDaemonWithGit(t *testing.T, st *store.Store, harness, cwd, projectKey s
 	sockPath := filepath.Join(t.TempDir(), "sock")
 	srv, err := socket.Listen(sockPath, resolver, func(id ident.Identity, conn net.Conn) {
 		defer func() { _ = conn.Close() }()
-		ServeDaemonConn(id, conn, st, procfs, git, nil, sessions, captureNeverOff)
+		ServeDaemonConn(id, conn, st, procfs, git, nil, sessions, captureNeverOff, nil)
 	})
 	if err != nil {
 		t.Fatalf("socket.Listen: %v", err)

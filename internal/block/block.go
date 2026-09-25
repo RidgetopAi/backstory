@@ -14,6 +14,7 @@ import (
 
 	"github.com/RidgetopAi/backstory/internal/ident"
 	"github.com/RidgetopAi/backstory/internal/payload"
+	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
@@ -58,6 +59,24 @@ type Params struct {
 	ProjectKey string
 	SessionID  string
 	Harness    string
+	// CWD is the calling session's own folder — decision f3fa04c7's RESUME
+	// rule needs it to tell "inside a repo under a workspace" apart from
+	// "at the workspace root itself" apart from "no workspace involved at
+	// all". Empty disables all three home-scoped Resume behaviors, falling
+	// back to the pre-f3fa04c7 "newest handoff for ProjectKey" exactly —
+	// existing callers that never set it keep their old behavior unchanged.
+	CWD string
+	// Git resolves CWD's (and a home-scoped handoff candidate's own
+	// session's) repo identity for label purposes (project.Label). Only
+	// read when CWD is non-empty; a caller that sets CWD must also set Git.
+	Git project.Git
+	// WorkspaceDirs is the caller's already-resolved workspace directory
+	// list (task 482b2320, decision f3fa04c7's clause 7): block never
+	// resolves workspace dirs itself (no project.DefaultWorkspaceDirs call,
+	// no env read), so its Resume behavior depends only on what the caller
+	// passes, never on the process environment. nil disables every
+	// home-scoped Resume behavior the same way an empty CWD does.
+	WorkspaceDirs []string
 	// Now is the reference time for expiry checks (slot 4) and the delta
 	// cutoff (slot 2). Zero means time.Now().
 	Now time.Time
@@ -69,9 +88,9 @@ func Render(p Params) (string, error) {
 		p.Now = time.Now()
 	}
 
-	handoff, hasHandoff, err := p.Store.LatestRecord(p.ProjectKey, store.KindHandoff)
+	handoff, hasHandoff, resumeLabel, err := resolveResumeHandoff(p.Store, p.ProjectKey, p.CWD, p.Git, p.WorkspaceDirs)
 	if err != nil {
-		return "", fmt.Errorf("block: latest handoff: %w", err)
+		return "", fmt.Errorf("block: resolve resume handoff: %w", err)
 	}
 	allEvents, err := p.Store.EventsSinceID(p.ProjectKey, 0)
 	if err != nil {
@@ -99,13 +118,13 @@ func Render(p Params) (string, error) {
 	}
 	var staleReasons []store.FreshnessReason
 	if hasHandoff {
-		staleReasons, err = p.Store.HandoffFreshness(handoff)
+		staleReasons, err = p.Store.HandoffFreshness(handoff, p.WorkspaceDirs)
 		if err != nil {
 			return "", fmt.Errorf("block: handoff freshness: %w", err)
 		}
 	}
 
-	slot1 := resumeSlot(handoff, hasHandoff, staleReasons)
+	slot1 := resumeSlot(handoff, hasHandoff, staleReasons, resumeLabel)
 	slot2 := deltaSlot(deltaEvents)
 	slot3 := coordinationSlot(liveSessions, allEvents, p.SessionID, p.ProcFS)
 	slot4 := attentionSlot(draftCount, contradictionCount, len(staleReasons) > 0)
@@ -130,7 +149,7 @@ func Render(p Params) (string, error) {
 // spelled out in prose (task 56317fe7 — measured on Brian's desktop: a
 // handoff's text named its predecessor in prose because the block carried
 // no id at all, so the chain never linked).
-func resumeSlot(rec store.Record, ok bool, staleReasons []store.FreshnessReason) string {
+func resumeSlot(rec store.Record, ok bool, staleReasons []store.FreshnessReason, label string) string {
 	if !ok {
 		return ""
 	}
@@ -138,10 +157,54 @@ func resumeSlot(rec store.Record, ok bool, staleReasons []store.FreshnessReason)
 	if m := modeLine.FindStringSubmatch(rec.Text); m != nil {
 		line += "\nMODE: " + m[1]
 	}
+	if label != "" {
+		line += "\nLocation: " + label
+	}
 	if marker := staleMarker(staleReasons); marker != "" {
 		line += "\n" + marker
 	}
 	return line
+}
+
+// resolveResumeHandoff is decision f3fa04c7's RESUME rule: inside a repo
+// under a workspace, the newest non-tombstoned handoff in the home whose
+// session's labels include that repo (no label shown — the caller is
+// already inside it); at the workspace root itself, the newest handoff in
+// the home, WITH its own session's label on the Resume line; with no
+// workspace involved at all (cwd empty, or outside every configured
+// workspace), the pre-f3fa04c7 behavior — the newest handoff for
+// projectKey, unchanged, no label.
+func resolveResumeHandoff(st *store.Store, projectKey, cwd string, git project.Git, workspaces []string) (store.Record, bool, string, error) {
+	if cwd == "" {
+		h, ok, err := st.LatestRecord(projectKey, store.KindHandoff)
+		return h, ok, "", err
+	}
+	home, ok := project.WorkspaceHome(cwd, workspaces)
+	if !ok {
+		h, ok, err := st.LatestRecord(projectKey, store.KindHandoff)
+		return h, ok, "", err
+	}
+
+	if home != projectKey {
+		// Inside a specific repo under the workspace: filter the home's
+		// handoffs down to the one whose own session actually touched this
+		// repo.
+		label := project.Label(cwd, git, workspaces)
+		h, found, err := st.HandoffForLabel(home, label, git, workspaces)
+		return h, found, "", err
+	}
+
+	// At the workspace root itself: the newest handoff in the home, with
+	// its own session's label shown.
+	h, found, err := st.LatestRecord(home, store.KindHandoff)
+	if err != nil || !found {
+		return h, found, "", err
+	}
+	label, err := st.HandoffLabel(h, git, workspaces)
+	if err != nil {
+		return store.Record{}, false, "", fmt.Errorf("block: resume handoff label: %w", err)
+	}
+	return h, true, label, nil
 }
 
 // staleMarker renders the Resume slot's possibly-stale marker (decision

@@ -127,6 +127,77 @@ func Key(cwd string, git Git, workspaces []string) string {
 	return repo.Toplevel
 }
 
+// WorkspaceHome reports the workspace key that covers cwd — cwd itself, or
+// a descendant of it AT ANY DEPTH, inside one of workspaces (decision
+// f3fa04c7's HOME rule) — the containment check a kind=handoff record's
+// project_key and every home-scoped read (freshness, labels, resume) apply.
+// This is deliberately broader than workspaceOf's "workspace dir or a
+// DIRECT child" (Key's own frozen rule, decision bcc9fa54): a repo three
+// levels under a workspace dir is still "in the workspace" for HOME
+// purposes even though Key() gives that repo its own key whenever
+// git.Repo succeeds for it — WorkspaceHome never consults git at all, so it
+// answers the same regardless of whether cwd is itself a git repo.
+func WorkspaceHome(cwd string, workspaces []string) (string, bool) {
+	cwd = filepath.Clean(cwd)
+	for _, w := range workspaces {
+		w = filepath.Clean(w)
+		if cwd == w {
+			return workspaceKeyPrefix + w, true
+		}
+		rel, err := filepath.Rel(w, cwd)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		return workspaceKeyPrefix + w, true
+	}
+	return "", false
+}
+
+// WorkspaceRelativeName is dir's human-facing display label (decision
+// f3fa04c7's LABELS rule): "<workspace-basename>/<relative-path>" when dir
+// is inside (or is) one of workspaces — e.g. "projects/omarcade" for dir
+// ".../projects/omarcade" and workspace ".../projects" — else dir's own
+// basename, the pre-existing display-name form (week.displayName's old
+// filepath.Base(toplevel) fallback), so applying this everywhere that used
+// to call filepath.Base is a strict superset: a dir outside every
+// configured workspace renders exactly as it always did.
+func WorkspaceRelativeName(dir string, workspaces []string) string {
+	dir = filepath.Clean(dir)
+	for _, w := range workspaces {
+		w = filepath.Clean(w)
+		if dir == w {
+			return filepath.Base(w)
+		}
+		rel, err := filepath.Rel(w, dir)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		return filepath.Base(w) + "/" + rel
+	}
+	return filepath.Base(dir)
+}
+
+// Label is dir's work-location label (decision f3fa04c7's LABELS rule): the
+// git repo containing dir, resolved to its toplevel and made
+// workspace-relative (WorkspaceRelativeName), when dir is inside a git
+// working tree; else dir itself, made workspace-relative. Never consults
+// about[] or any record text — LABELS is derived purely from where a path
+// observably lives on disk.
+func Label(dir string, git Git, workspaces []string) string {
+	if repo, ok := git.Repo(dir); ok {
+		return WorkspaceRelativeName(repo.Toplevel, workspaces)
+	}
+	return WorkspaceRelativeName(dir, workspaces)
+}
+
+// LabelForPath is Label applied to the directory containing path — LABELS'
+// per-touched-file resolution (decision f3fa04c7): a session's work
+// locations are derived from the file paths its file-touching timeline
+// events carry, each resolved to the repo/folder that contains it.
+func LabelForPath(path string, git Git, workspaces []string) string {
+	return Label(filepath.Dir(path), git, workspaces)
+}
+
 // IsWorkspaceKey reports whether key is a workspace identity (Key's
 // workspaceKeyPrefix result) rather than a real repo key — the check This
 // Week's project list (internal/week) and any other caller enumerating

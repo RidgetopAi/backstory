@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/RidgetopAi/backstory/internal/export"
+	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
@@ -55,7 +56,11 @@ func runExport(args []string, stdout, stderr io.Writer) int {
 	}
 	defer func() { _ = st.Close() }()
 
-	rendered, err := export.Build(export.Params{Store: st, ProjectKey: projectKey, Altitude: altitude})
+	// Resolved once here, at the process entry, never inside internal/export
+	// or internal/recall (task 482b2320, decision f3fa04c7's clause 7).
+	workspaces, _ := project.DefaultWorkspaceDirs()
+
+	rendered, err := export.Build(export.Params{Store: st, ProjectKey: projectKey, Altitude: altitude, WorkspaceDirs: workspaces})
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory export:", err)
 		return 1
