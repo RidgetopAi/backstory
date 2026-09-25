@@ -36,6 +36,18 @@ import "js/glyphs.js" as Glyphs
 // function this-week's own rows use, and the legacy/workspace pair merged
 // into one entry); this editor reads that array (js/groups.js's
 // displayNameForKey) and never derives a name from a key itself.
+//
+// Round 6 desk defect A (Brian's desk, task 4fe02e30): this editor still
+// built its ROWS from `ungrouped` and `groups[].projects` — the raw
+// project_key lists, never deduped the way `projects` is — so a folder
+// with history under both its legacy and workspace keys still showed up
+// TWICE, the legacy one labelled with the raw key (displayNameForKey falls
+// back to the key when it finds no match). Fixed: every Repeater below
+// (a group's members, and the ungrouped section) is built ONLY from
+// `groupsData.projects` (js/groups.js's projectsInGroup/ungroupedProjects),
+// group membership read from each entry's own `group` field — `ungrouped`
+// and `groups[].projects` are never read for rows, only `groups[].group`
+// (the group NAMES) and the picker chips below.
 Item {
   id: root
 
@@ -161,24 +173,24 @@ Item {
         }
 
         Repeater {
-          model: modelData.projects || []
+          model: Groups.projectsInGroup(root.groupsData.projects || [], modelData.group)
           delegate: GroupProjectRow {
-            required property string modelData
+            required property var modelData
             width: content.width
-            projectKey: modelData
-            displayName: Groups.displayNameForKey(root.groupsData.projects || [], modelData)
-            selected: root.selectedProjectKey === modelData
+            projectKey: modelData.key
+            displayName: modelData.display_name
+            selected: root.selectedProjectKey === modelData.key
             removable: true
             indent: Style.space(12)
-            onPicked: root.pickProject(modelData)
-            onRemoveRequested: root.clearGroup(modelData)
+            onPicked: root.pickProject(modelData.key)
+            onRemoveRequested: root.clearGroup(modelData.key)
           }
         }
       }
     }
 
     Text {
-      visible: (root.groupsData.ungrouped || []).length > 0
+      visible: Groups.ungroupedProjects(root.groupsData.projects || []).length > 0
       textFormat: Text.PlainText
       text: "Ungrouped this week"
       font.family: Style.font.family
@@ -188,15 +200,15 @@ Item {
     }
 
     Repeater {
-      model: root.groupsData.ungrouped || []
+      model: Groups.ungroupedProjects(root.groupsData.projects || [])
       delegate: GroupProjectRow {
-        required property string modelData
+        required property var modelData
         width: content.width
-        projectKey: modelData
-        displayName: Groups.displayNameForKey(root.groupsData.projects || [], modelData)
-        selected: root.selectedProjectKey === modelData
+        projectKey: modelData.key
+        displayName: modelData.display_name
+        selected: root.selectedProjectKey === modelData.key
         removable: false
-        onPicked: root.pickProject(modelData)
+        onPicked: root.pickProject(modelData.key)
       }
     }
 

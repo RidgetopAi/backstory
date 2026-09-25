@@ -39,7 +39,11 @@ TestCase {
       stdout: JSON.stringify({ attention: [], where_left_off: [], week: [] }), stderr: "", exitCode: 0
     })
     ProcessController.respond(Launchers.groupListCommand(), {
-      stdout: JSON.stringify({ groups: [], ungrouped: [ungroupedProjectKey] }), stderr: "", exitCode: 0
+      stdout: JSON.stringify({
+        groups: [],
+        ungrouped: [ungroupedProjectKey],
+        projects: [{ key: ungroupedProjectKey, display_name: "acme-week-main", group: "" }]
+      }), stderr: "", exitCode: 0
     })
 
     loader = panelComponent.createObject(testCase)
@@ -173,5 +177,57 @@ TestCase {
       "rendered text must never be the key-derived \"omarcade.git\"; got " + JSON.stringify(texts))
     verify(texts.indexOf(gitKey) === -1,
       "rendered text must never be the raw project_key; got " + JSON.stringify(texts))
+  }
+
+  // test_rows_come_only_from_projects_array_never_ungrouped_raw_keys is
+  // task 4fe02e30 round 6 DONE WHEN clause (3): the group editor's rows
+  // come ONLY from `group list --json`'s own `projects` array (group
+  // membership from its own `group` field) — never from `ungrouped` or
+  // `groups[].projects`, which are not deduped against a legacy/workspace
+  // key pair for the same folder the way `projects` itself already is
+  // (round 6 desk defect A). This feeds a REAL-shaped payload: `ungrouped`
+  // still lists BOTH the legacy plain key and its workspace-prefixed key
+  // for the same folder (exactly what an un-deduped read would produce),
+  // while `projects` already carries just the ONE merged entry — and
+  // asserts the rendered project rows are EXACTLY `projects`' own entries:
+  // right count, right keys, right display names, and never a row (or any
+  // rendered text) for the raw legacy key.
+  function test_rows_come_only_from_projects_array_never_ungrouped_raw_keys() {
+    openGroupEditor()
+
+    var legacyKey = "/home/brian/projects"
+    var workspaceKey = "workspace:/home/brian/projects"
+    var outsideKey = "/home/brian/.local/bin"
+    ProcessController.respond(Launchers.groupListCommand(), {
+      stdout: JSON.stringify({
+        groups: [],
+        ungrouped: [legacyKey, workspaceKey, outsideKey],
+        projects: [
+          { key: workspaceKey, display_name: "projects", group: "" },
+          { key: outsideKey, display_name: "bin", group: "" }
+        ]
+      }), stderr: "", exitCode: 0
+    })
+
+    var editor = findGroupEditor()
+    verify(editor !== null, "no embedded GroupEditor instance found")
+    editor.refresh()
+    wait(20)
+
+    var rows = TestUtil.findAll(panel.testContentItem, function (node) {
+      return node.projectKey !== undefined
+    })
+    compare(rows.length, 2, "expected exactly one row per `projects` entry (2), got " + JSON.stringify(rows.map(function (r) { return r.projectKey })))
+
+    var byKey = {}
+    for (var i = 0; i < rows.length; i++) byKey[rows[i].projectKey] = rows[i].displayName
+
+    verify(byKey[legacyKey] === undefined, "a row rendered for the raw legacy key " + legacyKey + "; rows must come only from `projects`")
+    compare(byKey[workspaceKey], "projects")
+    compare(byKey[outsideKey], "bin")
+
+    var texts = TestUtil.collectVisibleTexts(panel.testContentItem)
+    verify(texts.indexOf(legacyKey) === -1,
+      "rendered text must never be the raw legacy key " + legacyKey + "; got " + JSON.stringify(texts))
   }
 }

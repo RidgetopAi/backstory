@@ -108,6 +108,67 @@ func TestDisplayNameForKey(t *testing.T) {
 	}
 }
 
+// TestProjectsInGroup is task 4fe02e30 round 6 DONE WHEN clause (3): the
+// group editor's per-group member rows come from projectsInGroup(projects,
+// groupName), filtering `projects` by its own `group` field — never from
+// `group list --json`'s separate `groups[].projects` key list, which is
+// not deduped against a legacy/workspace key pair for the same folder the
+// way `projects` itself already is (round 6 desk defect A).
+func TestProjectsInGroup(t *testing.T) {
+	projects := []fixtureProject{
+		{Key: "workspace:/home/brian/projects", DisplayName: "projects", Group: "media"},
+		{Key: "/home/brian/.local/bin", DisplayName: "bin", Group: ""},
+		{Key: "/home/brian/projects/vidflow", DisplayName: "projects/vidflow", Group: "media"},
+	}
+	projectsLiteral := jsonLiteral(t, projects)
+
+	expr := "projectsInGroup(" + projectsLiteral + ", " + jsStringLiteral("media") + ")"
+	raw := evalJS(t, expr, groupsJSPath)
+	var got []fixtureProject
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("decode %s result %s: %v", expr, raw, err)
+	}
+	wantKeys := []string{projects[0].Key, projects[2].Key}
+	if len(got) != len(wantKeys) {
+		t.Fatalf("projectsInGroup(media) = %+v, want %d entries", got, len(wantKeys))
+	}
+	for i, k := range wantKeys {
+		if got[i].Key != k {
+			t.Errorf("projectsInGroup(media)[%d].Key = %q, want %q", i, got[i].Key, k)
+		}
+	}
+
+	emptyExpr := "projectsInGroup(" + projectsLiteral + ", " + jsStringLiteral("no-such-group") + ")"
+	emptyRaw := evalJS(t, emptyExpr, groupsJSPath)
+	var empty []fixtureProject
+	if err := json.Unmarshal(emptyRaw, &empty); err != nil {
+		t.Fatalf("decode %s result %s: %v", emptyExpr, emptyRaw, err)
+	}
+	if len(empty) != 0 {
+		t.Errorf("projectsInGroup(no-such-group) = %+v, want empty", empty)
+	}
+}
+
+// TestUngroupedProjects is DONE WHEN clause (3)'s ungrouped-section half:
+// ungroupedProjects(projects) is exactly projects filtered to group === "".
+func TestUngroupedProjects(t *testing.T) {
+	projects := []fixtureProject{
+		{Key: "workspace:/home/brian/projects", DisplayName: "projects", Group: "media"},
+		{Key: "/home/brian/.local/bin", DisplayName: "bin", Group: ""},
+	}
+	projectsLiteral := jsonLiteral(t, projects)
+
+	expr := "ungroupedProjects(" + projectsLiteral + ")"
+	raw := evalJS(t, expr, groupsJSPath)
+	var got []fixtureProject
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("decode %s result %s: %v", expr, raw, err)
+	}
+	if len(got) != 1 || got[0].Key != projects[1].Key {
+		t.Fatalf("ungroupedProjects(...) = %+v, want exactly [%+v]", got, projects[1])
+	}
+}
+
 // displayNameForKeyFuncLiteral is the exact body js/groups.js's
 // displayNameForKey ships today.
 // TestDisplayNameForKeyCatchesKeyDerivedRegression asserts this literal is

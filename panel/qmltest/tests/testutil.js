@@ -75,6 +75,19 @@ function findFirst(root, predicate) {
   return found
 }
 
+// findAll returns every visible descendant of root (root included) for
+// which predicate(node) is true, in walk order — the same visible-only
+// chain findFirst walks, for a test that needs to assert an EXACT set of
+// rows (task 4fe02e30 round 6 DONE WHEN clause 3), not just that one
+// exists.
+function findAll(root, predicate) {
+  var found = []
+  walkVisible(root, function (node) {
+    if (predicate(node)) found.push(node)
+  })
+  return found
+}
+
 function childrenOf(node) {
   if (node.contentItem) return [node.contentItem]
   if (node.children && node.children.length !== undefined) {

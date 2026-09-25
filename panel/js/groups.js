@@ -33,3 +33,28 @@ function displayNameForKey(projects, projectKey) {
 function canSubmitGroup(projectKey, groupName) {
   return projectKey.length > 0 && groupName.trim().length > 0
 }
+
+// projectsInGroup returns projects' entries whose own `group` field is
+// groupName — GroupEditor.qml's ONE source for a group row's member rows
+// (task 4fe02e30 round 6 desk defect A: the editor used to build these
+// rows from `group list --json`'s `groups[].projects` project_key list
+// instead, which is not deduped against a legacy/workspace key pair for
+// the same folder the way `projects` itself already is — a folder with
+// history under both showed up twice, the legacy one labelled with its raw
+// key). Never mutates projects.
+function projectsInGroup(projects, groupName) {
+  var out = []
+  for (var i = 0; i < projects.length; i++) {
+    if (projects[i].group === groupName) out.push(projects[i])
+  }
+  return out
+}
+
+// ungroupedProjects returns projects' entries with no group at all
+// (group === "") — GroupEditor.qml's ONE source for the "Ungrouped this
+// week" section's rows, the same reasoning projectsInGroup's doc comment
+// gives: built from `projects`, never from `group list --json`'s own
+// separate `ungrouped` key list.
+function ungroupedProjects(projects) {
+  return projectsInGroup(projects, "")
+}
