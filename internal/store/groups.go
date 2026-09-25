@@ -65,18 +65,24 @@ func (s *Store) ClearProjectGroup(identity Identity, projectKey string) error {
 }
 
 // GroupOf returns projectKey's current group and whether it is in one at
-// all. It is read-only and takes no Identity: reading a project's group is
-// not a human-only power, only setting or clearing one is.
+// all — checking projectKey's read-side alias set (projectKeyAliases) in
+// order, so a workspace project not itself grouped since the re-key still
+// reports whatever group a human set on its legacy key before it. It is
+// read-only and takes no Identity: reading a project's group is not a
+// human-only power, only setting or clearing one is.
 func (s *Store) GroupOf(projectKey string) (string, bool, error) {
-	var name string
-	err := s.db.QueryRow(`SELECT group_name FROM project_groups WHERE project_key = ?`, projectKey).Scan(&name)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", false, nil
+	for _, key := range projectKeyAliases(projectKey) {
+		var name string
+		err := s.db.QueryRow(`SELECT group_name FROM project_groups WHERE project_key = ?`, key).Scan(&name)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			return "", false, fmt.Errorf("store: group of %s: %w", projectKey, err)
+		}
+		return name, true, nil
 	}
-	if err != nil {
-		return "", false, fmt.Errorf("store: group of %s: %w", projectKey, err)
-	}
-	return name, true, nil
+	return "", false, nil
 }
 
 // ListGroups returns every project_groups row, ordered by group name then

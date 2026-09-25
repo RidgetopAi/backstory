@@ -247,9 +247,11 @@ func (s *Store) GetRecord(id string) (Record, error) {
 // insertion order is not). found is false when no such record exists.
 func (s *Store) LatestRecord(projectKey string, kind RecordKind) (Record, bool, error) {
 	var id string
+	ph, args := projectKeyIN(projectKey)
+	args = append(args, string(kind))
 	err := s.db.QueryRow(`SELECT id FROM records
-		WHERE project_key = ? AND kind = ? AND tombstoned_at IS NULL
-		ORDER BY rowid DESC LIMIT 1`, projectKey, string(kind)).Scan(&id)
+		WHERE project_key IN `+ph+` AND kind = ? AND tombstoned_at IS NULL
+		ORDER BY rowid DESC LIMIT 1`, args...).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Record{}, false, nil
 	}
@@ -270,9 +272,11 @@ func (s *Store) LatestRecord(projectKey string, kind RecordKind) (Record, bool, 
 // query: unlike LatestRecord (one row), a caller wants every declared
 // decision for the project, most recent first.
 func (s *Store) RecordsForProject(projectKey string, kind RecordKind, limit int) ([]Record, error) {
+	ph, args := projectKeyIN(projectKey)
+	args = append(args, string(kind), limit)
 	rows, err := s.db.Query(`SELECT id FROM records
-		WHERE project_key = ? AND kind = ? AND tombstoned_at IS NULL
-		ORDER BY rowid DESC LIMIT ?`, projectKey, string(kind), limit)
+		WHERE project_key IN `+ph+` AND kind = ? AND tombstoned_at IS NULL
+		ORDER BY rowid DESC LIMIT ?`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("store: records for project %s kind %s: %w", projectKey, kind, err)
 	}
@@ -288,11 +292,12 @@ func (s *Store) RecordsForProject(projectKey string, kind RecordKind, limit int)
 // attention slot (AGENT-CONTRACT.md §The SessionStart block).
 func (s *Store) UnconfirmedDraftCount(projectKey string, now time.Time) (int, error) {
 	var n int
+	ph, args := projectKeyIN(projectKey)
+	args = append(args, string(TierInferred), tsToNanos(now))
 	err := s.db.QueryRow(`SELECT COUNT(*) FROM records
-		WHERE project_key = ? AND tier = ? AND promoter IS NULL
+		WHERE project_key IN `+ph+` AND tier = ? AND promoter IS NULL
 		AND (expires_at IS NULL OR expires_at > ?)
-		AND tombstoned_at IS NULL`,
-		projectKey, string(TierInferred), tsToNanos(now)).Scan(&n)
+		AND tombstoned_at IS NULL`, args...).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("store: unconfirmed draft count for project %s: %w", projectKey, err)
 	}
@@ -309,17 +314,18 @@ func (s *Store) UnconfirmedDraftCount(projectKey string, now time.Time) (int, er
 // before this punch, so an expired claim with no such edge is exactly the
 // gap this Attention item flags.
 func (s *Store) ExpiredClaimsWithoutOutcome(projectKey string, asOf time.Time) ([]Record, error) {
+	ph, args := projectKeyIN(projectKey)
+	args = append(args, string(KindClaim), tsToNanos(asOf), string(EdgeProducedOutcome), string(EdgeProducedOutcome))
 	rows, err := s.db.Query(`
 		SELECT id FROM records
-		WHERE project_key = ? AND kind = ? AND tombstoned_at IS NULL
+		WHERE project_key IN `+ph+` AND kind = ? AND tombstoned_at IS NULL
 		AND expires_at IS NOT NULL AND expires_at <= ?
 		AND id NOT IN (
 			SELECT from_id FROM edges WHERE type = ?
 			UNION
 			SELECT to_id FROM edges WHERE type = ?
 		)
-		ORDER BY rowid ASC`,
-		projectKey, string(KindClaim), tsToNanos(asOf), string(EdgeProducedOutcome), string(EdgeProducedOutcome))
+		ORDER BY rowid ASC`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("store: expired claims without outcome for project %s: %w", projectKey, err)
 	}
@@ -361,9 +367,11 @@ func (s *Store) TombstoneRecord(id string, identity Identity) error {
 // still surface (recall omits its text, keeps its edges) rather than
 // vanish the way it does for RecordsForProject's kind-scoped callers.
 func (s *Store) RecordsForProjectAll(projectKey string, limit int) ([]Record, error) {
+	ph, args := projectKeyIN(projectKey)
+	args = append(args, limit)
 	rows, err := s.db.Query(`SELECT id FROM records
-		WHERE project_key = ?
-		ORDER BY rowid DESC LIMIT ?`, projectKey, limit)
+		WHERE project_key IN `+ph+`
+		ORDER BY rowid DESC LIMIT ?`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("store: all records for project %s: %w", projectKey, err)
 	}

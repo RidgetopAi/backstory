@@ -101,10 +101,12 @@ func (s *Store) EdgesTouching(id string) ([]Edge, error) {
 // in projectKey — the SessionStart block's attention slot's other half
 // (AGENT-CONTRACT.md §The SessionStart block).
 func (s *Store) ContradictionCount(projectKey string) (int, error) {
+	ph, keyArgs := projectKeyIN(projectKey)
+	args := append([]any{string(EdgeContradicts)}, keyArgs...)
 	var n int
 	err := s.db.QueryRow(`SELECT COUNT(*) FROM edges e
 		JOIN records r ON r.id = e.to_id
-		WHERE e.type = ? AND r.project_key = ?`, string(EdgeContradicts), projectKey).Scan(&n)
+		WHERE e.type = ? AND r.project_key IN `+ph, args...).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("store: contradiction count for project %s: %w", projectKey, err)
 	}
@@ -133,13 +135,15 @@ type Contradiction struct {
 // "this week" is judged by the contradicting record's own ts — the record
 // whose insert is what brought the edge into existence in the first place.
 func (s *Store) ContradictionsSince(projectKey string, since time.Time) ([]Contradiction, error) {
+	ph, keyArgs := projectKeyIN(projectKey)
+	args := append([]any{string(EdgeContradicts)}, keyArgs...)
+	args = append(args, tsToNanos(since))
 	rows, err := s.db.Query(`
 		SELECT e.to_id, e.from_id, c.evidence FROM edges e
 		JOIN records r ON r.id = e.to_id
 		JOIN records c ON c.id = e.from_id
-		WHERE e.type = ? AND r.project_key = ? AND c.ts >= ?
-		ORDER BY c.rowid ASC`,
-		string(EdgeContradicts), projectKey, tsToNanos(since))
+		WHERE e.type = ? AND r.project_key IN `+ph+` AND c.ts >= ?
+		ORDER BY c.rowid ASC`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("store: contradictions since %s for project %s: %w", since, projectKey, err)
 	}
