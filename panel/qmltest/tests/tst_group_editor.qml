@@ -11,8 +11,9 @@ import "../../js/launchers.js" as Launchers
 // Flickable as the normal sections). Drives the real gear -> pick a
 // project -> type a group -> "+" click path and asserts the resulting
 // `backstory group set <group> <key>` argv (DONE WHEN clause 4), and that
-// a stubbed non-zero `group set` exit shows its stderr in the editor
-// (DONE WHEN clause 1's harness spec, clause 4).
+// a stubbed non-zero `group set` exit shows its stderr in the editor (the
+// Part 1 harness spec's own "a stubbed non-zero group exit shows its
+// stderr in the editor", DONE WHEN clause 4).
 TestCase {
   id: testCase
   name: "GroupEditor"

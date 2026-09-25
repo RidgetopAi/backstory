@@ -18,7 +18,7 @@ import "js/glyphs.js" as Glyphs
 // host's own bar-widget plugins use — ridgetopai.omarcade's own
 // Marquee.qml:253 — `Quickshell.execDetached(["omarchy-shell", "shell",
 // "toggle", "backstory.this-week", "{}"])`, named once in js/launchers.js
-// (task 4fe02e30 DONE WHEN clause 2's "every command the QML runs comes
+// (task 4fe02e30 DONE WHEN clause 5's "every command the QML runs comes
 // from js/launchers.js"). This file spawns no process of its own beyond
 // that one execDetached call — like every file in this plugin except
 // js/launchers.js itself.
