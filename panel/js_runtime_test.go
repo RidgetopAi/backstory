@@ -37,7 +37,7 @@ func evalJS(t *testing.T, expr string, libPaths ...string) json.RawMessage {
 	t.Helper()
 	sources := make([]string, 0, len(libPaths))
 	for _, p := range libPaths {
-		raw, err := os.ReadFile(p)
+		raw, err := os.ReadFile(p) //nolint:gosec // p is one of this file's own hardcoded libPaths callers pass (e.g. "js/launchers.js"), never external input
 		if err != nil {
 			t.Fatalf("read %s: %v", p, err)
 		}
@@ -67,7 +67,7 @@ func evalJSSource(t *testing.T, expr string, sources ...string) json.RawMessage 
 		t.Fatalf("write temp script: %v", err)
 	}
 
-	out, err := exec.Command(nodeBin, scriptPath).CombinedOutput()
+	out, err := exec.Command(nodeBin, scriptPath).CombinedOutput() //nolint:gosec // nodeBin is exec.LookPath("node")'s own result and scriptPath this test's own t.TempDir() file, never external input
 	if err != nil {
 		t.Fatalf("node %s: %v\n%s", scriptPath, err, out)
 	}
