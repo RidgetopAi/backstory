@@ -132,12 +132,13 @@ func (s *Store) laterRecordsSharingAbout(projectKey, boundaryID string, about []
 	if len(about) == 0 {
 		return nil, nil
 	}
+	k1, k2 := projectKeyIN(projectKey)
 	rows, err := s.db.Query(`
 		SELECT id, about FROM records
-		WHERE project_key = ? AND kind IN (?, ?, ?) AND tombstoned_at IS NULL
+		WHERE project_key IN (?, ?) AND kind IN (?, ?, ?) AND tombstoned_at IS NULL
 		AND rowid > (SELECT rowid FROM records WHERE id = ?)
 		ORDER BY rowid ASC`,
-		projectKey, string(KindDecision), string(KindNote), string(KindOutcome), boundaryID)
+		k1, k2, string(KindDecision), string(KindNote), string(KindOutcome), boundaryID)
 	if err != nil {
 		return nil, fmt.Errorf("store: later records sharing about for project %s: %w", projectKey, err)
 	}

@@ -135,3 +135,18 @@ func Key(cwd string, git Git, workspaces []string) string {
 func IsWorkspaceKey(key string) bool {
 	return strings.HasPrefix(key, workspaceKeyPrefix)
 }
+
+// WorkspaceLegacyKey reports the plain key a pre-workspace build (before
+// workspaceKeyPrefix existed) would have written for the same directory,
+// and whether key is in fact a workspace key at all. internal/store's
+// read-side alias (decision 1e53165a, task 50249f56 — the workspace re-key
+// left old rows stranded under the plain key with no migration) is this
+// function's one caller: a workspace-scoped read also matches rows under
+// the key this returns, since records are append-only and nothing rewrites
+// them across the re-key.
+func WorkspaceLegacyKey(key string) (string, bool) {
+	if !IsWorkspaceKey(key) {
+		return "", false
+	}
+	return strings.TrimPrefix(key, workspaceKeyPrefix), true
+}
