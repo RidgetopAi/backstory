@@ -100,7 +100,7 @@ func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs i
 	sc := bufio.NewScanner(conn)
 	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	for sc.Scan() {
-		resp := dispatchDaemonRequest(sc.Bytes(), st, procfs, identity, sessionID, id, captureOff)
+		resp := dispatchDaemonRequest(sc.Bytes(), st, procfs, identity, sessionID, id, git, captureOff)
 		b, err := json.Marshal(resp)
 		if err != nil {
 			logf(logger, "mcp: marshal daemon response: %v", err)
@@ -171,7 +171,7 @@ func recordSessionEndGitState(st *store.Store, git project.Git, sessionID, cwd s
 	}
 }
 
-func dispatchDaemonRequest(line []byte, st *store.Store, procfs ident.ProcFS, identity store.Identity, sessionID string, id ident.Identity, captureOff func() (bool, error)) DaemonResponse {
+func dispatchDaemonRequest(line []byte, st *store.Store, procfs ident.ProcFS, identity store.Identity, sessionID string, id ident.Identity, git project.Git, captureOff func() (bool, error)) DaemonResponse {
 
 	var req DaemonRequest
 	if err := json.Unmarshal(line, &req); err != nil {
@@ -187,7 +187,7 @@ func dispatchDaemonRequest(line []byte, st *store.Store, procfs ident.ProcFS, id
 	case daemonMethodConfirm:
 		return handleConfirm(st, identity, sessionID, id.ProjectKey, req.Params)
 	case DaemonMethodBlock:
-		return handleBlock(st, procfs, id, sessionID)
+		return handleBlock(st, procfs, id, sessionID, git)
 	case DaemonMethodPostToolUse:
 		return handlePostToolUse(st, sessionID, req.Params, captureOff)
 	default:
