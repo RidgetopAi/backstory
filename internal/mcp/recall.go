@@ -178,7 +178,7 @@ type RecallResult struct {
 // own observation, the same rule handleBlock follows for the SessionStart
 // block) — a request naming a different project cannot make recall answer
 // for it.
-func handleRecall(st *store.Store, id ident.Identity, raw json.RawMessage) DaemonResponse {
+func handleRecall(st *store.Store, id ident.Identity, raw json.RawMessage, workspaces []string) DaemonResponse {
 	var p RecallParams
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, &p); err != nil {
@@ -201,7 +201,7 @@ func handleRecall(st *store.Store, id ident.Identity, raw json.RawMessage) Daemo
 		return errResponse("internal", err.Error())
 	}
 
-	built, err := recall.Build(st, anchor, altitude, budgetTokens)
+	built, err := recall.Build(st, anchor, altitude, budgetTokens, workspaces)
 	if err != nil {
 		return errResponse("internal", err.Error())
 	}

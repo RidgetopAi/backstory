@@ -63,6 +63,12 @@ type Params struct {
 	// validate it — cmd/backstory/export.go rejects anything else at the
 	// flag, the same division of responsibility recall's own CLI uses.
 	Altitude Altitude
+	// WorkspaceDirs is the caller's already-resolved workspace directory
+	// list (task 482b2320, decision f3fa04c7's clause 7): export never
+	// resolves workspace dirs itself (no project.DefaultWorkspaceDirs call,
+	// no env read) — it only needs the list to pass through to
+	// recall.Build's handoff-freshness annotation.
+	WorkspaceDirs []string
 	// Now is the export's generation time, stamped into the header. Zero
 	// means time.Now().
 	Now time.Time
@@ -85,7 +91,7 @@ func Build(p Params) (string, error) {
 		now = time.Now()
 	}
 
-	result, err := recall.Build(p.Store, recall.ProjectAnchor(p.ProjectKey), p.Altitude, recallBudgetTokens)
+	result, err := recall.Build(p.Store, recall.ProjectAnchor(p.ProjectKey), p.Altitude, recallBudgetTokens, p.WorkspaceDirs)
 	if err != nil {
 		return "", fmt.Errorf("export: %w", err)
 	}

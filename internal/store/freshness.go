@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/RidgetopAi/backstory/internal/payload"
 )
@@ -44,7 +45,14 @@ type FreshnessReason struct {
 // about[] can only ever be flagged by FreshnessContradicted: the other two
 // reasons require an about[] path in common, which is impossible against an
 // empty set. A nil/empty return means h is fresh.
-func (s *Store) HandoffFreshness(h Record) ([]FreshnessReason, error) {
+//
+// workspaces is the caller's already-resolved workspace directory list
+// (task 482b2320, decision f3fa04c7's clause 7): the store package never
+// resolves workspace dirs itself (no project.DefaultWorkspaceDirs call, no
+// env read) so it behaves identically regardless of the calling process's
+// environment. nil is safe — homeMembership then finds no session whose
+// folder resolves inside a workspace, matching the pre-workspace scope.
+func (s *Store) HandoffFreshness(h Record, workspaces []string) ([]FreshnessReason, error) {
 	boundaryID := h.ID
 	boundaryEventCursor := h.EventCursor
 	if affirmID, affirmCursor, ok, err := s.latestAffirmInforming(h.ID); err != nil {
@@ -52,6 +60,11 @@ func (s *Store) HandoffFreshness(h Record) ([]FreshnessReason, error) {
 	} else if ok {
 		boundaryID = affirmID
 		boundaryEventCursor = affirmCursor
+	}
+
+	memberKeys, sessionIDs, err := s.homeMembership(h.ProjectKey, workspaces)
+	if err != nil {
+		return nil, err
 	}
 
 	var reasons []FreshnessReason
@@ -64,7 +77,7 @@ func (s *Store) HandoffFreshness(h Record) ([]FreshnessReason, error) {
 		reasons = append(reasons, FreshnessReason{Kind: FreshnessContradicted, RecordIDs: contradictorIDs})
 	}
 
-	laterRecordIDs, err := s.laterRecordsSharingAbout(h.ProjectKey, boundaryID, h.About)
+	laterRecordIDs, err := s.laterRecordsSharingAbout(memberKeys, boundaryID, h.About)
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +85,7 @@ func (s *Store) HandoffFreshness(h Record) ([]FreshnessReason, error) {
 		reasons = append(reasons, FreshnessReason{Kind: FreshnessLaterRecord, RecordIDs: laterRecordIDs})
 	}
 
-	laterEventIDs, err := s.laterEventsTouchingAbout(h.ProjectKey, boundaryEventCursor, h.About)
+	laterEventIDs, err := s.laterEventsTouchingAbout(sessionIDs, boundaryEventCursor, h.About)
 	if err != nil {
 		return nil, err
 	}
@@ -81,6 +94,34 @@ func (s *Store) HandoffFreshness(h Record) ([]FreshnessReason, error) {
 	}
 
 	return reasons, nil
+}
+
+// homeMembership resolves handoffProjectKey's HOME scope (decision
+// f3fa04c7): every session whose own folder resolves to handoffProjectKey
+// (sessionsForHome) — which, for a workspace-homed handoff, spans every
+// repo under that workspace, not just handoffProjectKey's own literal value
+// — plus the distinct project_key values those sessions themselves carry
+// (always including handoffProjectKey itself, so a handoff filed at a plain
+// repo key with no workspace at all, or a home with no session literally at
+// its own root, still matches its own records). Replaces the old
+// "handoff's own project_key" scope HandoffFreshness's later-record/
+// later-activity checks used before this punch.
+func (s *Store) homeMembership(handoffProjectKey string, workspaces []string) (memberKeys []string, sessionIDs []string, err error) {
+	sessions, err := s.sessionsForHome(handoffProjectKey, workspaces)
+	if err != nil {
+		return nil, nil, fmt.Errorf("store: home membership for %s: %w", handoffProjectKey, err)
+	}
+
+	seen := map[string]bool{handoffProjectKey: true}
+	memberKeys = []string{handoffProjectKey}
+	for _, sess := range sessions {
+		sessionIDs = append(sessionIDs, sess.ID)
+		if sess.ProjectKey != "" && !seen[sess.ProjectKey] {
+			seen[sess.ProjectKey] = true
+			memberKeys = append(memberKeys, sess.ProjectKey)
+		}
+	}
+	return memberKeys, sessionIDs, nil
 }
 
 // latestAffirmInforming returns the most-recently-inserted `confirm` record
@@ -125,22 +166,36 @@ func (s *Store) recordsAfter(targetID, boundaryID string, edgeType EdgeType) ([]
 }
 
 // laterRecordsSharingAbout returns, oldest first, the ids of non-tombstoned
-// decision/note/outcome records in projectKey inserted strictly after
-// boundaryID's sequence position (rowid) whose about[] shares at least one
-// path with about.
-func (s *Store) laterRecordsSharingAbout(projectKey, boundaryID string, about []string) ([]string, error) {
-	if len(about) == 0 {
+// decision/note/outcome records whose project_key is one of memberKeys
+// (each expanded through its own read-side legacy alias, projectKeyAliases
+// — the workspace-alias rule task 50249f56 added applies here exactly as it
+// does to every other project-scoped read in this package), inserted
+// strictly after boundaryID's sequence position (rowid), whose about[]
+// shares at least one path with about. memberKeys is HandoffFreshness's
+// home-scoped membership (homeMembership): for a workspace-homed handoff
+// this can span every repo under that workspace, not just the handoff's own
+// project_key (decision f3fa04c7).
+func (s *Store) laterRecordsSharingAbout(memberKeys []string, boundaryID string, about []string) ([]string, error) {
+	if len(about) == 0 || len(memberKeys) == 0 {
 		return nil, nil
 	}
-	k1, k2 := projectKeyIN(projectKey)
-	rows, err := s.db.Query(`
-		SELECT id, about FROM records
-		WHERE project_key IN (?, ?) AND kind IN (?, ?, ?) AND tombstoned_at IS NULL
+	keys := expandProjectKeyAliases(memberKeys)
+	placeholders := make([]string, len(keys))
+	args := make([]any, 0, len(keys)+4)
+	for i, k := range keys {
+		placeholders[i] = "?"
+		args = append(args, k)
+	}
+	args = append(args, string(KindDecision), string(KindNote), string(KindOutcome), boundaryID)
+
+	//nolint:gosec // the concatenated part is only "?" placeholders (one per member key), every value is still bound as a query arg below
+	query := `SELECT id, about FROM records
+		WHERE project_key IN (` + strings.Join(placeholders, ",") + `) AND kind IN (?, ?, ?) AND tombstoned_at IS NULL
 		AND rowid > (SELECT rowid FROM records WHERE id = ?)
-		ORDER BY rowid ASC`,
-		k1, k2, string(KindDecision), string(KindNote), string(KindOutcome), boundaryID)
+		ORDER BY rowid ASC`
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("store: later records sharing about for project %s: %w", projectKey, err)
+		return nil, fmt.Errorf("store: later records sharing about for %v: %w", memberKeys, err)
 	}
 	defer func() { _ = rows.Close() }()
 
@@ -167,21 +222,44 @@ func (s *Store) laterRecordsSharingAbout(projectKey, boundaryID string, about []
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("store: later records sharing about for project %s: %w", projectKey, err)
+		return nil, fmt.Errorf("store: later records sharing about for %v: %w", memberKeys, err)
 	}
 	return out, nil
 }
 
+// expandProjectKeyAliases applies projectKeyAliases to every key in keys and
+// returns the deduplicated union — the multi-key generalization of
+// projectKeyIN for a caller (laterRecordsSharingAbout) whose member set size
+// varies with the number of repos under a home, rather than always being
+// exactly one key plus its legacy alias.
+func expandProjectKeyAliases(keys []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, k := range keys {
+		for _, alias := range projectKeyAliases(k) {
+			if !seen[alias] {
+				seen[alias] = true
+				out = append(out, alias)
+			}
+		}
+	}
+	return out
+}
+
 // laterEventsTouchingAbout returns, ascending by id, the ids of timeline
-// events in projectKey after sinceEventCursor whose tool_use payload names a
-// path in about — the same "changed a file" rule the SessionStart block's
-// delta slot applies (payload.IsMutatingFileTool; task 393d174c: a Read
-// carries a path too, but it observed the file, it did not change it).
-func (s *Store) laterEventsTouchingAbout(projectKey string, sinceEventCursor int64, about []string) ([]int64, error) {
-	if len(about) == 0 {
+// events belonging to one of sessionIDs after sinceEventCursor whose
+// tool_use payload names a path in about — the same "changed a file" rule
+// the SessionStart block's delta slot applies (payload.IsMutatingFileTool;
+// task 393d174c: a Read carries a path too, but it observed the file, it
+// did not change it). sessionIDs is HandoffFreshness's home-scoped
+// membership (homeMembership): a workspace-homed handoff's later activity
+// can come from any session under that workspace, not just sessions
+// sharing the handoff's own project_key (decision f3fa04c7).
+func (s *Store) laterEventsTouchingAbout(sessionIDs []string, sinceEventCursor int64, about []string) ([]int64, error) {
+	if len(about) == 0 || len(sessionIDs) == 0 {
 		return nil, nil
 	}
-	events, err := s.EventsSinceID(projectKey, sinceEventCursor)
+	events, err := s.eventsSinceIDForSessions(sessionIDs, sinceEventCursor)
 	if err != nil {
 		return nil, err
 	}

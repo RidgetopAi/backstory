@@ -68,8 +68,25 @@ func captureNeverOff() (bool, error) { return false, nil }
 
 // testDaemon starts a real socket.Server over ServeDaemonConn, backed by st,
 // whose resolver reports the dialing pid's ancestry as harness at cwd in
-// projectKey — the fake ProcFS the punch's DONE WHEN clauses call for.
+// projectKey — the fake ProcFS the punch's DONE WHEN clauses call for. It
+// passes no workspace dirs (nil), the same "no workspace configured"
+// behavior every pre-workspace test here exercises regardless of what the
+// invoking process's own environment happens to set (task 482b2320,
+// decision f3fa04c7's clause 7): ServeDaemonConn never reads the
+// environment itself, so this fixture's behavior is deterministic. A test
+// that needs workspace-aware daemon behavior uses testDaemonWithWorkspaces
+// instead.
 func testDaemon(t *testing.T, st *store.Store, harness, cwd, projectKey string) string {
+	t.Helper()
+	return testDaemonWithWorkspaces(t, st, harness, cwd, projectKey, nil)
+}
+
+// testDaemonWithWorkspaces is testDaemon with an explicit workspace
+// directory list, for tests exercising decision f3fa04c7's workspace-scoped
+// behavior (home_test.go) — passed straight through to ServeDaemonConn
+// rather than via BACKSTORY_WORKSPACE_DIRS, since mcp never reads that
+// itself.
+func testDaemonWithWorkspaces(t *testing.T, st *store.Store, harness, cwd, projectKey string, workspaces []string) string {
 	t.Helper()
 	selfPID := os.Getpid()
 	procfs := fakeProcFS{
@@ -82,7 +99,7 @@ func testDaemon(t *testing.T, st *store.Store, harness, cwd, projectKey string) 
 	sockPath := filepath.Join(t.TempDir(), "sock")
 	srv, err := socket.Listen(sockPath, resolver, func(id ident.Identity, conn net.Conn) {
 		defer func() { _ = conn.Close() }()
-		ServeDaemonConn(id, conn, st, procfs, fakeGit{}, nil, sessions, captureNeverOff)
+		ServeDaemonConn(id, conn, st, procfs, fakeGit{}, nil, sessions, captureNeverOff, workspaces)
 	})
 	if err != nil {
 		t.Fatalf("socket.Listen: %v", err)

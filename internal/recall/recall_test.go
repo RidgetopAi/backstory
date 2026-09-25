@@ -123,7 +123,7 @@ func TestBuildProjectAnchorReturnsWholeLedgerNewestFirst(t *testing.T) {
 	third := mustInsertRecord(t, st, sessionA, "proj-a", store.KindHandoff, "third")
 	_ = mustInsertRecord(t, st, sessionB, "proj-b", store.KindNote, "other project, must not appear")
 
-	result, err := Build(st, ProjectAnchor("proj-a"), AltitudeFull, testBudget)
+	result, err := Build(st, ProjectAnchor("proj-a"), AltitudeFull, testBudget, nil)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -159,7 +159,7 @@ func TestBuildRecordAnchorWalksEdgesWithinTwoHops(t *testing.T) {
 	wantIDs := []string{hop2, hop1Out, hop1In, root} // newest-first among the visited set, by insertion sequence
 
 	t.Run("full id", func(t *testing.T) {
-		result, err := Build(st, RecordAnchor(root), AltitudeFull, testBudget)
+		result, err := Build(st, RecordAnchor(root), AltitudeFull, testBudget, nil)
 		if err != nil {
 			t.Fatalf("Build: %v", err)
 		}
@@ -175,7 +175,7 @@ func TestBuildRecordAnchorWalksEdgesWithinTwoHops(t *testing.T) {
 	})
 
 	t.Run("unique short prefix", func(t *testing.T) {
-		result, err := Build(st, RecordAnchor(root[:8]), AltitudeFull, testBudget)
+		result, err := Build(st, RecordAnchor(root[:8]), AltitudeFull, testBudget, nil)
 		if err != nil {
 			t.Fatalf("Build: %v", err)
 		}
@@ -202,7 +202,7 @@ func TestBuildTextAnchorMatchesScopedToProjectInSequenceOrder(t *testing.T) {
 	_ = mustInsertRecord(t, st, sessionA, "proj-a", store.KindNote, "unrelated: gadget latency")
 	_ = mustInsertRecord(t, st, sessionB, "proj-b", store.KindNote, "widget throughput in proj-b, must not appear")
 
-	result, err := Build(st, TextAnchor("proj-a", "widget"), AltitudeFull, testBudget)
+	result, err := Build(st, TextAnchor("proj-a", "widget"), AltitudeFull, testBudget, nil)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -246,7 +246,7 @@ func TestBuildAltitudesFitBudgetOnLargeFixture(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(string(tc.altitude), func(t *testing.T) {
-			result, err := Build(st, ProjectAnchor("proj-a"), tc.altitude, tc.budget)
+			result, err := Build(st, ProjectAnchor("proj-a"), tc.altitude, tc.budget, nil)
 			if err != nil {
 				t.Fatalf("Build: %v", err)
 			}
@@ -278,7 +278,7 @@ func TestBuildMarksSupersededStatusWithSupersedingID(t *testing.T) {
 	newRec := mustInsertRecord(t, st, sessionID, "proj-a", store.KindHandoff, "the new handoff")
 	mustLinkEdge(t, st, newRec, old, store.EdgeSupersedes, sessionID)
 
-	result, err := Build(st, ProjectAnchor("proj-a"), AltitudeFull, testBudget)
+	result, err := Build(st, ProjectAnchor("proj-a"), AltitudeFull, testBudget, nil)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -311,7 +311,7 @@ func TestBuildMarksTombstonedStatusOmitsText(t *testing.T) {
 		t.Fatalf("TombstoneRecord: %v", err)
 	}
 
-	result, err := Build(st, ProjectAnchor("proj-a"), AltitudeFull, testBudget)
+	result, err := Build(st, ProjectAnchor("proj-a"), AltitudeFull, testBudget, nil)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -350,7 +350,7 @@ func TestBuildMarksTombstonedStatusKeepsEdges(t *testing.T) {
 		t.Fatalf("TombstoneRecord: %v", err)
 	}
 
-	result, err := Build(st, ProjectAnchor("proj-a"), AltitudeFull, testBudget)
+	result, err := Build(st, ProjectAnchor("proj-a"), AltitudeFull, testBudget, nil)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -388,7 +388,7 @@ func TestBuildMarksContradictedStatusWithEvidenceIDs(t *testing.T) {
 		"actually the migration failed", evidence)
 	mustLinkEdge(t, st, contradiction, claim, store.EdgeContradicts, sessionID)
 
-	result, err := Build(st, ProjectAnchor("proj-a"), AltitudeFull, testBudget)
+	result, err := Build(st, ProjectAnchor("proj-a"), AltitudeFull, testBudget, nil)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -432,7 +432,7 @@ func TestBuildOrdersBySequenceDespiteDisagreeingTS(t *testing.T) {
 	insertedFirst := mustInsertRecordAtTS(t, st, sessionID, "proj-a", later, "inserted first, but carries a later ts")
 	insertedSecond := mustInsertRecordAtTS(t, st, sessionID, "proj-a", earlier, "inserted second, but carries an earlier ts")
 
-	result, err := Build(st, ProjectAnchor("proj-a"), AltitudeFull, testBudget)
+	result, err := Build(st, ProjectAnchor("proj-a"), AltitudeFull, testBudget, nil)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
