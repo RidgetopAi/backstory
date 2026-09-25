@@ -158,6 +158,27 @@ so a Node-less machine must not appear to pass it silently. Node needs to
 be on `PATH` wherever `make check` runs, even though the plugin itself
 needs only Quickshell/QML at runtime, never Node.
 
-The plugin's `.qml` files have no automated runtime test: Quickshell
-requires an actual Wayland/Omarchy desktop, which is why the human check
-below is proof-kind "look", not "run" — see the task's own DONE WHEN list.
+```sh
+make panel-qml-test   # part of `make check`
+```
+
+`panel/qmltest/` is a headless QML test harness (round 4, task 4fe02e30
+Part 1): `qmltestrunner` (Qt 6's QtTest QML runner, `QT_QPA_PLATFORM=
+offscreen`) loads every `panel/*.qml` file against `panel/qmltest/stubs`'s
+minimal stand-ins for `qs.Ui`, `qs.Commons`, `Quickshell`, `Quickshell.Io`
+and `Quickshell.Wayland` — the actual Omarchy/Quickshell runtime this
+plugin targets, not a Go proxy for it. `panel/qmltest/tests/` feeds
+`Panel.qml` the committed `this-week` golden, `{}`, and an all-empty-
+arrays payload through the stub `Process`; walks the visible item tree
+with the panel open and with the group editor open, asserting every item
+sits inside `PanelWindow`'s own bounds; and drives real simulated clicks
+(the bar widget, a Where-you-left-off row, the group editor's add flow)
+asserting the resulting argv. `QT_FATAL_WARNINGS=1` is this harness's
+"zero QML warnings" gate — see `panel/qmltest/tests/tst_load_all.qml`'s
+own doc comment for why (no `QQmlEngine.warnings` hook is reachable from
+plain QML). `make panel-qml-test` FAILS, naming `qmltestrunner`, if it
+isn't on `PATH`.
+
+The one thing this harness cannot exercise headlessly is a real Wayland
+compositor's own layer-shell placement/exclusion-zone behavior — that
+stays proof-kind "look", the human check below.
