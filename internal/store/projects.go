@@ -63,6 +63,34 @@ func (s *Store) ProjectsSeenSince(since time.Time) ([]string, error) {
 	return out, nil
 }
 
+// AllProjectKeys returns every project key backstory has ever recorded a
+// projects row for, ordered by key — `backstory group list --json`'s full
+// `projects` array candidate set (task 4fe02e30 round 5): every project the
+// group editor can offer to group, not just ProjectsSeenSince's "has a
+// session started in the last week" subset (a project grouped once and
+// quiet since must still show up so its group membership stays visible and
+// editable).
+func (s *Store) AllProjectKeys() ([]string, error) {
+	rows, err := s.db.Query(`SELECT key FROM projects ORDER BY key`)
+	if err != nil {
+		return nil, fmt.Errorf("store: all project keys: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := []string{}
+	for rows.Next() {
+		var key string
+		if err := rows.Scan(&key); err != nil {
+			return nil, fmt.Errorf("store: scan project key: %w", err)
+		}
+		out = append(out, key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: all project keys: %w", err)
+	}
+	return out, nil
+}
+
 // GetProject reads back a single projects row by key. found is false when
 // no session or backfill has ever upserted this key.
 func (s *Store) GetProject(key string) (Project, bool, error) {

@@ -344,7 +344,7 @@ func sortWeekGrid(grid []DayProjectStats) {
 func buildProject(st *store.Store, projectKey string, since, now time.Time, git project.Git, workspaces []string) (ProjectSummary, []AttentionItem, error) {
 	summary := ProjectSummary{ProjectKey: projectKey}
 
-	name, err := displayName(st, projectKey, workspaces)
+	name, err := DisplayName(st, projectKey, workspaces)
 	if err != nil {
 		return ProjectSummary{}, nil, err
 	}
@@ -544,7 +544,7 @@ func buildWeekGrid(st *store.Store, keys []string, since, now time.Time, workspa
 
 	var out []DayProjectStats
 	for _, key := range keys {
-		name, err := displayName(st, key, workspaces)
+		name, err := DisplayName(st, key, workspaces)
 		if err != nil {
 			return nil, err
 		}
@@ -761,7 +761,7 @@ func dayStats(events []store.TimelineEvent, records []store.Record, dayStart, da
 	}
 }
 
-// displayName is projectKey's human-readable name: its stored toplevel
+// DisplayName is projectKey's human-readable name: its stored toplevel
 // path, made workspace-relative when it lives inside a workspace ("
 // projects/omarcade", decision f3fa04c7's LABELS display rule) — else the
 // basename it always was (project.WorkspaceRelativeName's fallback is
@@ -770,7 +770,13 @@ func dayStats(events []store.TimelineEvent, records []store.Record, dayStart, da
 // happen for a key ActiveProjectKeys returned, since every session/record
 // write upserts one first, but a caller must never crash over a stale or
 // hand-seeded key that skipped it).
-func displayName(st *store.Store, projectKey string, workspaces []string) (string, error) {
+//
+// Exported (task 4fe02e30 round 5) so `backstory group list --json`'s
+// `projects` array computes display_name through this SAME function
+// rather than a second, drifting copy of the workspace-relative rule
+// (decision 9be5c1d5's group-list fix: a git project_key's last path
+// segment is `<repo>.git`, never a display name a human should see).
+func DisplayName(st *store.Store, projectKey string, workspaces []string) (string, error) {
 	proj, ok, err := st.GetProject(projectKey)
 	if err != nil {
 		return "", fmt.Errorf("week: get project %s: %w", projectKey, err)

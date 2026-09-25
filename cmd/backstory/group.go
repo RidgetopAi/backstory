@@ -12,6 +12,7 @@ import (
 
 	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/store"
+	"github.com/RidgetopAi/backstory/internal/week"
 )
 
 // groupListRecentWindow is how far back `backstory group list` looks for
@@ -125,8 +126,23 @@ type groupListEntry struct {
 
 // groupListOutput is the whole of `backstory group list --json`.
 type groupListOutput struct {
-	Groups    []groupListEntry `json:"groups"`
-	Ungrouped []string         `json:"ungrouped"`
+	Groups    []groupListEntry   `json:"groups"`
+	Ungrouped []string           `json:"ungrouped"`
+	Projects  []groupListProject `json:"projects"`
+}
+
+// groupListProject is one entry in `backstory group list --json`'s
+// `projects` array (task 4fe02e30 round 5 fix): every project backstory
+// knows about, with the display name a human should see for it and its
+// current group (empty when ungrouped). Additive — Groups and Ungrouped
+// keep their pre-existing shape; this is the ONE place a caller (the
+// Quickshell group editor) reads a project's display name from, so it
+// never has to derive one from the key's own shape again (round 5 desk
+// defect: a git project_key's last path segment is "<repo>.git").
+type groupListProject struct {
+	Key         string `json:"key"`
+	DisplayName string `json:"display_name"`
+	Group       string `json:"group"`
 }
 
 // runGroupList is `backstory group list [--json]`: every group with its
@@ -189,7 +205,12 @@ func runGroupList(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if *jsonOut {
-		out := groupListOutput{Groups: []groupListEntry{}, Ungrouped: ungrouped}
+		projects, err := buildGroupListProjects(st)
+		if err != nil {
+			_, _ = fmt.Fprintln(stderr, "backstory group list:", err)
+			return 1
+		}
+		out := groupListOutput{Groups: []groupListEntry{}, Ungrouped: ungrouped, Projects: projects}
 		for _, g := range groupOrder {
 			out.Groups = append(out.Groups, groupListEntry{Group: g, Projects: byGroup[g]})
 		}
@@ -219,6 +240,79 @@ func runGroupList(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stdout, "  %s\n", p)
 	}
 	return 0
+}
+
+// buildGroupListProjects computes `backstory group list --json`'s
+// `projects` array: every project key backstory knows about
+// (store.AllProjectKeys), a legacy plain key merged into its workspace key
+// when both are present (dedupeLegacyWorkspaceKeys), display_name from
+// week.DisplayName — the SAME function this-week's own rows use, never a
+// second copy of the workspace-relative display rule (round 5 desk defect:
+// a git project_key's last path segment is "<repo>.git", not the repo's
+// real name) — and group from store.GroupOf ("" when ungrouped).
+func buildGroupListProjects(st *store.Store) ([]groupListProject, error) {
+	keys, err := st.AllProjectKeys()
+	if err != nil {
+		return nil, fmt.Errorf("all project keys: %w", err)
+	}
+	keys = dedupeLegacyWorkspaceKeys(keys)
+
+	// Resolved once here, at the process entry, never inside internal/week
+	// (task 482b2320, decision f3fa04c7's clause 7) — the same pattern
+	// runThisWeek's own workspaceDirs resolution follows.
+	workspaceDirs, err := project.DefaultWorkspaceDirs()
+	if err != nil {
+		workspaceDirs = nil
+	}
+
+	out := make([]groupListProject, 0, len(keys))
+	for _, key := range keys {
+		name, err := week.DisplayName(st, key, workspaceDirs)
+		if err != nil {
+			return nil, fmt.Errorf("display name for %s: %w", key, err)
+		}
+		groupName, grouped, err := st.GroupOf(key)
+		if err != nil {
+			return nil, fmt.Errorf("group of %s: %w", key, err)
+		}
+		if !grouped {
+			groupName = ""
+		}
+		out = append(out, groupListProject{Key: key, DisplayName: name, Group: groupName})
+	}
+	return out, nil
+}
+
+// dedupeLegacyWorkspaceKeys collapses a legacy plain key that is ALSO
+// present in the same set under its workspace-prefixed form (decision
+// 1e53165a, task 50249f56 — the workspace re-key left old rows stranded
+// under the plain key with no migration; internal/store's own read-side
+// alias, projectKeyAliases, already treats the two as one identity for
+// every store read) into ONE entry keyed by the workspace form: the group
+// editor must show the same folder once, not twice just because an old
+// build and a new build wrote two different keys for it. keys must already
+// be the full known-project set; this only ever drops a key that IS
+// another present key's own legacy form (project.WorkspaceLegacyKey) — a
+// plain key with no workspace counterpart in the set (a folder outside any
+// workspace) is never touched.
+func dedupeLegacyWorkspaceKeys(keys []string) []string {
+	present := make(map[string]bool, len(keys))
+	for _, k := range keys {
+		present[k] = true
+	}
+	drop := map[string]bool{}
+	for _, k := range keys {
+		if legacy, ok := project.WorkspaceLegacyKey(k); ok && present[legacy] {
+			drop[legacy] = true
+		}
+	}
+	out := make([]string, 0, len(keys))
+	for _, k := range keys {
+		if !drop[k] {
+			out = append(out, k)
+		}
+	}
+	return out
 }
 
 // errNotAProject is returned by resolveHereProjectKey when --here is run
