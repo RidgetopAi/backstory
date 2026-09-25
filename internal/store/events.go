@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -141,6 +142,60 @@ func (s *Store) EventsForTimeline(projectKey string, since time.Time, kind strin
 	out, err := scanTimelineEvents(rows)
 	if err != nil {
 		return nil, fmt.Errorf("store: timeline events for project %s: %w", projectKey, err)
+	}
+	return out, nil
+}
+
+// eventsForSessionID returns every timeline event belonging to sessionID
+// alone, ordered by id ascending — LABELS' own event source (decision
+// f3fa04c7, store.sessionLabels): unlike EventsSinceID/EventsForTimeline,
+// this is scoped by session id directly, never by project_key, since a
+// session's work-location labels must be derived from what THAT session
+// itself touched regardless of which project_key its records happen to
+// carry.
+func (s *Store) eventsForSessionID(sessionID string) ([]TimelineEvent, error) {
+	rows, err := s.db.Query(`SELECT id, ts, kind, session_id, source, payload, workspace, window
+		FROM timeline_events WHERE session_id = ? ORDER BY id ASC`, sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("store: events for session %s: %w", sessionID, err)
+	}
+	out, err := scanTimelineEvents(rows)
+	if err != nil {
+		return nil, fmt.Errorf("store: events for session %s: %w", sessionID, err)
+	}
+	return out, nil
+}
+
+// eventsSinceIDForSessions returns every timeline event whose session_id is
+// one of sessionIDs, with id > sinceID, ordered by id ascending — never by
+// ts (SCHEMA.md invariant 10) — the same shape EventsSinceID returns but
+// scoped to an explicit session set rather than a project_key join:
+// HandoffFreshness's home-scoped later-activity check (decision f3fa04c7)
+// needs every session whose folder resolves to a handoff's home, which can
+// span many distinct project_key values (one per repo under the
+// workspace), not the one-or-two aliases projectKeyIN covers. An empty
+// sessionIDs returns no rows without querying.
+func (s *Store) eventsSinceIDForSessions(sessionIDs []string, sinceID int64) ([]TimelineEvent, error) {
+	if len(sessionIDs) == 0 {
+		return nil, nil
+	}
+	placeholders := make([]string, len(sessionIDs))
+	args := make([]any, 0, len(sessionIDs)+1)
+	for i, id := range sessionIDs {
+		placeholders[i] = "?"
+		args = append(args, id)
+	}
+	args = append(args, sinceID)
+	//nolint:gosec // the concatenated part is only "?" placeholders (one per session id), every value is still bound as a query arg below
+	query := `SELECT id, ts, kind, session_id, source, payload, workspace, window FROM timeline_events
+		WHERE session_id IN (` + strings.Join(placeholders, ",") + `) AND id > ? ORDER BY id ASC`
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("store: events since %d for sessions: %w", sinceID, err)
+	}
+	out, err := scanTimelineEvents(rows)
+	if err != nil {
+		return nil, fmt.Errorf("store: events since %d for sessions: %w", sinceID, err)
 	}
 	return out, nil
 }
