@@ -20,22 +20,19 @@ func projectKeyAliases(key string) []string {
 	return []string{key}
 }
 
-// projectKeyIN renders key's alias set (projectKeyAliases) as the
-// "(?, ?)"-shaped SQL fragment a query's `project_key = ?` becomes
-// `project_key IN <placeholders>`, plus the args to bind there, in order.
-func projectKeyIN(key string) (placeholders string, args []any) {
+// projectKeyIN returns the two bind args a query's static, literal
+// `project_key IN (?, ?)` clause needs for key's read-side alias set
+// (projectKeyAliases): key and its legacy form when key has one, else key
+// twice — an IN clause tolerates the duplicate; it is still exactly one
+// distinct value, and every call site keeps its SQL text a fixed literal
+// rather than one built by string concatenation (gosec G202) from a
+// caller-varying placeholder count.
+func projectKeyIN(key string) (a, b any) {
 	keys := projectKeyAliases(key)
-	args = make([]any, len(keys))
-	placeholders = "("
-	for i, k := range keys {
-		if i > 0 {
-			placeholders += ", "
-		}
-		placeholders += "?"
-		args[i] = k
+	if len(keys) == 2 {
+		return keys[0], keys[1]
 	}
-	placeholders += ")"
-	return placeholders, args
+	return keys[0], keys[0]
 }
 
 // projectKeyMatches reports whether candidate is key itself or one of its

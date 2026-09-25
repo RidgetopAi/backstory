@@ -73,11 +73,10 @@ type Session struct {
 // here" half of status (AGENT-CONTRACT.md §The five tools) and the
 // SessionStart block's coordination slot.
 func (s *Store) LiveSessionsInProject(projectKey string) ([]Session, error) {
-	ph, args := projectKeyIN(projectKey)
-	args = append(args, string(OriginLive))
+	k1, k2 := projectKeyIN(projectKey)
 	rows, err := s.db.Query(`SELECT id, agent, harness_session_id, pid, cwd, workspace, window, started_at, origin
-		FROM sessions WHERE project_key IN `+ph+` AND ended_at IS NULL AND origin = ? ORDER BY started_at DESC`,
-		args...)
+		FROM sessions WHERE project_key IN (?, ?) AND ended_at IS NULL AND origin = ? ORDER BY started_at DESC`,
+		k1, k2, string(OriginLive))
 	if err != nil {
 		return nil, fmt.Errorf("store: live sessions in project %s: %w", projectKey, err)
 	}

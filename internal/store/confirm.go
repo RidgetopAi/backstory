@@ -196,12 +196,11 @@ func (s *Store) Confirm(p ConfirmParams) (string, error) {
 // event with no session (session_id NULL) belongs to no project and never
 // matches, the same rule EventsSinceID applies.
 func (s *Store) eventExistsInProject(eventID int64, projectKey string) (bool, error) {
-	ph, keyArgs := projectKeyIN(projectKey)
-	args := append([]any{eventID}, keyArgs...)
+	k1, k2 := projectKeyIN(projectKey)
 	var exists int
 	err := s.db.QueryRow(`SELECT 1 FROM timeline_events e
 		JOIN sessions sess ON sess.id = e.session_id
-		WHERE e.id = ? AND sess.project_key IN `+ph+` LIMIT 1`, args...).Scan(&exists)
+		WHERE e.id = ? AND sess.project_key IN (?, ?) LIMIT 1`, eventID, k1, k2).Scan(&exists)
 	if errors.Is(err, sql.ErrNoRows) {
 		return false, nil
 	}
