@@ -81,17 +81,21 @@ omarchy plugin enable backstory.this-week
 ```
 
 This plugin declares two kinds (`manifest.json`): `"panel"` (the This
-Week window itself) and `"bar-widget"` (a small glyph that toggles it,
-`barWidget: { "placement": "right", "order": 50 }`). Enabling the plugin
-is not enough on its own to put the glyph on screen — it still needs a
-bar placement, the same way any other bar plugin (e.g.
-`ridgetopai.omarcade`'s `Marquee.qml`) does on your Omarchy version: add
-`backstory.this-week` to your bar's widget list (`omarchy-shell`'s bar
-config, or whatever placement command/UI your Omarchy version ships —
-see `omarchy-shell shell --help` or your bar config file for the exact
-mechanism). `manifest.json`'s `barWidget` block's `placement`/`order`
-follow the same shape other bar-widget plugins already installed on your
-system use, so it should be picked up the same way theirs are.
+Week window itself) and `"bar-widget"` (a small glyph that toggles it),
+using the same `barWidget` shape Omarchy's own bar-widget plugins ship
+(e.g. `ridgetopai.omarcade`): `{ "displayName", "description",
+"category", "allowMultiple": false, "defaultSection": "right" }` — no
+`placement`/`order`, since placement is chosen at enable time, not baked
+into the manifest. Enable the plugin and give it a placement in one step:
+
+```sh
+omarchy plugin enable backstory.this-week right
+```
+
+`omarchy plugin enable <id> [placement]` accepts any of the sections
+your bar supports (e.g. `left`, `center`, `right` — `right` matches this
+plugin's own `defaultSection`); see `omarchy plugin enable --help` for
+the exact list your Omarchy version ships.
 
 ## Open it
 
@@ -122,9 +126,11 @@ check`). `launcher_contract_test.go` and `groups_selection_test.go` go
 one step further for the pure-JS logic in `js/launchers.js` and
 `js/groups.js`: they run those actual `.js` files under Node
 (`js_runtime_test.go`'s `evalJS`), asserting on the real output rather
-than a Go reimplementation. They `t.Skip` (not fail) if `node` isn't on
-`PATH`, so `make check` still exits 0 on a machine without Node — the
-plugin itself needs only Quickshell/QML at runtime, never Node.
+than a Go reimplementation. They FAIL (not skip) if `node` isn't on
+`PATH` (round 3 defect C) — `make check` is the gate for this contract,
+so a Node-less machine must not appear to pass it silently. Node needs to
+be on `PATH` wherever `make check` runs, even though the plugin itself
+needs only Quickshell/QML at runtime, never Node.
 
 The plugin's `.qml` files have no automated runtime test: Quickshell
 requires an actual Wayland/Omarchy desktop, which is why the human check

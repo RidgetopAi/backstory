@@ -7,5 +7,11 @@
   "description": "Attention, Where you left off, and The week, read from `backstory this-week --json`",
   "kinds": ["panel", "bar-widget"],
   "entryPoints": { "panel": "Panel.qml", "barWidget": "BarWidget.qml" },
-  "barWidget": { "placement": "right", "order": 50 }
+  "barWidget": {
+    "displayName": "This Week",
+    "description": "Attention, Where you left off, and The week",
+    "category": "productivity",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
 }

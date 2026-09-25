@@ -38,9 +38,21 @@ Item {
     dataProcess.running = true
   }
 
+  // The ONE place this plugin reacts to the panel becoming visible,
+  // regardless of which entry point flipped PanelState.opened — the bar
+  // widget's click (BarWidget.qml calls PanelState.toggle() directly, not
+  // a function here) and the host's own IPC open()/toggle() both land on
+  // this same PanelState.opened change (round 3 defect A: "nothing reacts
+  // to PanelState.opened becoming true", so a bar click opened an empty
+  // panel). open()/toggle() below intentionally do NOT also call
+  // refresh() themselves — one handler, not a second copy per entry
+  // point.
+  onOpenedChanged: {
+    if (root.opened) root.refresh()
+  }
+
   function open(payloadJson) {
     PanelState.open()
-    root.refresh()
   }
 
   function close() {

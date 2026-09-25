@@ -15,15 +15,17 @@ import (
 // library file under js/ starts with it (see e.g. js/launchers.js).
 var pragmaLinePattern = regexp.MustCompile(`(?m)^\s*\.pragma\s+library\s*$`)
 
-// requireNode skips the calling test when Node isn't on PATH, so `make
-// check` still exits 0 on a machine without Node (the plugin itself needs
-// only Quickshell/QML at runtime, never Node — see panel/README.md). Here,
-// in this environment, node is present and these tests run for real.
+// requireNode FAILS the calling test when Node isn't on PATH (round 3
+// defect C: `make check` is this contract's gate, so a Node-less machine
+// must not appear to pass it by skipping silently — see
+// panel/README.md's Testing section). The plugin itself needs only
+// Quickshell/QML at runtime, never Node; Node is required only to run
+// this JS-execution proof.
 func requireNode(t *testing.T) string {
 	t.Helper()
 	path, err := exec.LookPath("node")
 	if err != nil {
-		t.Skip("node not on PATH; skipping JS-execution proof (see panel/README.md Testing)")
+		t.Fatalf("node not on PATH: %v (required to run the JS-execution proof; see panel/README.md Testing)", err)
 	}
 	return path
 }

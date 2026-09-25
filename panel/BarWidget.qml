@@ -10,9 +10,10 @@ import "js/glyphs.js" as Glyphs
 // state Panel.qml's own open()/close()/toggle() (still called directly by
 // the host per the "panel" kind contract) read and write, so either
 // surface toggling the panel keeps the other in sync (see PanelState.qml).
-// This file spawns no process of its own — pure QML/JS state, like every
-// file in this plugin except js/launchers.js (task 4fe02e30 DONE WHEN
-// clause 2).
+// Panel.qml's own onOpenedChanged handler is what fetches `this-week` data
+// once PanelState.opened flips true (round 3 defect A) — this file spawns
+// no process of its own, pure QML/JS state, like every file in this
+// plugin except js/launchers.js (task 4fe02e30 DONE WHEN clause 2).
 Item {
   id: root
 
