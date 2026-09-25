@@ -1,0 +1,6 @@
+module qs.Ui
+singleton Border 1.0 Border.qml
+BorderSurface 1.0 BorderSurface.qml
+PanelActionButton 1.0 PanelActionButton.qml
+PanelSectionHeader 1.0 PanelSectionHeader.qml
+TextField 1.0 TextField.qml
