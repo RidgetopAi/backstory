@@ -13,3 +13,4 @@ function chevronDown() { return "" }  // nf-fa-chevron_down
 function resume() { return "" }       // nf-fa-refresh
 function addProject() { return "" }   // nf-fa-plus
 function week() { return "" }        // nf-fa-calendar
+function back() { return "" } // nf-fa-arrow_left

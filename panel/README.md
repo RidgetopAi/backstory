@@ -97,6 +97,31 @@ your bar supports (e.g. `left`, `center`, `right` — `right` matches this
 plugin's own `defaultSection`); see `omarchy plugin enable --help` for
 the exact list your Omarchy version ships.
 
+### Upgrading
+
+Two things Brian hit on his own desk upgrading an already-installed copy:
+
+- **A copy enabled panel-only never gets the bar widget.** Omarchy's own
+  `PluginRegistry.qml:528` only inserts a plugin into the bar when its id is
+  found NOWHERE in the bar's existing `shell.json` `plugins` list — so if
+  you enabled this plugin before it had a `bar-widget` kind (or ever ran
+  `omarchy bar put` by hand), re-running `omarchy plugin enable` or
+  `omarchy bar put` silently no-ops. Disable and re-enable it instead:
+
+  ```sh
+  omarchy plugin disable backstory.this-week && omarchy plugin enable backstory.this-week right
+  ```
+
+- **New `.qml` files added to an already-installed plugin don't show up.**
+  The running shell's type loader caches the plugin directory's file
+  listing, so a `git pull` (or `cp -r`) that adds a NEW `.qml` file the
+  shell hasn't seen before fails with a "File name case mismatch"-style
+  error until the shell itself restarts:
+
+  ```sh
+  omarchy-restart-shell
+  ```
+
 ## Open it
 
 Click the bar glyph. It toggles the panel; clicking it again, or the
@@ -111,8 +136,9 @@ omarchy-shell shell hide backstory.this-week
 
 Bind `omarchy-shell shell toggle backstory.this-week '{}'` to a keybinding
 (Hyprland `bindd`) for one-key access, the same way Omarchy's own OSD and
-menu plugins are bound — the bar widget and a keybinding both work, and
-toggling from either keeps the other in sync (`PanelState.qml`).
+menu plugins are bound — the bar widget's own click runs this exact command
+(`js/launchers.js`'s `barToggleCommand()`), so the bar widget and a
+keybinding both drive the same host toggle and never fall out of sync.
 
 ## Testing
 

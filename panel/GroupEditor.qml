@@ -124,10 +124,10 @@ Item {
         width: parent.width - Style.space(24)
       }
       PanelActionButton {
-        iconText: Glyphs.close()
-        tooltipText: "Close"
+        iconText: Glyphs.back()
+        tooltipText: "Back"
         foreground: Color.foreground
-        hoverColor: Color.urgent
+        hoverColor: Color.accent
         onClicked: root.closeRequested()
       }
     }

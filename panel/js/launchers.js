@@ -16,9 +16,22 @@
 //     focus".
 //   - `omarchy agent prompt <text>`: the documented cross-agent handoff
 //     launcher (AGENT-CONTRACT.md "Resume in <agent>").
+//   - `omarchy-shell shell toggle backstory.this-week {}`: the bar widget's
+//     click (round 4 desk defect A). MEASURED ON BRIAN'S DESK: BarWidget
+//     used to flip a shared PanelState singleton directly, but the host
+//     only ever shows a plugin panel through its OWN toggle — the host's
+//     own plugin, ridgetopai.omarcade's Marquee.qml:253, does exactly this
+//     `Quickshell.execDetached(["omarchy-shell", "shell", "toggle", ...])`
+//     to open its own panel, confirmed working. this-week's own IpcHandler
+//     (Panel.qml) still answers the "panel" kind contract's open()/close()/
+//     toggle() the host may also call directly.
 
 function thisWeekCommand() {
   return ["backstory", "this-week", "--json"]
+}
+
+function barToggleCommand() {
+  return ["omarchy-shell", "shell", "toggle", "backstory.this-week", "{}"]
 }
 
 function groupListCommand() {

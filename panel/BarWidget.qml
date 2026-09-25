@@ -1,19 +1,27 @@
 import QtQuick
+import Quickshell
 import qs.Ui
 import qs.Commons
+import "js/launchers.js" as Launchers
 import "js/glyphs.js" as Glyphs
 
 // The "bar-widget" entry point (manifest.json "kinds": ["panel",
 // "bar-widget"], round 2 defect B: "Nothing on screen opens the panel; ...
 // add a bar widget ... whose click toggles the panel"). A single Nerd Font
-// glyph placed in the bar; clicking it toggles PanelState.opened, the same
-// state Panel.qml's own open()/close()/toggle() (still called directly by
-// the host per the "panel" kind contract) read and write, so either
-// surface toggling the panel keeps the other in sync (see PanelState.qml).
-// Panel.qml's own onOpenedChanged handler is what fetches `this-week` data
-// once PanelState.opened flips true (round 3 defect A) — this file spawns
-// no process of its own, pure QML/JS state, like every file in this
-// plugin except js/launchers.js (task 4fe02e30 DONE WHEN clause 2).
+// glyph placed in the bar.
+//
+// Round 4 desk defect A: a click here used to flip a shared PanelState
+// singleton directly, but the host only ever shows a plugin panel through
+// its OWN toggle machinery — the singleton flip never reached it, so
+// clicking the bar glyph did nothing. MEASURED FIX (hand-patched on the
+// desk, confirmed working): route the click through the same call the
+// host's own bar-widget plugins use — ridgetopai.omarcade's own
+// Marquee.qml:253 — `Quickshell.execDetached(["omarchy-shell", "shell",
+// "toggle", "backstory.this-week", "{}"])`, named once in js/launchers.js
+// (task 4fe02e30 DONE WHEN clause 2's "every command the QML runs comes
+// from js/launchers.js"). This file spawns no process of its own beyond
+// that one execDetached call — like every file in this plugin except
+// js/launchers.js itself.
 Item {
   id: root
 
@@ -31,7 +39,7 @@ Item {
     anchors.fill: parent
     hoverEnabled: true
     cursorShape: Qt.PointingHandCursor
-    onClicked: PanelState.toggle()
+    onClicked: Quickshell.execDetached(Launchers.barToggleCommand())
   }
 
   Text {
@@ -41,6 +49,6 @@ Item {
     text: Glyphs.week()
     font.family: Style.font.family
     font.pixelSize: Style.font.body
-    color: PanelState.opened ? Color.accent : Color.foreground
+    color: Color.foreground
   }
 }
