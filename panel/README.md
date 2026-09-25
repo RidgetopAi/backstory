@@ -37,6 +37,13 @@ opens the store directly (PLAN.md §Phase 4 "Human look", decision
   closed state with the panel itself, so toggling from either place keeps
   the other in sync.
 
+A group is for two projects that are really one body of work — e.g.
+`~/projects/mandrel` and `~/projects/ra-runtime`, where a session in either
+one is really work on the same thing and you'd rather see one row than
+two. Most projects need no group at all: This Week already gives every
+project its own row, one per project folder, so grouping is for the
+exception, not the default.
+
 Every field this plugin reads out of the JSON goes through
 [`js/model.js`](js/model.js); every external command it can run is named in
 [`js/launchers.js`](js/launchers.js) (`backstory`, `xdg-terminal-exec`,

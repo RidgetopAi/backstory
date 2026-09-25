@@ -25,13 +25,24 @@ import "js/glyphs.js" as Glyphs
 // 5's "any pure JS the editor uses for selection/enablement is covered by
 // a test"); a non-zero `group set|clear` exit renders its stderr below the
 // fields instead of failing silently.
+//
+// Round 5 desk defect (Brian's desk, decision 9be5c1d5): this editor used
+// to invent its own project name (js/groups.js's old projectDisplayName —
+// text after the key's last "/"), so a git project_key rendered as its
+// remote URL's basename ("omarcade.git") and a legacy/workspace key pair
+// for the same folder rendered as two separate "projects" rows. Fixed
+// store-side (`backstory group list --json` now also returns a `projects`
+// array of {key, display_name, group}, display_name computed by the SAME
+// function this-week's own rows use, and the legacy/workspace pair merged
+// into one entry); this editor reads that array (js/groups.js's
+// displayNameForKey) and never derives a name from a key itself.
 Item {
   id: root
 
   signal changed()
   signal closeRequested()
 
-  property var groupsData: ({ groups: [], ungrouped: [] })
+  property var groupsData: ({ groups: [], ungrouped: [], projects: [] })
   property string selectedProjectKey: ""
   property string newGroupName: ""
   property string errorText: ""
@@ -69,7 +80,7 @@ Item {
         try {
           root.groupsData = JSON.parse(text || "{}")
         } catch (e) {
-          root.groupsData = { groups: [], ungrouped: [] }
+          root.groupsData = { groups: [], ungrouped: [], projects: [] }
         }
       }
     }
@@ -155,6 +166,7 @@ Item {
             required property string modelData
             width: content.width
             projectKey: modelData
+            displayName: Groups.displayNameForKey(root.groupsData.projects || [], modelData)
             selected: root.selectedProjectKey === modelData
             removable: true
             indent: Style.space(12)
@@ -181,6 +193,7 @@ Item {
         required property string modelData
         width: content.width
         projectKey: modelData
+        displayName: Groups.displayNameForKey(root.groupsData.projects || [], modelData)
         selected: root.selectedProjectKey === modelData
         removable: false
         onPicked: root.pickProject(modelData)
@@ -229,7 +242,7 @@ Item {
     Text {
       visible: root.selectedProjectKey !== ""
       textFormat: Text.PlainText
-      text: "Selected: " + Groups.projectDisplayName(root.selectedProjectKey)
+      text: "Selected: " + Groups.displayNameForKey(root.groupsData.projects || [], root.selectedProjectKey)
       font.family: Style.font.family
       font.pixelSize: Style.font.caption
       color: Qt.darker(Color.foreground, 1.2)

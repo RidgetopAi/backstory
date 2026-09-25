@@ -70,6 +70,17 @@ TestCase {
     verify(panel.groupEditorOpen)
   }
 
+  // findGroupEditor locates the embedded GroupEditor instance itself (only
+  // reachable once it is visible — walkVisible stops at an invisible
+  // ancestor, so this must run after openGroupEditor()), identified by its
+  // own refresh()/groupsData members rather than an objectName, since
+  // Panel.qml exposes no id for it.
+  function findGroupEditor() {
+    return TestUtil.findFirst(panel.testContentItem, function (node) {
+      return typeof node.refresh === "function" && node.groupsData !== undefined
+    })
+  }
+
   function pickUngroupedProject() {
     var row = TestUtil.findFirst(panel.testContentItem, function (node) {
       return node.projectKey === ungroupedProjectKey
@@ -123,5 +134,44 @@ TestCase {
     var texts = TestUtil.collectVisibleTexts(panel.testContentItem)
     verify(texts.indexOf("project is already in group other-thing") !== -1,
       "expected stderr text rendered in the editor; got " + JSON.stringify(texts))
+  }
+
+  // test_group_row_shows_display_name_from_projects_array is DONE WHEN
+  // clause (3): the group editor renders display_name from `group list
+  // --json`'s own `projects` array, never a name derived from the key's
+  // own shape. This is the round 5 desk defect's exact reproduction: a git
+  // project_key ("<git common dir>|<remote URL>") whose last path segment
+  // is the remote URL's basename ("omarcade.git") must still render as the
+  // store-computed "projects/omarcade".
+  function test_group_row_shows_display_name_from_projects_array() {
+    openGroupEditor()
+
+    var gitKey = "/home/brian/projects/omarcade/.git|git@github.com:example/omarcade.git"
+    ProcessController.respond(Launchers.groupListCommand(), {
+      stdout: JSON.stringify({
+        groups: [],
+        ungrouped: [gitKey],
+        projects: [{ key: gitKey, display_name: "projects/omarcade", group: "" }]
+      }), stderr: "", exitCode: 0
+    })
+
+    var editor = findGroupEditor()
+    verify(editor !== null, "no embedded GroupEditor instance found")
+    editor.refresh()
+    wait(20)
+
+    var row = TestUtil.findFirst(panel.testContentItem, function (node) {
+      return node.projectKey === gitKey
+    })
+    verify(row !== null, "no GroupProjectRow for " + gitKey)
+    compare(row.displayName, "projects/omarcade")
+
+    var texts = TestUtil.collectVisibleTexts(panel.testContentItem)
+    verify(texts.indexOf("projects/omarcade") !== -1,
+      "expected rendered text \"projects/omarcade\"; got " + JSON.stringify(texts))
+    verify(texts.indexOf("omarcade.git") === -1,
+      "rendered text must never be the key-derived \"omarcade.git\"; got " + JSON.stringify(texts))
+    verify(texts.indexOf(gitKey) === -1,
+      "rendered text must never be the raw project_key; got " + JSON.stringify(texts))
   }
 }
