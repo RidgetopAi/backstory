@@ -5,6 +5,7 @@
   "version": "1.0.0",
   "author": "Backstory",
   "description": "Attention, Where you left off, and The week, read from `backstory this-week --json`",
-  "kinds": ["panel"],
-  "entryPoints": { "panel": "Panel.qml" }
+  "kinds": ["panel", "bar-widget"],
+  "entryPoints": { "panel": "Panel.qml", "barWidget": "BarWidget.qml" },
+  "barWidget": { "placement": "right", "order": 50 }
 }

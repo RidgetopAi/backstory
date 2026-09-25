@@ -16,7 +16,14 @@ import "js/glyphs.js" as Glyphs
 Item {
   id: root
 
-  property bool opened: false
+  // opened mirrors PanelState.opened (a qmldir singleton, see PanelState.qml)
+  // rather than owning its own stored flag, so BarWidget.qml's click
+  // (manifest.json "bar-widget" kind, round 2 defect B) and the host's own
+  // open()/close()/toggle() calls (the "panel" kind contract) both change
+  // the one true value. Nothing here may assign root.opened directly — that
+  // would sever the binding — every state change goes through PanelState's
+  // own open()/close()/toggle().
+  readonly property bool opened: PanelState.opened
   property var data: null
   property bool loading: false
   property bool groupEditorOpen: false
@@ -32,12 +39,12 @@ Item {
   }
 
   function open(payloadJson) {
-    root.opened = true
+    PanelState.open()
     root.refresh()
   }
 
   function close() {
-    root.opened = false
+    PanelState.close()
     root.groupEditorOpen = false
   }
 

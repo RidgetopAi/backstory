@@ -34,11 +34,22 @@ function groupClearCommand(projectKey) {
 }
 
 // terminalLaunchCommand opens a terminal at an arbitrary project cwd — the
-// row's own cwd, not necessarily the shell's. cwd is passed with
-// workingDirectory too (see Panel.qml) so a terminal that ignores --dir
-// still lands in the right place.
+// row's own cwd, not necessarily the shell's.
+//
+// MEASURED ON BRIAN'S DESK (round 2 defect A): Omarchy's default terminal
+// is Ghostty launched `--gtk-single-instance=true`; the already-running
+// instance ignores `--dir` / `--working-directory` entirely, so plain
+// `xdg-terminal-exec --dir=<cwd>` (and the uwsm-app-wrapped form) both land
+// in `~`. The fix Brian confirmed working: run a shell that `cd`s to the
+// target itself, `exec`ing the user's shell there once it has. cwd is
+// passed as sh's own positional argument ($1 in the script), NEVER
+// interpolated into the script string — a project folder containing a
+// single quote must not be able to inject shell code into `-c`'s argument.
+// workingDirectory is still set too (see Panel.qml) as a second line of
+// defense for a terminal that does honor it.
 function terminalLaunchCommand(cwd) {
-  return ["xdg-terminal-exec", "--dir=" + cwd]
+  var script = 'cd "$1" && exec "${SHELL:-sh}"'
+  return ["xdg-terminal-exec", "--", "sh", "-c", script, "sh", cwd]
 }
 
 // agentPromptCommand hands the handoff's own first line to the agent as

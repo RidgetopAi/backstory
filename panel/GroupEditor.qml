@@ -4,6 +4,7 @@ import Quickshell.Io
 import qs.Ui
 import qs.Commons
 import "js/launchers.js" as Launchers
+import "js/groups.js" as Groups
 import "js/glyphs.js" as Glyphs
 
 // Gear editor: `backstory group set|clear|list` (PLAN.md Phase 4 "Human
@@ -12,6 +13,18 @@ import "js/glyphs.js" as Glyphs
 // different, already-documented CLI surface from this-week's own contract
 // — its fields are intentionally NOT routed through js/model.js, which is
 // scoped to the this-week contract panel_contract_test.go checks.
+//
+// Round 2 defect C (Brian's desk): grouping required TYPING a raw project
+// key into a free-text field; the fields weren't visibly styled on the
+// dark popup; setGroup() silently no-opped on an empty field; a failed
+// `group set` was never shown. Redesign: every project (ungrouped or a
+// group's member) is a clickable GroupProjectRow showing its display name
+// — never a key the human types — and root.selectedProjectKey tracks the
+// pick; the "+" is disabled until a project and a group name are both
+// chosen (js/groups.js's canSubmitGroup, task 4fe02e30 DONE WHEN clause
+// 5's "any pure JS the editor uses for selection/enablement is covered by
+// a test"); a non-zero `group set|clear` exit renders its stderr below the
+// fields instead of failing silently.
 Item {
   id: root
 
@@ -19,8 +32,9 @@ Item {
   signal closeRequested()
 
   property var groupsData: ({ groups: [], ungrouped: [] })
+  property string selectedProjectKey: ""
   property string newGroupName: ""
-  property string newProjectKey: ""
+  property string errorText: ""
   property bool busy: false
 
   function refresh() {
@@ -28,14 +42,20 @@ Item {
     listProcess.running = true
   }
 
+  function pickProject(projectKey) {
+    root.selectedProjectKey = (root.selectedProjectKey === projectKey) ? "" : projectKey
+  }
+
   function setGroup(groupName, projectKey) {
-    if (groupName === "" || projectKey === "") return
-    mutateProcess.command = Launchers.groupSetCommand(groupName, projectKey)
+    if (!Groups.canSubmitGroup(projectKey, groupName)) return
+    root.errorText = ""
+    mutateProcess.command = Launchers.groupSetCommand(groupName.trim(), projectKey)
     root.busy = true
     mutateProcess.running = true
   }
 
   function clearGroup(projectKey) {
+    root.errorText = ""
     mutateProcess.command = Launchers.groupClearCommand(projectKey)
     root.busy = true
     mutateProcess.running = true
@@ -57,10 +77,21 @@ Item {
 
   Process {
     id: mutateProcess
+    stderr: StdioCollector { id: mutateStderr }
     onExited: (exitCode, exitStatus) => {
       root.busy = false
-      root.refresh()
-      root.changed()
+      if (exitCode === 0) {
+        root.errorText = ""
+        root.selectedProjectKey = ""
+        root.newGroupName = ""
+        groupField.text = ""
+        root.refresh()
+        root.changed()
+      } else {
+        root.errorText = mutateStderr.text.length > 0
+          ? mutateStderr.text
+          : ("backstory group exited " + exitCode)
+      }
     }
   }
 
@@ -120,28 +151,15 @@ Item {
 
         Repeater {
           model: modelData.projects || []
-          delegate: Row {
+          delegate: GroupProjectRow {
             required property string modelData
-            spacing: Style.spacing.controlGap
-            leftPadding: Style.space(12)
-
-            Text {
-              textFormat: Text.PlainText
-              text: modelData
-              font.family: Style.font.family
-              font.pixelSize: Style.font.bodySmall
-              color: Color.foreground
-            }
-
-            PanelActionButton {
-              iconText: Glyphs.close()
-              tooltipText: "Remove from group"
-              foreground: Color.foreground
-              hoverColor: Color.urgent
-              size: Style.space(16)
-              fontSize: Style.font.caption
-              onClicked: root.clearGroup(modelData)
-            }
+            width: content.width
+            projectKey: modelData
+            selected: root.selectedProjectKey === modelData
+            removable: true
+            indent: Style.space(12)
+            onPicked: root.pickProject(modelData)
+            onRemoveRequested: root.clearGroup(modelData)
           }
         }
       }
@@ -159,15 +177,62 @@ Item {
 
     Repeater {
       model: root.groupsData.ungrouped || []
-      delegate: Text {
+      delegate: GroupProjectRow {
         required property string modelData
-        textFormat: Text.PlainText
-        text: modelData
-        font.family: Style.font.family
-        font.pixelSize: Style.font.bodySmall
-        color: Color.foreground
-        leftPadding: Style.space(12)
+        width: content.width
+        projectKey: modelData
+        selected: root.selectedProjectKey === modelData
+        removable: false
+        onPicked: root.pickProject(modelData)
       }
+    }
+
+    Flow {
+      width: parent.width
+      spacing: Style.spacing.controlGap
+      visible: (root.groupsData.groups || []).length > 0
+
+      Repeater {
+        model: root.groupsData.groups || []
+        delegate: Rectangle {
+          id: chip
+          required property var modelData
+          radius: Style.cornerRadius
+          border.width: 1
+          border.color: Color.popups.border
+          color: root.newGroupName === modelData.group ? Util.alpha(Color.accent, 0.3) : "transparent"
+          implicitWidth: chipLabel.implicitWidth + Style.space(16)
+          implicitHeight: chipLabel.implicitHeight + Style.space(8)
+
+          Text {
+            id: chipLabel
+            anchors.centerIn: parent
+            textFormat: Text.PlainText
+            text: chip.modelData.group
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+            color: Color.foreground
+          }
+
+          MouseArea {
+            anchors.fill: parent
+            cursorShape: Qt.PointingHandCursor
+            onClicked: {
+              root.newGroupName = chip.modelData.group
+              groupField.text = chip.modelData.group
+            }
+          }
+        }
+      }
+    }
+
+    Text {
+      visible: root.selectedProjectKey !== ""
+      textFormat: Text.PlainText
+      text: "Selected: " + Groups.projectDisplayName(root.selectedProjectKey)
+      font.family: Style.font.family
+      font.pixelSize: Style.font.caption
+      color: Qt.darker(Color.foreground, 1.2)
     }
 
     Row {
@@ -178,24 +243,37 @@ Item {
         id: groupField
         width: Style.spacing.dropdownWidth
         placeholderText: "group name"
+        color: Color.foreground
+        placeholderTextColor: Qt.darker(Color.foreground, 1.4)
+        selectionColor: Color.accent
+        background: Rectangle {
+          radius: Style.cornerRadius
+          color: Color.popups.background
+          border.width: 1
+          border.color: Color.popups.border
+        }
         onTextChanged: root.newGroupName = text
-      }
-
-      TextField {
-        id: projectField
-        width: Style.spacing.dropdownWidth
-        placeholderText: "project key"
-        onTextChanged: root.newProjectKey = text
       }
 
       PanelActionButton {
         iconText: Glyphs.addProject()
-        tooltipText: "Set group"
+        tooltipText: root.selectedProjectKey === "" ? "Pick a project above first" : "Set group"
         foreground: Color.foreground
         hoverColor: Color.accent
-        enabled: !root.busy
-        onClicked: root.setGroup(root.newGroupName, root.newProjectKey)
+        enabled: Groups.canSubmitGroup(root.selectedProjectKey, root.newGroupName) && !root.busy
+        onClicked: root.setGroup(root.newGroupName, root.selectedProjectKey)
       }
+    }
+
+    Text {
+      visible: root.errorText !== ""
+      textFormat: Text.PlainText
+      text: root.errorText
+      wrapMode: Text.WordWrap
+      width: parent.width
+      font.family: Style.font.family
+      font.pixelSize: Style.font.caption
+      color: Color.urgent
     }
   }
 }
