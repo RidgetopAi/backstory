@@ -112,10 +112,12 @@ func seedLegacySweepFixture(t *testing.T) (dbPath, w string) {
 	rawInsertGroup(t, db, w, "old", sweepT1)
 	rawInsertGroup(t, db, wsKey, "new", sweepT2)
 
-	// A real repo living under W: exact-match only, must never be confused
-	// with W itself.
+	// A real repo living under W, key text-prefixed by W: exact-match only,
+	// must never be swept just because it starts with W's own string.
 	repoKey := w + "/omarcade/.git|git@github.com:example/omarcade.git"
 	rawInsertProject(t, db, repoKey, w+"/omarcade", sweepT1)
+	rawInsertSession(t, db, "sess-repo", repoKey, w+"/omarcade", sweepT1)
+	rawInsertRecord(t, db, "rec-repo-handoff", repoKey, "sess-repo", KindHandoff, sweepT1)
 
 	// A key entirely outside any configured workspace.
 	rawInsertProject(t, db, "/home/u/Work", "/home/u/Work", sweepT1)
@@ -181,10 +183,18 @@ func TestSweepMergesLegacyIntoCanonicalAcrossAllFourTables(t *testing.T) {
 		t.Errorf("merged project_groups group_name = %q, want %q (canonical's set_at was later)", groupName, "new")
 	}
 
-	// The repo key and the outside key are byte for byte untouched.
+	// The repo key and the outside key are byte for byte untouched — exact
+	// match only, never confused with W just because the repo key's text
+	// happens to start with W's own string.
 	repoKey := w + "/omarcade/.git|git@github.com:example/omarcade.git"
 	assertProjectRowUnchanged(t, db, repoKey, w+"/omarcade", sweepT1)
 	assertProjectRowUnchanged(t, db, "/home/u/Work", "/home/u/Work", sweepT1)
+	if n := countWhere(t, db, "sessions", "project_key", repoKey); n != 1 {
+		t.Errorf("sessions: count(project_key = %q) = %d, want 1 (untouched)", repoKey, n)
+	}
+	if n := countWhere(t, db, "records", "project_key", repoKey); n != 1 {
+		t.Errorf("records: count(project_key = %q) = %d, want 1 (untouched)", repoKey, n)
+	}
 
 	assertNoForeignKeyViolations(t, db)
 	assertRecordsNoUpdateStillEnforced(t, db, "rec-ws-handoff")
