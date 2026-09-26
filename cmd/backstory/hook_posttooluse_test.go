@@ -31,7 +31,7 @@ import (
 func buildBackstoryHarness(t *testing.T) string {
 	t.Helper()
 	bin := filepath.Join(t.TempDir(), harnessName)
-	cmd := exec.Command("go", "build", "-o", bin, ".") //nolint:gosec // bin is a t.TempDir() path this test built, not external input
+	cmd := exec.Command("go", "build", "-tags", "backstorytest", "-o", bin, ".") //nolint:gosec // bin is a t.TempDir() path this test built, not external input
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("go build backstory as %s: %v\n%s", harnessName, err, out)

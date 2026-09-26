@@ -13,17 +13,25 @@ build:
 fmt-check:
 	@out="$$(gofmt -l .)"; if [ -n "$$out" ]; then echo "gofmt: files need formatting:"; echo "$$out"; exit 1; fi
 
+# -tags backstorytest (here and on lint/test/integration below) builds
+# cmd/backstory's own test binary with daemon_procfs_backstorytest.go
+# (BACKSTORY_TEST_FAKE_ANCESTRY support) instead of daemon_procfs_release.go
+# — required because hook_test.go and hook_posttooluse_test.go reference
+# that file's fakeAncestryEnvVar symbol directly and spawn daemon
+# subprocesses built with the same tag (buildBackstory/buildBackstoryHarness
+# in daemon_test.go and hook_posttooluse_test.go). `make build` above passes
+# no tags, so the override never reaches a release binary (task fe7aee40).
 vet:
-	$(GO) vet ./...
+	$(GO) vet -tags backstorytest ./...
 
 lint:
-	golangci-lint run ./...
+	golangci-lint run --build-tags backstorytest ./...
 
 test:
-	$(GO) test -race -count=1 ./...
+	$(GO) test -race -count=1 -tags backstorytest ./...
 
 integration:
-	$(GO) test -race -count=1 -tags integration ./...
+	$(GO) test -race -count=1 -tags backstorytest,integration ./...
 
 # panel-qml-test is the QML half of task 4fe02e30's DONE WHEN clause (1):
 # it loads every panel/*.qml against panel/qmltest/stubs's stand-ins for
