@@ -43,7 +43,7 @@ func buildBackstoryFromRef(t *testing.T, ref string) string {
 	if out, err := exec.Command("git", "worktree", "add", "--detach", worktree, ref).CombinedOutput(); err != nil { //nolint:gosec // ref is this test's own literal, worktree is a t.TempDir() path
 		t.Fatalf("git worktree add %s %s: %v\n%s", worktree, ref, err, out)
 	}
-	t.Cleanup(func() { _ = exec.Command("git", "worktree", "remove", "--force", worktree).Run() })
+	t.Cleanup(func() { _ = exec.Command("git", "worktree", "remove", "--force", worktree).Run() }) //nolint:gosec // worktree is this test's own t.TempDir() path
 
 	bin := filepath.Join(t.TempDir(), "backstory-"+ref)
 	build := exec.Command("go", "build", "-o", bin, "./cmd/backstory") //nolint:gosec // fixed literal args, bin is this test's own t.TempDir() path
