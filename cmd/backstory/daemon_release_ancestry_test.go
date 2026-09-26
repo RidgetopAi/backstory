@@ -99,7 +99,7 @@ func TestReleaseBuildIgnoresFakeAncestryEnvVar(t *testing.T) {
 // even as dead data an operator might stumble on.
 func TestReleaseBuildBinaryDoesNotContainFakeAncestryEnvVarName(t *testing.T) {
 	bin := buildBackstoryNoTags(t)
-	data, err := os.ReadFile(bin)
+	data, err := os.ReadFile(bin) //nolint:gosec // bin is a t.TempDir() path this test just built, not external input
 	if err != nil {
 		t.Fatalf("read release binary: %v", err)
 	}
