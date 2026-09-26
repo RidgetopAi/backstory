@@ -35,7 +35,7 @@ func runDelete(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintln(stderr, "backstory delete:", err)
 		return 1
 	}
-	st, err := store.Open(dbPath)
+	st, err := openStore(dbPath)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory delete:", err)
 		return 1

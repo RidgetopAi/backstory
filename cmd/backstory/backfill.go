@@ -6,7 +6,6 @@ import (
 	"io"
 
 	"github.com/RidgetopAi/backstory/internal/backfill/claude"
-	"github.com/RidgetopAi/backstory/internal/store"
 )
 
 // runBackfill dispatches `backstory backfill <target>`. claude is the only
@@ -42,7 +41,7 @@ func runBackfillClaude(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintln(stderr, "backstory backfill claude:", err)
 		return 1
 	}
-	st, err := store.Open(dbPath)
+	st, err := openStore(dbPath)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory backfill claude:", err)
 		return 1

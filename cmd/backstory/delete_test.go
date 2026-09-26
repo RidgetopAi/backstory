@@ -16,7 +16,7 @@ import (
 // projects), and inserts one record, returning its id.
 func seedDeletableRecord(t *testing.T, dbPath, projectKey, text string) string {
 	t.Helper()
-	st, err := store.Open(dbPath)
+	st, err := store.Open(dbPath, nil, nil)
 	if err != nil {
 		t.Fatalf("store.Open(%s): %v", dbPath, err)
 	}
@@ -42,7 +42,7 @@ func seedDeletableRecord(t *testing.T, dbPath, projectKey, text string) string {
 // step errors.
 func mustGetRecord(t *testing.T, dbPath, id string) store.Record {
 	t.Helper()
-	st, err := store.Open(dbPath)
+	st, err := store.Open(dbPath, nil, nil)
 	if err != nil {
 		t.Fatalf("store.Open(%s): %v", dbPath, err)
 	}

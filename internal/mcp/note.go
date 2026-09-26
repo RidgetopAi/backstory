@@ -180,7 +180,7 @@ func handoffHomeKey(cwd string, workspaces []string) (string, bool) {
 // creates it. Idempotent: UpsertProject preserves first_seen on update, so
 // calling this on every rehomed handoff is harmless.
 func ensureHomeProject(st *store.Store, home string) error {
-	dir, ok := project.WorkspaceLegacyKey(home)
+	dir, ok := project.WorkspaceDirOf(home)
 	if !ok {
 		return nil // home is always workspace-prefixed here; defensive only
 	}

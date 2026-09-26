@@ -45,13 +45,13 @@ func (s *Store) SearchRecords(query string, limit int) ([]SearchResult, error) {
 // joins the same way and adds the one extra WHERE clause rather than
 // filtering matches after the fact.
 func (s *Store) SearchRecordsInProject(projectKey, query string, limit int) ([]SearchResult, error) {
-	k1, k2 := projectKeyIN(projectKey)
+	projectKey = s.canonicalizeProjectKey(projectKey)
 	rows, err := s.db.Query(`SELECT r.id, r.ts, r.kind, r.tier, r.text
 		FROM records_fts
 		JOIN records r ON r.rowid = records_fts.rowid
-		WHERE records_fts MATCH ? AND r.tombstoned_at IS NULL AND r.project_key IN (?, ?)
+		WHERE records_fts MATCH ? AND r.tombstoned_at IS NULL AND r.project_key = ?
 		ORDER BY rank, r.ts ASC
-		LIMIT ?`, query, k1, k2, limit)
+		LIMIT ?`, query, projectKey, limit)
 	if err != nil {
 		return nil, fmt.Errorf("store: search records in project %s: %w", projectKey, err)
 	}

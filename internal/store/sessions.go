@@ -39,6 +39,7 @@ func (s *Store) StartSession(p StartSessionParams) (string, error) {
 	if id == "" {
 		id = uuid.NewString()
 	}
+	p.ProjectKey = s.canonicalizeProjectKey(p.ProjectKey)
 	var pid any
 	if p.PID != nil {
 		pid = *p.PID
@@ -73,10 +74,10 @@ type Session struct {
 // here" half of status (AGENT-CONTRACT.md §The five tools) and the
 // SessionStart block's coordination slot.
 func (s *Store) LiveSessionsInProject(projectKey string) ([]Session, error) {
-	k1, k2 := projectKeyIN(projectKey)
+	projectKey = s.canonicalizeProjectKey(projectKey)
 	rows, err := s.db.Query(`SELECT id, agent, harness_session_id, pid, cwd, workspace, window, started_at, origin
-		FROM sessions WHERE project_key IN (?, ?) AND ended_at IS NULL AND origin = ? ORDER BY started_at DESC`,
-		k1, k2, string(OriginLive))
+		FROM sessions WHERE project_key = ? AND ended_at IS NULL AND origin = ? ORDER BY started_at DESC`,
+		projectKey, string(OriginLive))
 	if err != nil {
 		return nil, fmt.Errorf("store: live sessions in project %s: %w", projectKey, err)
 	}

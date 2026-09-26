@@ -211,7 +211,7 @@ func TestMCPShimSurvivesIdlePastFirstLineDeadlineThenSucceeds(t *testing.T) {
 	stopDaemon()
 
 	dbPath := filepath.Join(dataDir, "backstory", "backstory.db")
-	st, err := store.Open(dbPath)
+	st, err := store.Open(dbPath, nil, nil)
 	if err != nil {
 		t.Fatalf("reopen store: %v", err)
 	}

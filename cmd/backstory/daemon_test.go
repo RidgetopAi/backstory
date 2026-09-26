@@ -195,7 +195,7 @@ func TestDaemonStartsAcceptsConnectionExitsOnSIGTERM(t *testing.T) {
 func seedOldShapeStore(t *testing.T, dbPath, projectKey, sessionID string) {
 	t.Helper()
 
-	st, err := store.Open(dbPath)
+	st, err := store.Open(dbPath, nil, nil)
 	if err != nil {
 		t.Fatalf("seed: store.Open: %v", err)
 	}
@@ -397,7 +397,7 @@ func TestDaemonStartMigratesOldShapeStoreThroughNormalReadPath(t *testing.T) {
 func seedRecallStore(t *testing.T, dbPath, projectKey, cwd string) (handoffID, oldDecisionID, newDecisionID string) {
 	t.Helper()
 
-	st, err := store.Open(dbPath)
+	st, err := store.Open(dbPath, nil, nil)
 	if err != nil {
 		t.Fatalf("seed: store.Open: %v", err)
 	}
@@ -452,7 +452,7 @@ func seedRecallStore(t *testing.T, dbPath, projectKey, cwd string) (handoffID, o
 func seedOtherProjectDecision(t *testing.T, dbPath, otherProjectKey, otherCwd string) string {
 	t.Helper()
 
-	st, err := store.Open(dbPath)
+	st, err := store.Open(dbPath, nil, nil)
 	if err != nil {
 		t.Fatalf("seed other project: store.Open: %v", err)
 	}

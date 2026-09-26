@@ -7,7 +7,6 @@ import (
 
 	"github.com/RidgetopAi/backstory/internal/export"
 	"github.com/RidgetopAi/backstory/internal/project"
-	"github.com/RidgetopAi/backstory/internal/store"
 )
 
 // runExport is `backstory export [--project KEY|--here] [--altitude
@@ -49,7 +48,7 @@ func runExport(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintln(stderr, "backstory export:", err)
 		return 1
 	}
-	st, err := store.Open(dbPath)
+	st, err := openStore(dbPath)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory export:", err)
 		return 1

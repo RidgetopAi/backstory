@@ -254,7 +254,7 @@ func Build(p Params) (Result, error) {
 		}
 	}
 
-	whereLeftOff, err := buildWhereLeftOff(p.Store, identities, summaries, workspaces)
+	whereLeftOff, err := buildWhereLeftOff(p.Store, identities, summaries)
 	if err != nil {
 		return Result{}, err
 	}
@@ -494,12 +494,12 @@ func sortAttention(items []AttentionItem) {
 // (decision 9be5c1d5 clause 2): a grouped project becomes a child of its
 // group's row; an ungrouped project is its own row. Rows are sorted most
 // recently active first.
-func buildWhereLeftOff(st *store.Store, keys []string, summaries map[string]ProjectSummary, workspaces []string) ([]WhereLeftOffRow, error) {
+func buildWhereLeftOff(st *store.Store, keys []string, summaries map[string]ProjectSummary) ([]WhereLeftOffRow, error) {
 	groups := map[string][]ProjectSummary{}
 	var rows []WhereLeftOffRow
 
 	for _, key := range keys {
-		groupName, grouped, err := st.GroupOf(key, workspaces)
+		groupName, grouped, err := st.GroupOf(key)
 		if err != nil {
 			return nil, fmt.Errorf("week: group of %s: %w", key, err)
 		}

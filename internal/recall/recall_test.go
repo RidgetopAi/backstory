@@ -15,7 +15,7 @@ const testBudget = 100000 // generous enough that no test below hits it by accid
 
 func newTestStore(t *testing.T) *store.Store {
 	t.Helper()
-	st, err := store.Open(filepath.Join(t.TempDir(), "backstory.db"))
+	st, err := store.Open(filepath.Join(t.TempDir(), "backstory.db"), nil, nil)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}

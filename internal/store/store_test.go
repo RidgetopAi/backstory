@@ -13,7 +13,7 @@ const wantMode os.FileMode = 0o600
 
 func mustOpen(t *testing.T, path string) *Store {
 	t.Helper()
-	s, err := Open(path)
+	s, err := Open(path, nil, nil)
 	if err != nil {
 		t.Fatalf("Open(%s): %v", path, err)
 	}
@@ -96,7 +96,7 @@ func TestOpenTwiceIsSafe(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "backstory.db")
 
 	// Sequential: open, close, open again must not re-seed or fail.
-	first, err := Open(path)
+	first, err := Open(path, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

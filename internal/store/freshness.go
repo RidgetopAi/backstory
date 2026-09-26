@@ -166,23 +166,24 @@ func (s *Store) recordsAfter(targetID, boundaryID string, edgeType EdgeType) ([]
 }
 
 // laterRecordsSharingAbout returns, oldest first, the ids of non-tombstoned
-// decision/note/outcome records whose project_key is one of memberKeys
-// (each expanded through its own read-side legacy alias, projectKeyAliases
-// — the workspace-alias rule task 50249f56 added applies here exactly as it
-// does to every other project-scoped read in this package), inserted
-// strictly after boundaryID's sequence position (rowid), whose about[]
-// shares at least one path with about. memberKeys is HandoffFreshness's
-// home-scoped membership (homeMembership): for a workspace-homed handoff
-// this can span every repo under that workspace, not just the handoff's own
-// project_key (decision f3fa04c7).
+// decision/note/outcome records whose project_key is one of memberKeys,
+// inserted strictly after boundaryID's sequence position (rowid), whose
+// about[] shares at least one path with about. memberKeys is
+// HandoffFreshness's home-scoped membership (homeMembership): for a
+// workspace-homed handoff this can span every repo under that workspace,
+// not just the handoff's own project_key (decision f3fa04c7). Every value
+// in memberKeys is already canonical (task d65ef8ff): it is either the
+// caller's own handoffProjectKey, which InsertRecordWithEdges canonicalized
+// at write time, or a session's own project_key, which StartSession
+// canonicalized the same way — so no further alias expansion is needed
+// here.
 func (s *Store) laterRecordsSharingAbout(memberKeys []string, boundaryID string, about []string) ([]string, error) {
 	if len(about) == 0 || len(memberKeys) == 0 {
 		return nil, nil
 	}
-	keys := expandProjectKeyAliases(memberKeys)
-	placeholders := make([]string, len(keys))
-	args := make([]any, 0, len(keys)+4)
-	for i, k := range keys {
+	placeholders := make([]string, len(memberKeys))
+	args := make([]any, 0, len(memberKeys)+4)
+	for i, k := range memberKeys {
 		placeholders[i] = "?"
 		args = append(args, k)
 	}
@@ -225,25 +226,6 @@ func (s *Store) laterRecordsSharingAbout(memberKeys []string, boundaryID string,
 		return nil, fmt.Errorf("store: later records sharing about for %v: %w", memberKeys, err)
 	}
 	return out, nil
-}
-
-// expandProjectKeyAliases applies projectKeyAliases to every key in keys and
-// returns the deduplicated union — the multi-key generalization of
-// projectKeyIN for a caller (laterRecordsSharingAbout) whose member set size
-// varies with the number of repos under a home, rather than always being
-// exactly one key plus its legacy alias.
-func expandProjectKeyAliases(keys []string) []string {
-	seen := map[string]bool{}
-	var out []string
-	for _, k := range keys {
-		for _, alias := range projectKeyAliases(k) {
-			if !seen[alias] {
-				seen[alias] = true
-				out = append(out, alias)
-			}
-		}
-	}
-	return out
 }
 
 // laterEventsTouchingAbout returns, ascending by id, the ids of timeline

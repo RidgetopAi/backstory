@@ -152,7 +152,7 @@ func waitForSession(t *testing.T, dbPath, harnessSessionID string, timeout time.
 }
 
 func countSessionsWithHarnessID(dbPath, harnessSessionID string) (int, error) {
-	st, err := store.Open(dbPath)
+	st, err := store.Open(dbPath, nil, nil)
 	if err != nil {
 		return 0, err
 	}
