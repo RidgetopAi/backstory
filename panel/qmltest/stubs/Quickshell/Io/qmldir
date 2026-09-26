@@ -1,0 +1,4 @@
+module Quickshell.Io
+singleton ProcessController 1.0 ProcessController.qml
+Process 1.0 Process.qml
+StdioCollector 1.0 StdioCollector.qml

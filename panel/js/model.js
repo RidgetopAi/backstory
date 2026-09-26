@@ -1,0 +1,57 @@
+.pragma library
+
+// model.js is the ONLY place in this plugin that reads a field out of
+// `backstory this-week --json` (PANEL-CONTRACT.md). Every other .qml file
+// goes through one of these functions instead of touching `.field` on a
+// parsed JSON object directly, so panel_contract_test.go can find every
+// field this plugin depends on by reading this one file, and a contract
+// change (a renamed or removed field in PANEL-CONTRACT.md's golden) shows
+// up here as a single failing assertion instead of a silent `undefined`
+// somewhere in a QML binding.
+
+// Top level (PANEL-CONTRACT.md "Top level"): all three arrays are always
+// present in a real `this-week --json` payload, so no caller needs an
+// existence check before iterating — but round 3's desk log flooded with
+// `TypeError: Cannot read property 'length' of undefined` from exactly
+// this gap: a malformed/partial payload (this plugin's own `{}` fallback
+// on a JSON.parse failure, Panel.qml's `root.data = null` catch) reaches
+// these accessors before the "always present" contract ever applies. Every
+// list accessor in this file falls back to `[]` for an absent field so a
+// caller's `.length` is always safe, never a caller's own guard.
+function topAttention(data) { return data.attention || [] }
+function topWhereLeftOff(data) { return data.where_left_off || [] }
+function topWeek(data) { return data.week || [] }
+
+// Attention — AttentionItem (PANEL-CONTRACT.md "Attention").
+function attentionKind(item) { return item.kind }
+function attentionProjectKey(item) { return item.project_key }
+function attentionReason(item) { return item.reason }
+function attentionEvidenceIds(item) { return item.evidence_ids || [] }
+
+// Where you left off — one row is either `{project}` (standalone) or
+// `{group, children}` (group row); a caller branches on rowGroup(row)
+// being non-empty (PANEL-CONTRACT.md "Where you left off").
+function rowGroup(row) { return row.group }
+function rowProject(row) { return row.project }
+function rowChildren(row) { return row.children || [] }
+
+// ProjectSummary — a standalone row's `project`, or one entry of a group
+// row's `children` (PANEL-CONTRACT.md "ProjectSummary"). handoff_id,
+// handoff_first_line and handoff_stale are only present on a project with
+// a handoff record; QML callers treat their absence as "no handoff", never
+// as an error.
+function summaryProjectKey(p) { return p.project_key }
+function summaryDisplayName(p) { return p.display_name }
+function summaryCwd(p) { return p.cwd }
+function summaryLastActivity(p) { return p.last_activity }
+function summaryHandoffId(p) { return p.handoff_id }
+function summaryHandoffFirstLine(p) { return p.handoff_first_line }
+function summaryHandoffStale(p) { return p.handoff_stale }
+
+// The week — DayProjectStats (PANEL-CONTRACT.md "The week").
+function dayDay(d) { return d.day }
+function dayProjectKey(d) { return d.project_key }
+function dayDisplayName(d) { return d.display_name }
+function daySessions(d) { return d.sessions }
+function dayFilesTouched(d) { return d.files_touched }
+function dayRecordsWritten(d) { return d.records_written }

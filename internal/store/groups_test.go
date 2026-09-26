@@ -30,10 +30,10 @@ func TestSetMoveClearListGroupsHumanIdentityRoundTrip(t *testing.T) {
 	seedGroupTestProjects(t, s, "proj-a", "proj-b")
 
 	// Set.
-	if err := s.SetProjectGroup(human, "work", "proj-a"); err != nil {
+	if err := s.SetProjectGroup(human, "work", "proj-a", nil); err != nil {
 		t.Fatalf("SetProjectGroup(proj-a -> work): %v", err)
 	}
-	name, ok, err := s.GroupOf("proj-a")
+	name, ok, err := s.GroupOf("proj-a", nil)
 	if err != nil {
 		t.Fatalf("GroupOf(proj-a): %v", err)
 	}
@@ -42,7 +42,7 @@ func TestSetMoveClearListGroupsHumanIdentityRoundTrip(t *testing.T) {
 	}
 
 	// A project never grouped returns none.
-	_, ok, err = s.GroupOf("proj-b")
+	_, ok, err = s.GroupOf("proj-b", nil)
 	if err != nil {
 		t.Fatalf("GroupOf(proj-b): %v", err)
 	}
@@ -51,10 +51,10 @@ func TestSetMoveClearListGroupsHumanIdentityRoundTrip(t *testing.T) {
 	}
 
 	// Move: re-set proj-a to a different group overwrites, not adds.
-	if err := s.SetProjectGroup(human, "personal", "proj-a"); err != nil {
+	if err := s.SetProjectGroup(human, "personal", "proj-a", nil); err != nil {
 		t.Fatalf("SetProjectGroup(proj-a -> personal): %v", err)
 	}
-	name, ok, err = s.GroupOf("proj-a")
+	name, ok, err = s.GroupOf("proj-a", nil)
 	if err != nil {
 		t.Fatalf("GroupOf(proj-a) after move: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestSetMoveClearListGroupsHumanIdentityRoundTrip(t *testing.T) {
 	}
 
 	// List: proj-a in personal, proj-b in work.
-	if err := s.SetProjectGroup(human, "work", "proj-b"); err != nil {
+	if err := s.SetProjectGroup(human, "work", "proj-b", nil); err != nil {
 		t.Fatalf("SetProjectGroup(proj-b -> work): %v", err)
 	}
 	groups, err := s.ListGroups()
@@ -88,10 +88,10 @@ func TestSetMoveClearListGroupsHumanIdentityRoundTrip(t *testing.T) {
 	}
 
 	// Clear: proj-a drops out of ListGroups and GroupOf reports none.
-	if err := s.ClearProjectGroup(human, "proj-a"); err != nil {
+	if err := s.ClearProjectGroup(human, "proj-a", nil); err != nil {
 		t.Fatalf("ClearProjectGroup(proj-a): %v", err)
 	}
-	_, ok, err = s.GroupOf("proj-a")
+	_, ok, err = s.GroupOf("proj-a", nil)
 	if err != nil {
 		t.Fatalf("GroupOf(proj-a) after clear: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestSetMoveClearListGroupsHumanIdentityRoundTrip(t *testing.T) {
 	}
 
 	// Clearing an already-ungrouped project is a no-op, not an error.
-	if err := s.ClearProjectGroup(human, "proj-a"); err != nil {
+	if err := s.ClearProjectGroup(human, "proj-a", nil); err != nil {
 		t.Fatalf("ClearProjectGroup(proj-a) second time: %v", err)
 	}
 }
@@ -121,10 +121,10 @@ func TestSetProjectGroupRejectsAgentIdentity(t *testing.T) {
 
 	seedGroupTestProjects(t, s, "proj-a")
 
-	if err := s.SetProjectGroup(agent, "work", "proj-a"); err != ErrProjectGroupRequiresHuman {
+	if err := s.SetProjectGroup(agent, "work", "proj-a", nil); err != ErrProjectGroupRequiresHuman {
 		t.Fatalf("SetProjectGroup with agent identity: err = %v, want ErrProjectGroupRequiresHuman", err)
 	}
-	_, ok, err := s.GroupOf("proj-a")
+	_, ok, err := s.GroupOf("proj-a", nil)
 	if err != nil {
 		t.Fatalf("GroupOf(proj-a): %v", err)
 	}
@@ -141,20 +141,20 @@ func TestSetProjectGroupRejectsAgentIdentity(t *testing.T) {
 
 	// An inference identity is rejected the same way.
 	inference := Identity{Kind: IdentityInference, Actor: "daemon"}
-	if err := s.SetProjectGroup(inference, "work", "proj-a"); err != ErrProjectGroupRequiresHuman {
+	if err := s.SetProjectGroup(inference, "work", "proj-a", nil); err != ErrProjectGroupRequiresHuman {
 		t.Fatalf("SetProjectGroup with inference identity: err = %v, want ErrProjectGroupRequiresHuman", err)
 	}
 
 	// ClearProjectGroup rejects the same way. Seed a group as human first so
 	// there is something a rejected clear could wrongly remove.
 	human := Identity{Kind: IdentityHuman, Actor: humanActor}
-	if err := s.SetProjectGroup(human, "work", "proj-a"); err != nil {
+	if err := s.SetProjectGroup(human, "work", "proj-a", nil); err != nil {
 		t.Fatalf("SetProjectGroup(human): %v", err)
 	}
-	if err := s.ClearProjectGroup(agent, "proj-a"); err != ErrProjectGroupRequiresHuman {
+	if err := s.ClearProjectGroup(agent, "proj-a", nil); err != ErrProjectGroupRequiresHuman {
 		t.Fatalf("ClearProjectGroup with agent identity: err = %v, want ErrProjectGroupRequiresHuman", err)
 	}
-	name, ok, err := s.GroupOf("proj-a")
+	name, ok, err := s.GroupOf("proj-a", nil)
 	if err != nil {
 		t.Fatalf("GroupOf(proj-a) after rejected clear: %v", err)
 	}
@@ -209,10 +209,10 @@ func TestMigrationV7AppliesOnV6FixtureWithExistingData(t *testing.T) {
 
 	// The new table works immediately after the migration that created it.
 	human := Identity{Kind: IdentityHuman, Actor: humanActor}
-	if err := s.SetProjectGroup(human, "work", projectKey); err != nil {
+	if err := s.SetProjectGroup(human, "work", projectKey, nil); err != nil {
 		t.Fatalf("SetProjectGroup after migrating v6 fixture: %v", err)
 	}
-	name, ok, err := s.GroupOf(projectKey)
+	name, ok, err := s.GroupOf(projectKey, nil)
 	if err != nil {
 		t.Fatalf("GroupOf after migrating v6 fixture: %v", err)
 	}

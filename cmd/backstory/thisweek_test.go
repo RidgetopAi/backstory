@@ -244,10 +244,10 @@ func buildThisWeekFixtureStore(t *testing.T, dataDir string) {
 		_ = i
 	}
 	human := store.Identity{Kind: store.IdentityHuman, Actor: "human"}
-	if err := st.SetProjectGroup(human, "widget-suite", groupAProject); err != nil {
+	if err := st.SetProjectGroup(human, "widget-suite", groupAProject, nil); err != nil {
 		t.Fatalf("SetProjectGroup(a): %v", err)
 	}
-	if err := st.SetProjectGroup(human, "widget-suite", groupBProject); err != nil {
+	if err := st.SetProjectGroup(human, "widget-suite", groupBProject, nil); err != nil {
 		t.Fatalf("SetProjectGroup(b): %v", err)
 	}
 }

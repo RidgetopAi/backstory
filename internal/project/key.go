@@ -221,3 +221,26 @@ func WorkspaceLegacyKey(key string) (string, bool) {
 	}
 	return strings.TrimPrefix(key, workspaceKeyPrefix), true
 }
+
+// WorkspaceKeyForLegacy is WorkspaceLegacyKey's reverse: given a plain
+// (non-workspace-prefixed) key, reports the workspace-prefixed key it is
+// the legacy form of, and whether it is in fact such a legacy key at all —
+// true exactly when key, cleaned, equals one of workspaces itself (the
+// same identity a pre-workspace build wrote the plain path under for
+// what Key() now prefixes with workspaceKeyPrefix). A git repo key or a
+// folder outside every configured workspace is never a legacy form of
+// anything, so this reports false for both (task 4fe02e30 round 6 defect
+// B: a group lookup on the legacy plain key must resolve to the same
+// group a human set on the workspace-prefixed key for the same folder).
+func WorkspaceKeyForLegacy(key string, workspaces []string) (string, bool) {
+	if IsWorkspaceKey(key) {
+		return "", false
+	}
+	cleaned := filepath.Clean(key)
+	for _, w := range workspaces {
+		if filepath.Clean(w) == cleaned {
+			return workspaceKeyPrefix + key, true
+		}
+	}
+	return "", false
+}
