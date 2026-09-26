@@ -92,10 +92,8 @@ func runDaemon(_ []string, stdout, stderr io.Writer) int {
 	}
 
 	// No resolvable home dir means no DEFAULT workspace, not a daemon that
-	// refuses to start: every repo still resolves to its own key, only the
-	// ~/projects-style parent loses its workspace label and its legacy-key
-	// sweep (decision bcc9fa54). Resolved before Open so Open's own sweep
-	// (task d65ef8ff) sees the same workspace dirs the resolver below does.
+	// refuses to start (decision bcc9fa54). Resolved before Open so Open's
+	// own sweep (task d65ef8ff) sees the same dirs the resolver below does.
 	workspaceDirs, err := project.DefaultWorkspaceDirs()
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory daemon: no default workspace dirs:", err)
@@ -228,15 +226,10 @@ func captureOffPath() (string, error) {
 	return filepath.Join(home, ".local", "state", "backstory", "capture-off"), nil
 }
 
-// openStore opens the store at dbPath with the configured workspace dirs
-// and real git identity resolution (task d65ef8ff): every `backstory`
-// subcommand that touches the store goes through this ONE call so Open's
-// legacy-workspace-key sweep and write-time canonicalizer always see the
-// same workspace dirs project.Key itself resolves against. No resolvable
-// home dir means no default workspace, not a fatal error (the same
-// "workspaceDirs = nil" fallback resolveWorkspaceDirs already uses):
-// every repo still resolves to its own key, only the ~/projects-style
-// parent loses its workspace label and its legacy-key sweep.
+// openStore opens the store at dbPath with the configured workspace dirs and
+// real git identity resolution (task d65ef8ff): every `backstory` subcommand
+// funnels through this ONE call so Open's sweep and write-time canonicalizer
+// always see the same workspace dirs project.Key itself resolves against.
 func openStore(dbPath string) (*store.Store, error) {
 	return store.Open(dbPath, resolveWorkspaceDirs(), project.RealGit{})
 }

@@ -172,11 +172,8 @@ func (s *Store) recordsAfter(targetID, boundaryID string, edgeType EdgeType) ([]
 // HandoffFreshness's home-scoped membership (homeMembership): for a
 // workspace-homed handoff this can span every repo under that workspace,
 // not just the handoff's own project_key (decision f3fa04c7). Every value
-// in memberKeys is already canonical (task d65ef8ff): it is either the
-// caller's own handoffProjectKey, which InsertRecordWithEdges canonicalized
-// at write time, or a session's own project_key, which StartSession
-// canonicalized the same way — so no further alias expansion is needed
-// here.
+// in memberKeys is already canonical (task d65ef8ff: every write
+// canonicalizes its own project key), so no alias expansion is needed here.
 func (s *Store) laterRecordsSharingAbout(memberKeys []string, boundaryID string, about []string) ([]string, error) {
 	if len(about) == 0 || len(memberKeys) == 0 {
 		return nil, nil

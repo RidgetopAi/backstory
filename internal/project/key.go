@@ -207,12 +207,10 @@ func IsWorkspaceKey(key string) bool {
 	return strings.HasPrefix(key, workspaceKeyPrefix)
 }
 
-// WorkspaceDirOf reports the directory a workspace-prefixed key names —
-// key with workspaceKeyPrefix stripped — and whether key is in fact a
-// workspace key at all. internal/mcp's home-project bookkeeping is this
-// function's one caller: a handoff's home key is always workspace-prefixed
-// by construction, and this recovers the directory to seed that home's own
-// projects row with.
+// WorkspaceDirOf reports the directory a workspace-prefixed key names — key
+// with workspaceKeyPrefix stripped — and whether key is a workspace key at
+// all. internal/mcp's home-project bookkeeping uses this to recover the
+// directory a handoff's (always workspace-prefixed) home key names.
 func WorkspaceDirOf(key string) (string, bool) {
 	if !IsWorkspaceKey(key) {
 		return "", false

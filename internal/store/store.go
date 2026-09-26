@@ -22,40 +22,21 @@ const FileMode os.FileMode = 0o600
 type Store struct {
 	db   *sql.DB
 	path string
-	// git and workspaceDirs are the caller's own project-identity facts
-	// (task d65ef8ff): Open uses them once, at open time, to compute
-	// legacyToCanonical (sweepTargets) — the store package never resolves
-	// workspace dirs or calls git itself outside of Open (decision f3fa04c7's
-	// clause 7 still holds for every read/write below Open).
-	git           project.Git
-	workspaceDirs []string
 	// legacyToCanonical maps a configured workspace dir's plain pre-79f7b20e
-	// key (project.Key's old, unprefixed output for it) to the
-	// "workspace:"-prefixed key project.Key writes for it today — computed
-	// once in Open (resolveSweepTargets) and consulted by every write and
-	// read below that takes a project key (canonicalizeProjectKey), so a
-	// caller that still passes the plain spelling (an old CLI habit, a
-	// stale daemon) never mints a second row for a folder Open's own sweep
-	// already merged into one.
+	// key to its "workspace:" key (canonicalizeProjectKey's lookup table).
 	legacyToCanonical map[string]string
 }
 
 // Open opens (creating if needed) the SQLite database at path, and merges
 // every configured workspace dir's legacy plain-key rows into its
-// "workspace:"-prefixed spelling (task d65ef8ff, decision 1e53165a's
-// successor: ONE spelling per workspace folder, not a read-side alias over
-// two). workspaceDirs and git are the same facts every caller already
-// resolves for internal/project.Key (project.DefaultWorkspaceDirs,
-// project.RealGit{}); Open takes them directly rather than resolving them
-// itself, the same "caller resolves, store/week never does" rule decision
-// f3fa04c7's clause 7 already holds internal/week to. nil workspaceDirs is
-// safe: it just means no key is ever treated as a workspace legacy form.
+// "workspace:"-prefixed spelling: ONE spelling per workspace folder, not a
+// read-side alias over two (task d65ef8ff). workspaceDirs and git are the
+// same facts every caller already resolves for internal/project.Key; nil
+// workspaceDirs is safe.
 //
-// The file is created with, and forced to, FileMode. Every pooled connection
-// has WAL journaling and foreign_keys enabled via the DSN, so the pragmas
-// cannot be lost to connection churn. Open is safe to call repeatedly on the
-// same path: the schema_version table is created only if absent, and the
-// sweep is idempotent (a folder with no legacy row left rewrites nothing).
+// The file is created with, and forced to, FileMode; every pooled connection
+// has WAL journaling and foreign_keys enabled via the DSN. Safe to call
+// repeatedly: migration and the sweep are both idempotent.
 func Open(path string, workspaceDirs []string, git project.Git) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("store: create dir: %w", err)
@@ -79,10 +60,7 @@ func Open(path string, workspaceDirs []string, git project.Git) (*Store, error) 
 		return nil, fmt.Errorf("store: open %s: %w", path, err)
 	}
 	targets := resolveSweepTargets(workspaceDirs, git)
-	s := &Store{
-		db: db, path: path, git: git, workspaceDirs: workspaceDirs,
-		legacyToCanonical: legacyToCanonicalMap(targets),
-	}
+	s := &Store{db: db, path: path, legacyToCanonical: targets}
 	if err := s.migrate(); err != nil {
 		_ = db.Close()
 		return nil, err

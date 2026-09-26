@@ -173,8 +173,8 @@ func (s *Store) eventsForSessionID(sessionID string) ([]TimelineEvent, error) {
 // HandoffFreshness's home-scoped later-activity check (decision f3fa04c7)
 // needs every session whose folder resolves to a handoff's home, which can
 // span many distinct project_key values (one per repo under the
-// workspace), not the one-or-two aliases projectKeyIN covers. An empty
-// sessionIDs returns no rows without querying.
+// workspace), not just a single canonicalized key. An empty sessionIDs
+// returns no rows without querying.
 func (s *Store) eventsSinceIDForSessions(sessionIDs []string, sinceID int64) ([]TimelineEvent, error) {
 	if len(sessionIDs) == 0 {
 		return nil, nil

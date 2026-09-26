@@ -195,11 +195,8 @@ func runGroupList(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintln(stderr, "backstory group list:", err)
 		return 1
 	}
-	// sessions.project_key is already canonical (task d65ef8ff: Open's own
-	// sweep merges every workspace dir's legacy rows into its
-	// "workspace:"-prefixed spelling before this ever runs, and StartSession
-	// canonicalizes every new write), so `seen` carries no legacy/canonical
-	// duplicate for the same folder to collapse.
+	// sessions.project_key is already canonical (task d65ef8ff's sweep and
+	// write-time canonicalizer), so `seen` has no duplicate to collapse.
 
 	// ListGroups already orders by group_name then project_key, so a single
 	// pass preserves that order for both the group list and each group's
@@ -281,11 +278,9 @@ func resolveWorkspaceDirs() []string {
 
 // buildGroupListProjects computes `backstory group list --json`'s
 // `projects` array: every project key backstory knows about
-// (store.AllProjectKeys — already one row per folder, task d65ef8ff: Open's
-// sweep leaves no legacy/canonical pair for the same folder to merge),
+// (store.AllProjectKeys — already one row per folder, task d65ef8ff),
 // display_name from week.DisplayName — the SAME function this-week's own
-// rows use, never a second copy of the workspace-relative display rule
-// (round 5 desk defect: a git project_key's last path segment is
+// rows use (round 5 desk defect: a git project_key's last path segment is
 // "<repo>.git", not the repo's real name) — and group from store.GroupOf
 // ("" when ungrouped).
 func buildGroupListProjects(st *store.Store, workspaceDirs []string) ([]groupListProject, error) {
