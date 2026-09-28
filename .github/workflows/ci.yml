@@ -27,4 +27,23 @@ jobs:
 
       - run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
+      # panel-qml-test (invoked by `make check` below) needs qmltestrunner
+      # plus the QML modules panel/*.qml and panel/qmltest import (QtQuick,
+      # QtQuick.Controls.Basic, QtTest); Quickshell/Quickshell.Io/
+      # Quickshell.Wayland/qs.* are covered by panel/qmltest/stubs, not a
+      # system package. apt pulls in libqt6gui6 (bundles the offscreen QPA
+      # plugin) and the other qml6-module-qtquick-* deps transitively.
+      - name: Install Qt 6 QML test tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            qt6-declarative-dev-tools \
+            qml6-module-qttest \
+            qml6-module-qtquick \
+            qml6-module-qtquick-controls \
+            qml6-module-qtquick-layouts
+          echo "/usr/lib/qt6/bin" >> "$GITHUB_PATH"
+
       - run: make check
+        env:
+          QT_QPA_PLATFORM: offscreen
