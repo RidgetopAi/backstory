@@ -1,7 +1,7 @@
 # Releasing Backstory
 
 Decision `262cf929`: v1 is tagged only once `PLAN.md` §Phase 4's done-when
-holds on a box we do not own (Brian's desktop). This document is the release
+holds on a box we do not own: a machine that is not Brian's. This document is the release
 branch flow and its tag. It does not authorize anything past a local tag —
 **AUR push and marketplace submission are CN3 and require Brian's explicit
 approval**, decided separately from this document. Nothing in this repo, its
@@ -11,8 +11,8 @@ anything on your behalf.
 ## Flow
 
 1. Branch `release` from `main` at the commit that satisfies the Phase 4
-   done-when (Q4 targets measured on Brian's desktop: panel content under
-   two minutes, a warm session under an hour).
+   done-when (Q4 targets measured on a machine that is not Brian's: panel
+   content under two minutes, a warm session under an hour).
 2. Add a section to `CHANGELOG.md` for the version, moving the relevant
    `[Unreleased]` entries under it: `## [X.Y.Z] - YYYY-MM-DD`.
 3. Bump `pkgver` in `ops/aur/PKGBUILD` to `X.Y.Z` (no leading `v`, per Arch
