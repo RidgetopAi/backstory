@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -22,12 +23,16 @@ type SearchResult struct {
 // record from recall even though the row itself stays — AGENT-CONTRACT.md
 // §User-only powers).
 func (s *Store) SearchRecords(query string, limit int) ([]SearchResult, error) {
+	ftsQuery := escapeFTS5Query(query)
+	if ftsQuery == "" {
+		return nil, nil
+	}
 	rows, err := s.db.Query(`SELECT r.id, r.ts, r.kind, r.tier, r.text
 		FROM records_fts
 		JOIN records r ON r.rowid = records_fts.rowid
 		WHERE records_fts MATCH ? AND r.tombstoned_at IS NULL
 		ORDER BY rank, r.ts ASC
-		LIMIT ?`, query, limit)
+		LIMIT ?`, ftsQuery, limit)
 	if err != nil {
 		return nil, fmt.Errorf("store: search records: %w", err)
 	}
@@ -46,12 +51,16 @@ func (s *Store) SearchRecords(query string, limit int) ([]SearchResult, error) {
 // filtering matches after the fact.
 func (s *Store) SearchRecordsInProject(projectKey, query string, limit int) ([]SearchResult, error) {
 	projectKey = s.canonicalizeProjectKey(projectKey)
+	ftsQuery := escapeFTS5Query(query)
+	if ftsQuery == "" {
+		return nil, nil
+	}
 	rows, err := s.db.Query(`SELECT r.id, r.ts, r.kind, r.tier, r.text
 		FROM records_fts
 		JOIN records r ON r.rowid = records_fts.rowid
 		WHERE records_fts MATCH ? AND r.tombstoned_at IS NULL AND r.project_key = ?
 		ORDER BY rank, r.ts ASC
-		LIMIT ?`, query, projectKey, limit)
+		LIMIT ?`, ftsQuery, projectKey, limit)
 	if err != nil {
 		return nil, fmt.Errorf("store: search records in project %s: %w", projectKey, err)
 	}
@@ -60,6 +69,28 @@ func (s *Store) SearchRecordsInProject(projectKey, query string, limit int) ([]S
 		return nil, fmt.Errorf("store: search records in project %s: %w", projectKey, err)
 	}
 	return out, nil
+}
+
+// escapeFTS5Query turns arbitrary user text into a safe FTS5 MATCH query:
+// split on whitespace, drop empty tokens, wrap each remaining token in a
+// double-quoted FTS5 string literal (doubling any `"` inside it per FTS5's
+// own escaping rule), and join the literals with spaces for FTS5's implicit
+// AND. A quoted literal is plain text to FTS5's query-language parser, so a
+// token like "wobble-party" or "a:b" is searched for as text rather than
+// parsed as the hyphen/colon/quote/asterisk/paren/caret/AND/OR/NOT/NEAR
+// operators those characters would otherwise trigger (the bug this fixes:
+// recall erroring with "no such column: party" on a project named
+// wobble-party). An all-whitespace or empty query has no tokens and
+// produces "" — SearchRecords/SearchRecordsInProject treat that as an
+// empty result rather than passing "" to MATCH, which FTS5 itself rejects
+// as a syntax error.
+func escapeFTS5Query(query string) string {
+	fields := strings.Fields(query)
+	terms := make([]string, 0, len(fields))
+	for _, f := range fields {
+		terms = append(terms, `"`+strings.ReplaceAll(f, `"`, `""`)+`"`)
+	}
+	return strings.Join(terms, " ")
 }
 
 // scanSearchResults drains rows into a []SearchResult, closing rows itself
