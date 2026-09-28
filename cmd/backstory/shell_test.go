@@ -236,7 +236,7 @@ func TestShellBashPreservesExistingPS0AndPromptCommandDoubleEvalRecordsOnce(t *t
 	}{
 		{
 			name:           "string form",
-			promptCommand:  "echo existing-pc-string >> \"$MARKER_PC\"",
+			promptCommand:  "PROMPT_COMMAND='echo existing-pc-string >> \"$MARKER_PC\"'",
 			wantMarkerLine: "existing-pc-string",
 		},
 		{
@@ -290,19 +290,27 @@ func TestShellBashPreservesExistingPS0AndPromptCommandDoubleEvalRecordsOnce(t *t
 			if err != nil {
 				t.Fatalf("read PROMPT_COMMAND marker: %v", err)
 			}
-			if !strings.Contains(string(pcContent), tc.wantMarkerLine) {
-				t.Errorf("PROMPT_COMMAND marker = %q, want it to contain %q (the pre-existing entry still ran)", pcContent, tc.wantMarkerLine)
-			}
-			if got := strings.Count(string(pcContent), tc.wantMarkerLine); got == 0 {
-				t.Errorf("pre-existing PROMPT_COMMAND never fired")
+			// A count, not a mere Contains: PROMPT_COMMAND/PS0 fire once
+			// incidentally the instant they are first assigned (for the
+			// NEXT command read, before this snippet is even evaled), so a
+			// single occurrence would pass even if the snippet's own
+			// append logic were replaced by a clobbering assignment,
+			// discarding the pre-existing entry right after that one
+			// incidental firing. Requiring at least 3 (the initial
+			// assignment's own firing, plus true and false each triggering
+			// it again afterward) actually exercises "still runs after the
+			// snippet is evaled".
+			const wantAtLeast = 3
+			if got := strings.Count(string(pcContent), tc.wantMarkerLine); got < wantAtLeast {
+				t.Errorf("PROMPT_COMMAND marker fired %d times, want >= %d (the pre-existing entry must keep running after eval, true, and false — not just once before eval)", got, wantAtLeast)
 			}
 
 			ps0Content, err := os.ReadFile(markerPS0)
 			if err != nil {
 				t.Fatalf("read PS0 marker: %v", err)
 			}
-			if !strings.Contains(string(ps0Content), "existing-ps0") {
-				t.Errorf("PS0 marker = %q, want it to contain the pre-existing PS0's own output", ps0Content)
+			if got := strings.Count(string(ps0Content), "existing-ps0"); got < wantAtLeast {
+				t.Errorf("PS0 marker fired %d times, want >= %d (the pre-existing PS0 must keep running after eval, true, and false)", got, wantAtLeast)
 			}
 		})
 	}
