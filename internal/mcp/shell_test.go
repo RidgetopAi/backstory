@@ -187,7 +187,7 @@ func TestShellEmitSecretShapedCommandStoredRedacted(t *testing.T) {
 	st := mustOpenStore(t)
 	sockPath := testDaemon(t, st, "claude", "/home/brian/proj", "proj-key")
 
-	const secretCmd = `curl -H "Authorization: Bearer abcdef0123456789.secret-token" https://example.invalid`
+	const secretCmd = `curl -H "Authorization: Bearer abcdef0123456789.secret-token" https://example.invalid` //nolint:gosec // a fake bearer token this test feeds through redaction, not a real credential
 	params, err := json.Marshal(ShellEmitParams{Cmd: secretCmd, Exit: 0})
 	if err != nil {
 		t.Fatalf("marshal ShellEmitParams: %v", err)

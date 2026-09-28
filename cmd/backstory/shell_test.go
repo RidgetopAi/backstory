@@ -286,7 +286,7 @@ func TestShellBashPreservesExistingPS0AndPromptCommandDoubleEvalRecordsOnce(t *t
 				t.Fatalf("events = %#v, want exactly one \"true\" and one \"false\" (double eval must not double-record either)", events)
 			}
 
-			pcContent, err := os.ReadFile(markerPC)
+			pcContent, err := os.ReadFile(markerPC) //nolint:gosec // markerPC is this test's own t.TempDir() path, not external input
 			if err != nil {
 				t.Fatalf("read PROMPT_COMMAND marker: %v", err)
 			}
@@ -305,7 +305,7 @@ func TestShellBashPreservesExistingPS0AndPromptCommandDoubleEvalRecordsOnce(t *t
 				t.Errorf("PROMPT_COMMAND marker fired %d times, want >= %d (the pre-existing entry must keep running after eval, true, and false — not just once before eval)", got, wantAtLeast)
 			}
 
-			ps0Content, err := os.ReadFile(markerPS0)
+			ps0Content, err := os.ReadFile(markerPS0) //nolint:gosec // markerPS0 is this test's own t.TempDir() path, not external input
 			if err != nil {
 				t.Fatalf("read PS0 marker: %v", err)
 			}
@@ -326,7 +326,7 @@ func TestShellBashPromptReturnsQuicklyWithNoDaemonAndSlowFakeBackstory(t *testin
 
 	fakeBinDir := t.TempDir()
 	fakeBackstory := filepath.Join(fakeBinDir, "backstory")
-	if err := os.WriteFile(fakeBackstory, []byte("#!/usr/bin/env bash\nsleep 5\n"), 0o700); err != nil {
+	if err := os.WriteFile(fakeBackstory, []byte("#!/usr/bin/env bash\nsleep 5\n"), 0o700); err != nil { //nolint:gosec // test fixture, needs +x
 		t.Fatalf("write fake backstory: %v", err)
 	}
 
