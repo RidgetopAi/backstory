@@ -45,7 +45,7 @@ func buildBackstoryFromRef(t *testing.T, ref string) string {
 	}
 	t.Cleanup(func() { _ = exec.Command("git", "worktree", "remove", "--force", worktree).Run() }) //nolint:gosec // worktree is this test's own t.TempDir() path
 
-	bin := filepath.Join(t.TempDir(), "backstory-"+ref)
+	bin := filepath.Join(t.TempDir(), "backstory-legacy")
 	build := exec.Command("go", "build", "-o", bin, "./cmd/backstory") //nolint:gosec // fixed literal args, bin is this test's own t.TempDir() path
 	build.Dir = worktree
 	if out, err := build.CombinedOutput(); err != nil {
@@ -92,8 +92,17 @@ func seedLegacyWorkspaceSession(t *testing.T, dbPath, workspaceDir string) {
 // BRANCH's tools open the same store — group list shows it once, keyed
 // canonically, with the plain key nowhere in the output; group clear
 // reverses it; this-week never surfaces the plain key either.
+// legacyWriterRef is the last build that could write a project_groups row
+// under the plain legacy key: 5dffe0f, main before the This Week panel merge
+// (4f213ae) started canonicalizing group writes. It is a pinned sha, never
+// "main" — once the sweep merged, "main" WAS the canonicalizing code, so the
+// test compared the new binary against itself and proved nothing (and a CI
+// checkout has no local "main" ref at all). CI checks out full history
+// (fetch-depth: 0) so this commit resolves.
+const legacyWriterRef = "5dffe0fb31fc73cdb053017ad4323c395a6206ad"
+
 func TestMainBuiltGroupSetOnLegacyKeyIsCanonicalUnderBranchTools(t *testing.T) {
-	mainBin := buildBackstoryFromRef(t, "main")
+	mainBin := buildBackstoryFromRef(t, legacyWriterRef)
 	branchBin := buildBackstory(t)
 
 	dataDir := t.TempDir()
