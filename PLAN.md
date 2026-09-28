@@ -59,6 +59,17 @@ there. Package `backstory` on AUR ships the binary, the user unit, the CLI and t
 The marketplace plugin (rung 1 of the ladder) depends on the package. The listed branch is
 `release`, never `main`, because the marketplace clones HEAD.
 
+## v1 scope (decision `3e14db82`)
+
+v1's agent surface is frozen at the five calls the MCP shim exposes: `recall`, `note`,
+`timeline`, `confirm`, `status` (Phase 2's five frozen v0 tools). Shell command capture and
+additional harnesses (Codex, Hermes, Pi, local-model) are still coming for v1. Two things are
+explicitly **after v1**, not required to tag:
+
+- Copilot and OpenClaw harness integration.
+- Window, notification and clipboard capture (the socket2 events, notification and clipboard
+  JSON named in Phase 3's "Human" section).
+
 ## Phases
 
 Each phase has a done-when in the same shape as a punch. **lane** means the loop builds it
@@ -183,6 +194,9 @@ rung 1).
 - Per-project markdown mirror export for Claude auto-memory, Hermes `MEMORY.md`, OpenClaw
   imports
 - Release discipline: `release` branch, semver tags, changelog, AUR PKGBUILD
+- Project groups and workspaces (`backstory group set|clear|list`, the This Week panel's
+  group editor) — decisions `bcc9fa54`, `9be5c1d5`, `f3fa04c7`; a Phase 4 addition beyond
+  the original lock list, not itself a v1-scope item
 
 ### Human look
 
