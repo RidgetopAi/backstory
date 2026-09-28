@@ -15,6 +15,7 @@ import (
 	"github.com/RidgetopAi/backstory/internal/backfill/claude"
 	"github.com/RidgetopAi/backstory/internal/backfill/codex"
 	"github.com/RidgetopAi/backstory/internal/backfill/hermes"
+	"github.com/RidgetopAi/backstory/internal/backfill/pi"
 	"github.com/RidgetopAi/backstory/internal/ident"
 	"github.com/RidgetopAi/backstory/internal/mcp"
 	"github.com/RidgetopAi/backstory/internal/project"
@@ -88,6 +89,7 @@ func runDaemon(_ []string, stdout, stderr io.Writer) int {
 	go runClaudeBackfillOnce(st, logger)
 	go runCodexBackfillOnce(st, logger)
 	go runHermesBackfillOnce(st, logger)
+	go runPiBackfillOnce(st, logger)
 
 	procfs, err := procFSForDaemon()
 	if err != nil {
@@ -199,6 +201,22 @@ func runHermesBackfillOnce(st *store.Store, logger *log.Logger) {
 	res, err := hermes.Import(st, hermes.Options{})
 	if err != nil {
 		logger.Printf("backfill hermes: %v", err)
+		return
+	}
+	logger.Printf("%s", res.String())
+}
+
+// runPiBackfillOnce is runClaudeBackfillOnce's counterpart for Pi
+// transcripts (decision 3e14db82 "Pi + local models in v1"): same
+// background-goroutine, never-block-startup, never-fail-the-daemon rules.
+// pi.Import already treats a missing ~/.pi/agent/sessions as zero files
+// (filepath.Glob over an absent root), so there is no separate existence
+// check to make here — a machine with no Pi installed comes up exactly as
+// clean as one with no Claude Code installed.
+func runPiBackfillOnce(st *store.Store, logger *log.Logger) {
+	res, err := pi.Import(st, pi.Options{})
+	if err != nil {
+		logger.Printf("backfill pi: %v", err)
 		return
 	}
 	logger.Printf("%s", res.String())
