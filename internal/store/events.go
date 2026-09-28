@@ -146,6 +146,49 @@ func (s *Store) EventsForTimeline(projectKey string, since time.Time, kind strin
 	return out, nil
 }
 
+// EventsForSessionTimeline returns timeline events belonging to sessionID
+// alone, filtered by since (a zero time.Time means no lower bound;
+// otherwise only events with ts >= since) and kind (empty means any kind),
+// always ordered by id ascending — sequence, never ts (SCHEMA.md invariant
+// 10), the same rule EventsForTimeline applies to its project-scoped query,
+// applied here to a single session instead of a project's join. limit <= 0
+// means no limit; a positive limit keeps the most recent limit events (by
+// sequence), still returned oldest-to-newest. This is the mcp `timeline`
+// tool's scope=session query (AGENT-CONTRACT.md's timeline tool): unlike
+// EventsForTimeline's project_key join, a session's own events carry no
+// ambiguity about which project they belong to, so no join is needed.
+func (s *Store) EventsForSessionTimeline(sessionID string, since time.Time, kind string, limit int) ([]TimelineEvent, error) {
+	args := []any{sessionID}
+	query := `SELECT id, ts, kind, session_id, source, payload, workspace, window FROM (
+		SELECT id, ts, kind, session_id, source, payload, workspace, window
+		FROM timeline_events
+		WHERE session_id = ?`
+	if !since.IsZero() {
+		query += ` AND ts >= ?`
+		args = append(args, tsToNanos(since))
+	}
+	if kind != "" {
+		query += ` AND kind = ?`
+		args = append(args, kind)
+	}
+	query += ` ORDER BY id DESC`
+	if limit > 0 {
+		query += ` LIMIT ?`
+		args = append(args, limit)
+	}
+	query += `) ORDER BY id ASC`
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("store: timeline events for session %s: %w", sessionID, err)
+	}
+	out, err := scanTimelineEvents(rows)
+	if err != nil {
+		return nil, fmt.Errorf("store: timeline events for session %s: %w", sessionID, err)
+	}
+	return out, nil
+}
+
 // eventsForSessionID returns every timeline event belonging to sessionID
 // alone, ordered by id ascending — LABELS' own event source (decision
 // f3fa04c7, store.sessionLabels): unlike EventsSinceID/EventsForTimeline,
