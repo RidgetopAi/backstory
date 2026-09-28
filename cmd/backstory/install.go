@@ -67,6 +67,7 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 	remove := fs.Bool("remove", false, "remove everything backstory install added")
 	noVerify := fs.Bool("no-verify", false, "skip verifying the installed hook actually fires")
 	fs.SetOutput(stderr)
+	fs.Usage = func() { _, _ = fmt.Fprint(stderr, installUsage) }
 	if err := fs.Parse(flagArgs); err != nil {
 		return 2
 	}
