@@ -1,0 +1,6 @@
+{"type":"session_meta","timestamp":"2026-01-17T12:00:00Z","ordinal":1,"payload":{"id":"known-thread-uuid","cwd":"/home/eve/known-proj","cli_version":"0.151.0","model_provider":"openai","parent_thread_id":"","source":"cli"}}
+{"type":"response_item","timestamp":"2026-01-17T12:00:01Z","ordinal":2,"payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"say hi"}]}}
+{"type":"response_item","timestamp":"2026-01-17T12:00:02Z","ordinal":3,"payload":{"type":"function_call","name":"shell","arguments":"{\"command\":[\"echo\",\"hi\"]}","call_id":"call_k1"}}
+{"type":"response_item","timestamp":"2026-01-17T12:00:03Z","ordinal":4,"payload":{"type":"function_call_output","call_id":"call_k1","output":"hi"}}
+{"type":"response_item","timestamp":"2026-01-17T12:00:04Z","ordinal":5,"payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}}
+{"type":"event_msg","timestamp":"2026-01-17T12:00:05Z","ordinal":6,"payload":{"type":"task_complete"}}

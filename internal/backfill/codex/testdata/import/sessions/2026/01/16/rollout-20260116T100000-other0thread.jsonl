@@ -1,0 +1,7 @@
+{"type":"session_meta","timestamp":"2026-01-16T10:00:00Z","ordinal":1,"payload":{"id":"other-thread-uuid","cwd":"/home/erin/other-proj","cli_version":"0.151.0","model_provider":"openai","parent_thread_id":"","source":"cli"}}
+{"type":"turn_context","timestamp":"2026-01-16T10:00:01Z","ordinal":2,"payload":{"cwd":"/home/erin/other-proj","model":"gpt-5-codex","turn_id":"turn-1"}}
+{"type":"response_item","timestamp":"2026-01-16T10:00:02Z","ordinal":3,"payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"check git status"}]}}
+{"type":"response_item","timestamp":"2026-01-16T10:00:03Z","ordinal":4,"payload":{"type":"function_call","name":"shell","arguments":"{\"command\":[\"git\",\"status\"]}","call_id":"call_4"}}
+{"type":"response_item","timestamp":"2026-01-16T10:00:04Z","ordinal":5,"payload":{"type":"function_call_output","call_id":"call_4","output":"nothing to commit, working tree clean"}}
+{"type":"response_item","timestamp":"2026-01-16T10:00:05Z","ordinal":6,"payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Working tree is clean."}]}}
+{"type":"event_msg","timestamp":"2026-01-16T10:00:06Z","ordinal":7,"payload":{"type":"task_complete"}}

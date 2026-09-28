@@ -1,0 +1,9 @@
+{"type":"session_meta","timestamp":"2026-01-15T09:00:00Z","ordinal":1,"payload":{"id":"main-thread-uuid","cwd":"/home/erin/codex-proj","cli_version":"0.151.0","model_provider":"openai","parent_thread_id":"","source":"cli"}}
+{"type":"turn_context","timestamp":"2026-01-15T09:00:01Z","ordinal":2,"payload":{"cwd":"/home/erin/codex-proj","model":"gpt-5-codex","turn_id":"turn-1"}}
+{"type":"response_item","timestamp":"2026-01-15T09:00:02Z","ordinal":3,"payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"list files then tell me the cwd"}]}}
+{"type":"response_item","timestamp":"2026-01-15T09:00:03Z","ordinal":4,"payload":{"type":"function_call","name":"shell","arguments":"{\"command\":[\"ls\"]}","call_id":"call_1"}}
+{"type":"response_item","timestamp":"2026-01-15T09:00:04Z","ordinal":5,"payload":{"type":"function_call","name":"shell","arguments":"{\"command\":[\"pwd\"]}","call_id":"call_2"}}
+{"type":"response_item","timestamp":"2026-01-15T09:00:05Z","ordinal":6,"payload":{"type":"function_call_output","call_id":"call_2","output":"/home/erin/codex-proj"}}
+{"type":"response_item","timestamp":"2026-01-15T09:00:06Z","ordinal":7,"payload":{"type":"function_call_output","call_id":"call_1","output":"file1.txt\nfile2.txt"}}
+{"type":"response_item","timestamp":"2026-01-15T09:00:07Z","ordinal":8,"payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Files: file1.txt, file2.txt. cwd is /home/erin/codex-proj"}]}}
+{"type":"event_msg","timestamp":"2026-01-15T09:00:08Z","ordinal":9,"payload":{"type":"task_complete"}}

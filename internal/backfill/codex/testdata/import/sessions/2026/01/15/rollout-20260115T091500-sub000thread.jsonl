@@ -1,0 +1,7 @@
+{"type":"session_meta","timestamp":"2026-01-15T09:15:00Z","ordinal":1,"payload":{"id":"sub-thread-uuid","cwd":"/home/erin/codex-proj","cli_version":"0.151.0","model_provider":"openai","parent_thread_id":"main-thread-uuid","source":"cli"}}
+{"type":"turn_context","timestamp":"2026-01-15T09:15:01Z","ordinal":2,"payload":{"cwd":"/home/erin/codex-proj","model":"gpt-5-codex","turn_id":"turn-2"}}
+{"type":"response_item","timestamp":"2026-01-15T09:15:02Z","ordinal":3,"payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"apply this patch to fix the typo"}]}}
+{"type":"response_item","timestamp":"2026-01-15T09:15:03Z","ordinal":4,"payload":{"type":"custom_tool_call","name":"apply_patch","input":"*** Begin Patch\n*** Update File: foo.go\n-fmt.Pritnln(\"hi\")\n+fmt.Println(\"hi\")\n*** End Patch","call_id":"call_3"}}
+{"type":"response_item","timestamp":"2026-01-15T09:15:04Z","ordinal":5,"payload":{"type":"custom_tool_call_output","call_id":"call_3","output":"Success. Updated foo.go"}}
+{"type":"response_item","timestamp":"2026-01-15T09:15:05Z","ordinal":6,"payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Patched foo.go"}]}}
+{"type":"event_msg","timestamp":"2026-01-15T09:15:06Z","ordinal":7,"payload":{"type":"task_complete"}}
