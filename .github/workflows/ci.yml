@@ -12,6 +12,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          # full history: cmd/backstory builds a pinned legacy commit
+          # (legacy_key_binary_compat_test.go legacyWriterRef)
+          fetch-depth: 0
 
       - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5 # v5.5.0
         with:
@@ -27,12 +31,12 @@ jobs:
 
       - run: echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
 
-      # panel-qml-test (invoked by `make check` below) needs qmltestrunner
-      # plus the QML modules panel/*.qml and panel/qmltest import (QtQuick,
-      # QtQuick.Controls.Basic, QtTest); Quickshell/Quickshell.Io/
-      # Quickshell.Wayland/qs.* are covered by panel/qmltest/stubs, not a
-      # system package. apt pulls in libqt6gui6 (bundles the offscreen QPA
-      # plugin) and the other qml6-module-qtquick-* deps transitively.
+      # panel-qml-test (invoked by `make check` below) needs qmltestrunner plus
+      # every QML module panel/*.qml and panel/qmltest load, INCLUDING the
+      # runtime deps apt does not pull in with --no-install-recommends
+      # (QtQml.WorkerScript, QtQuick.Templates, QtQuick.Window — run 36438508403
+      # died on WorkerScript). Quickshell/Quickshell.Io/Quickshell.Wayland/qs.*
+      # are covered by panel/qmltest/stubs, not a system package.
       - name: Install Qt 6 QML test tooling
         run: |
           sudo apt-get update
@@ -41,7 +45,10 @@ jobs:
             qml6-module-qttest \
             qml6-module-qtquick \
             qml6-module-qtquick-controls \
-            qml6-module-qtquick-layouts
+            qml6-module-qtquick-layouts \
+            qml6-module-qtquick-templates \
+            qml6-module-qtquick-window \
+            qml6-module-qtqml-workerscript
           echo "/usr/lib/qt6/bin" >> "$GITHUB_PATH"
 
       - run: make check
