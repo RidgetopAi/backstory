@@ -99,6 +99,37 @@ func TestTimelineNoArgsReturnsCallersProjectEvents(t *testing.T) {
 	}
 }
 
+// TestTimelineProjectScopeExcludesOtherProjects is DONE WHEN clause 1's
+// project isolation: scope=project (the default) never returns another
+// project's events, even though both share the same store.
+func TestTimelineProjectScopeExcludesOtherProjects(t *testing.T) {
+	st := mustOpenStore(t)
+
+	sockPathA := testDaemon(t, st, "claude", "/home/brian/proj-a", "proj-a")
+	shimA := dialShim(t, sockPathA)
+	sessionA := callerSession(t, shimA)
+
+	sockPathB := testDaemon(t, st, "claude", "/home/brian/proj-b", "proj-b")
+	shimB := dialShim(t, sockPathB)
+	sessionB := callerSession(t, shimB)
+
+	now := time.Now().UTC()
+	idA := appendTimelineEvent(t, st, sessionA, "post_tool_use", "posttooluse", now)
+	appendTimelineEvent(t, st, sessionB, "post_tool_use", "posttooluse", now.Add(time.Second))
+
+	result := callTimeline(t, shimA, `{}`)
+
+	if result.ProjectKey != "proj-a" {
+		t.Errorf("ProjectKey = %q, want proj-a", result.ProjectKey)
+	}
+	if len(result.Events) != 1 {
+		t.Fatalf("len(Events) = %d, want 1: %+v", len(result.Events), result.Events)
+	}
+	if result.Events[0].ID != idA {
+		t.Errorf("Events[0].ID = %d, want %d (proj-a's own event, not proj-b's)", result.Events[0].ID, idA)
+	}
+}
+
 // TestTimelineScopeSessionExcludesOtherSessions is DONE WHEN clause 1's
 // second half: scope=session returns only the caller's OWN session's
 // events, even when another session in the SAME project has events too.
