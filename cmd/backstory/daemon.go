@@ -14,6 +14,7 @@ import (
 
 	"github.com/RidgetopAi/backstory/internal/backfill/claude"
 	"github.com/RidgetopAi/backstory/internal/backfill/codex"
+	"github.com/RidgetopAi/backstory/internal/backfill/hermes"
 	"github.com/RidgetopAi/backstory/internal/ident"
 	"github.com/RidgetopAi/backstory/internal/mcp"
 	"github.com/RidgetopAi/backstory/internal/project"
@@ -86,6 +87,7 @@ func runDaemon(_ []string, stdout, stderr io.Writer) int {
 
 	go runClaudeBackfillOnce(st, logger)
 	go runCodexBackfillOnce(st, logger)
+	go runHermesBackfillOnce(st, logger)
 
 	procfs, err := procFSForDaemon()
 	if err != nil {
@@ -181,6 +183,22 @@ func runCodexBackfillOnce(st *store.Store, logger *log.Logger) {
 	res, err := codex.Import(st, codex.Options{})
 	if err != nil {
 		logger.Printf("backfill codex: %v", err)
+		return
+	}
+	logger.Printf("%s", res.String())
+}
+
+// runHermesBackfillOnce is runClaudeBackfillOnce's Hermes counterpart
+// (decision 3e14db82, task bf335dd4): it runs once in the background so the
+// daemon's own startup is never delayed by however large Hermes Agent's own
+// state.db has grown. Path comes from hermes.DefaultPath()
+// ($HERMES_HOME/state.db, else ~/.hermes/state.db); a missing file or any
+// other failure is logged and never stops the daemon — a machine with no
+// Hermes Agent installed must still come up clean.
+func runHermesBackfillOnce(st *store.Store, logger *log.Logger) {
+	res, err := hermes.Import(st, hermes.Options{})
+	if err != nil {
+		logger.Printf("backfill hermes: %v", err)
 		return
 	}
 	logger.Printf("%s", res.String())
