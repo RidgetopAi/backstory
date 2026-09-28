@@ -258,7 +258,7 @@ func TestReopenOldShapeStoreIsIdempotent(t *testing.T) {
 		t.Fatalf("close fixture db before first Open: %v", err)
 	}
 
-	first, err := Open(rawPath)
+	first, err := Open(rawPath, nil, nil)
 	if err != nil {
 		t.Fatalf("first Open: %v", err)
 	}

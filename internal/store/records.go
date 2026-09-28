@@ -117,6 +117,7 @@ func (s *Store) InsertRecordWithEdges(p InsertRecordParams, edges []EdgeSpec) (s
 	if p.Outcome != nil && p.Kind != KindOutcome {
 		return "", fmt.Errorf("store: outcome is only valid on kind=%s records", KindOutcome)
 	}
+	p.ProjectKey = s.canonicalizeProjectKey(p.ProjectKey)
 	if len(p.Text) > MaxRecordTextBytes {
 		return "", &CapError{Cap: CapMaxTextBytes, Limit: MaxRecordTextBytes}
 	}
@@ -246,11 +247,11 @@ func (s *Store) GetRecord(id string) (Record, error) {
 // sequence, never ts" applies here too: ts is wall-clock and informational,
 // insertion order is not). found is false when no such record exists.
 func (s *Store) LatestRecord(projectKey string, kind RecordKind) (Record, bool, error) {
+	projectKey = s.canonicalizeProjectKey(projectKey)
 	var id string
-	k1, k2 := projectKeyIN(projectKey)
 	err := s.db.QueryRow(`SELECT id FROM records
-		WHERE project_key IN (?, ?) AND kind = ? AND tombstoned_at IS NULL
-		ORDER BY rowid DESC LIMIT 1`, k1, k2, string(kind)).Scan(&id)
+		WHERE project_key = ? AND kind = ? AND tombstoned_at IS NULL
+		ORDER BY rowid DESC LIMIT 1`, projectKey, string(kind)).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Record{}, false, nil
 	}
@@ -271,10 +272,10 @@ func (s *Store) LatestRecord(projectKey string, kind RecordKind) (Record, bool, 
 // query: unlike LatestRecord (one row), a caller wants every declared
 // decision for the project, most recent first.
 func (s *Store) RecordsForProject(projectKey string, kind RecordKind, limit int) ([]Record, error) {
-	k1, k2 := projectKeyIN(projectKey)
+	projectKey = s.canonicalizeProjectKey(projectKey)
 	rows, err := s.db.Query(`SELECT id FROM records
-		WHERE project_key IN (?, ?) AND kind = ? AND tombstoned_at IS NULL
-		ORDER BY rowid DESC LIMIT ?`, k1, k2, string(kind), limit)
+		WHERE project_key = ? AND kind = ? AND tombstoned_at IS NULL
+		ORDER BY rowid DESC LIMIT ?`, projectKey, string(kind), limit)
 	if err != nil {
 		return nil, fmt.Errorf("store: records for project %s kind %s: %w", projectKey, kind, err)
 	}
@@ -289,12 +290,12 @@ func (s *Store) RecordsForProject(projectKey string, kind RecordKind, limit int)
 // promoter and no expiry that has already passed — the SessionStart block's
 // attention slot (AGENT-CONTRACT.md §The SessionStart block).
 func (s *Store) UnconfirmedDraftCount(projectKey string, now time.Time) (int, error) {
+	projectKey = s.canonicalizeProjectKey(projectKey)
 	var n int
-	k1, k2 := projectKeyIN(projectKey)
 	err := s.db.QueryRow(`SELECT COUNT(*) FROM records
-		WHERE project_key IN (?, ?) AND tier = ? AND promoter IS NULL
+		WHERE project_key = ? AND tier = ? AND promoter IS NULL
 		AND (expires_at IS NULL OR expires_at > ?)
-		AND tombstoned_at IS NULL`, k1, k2, string(TierInferred), tsToNanos(now)).Scan(&n)
+		AND tombstoned_at IS NULL`, projectKey, string(TierInferred), tsToNanos(now)).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("store: unconfirmed draft count for project %s: %w", projectKey, err)
 	}
@@ -311,10 +312,10 @@ func (s *Store) UnconfirmedDraftCount(projectKey string, now time.Time) (int, er
 // before this punch, so an expired claim with no such edge is exactly the
 // gap this Attention item flags.
 func (s *Store) ExpiredClaimsWithoutOutcome(projectKey string, asOf time.Time) ([]Record, error) {
-	k1, k2 := projectKeyIN(projectKey)
+	projectKey = s.canonicalizeProjectKey(projectKey)
 	rows, err := s.db.Query(`
 		SELECT id FROM records
-		WHERE project_key IN (?, ?) AND kind = ? AND tombstoned_at IS NULL
+		WHERE project_key = ? AND kind = ? AND tombstoned_at IS NULL
 		AND expires_at IS NOT NULL AND expires_at <= ?
 		AND id NOT IN (
 			SELECT from_id FROM edges WHERE type = ?
@@ -322,7 +323,7 @@ func (s *Store) ExpiredClaimsWithoutOutcome(projectKey string, asOf time.Time) (
 			SELECT to_id FROM edges WHERE type = ?
 		)
 		ORDER BY rowid ASC`,
-		k1, k2, string(KindClaim), tsToNanos(asOf), string(EdgeProducedOutcome), string(EdgeProducedOutcome))
+		projectKey, string(KindClaim), tsToNanos(asOf), string(EdgeProducedOutcome), string(EdgeProducedOutcome))
 	if err != nil {
 		return nil, fmt.Errorf("store: expired claims without outcome for project %s: %w", projectKey, err)
 	}
@@ -364,10 +365,10 @@ func (s *Store) TombstoneRecord(id string, identity Identity) error {
 // still surface (recall omits its text, keeps its edges) rather than
 // vanish the way it does for RecordsForProject's kind-scoped callers.
 func (s *Store) RecordsForProjectAll(projectKey string, limit int) ([]Record, error) {
-	k1, k2 := projectKeyIN(projectKey)
+	projectKey = s.canonicalizeProjectKey(projectKey)
 	rows, err := s.db.Query(`SELECT id FROM records
-		WHERE project_key IN (?, ?)
-		ORDER BY rowid DESC LIMIT ?`, k1, k2, limit)
+		WHERE project_key = ?
+		ORDER BY rowid DESC LIMIT ?`, projectKey, limit)
 	if err != nil {
 		return nil, fmt.Errorf("store: all records for project %s: %w", projectKey, err)
 	}

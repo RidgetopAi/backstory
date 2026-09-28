@@ -43,7 +43,7 @@ const (
 
 func newTestStore(t *testing.T) *store.Store {
 	t.Helper()
-	st, err := store.Open(filepath.Join(t.TempDir(), "backstory.db"))
+	st, err := store.Open(filepath.Join(t.TempDir(), "backstory.db"), nil, nil)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}

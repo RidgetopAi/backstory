@@ -41,7 +41,7 @@ const groupListFixtureOutsideKey = "/home/brian/.local/bin"
 func buildGroupListFixtureStore(t *testing.T, dataDir string) {
 	t.Helper()
 	dbPath := filepath.Join(dataDir, "backstory", "backstory.db")
-	st, err := store.Open(dbPath)
+	st, err := store.Open(dbPath, nil, nil)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
@@ -93,7 +93,7 @@ func buildGroupListFixtureStore(t *testing.T, dataDir string) {
 	}
 
 	human := store.Identity{Kind: store.IdentityHuman, Actor: "human"}
-	if err := st.SetProjectGroup(human, "media", groupListFixtureOmarcadeKey, nil); err != nil {
+	if err := st.SetProjectGroup(human, "media", groupListFixtureOmarcadeKey); err != nil {
 		t.Fatalf("SetProjectGroup(omarcade): %v", err)
 	}
 }
@@ -236,14 +236,15 @@ func TestGroupListJSONProjectsArrayDisplayNamesAndDedup(t *testing.T) {
 // where_left_off row agree byte-for-byte — proof that both read
 // display_name off the SAME function (week.DisplayName), not two
 // independently-derived names that could drift the way the CAUSE section's
-// bug did. The legacy key is compared against group list's WORKSPACE key
-// entry (never its own): group list merges the legacy/workspace pair into
-// one entry keyed by the workspace form (clause 1), but this-week still
-// carries the legacy key as its own repoKey row (its own DONE WHEN clause
-// 2 fix only changes which GROUP that row lands in, not its identity) — so
-// the correct byte-for-byte comparison for that folder is this-week's
-// legacy-key row against group list's merged workspace-key entry, both
-// "projects".
+// bug did. The legacy/workspace folder is compared under its CANONICAL
+// workspace key on BOTH sides (task d65ef8ff): group list merges the
+// legacy/workspace pair into one entry keyed by the workspace form (clause
+// 1); this-week's own row for a session living at the workspace root comes
+// through decision f3fa04c7 clause 5's home-label path (buildHomeLabelProject,
+// since that session touched no file, its one fallback label is the
+// workspace root itself), which stamps the SAME canonical key
+// (project.Key(loc.Dir, ...)) — never the plain legacy key, the leak this
+// punch's sweep closes (proven separately below).
 func TestGroupListDisplayNameMatchesThisWeekForActiveProject(t *testing.T) {
 	dataDir := t.TempDir()
 	buildGroupListFixtureStore(t, dataDir)
@@ -294,7 +295,7 @@ func TestGroupListDisplayNameMatchesThisWeekForActiveProject(t *testing.T) {
 		wantDisplayName string
 	}{
 		{"git repo", groupListFixtureOmarcadeKey, groupListFixtureOmarcadeKey, "projects/omarcade"},
-		{"legacy key vs merged workspace entry", groupListFixtureLegacyKey, groupListFixtureWorkspaceKey, "projects"},
+		{"workspace folder (canonical key on both sides)", groupListFixtureWorkspaceKey, groupListFixtureWorkspaceKey, "projects"},
 		{"outside-workspace folder", groupListFixtureOutsideKey, groupListFixtureOutsideKey, "bin"},
 	}
 	for _, c := range cases {
@@ -313,54 +314,16 @@ func TestGroupListDisplayNameMatchesThisWeekForActiveProject(t *testing.T) {
 			t.Errorf("%s: display_name = %q, want %q", c.label, groupListName, c.wantDisplayName)
 		}
 	}
-}
 
-// runThisWeekJSONForGroupListTest runs `this-week --json` against dataDir's
-// store the same way TestGroupListDisplayNameMatchesThisWeekForActiveProject
-// does (thisWeekNow pinned, workspace dirs pinned), decoded.
-func runThisWeekJSONForGroupListTest(t *testing.T, dataDir string) thisWeekOutputJSON {
-	t.Helper()
-	orig := thisWeekNow
-	thisWeekNow = func() time.Time { return thisWeekFixtureNow }
-	t.Cleanup(func() { thisWeekNow = orig })
-	t.Setenv("XDG_DATA_HOME", dataDir)
-	t.Setenv("BACKSTORY_WORKSPACE_DIRS", fixtureWorkspaceDir)
-
-	var outBuf, errBuf bytes.Buffer
-	if c := run([]string{"this-week", "--json"}, bytes.NewReader(nil), &outBuf, &errBuf); c != 0 {
-		t.Fatalf("this-week --json: exit %d (stderr: %s)", c, errBuf.String())
+	// The plain legacy key must never appear in this-week's own output at
+	// all (the leak task d65ef8ff's sweep closes: before it, the legacy
+	// session's stored project_key looked like an ordinary repo key, so
+	// partitionActiveProjectKeys treated the workspace folder itself as a
+	// PROJECT row, violating decision bcc9fa54 — "a workspace is not a
+	// project").
+	if _, ok := thisWeekNames[groupListFixtureLegacyKey]; ok {
+		t.Errorf("this-week --json has a where_left_off row keyed on the plain legacy key %q, want none (only the canonical workspace key)", groupListFixtureLegacyKey)
 	}
-	var out thisWeekOutputJSON
-	if err := json.Unmarshal(outBuf.Bytes(), &out); err != nil {
-		t.Fatalf("decode this-week --json output %q: %v", outBuf.String(), err)
-	}
-	return out
-}
-
-// whereLeftOffGroupChildren returns the ProjectKeys under groupName's own
-// where_left_off row, nil if that group has no row at all.
-func whereLeftOffGroupChildren(out thisWeekOutputJSON, groupName string) []string {
-	for _, row := range out.WhereLeftOff {
-		if row.Group == groupName {
-			keys := make([]string, len(row.Children))
-			for i, c := range row.Children {
-				keys[i] = c.ProjectKey
-			}
-			return keys
-		}
-	}
-	return nil
-}
-
-// whereLeftOffHasUngroupedProject reports whether where_left_off has an
-// own-row (Group == "") entry for projectKey.
-func whereLeftOffHasUngroupedProject(out thisWeekOutputJSON, projectKey string) bool {
-	for _, row := range out.WhereLeftOff {
-		if row.Project != nil && row.Project.ProjectKey == projectKey {
-			return true
-		}
-	}
-	return false
 }
 
 // containsString reports whether ss contains s.
@@ -374,26 +337,22 @@ func containsString(ss []string, s string) bool {
 }
 
 // TestGroupSetOnWorkspaceKeyRegroupsLegacyHistoryAndClearReverses is DONE
-// WHEN clause 2 (task 4fe02e30 round 6 defect B fix): `group set g
-// workspace:/…/projects` on a store with sessions under BOTH that folder's
-// legacy plain key and its workspace-prefixed key regroups the LEGACY
-// key's history too — group list shows the folder once, in group g
-// (never a separate ungrouped legacy row), and this-week --json's
-// where_left_off shows the legacy key's own row as group g's child (never
-// its own ungrouped row) — because GroupOf/SetProjectGroup/ClearProjectGroup
-// all canonicalize a legacy plain key to its workspace key before any group
-// table read or write (store.CanonicalProjectKey), so a group set on
-// either form of the same folder's key agrees. `group clear` on the
-// workspace key reverses both: the folder goes back to ungrouped in group
-// list (shown once, under its canonical workspace key) and the legacy
-// key's this-week row goes back to being its own ungrouped row.
+// WHEN clause 2 (task 4fe02e30 round 6 defect B fix, still upheld after
+// task d65ef8ff replaced the read-side alias with an Open-time sweep):
+// `group set g workspace:/…/projects` on a store seeded with sessions under
+// both that folder's legacy plain key and its workspace-prefixed key (task
+// d65ef8ff's sweep has already merged the legacy session into the
+// workspace key by the time any of these CLI calls open the store) regroups
+// the folder under g — group list shows it once, in group g, never a
+// separate ungrouped legacy row. `group clear` on the workspace key
+// reverses it: the folder goes back to its one ungrouped entry, keyed by
+// the canonical workspace key.
 func TestGroupSetOnWorkspaceKeyRegroupsLegacyHistoryAndClearReverses(t *testing.T) {
 	dataDir := t.TempDir()
 	buildGroupListFixtureStore(t, dataDir)
 
 	// Before: the folder is ungrouped (legacy+workspace merged into one
-	// ungrouped entry — DONE WHEN clause 1), and this-week shows the legacy
-	// key as its own ungrouped row.
+	// ungrouped entry — DONE WHEN clause 1).
 	stdout, stderr, code := runGroupListCLI(t, dataDir, "list", "--json")
 	if code != 0 {
 		t.Fatalf("group list --json (before): exit %d (stderr: %s)", code, stderr)
@@ -404,10 +363,6 @@ func TestGroupSetOnWorkspaceKeyRegroupsLegacyHistoryAndClearReverses(t *testing.
 	}
 	if !containsString(before.Ungrouped, groupListFixtureWorkspaceKey) {
 		t.Fatalf("group list --json (before) Ungrouped = %v, want %q present", before.Ungrouped, groupListFixtureWorkspaceKey)
-	}
-	thisWeekBefore := runThisWeekJSONForGroupListTest(t, dataDir)
-	if !whereLeftOffHasUngroupedProject(thisWeekBefore, groupListFixtureLegacyKey) {
-		t.Fatalf("this-week --json (before) has no ungrouped where_left_off row for the legacy key %q; got %+v", groupListFixtureLegacyKey, thisWeekBefore.WhereLeftOff)
 	}
 
 	// Set: group the WORKSPACE key.
@@ -436,16 +391,7 @@ func TestGroupSetOnWorkspaceKeyRegroupsLegacyHistoryAndClearReverses(t *testing.
 		t.Fatalf("group list --json (after set) group \"regrouped\" projects = %v, want exactly [%q] (the canonical key, never the legacy one)", regroupedMembers, groupListFixtureWorkspaceKey)
 	}
 
-	thisWeekAfterSet := runThisWeekJSONForGroupListTest(t, dataDir)
-	regroupedChildren := whereLeftOffGroupChildren(thisWeekAfterSet, "regrouped")
-	if !containsString(regroupedChildren, groupListFixtureLegacyKey) {
-		t.Fatalf("this-week --json (after set) where_left_off group \"regrouped\" children = %v, want the legacy key %q present", regroupedChildren, groupListFixtureLegacyKey)
-	}
-	if whereLeftOffHasUngroupedProject(thisWeekAfterSet, groupListFixtureLegacyKey) {
-		t.Errorf("this-week --json (after set) still has a separate ungrouped where_left_off row for the legacy key %q", groupListFixtureLegacyKey)
-	}
-
-	// Clear: reverses both.
+	// Clear: reverses it.
 	if _, stderr, code := runGroupListCLI(t, dataDir, "clear", groupListFixtureWorkspaceKey); code != 0 {
 		t.Fatalf("group clear %s: exit %d (stderr: %s)", groupListFixtureWorkspaceKey, code, stderr)
 	}
@@ -465,13 +411,5 @@ func TestGroupSetOnWorkspaceKeyRegroupsLegacyHistoryAndClearReverses(t *testing.
 		if g.Group == "regrouped" {
 			t.Errorf("group list --json (after clear) still has group \"regrouped\": %+v", g)
 		}
-	}
-
-	thisWeekAfterClear := runThisWeekJSONForGroupListTest(t, dataDir)
-	if !whereLeftOffHasUngroupedProject(thisWeekAfterClear, groupListFixtureLegacyKey) {
-		t.Errorf("this-week --json (after clear) has no ungrouped where_left_off row for the legacy key %q again; got %+v", groupListFixtureLegacyKey, thisWeekAfterClear.WhereLeftOff)
-	}
-	if containsString(whereLeftOffGroupChildren(thisWeekAfterClear, "regrouped"), groupListFixtureLegacyKey) {
-		t.Errorf("this-week --json (after clear) still has the legacy key under group \"regrouped\"")
 	}
 }

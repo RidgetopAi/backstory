@@ -9,7 +9,7 @@ import (
 // TestLastActivityIgnoresActivityAfterAsOf: This Week's "last activity" is
 // as of the view's own clock; a record written after asOf must not appear.
 func TestLastActivityIgnoresActivityAfterAsOf(t *testing.T) {
-	s, err := Open(filepath.Join(t.TempDir(), "backstory.db"))
+	s, err := Open(filepath.Join(t.TempDir(), "backstory.db"), nil, nil)
 	if err != nil {
 		t.Fatalf("Open: %v", err)
 	}

@@ -33,7 +33,7 @@ var timelineFixtureBase = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 func buildTimelineFixtureStore(t *testing.T, dataDir string) {
 	t.Helper()
 	dbPath := filepath.Join(dataDir, "backstory", "backstory.db")
-	st, err := store.Open(dbPath)
+	st, err := store.Open(dbPath, nil, nil)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
@@ -169,7 +169,7 @@ func TestTimelineSinceReturnsOnlyEventsAfterBoundInSequenceOrder(t *testing.T) {
 func TestTimelineSinceAcceptsDuration(t *testing.T) {
 	dataDir := t.TempDir()
 	dbPath := filepath.Join(dataDir, "backstory", "backstory.db")
-	st, err := store.Open(dbPath)
+	st, err := store.Open(dbPath, nil, nil)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}

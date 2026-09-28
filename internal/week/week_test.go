@@ -16,7 +16,7 @@ var fixtureNow = time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC)
 
 func openTestStore(t *testing.T) *store.Store {
 	t.Helper()
-	st, err := store.Open(filepath.Join(t.TempDir(), "backstory.db"))
+	st, err := store.Open(filepath.Join(t.TempDir(), "backstory.db"), nil, nil)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
@@ -371,10 +371,10 @@ func TestBuildGroupedProjectsCollapseIntoOneRowWithBothAsChildren(t *testing.T) 
 	appendEvent(t, st, store.Event{TS: fixtureNow.Add(-2 * 24 * time.Hour), Kind: "session.start", SessionID: sidB, Source: "shell", Payload: `{}`})
 
 	human := store.Identity{Kind: store.IdentityHuman, Actor: "human"}
-	if err := st.SetProjectGroup(human, "widget-suite", "proj-group-a", nil); err != nil {
+	if err := st.SetProjectGroup(human, "widget-suite", "proj-group-a"); err != nil {
 		t.Fatalf("SetProjectGroup(a): %v", err)
 	}
-	if err := st.SetProjectGroup(human, "widget-suite", "proj-group-b", nil); err != nil {
+	if err := st.SetProjectGroup(human, "widget-suite", "proj-group-b"); err != nil {
 		t.Fatalf("SetProjectGroup(b): %v", err)
 	}
 

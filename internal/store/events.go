@@ -83,12 +83,12 @@ func (s *Store) HasEventWithToolUseID(kind, toolUseID string) (bool, error) {
 // beginning. An event with no session (session_id NULL) belongs to no
 // project and is never returned.
 func (s *Store) EventsSinceID(projectKey string, sinceID int64) ([]TimelineEvent, error) {
-	k1, k2 := projectKeyIN(projectKey)
+	projectKey = s.canonicalizeProjectKey(projectKey)
 	rows, err := s.db.Query(`SELECT e.id, e.ts, e.kind, e.session_id, e.source, e.payload, e.workspace, e.window
 		FROM timeline_events e
 		JOIN sessions sess ON sess.id = e.session_id
-		WHERE sess.project_key IN (?, ?) AND e.id > ?
-		ORDER BY e.id ASC`, k1, k2, sinceID)
+		WHERE sess.project_key = ? AND e.id > ?
+		ORDER BY e.id ASC`, projectKey, sinceID)
 	if err != nil {
 		return nil, fmt.Errorf("store: events since %d for project %s: %w", sinceID, projectKey, err)
 	}
@@ -113,13 +113,13 @@ func (s *Store) EventsSinceID(projectKey string, sinceID int64) ([]TimelineEvent
 // unlike EventsSinceID's sequence-position boundary (the SessionStart
 // delta's own use), this bound is the caller's wall-clock --since value.
 func (s *Store) EventsForTimeline(projectKey string, since time.Time, kind string, limit int) ([]TimelineEvent, error) {
-	k1, k2 := projectKeyIN(projectKey)
-	args := []any{k1, k2}
+	projectKey = s.canonicalizeProjectKey(projectKey)
+	args := []any{projectKey}
 	query := `SELECT id, ts, kind, session_id, source, payload, workspace, window FROM (
 		SELECT e.id, e.ts, e.kind, e.session_id, e.source, e.payload, e.workspace, e.window
 		FROM timeline_events e
 		JOIN sessions sess ON sess.id = e.session_id
-		WHERE sess.project_key IN (?, ?)`
+		WHERE sess.project_key = ?`
 	if !since.IsZero() {
 		query += ` AND e.ts >= ?`
 		args = append(args, tsToNanos(since))
@@ -173,8 +173,8 @@ func (s *Store) eventsForSessionID(sessionID string) ([]TimelineEvent, error) {
 // HandoffFreshness's home-scoped later-activity check (decision f3fa04c7)
 // needs every session whose folder resolves to a handoff's home, which can
 // span many distinct project_key values (one per repo under the
-// workspace), not the one-or-two aliases projectKeyIN covers. An empty
-// sessionIDs returns no rows without querying.
+// workspace), not just a single canonicalized key. An empty sessionIDs
+// returns no rows without querying.
 func (s *Store) eventsSinceIDForSessions(sessionIDs []string, sinceID int64) ([]TimelineEvent, error) {
 	if len(sessionIDs) == 0 {
 		return nil, nil

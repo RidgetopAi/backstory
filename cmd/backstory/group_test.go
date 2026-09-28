@@ -21,7 +21,7 @@ import (
 // observed at least once.
 func seedGroupableProject(t *testing.T, dbPath, projectKey string) {
 	t.Helper()
-	st, err := store.Open(dbPath)
+	st, err := store.Open(dbPath, nil, nil)
 	if err != nil {
 		t.Fatalf("store.Open(%s): %v", dbPath, err)
 	}
@@ -36,7 +36,7 @@ func seedGroupableProject(t *testing.T, dbPath, projectKey string) {
 // week" reads (store.Store.ProjectsSeenSince).
 func seedSessionForProject(t *testing.T, dbPath, projectKey string, startedAt time.Time) {
 	t.Helper()
-	st, err := store.Open(dbPath)
+	st, err := store.Open(dbPath, nil, nil)
 	if err != nil {
 		t.Fatalf("store.Open(%s): %v", dbPath, err)
 	}
@@ -57,12 +57,12 @@ func seedSessionForProject(t *testing.T, dbPath, projectKey string, startedAt ti
 // valid ("", false), not a failure).
 func groupOfOrFatal(t *testing.T, dbPath, projectKey string) (string, bool) {
 	t.Helper()
-	st, err := store.Open(dbPath)
+	st, err := store.Open(dbPath, nil, nil)
 	if err != nil {
 		t.Fatalf("store.Open(%s): %v", dbPath, err)
 	}
 	defer func() { _ = st.Close() }()
-	name, ok, err := st.GroupOf(projectKey, nil)
+	name, ok, err := st.GroupOf(projectKey)
 	if err != nil {
 		t.Fatalf("GroupOf(%s): %v", projectKey, err)
 	}
@@ -72,7 +72,7 @@ func groupOfOrFatal(t *testing.T, dbPath, projectKey string) (string, bool) {
 // listGroupsOrFatal opens dbPath and returns every project_groups row.
 func listGroupsOrFatal(t *testing.T, dbPath string) []store.GroupMembership {
 	t.Helper()
-	st, err := store.Open(dbPath)
+	st, err := store.Open(dbPath, nil, nil)
 	if err != nil {
 		t.Fatalf("store.Open(%s): %v", dbPath, err)
 	}

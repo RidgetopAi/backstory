@@ -36,7 +36,7 @@ const recallFixtureLongText = "The recall engine walks a project's whole ledger 
 func buildRecallFixtureStore(t *testing.T, dataDir string) {
 	t.Helper()
 	dbPath := filepath.Join(dataDir, "backstory", "backstory.db")
-	st, err := store.Open(dbPath)
+	st, err := store.Open(dbPath, nil, nil)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}

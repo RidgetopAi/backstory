@@ -69,6 +69,24 @@ groups, only the CLI and panel (separate, later punches) do. `GroupOf` and `List
 read-only and take no `Identity`. Migration `0007_project_groups.sql` adds the table; it
 carries no data rewrite, since no prior schema version had anything to migrate into it.
 
+A workspace folder has ONE spelling in the store (task `d65ef8ff`, superseding decision
+`1e53165a`'s read-side alias): the pre-`79f7b20e` plain path a build once wrote for it never
+coexists with its `workspace:`-prefixed key. `store.Open(path, workspaceDirs, git)` runs an
+idempotent sweep in one transaction on every open: for each configured workspace dir `W`
+where `project.Key(W, git, dirs) == "workspace:"+W` (a workspace dir that is itself a git
+repo keeps its own repo key and is never swept), every `projects`/`sessions`/`records`/
+`project_groups` row exactly matching plain `W` is merged into `"workspace:"+W` (earliest
+`first_seen`, newer `project_groups.set_at` wins) and the plain row is deleted. Before the
+first rewrite, `VACUUM INTO` backs up the pre-sweep file beside the database. Every store
+write taking a project key (`UpsertProject`, `StartSession`, `InsertRecordWithEdges`,
+`SetProjectGroup`, `ClearProjectGroup`) and every project-scoped read funnels through the
+same `Store.canonicalizeProjectKey`, so a caller still spelling a workspace folder the old
+way — a stale daemon that has not restarted since an upgrade, a human typing the old path —
+can never mint a second row for it. Removing a workspace dir from `BACKSTORY_WORKSPACE_DIRS`
+and later re-adding it recreates two spellings (any session/record written while it was
+unconfigured falls back to a plain key again); the next `Open` that has it configured sweeps
+those rows the same way.
+
 ```sql
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;

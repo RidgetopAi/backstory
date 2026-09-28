@@ -552,7 +552,7 @@ func TestHookPostToolUseLiveCaptureDedupsAgainstLaterClaudeBackfill(t *testing.T
 		t.Fatalf("daemon did not exit within 2s of SIGTERM\noutput:\n%s", out.String())
 	}
 
-	st, err := store.Open(dbPath)
+	st, err := store.Open(dbPath, nil, nil)
 	if err != nil {
 		t.Fatalf("store.Open(%s): %v", dbPath, err)
 	}

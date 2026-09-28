@@ -150,7 +150,7 @@ func runHookSubprocess(t *testing.T, bin string, env []string, payload map[strin
 
 func mustOpenTestStore(t *testing.T, dbPath string) *store.Store {
 	t.Helper()
-	s, err := store.Open(dbPath)
+	s, err := store.Open(dbPath, nil, nil)
 	if err != nil {
 		t.Fatalf("store.Open(%s): %v", dbPath, err)
 	}

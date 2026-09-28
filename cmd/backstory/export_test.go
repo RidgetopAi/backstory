@@ -25,7 +25,7 @@ const exportFixtureProject = "acme-export-cli"
 func buildExportFixtureStore(t *testing.T, dataDir string) {
 	t.Helper()
 	dbPath := filepath.Join(dataDir, "backstory", "backstory.db")
-	st, err := store.Open(dbPath)
+	st, err := store.Open(dbPath, nil, nil)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}

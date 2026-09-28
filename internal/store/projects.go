@@ -21,6 +21,7 @@ type Project struct {
 // UpsertProject inserts a project, or updates its identity fields if the
 // key already exists. first_seen is preserved on update.
 func (s *Store) UpsertProject(p Project) error {
+	p.Key = s.canonicalizeProjectKey(p.Key)
 	_, err := s.db.Exec(`INSERT INTO projects (key, git_common_dir, remote_url, toplevel, first_seen)
 		VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT(key) DO UPDATE SET

@@ -64,7 +64,7 @@ func TestOpenFreshPathCreatesEverySchemaTable(t *testing.T) {
 func TestReopenAppliesNothing(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "backstory.db")
 
-	first, err := Open(path)
+	first, err := Open(path, nil, nil)
 	if err != nil {
 		t.Fatalf("first Open: %v", err)
 	}

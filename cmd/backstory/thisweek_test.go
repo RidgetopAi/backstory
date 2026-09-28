@@ -108,7 +108,7 @@ func mustInsertThisWeekRecord(t *testing.T, st *store.Store, r fixtureRecord) {
 func buildThisWeekFixtureStore(t *testing.T, dataDir string) {
 	t.Helper()
 	dbPath := filepath.Join(dataDir, "backstory", "backstory.db")
-	st, err := store.Open(dbPath)
+	st, err := store.Open(dbPath, nil, nil)
 	if err != nil {
 		t.Fatalf("store.Open: %v", err)
 	}
@@ -244,10 +244,10 @@ func buildThisWeekFixtureStore(t *testing.T, dataDir string) {
 		_ = i
 	}
 	human := store.Identity{Kind: store.IdentityHuman, Actor: "human"}
-	if err := st.SetProjectGroup(human, "widget-suite", groupAProject, nil); err != nil {
+	if err := st.SetProjectGroup(human, "widget-suite", groupAProject); err != nil {
 		t.Fatalf("SetProjectGroup(a): %v", err)
 	}
-	if err := st.SetProjectGroup(human, "widget-suite", groupBProject, nil); err != nil {
+	if err := st.SetProjectGroup(human, "widget-suite", groupBProject); err != nil {
 		t.Fatalf("SetProjectGroup(b): %v", err)
 	}
 }
