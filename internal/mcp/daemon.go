@@ -190,6 +190,8 @@ func dispatchDaemonRequest(line []byte, st *store.Store, procfs ident.ProcFS, id
 		return handleBlock(st, procfs, id, sessionID, git, workspaces)
 	case DaemonMethodPostToolUse:
 		return handlePostToolUse(st, sessionID, req.Params, captureOff)
+	case DaemonMethodShellEmit:
+		return handleShellEmit(st, sessionID, req.Params, captureOff)
 	default:
 		return errResponse("unknown-method", "unknown method "+req.Method)
 	}

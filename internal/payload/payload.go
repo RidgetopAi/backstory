@@ -19,6 +19,7 @@ const (
 	KindSessionGitState = "session.git_state"
 	KindToolUse         = "tool.use"
 	KindToolResult      = "tool.result"
+	KindShellCommand    = "command"
 )
 
 // SessionStart is the session.start event payload: the session's opening
@@ -100,4 +101,18 @@ type ToolResult struct {
 	Exit      *int   `json:"exit,omitempty"`
 	Content   string `json:"content,omitempty"`
 	AgentID   string `json:"agent_id,omitempty"`
+}
+
+// ShellCommand is the command event payload: bash preexec/precmd capture of
+// one interactive shell command (PLAN.md §Phase 3, task 7fe84ffb). Cmd is
+// required (the daemon rejects an empty one); CWD, Exit and DurationMS are
+// always observed by Backstory's own bash snippet (a foreground command
+// always has a real $? and a real elapsed wall-clock time by the time
+// precmd fires), so — unlike ToolResult.Exit — there is no "unobserved"
+// state to preserve here and these are plain values, never pointers.
+type ShellCommand struct {
+	Cmd        string `json:"cmd"`
+	CWD        string `json:"cwd,omitempty"`
+	Exit       int    `json:"exit"`
+	DurationMS int    `json:"duration_ms"`
 }
