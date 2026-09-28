@@ -23,11 +23,14 @@ import (
 )
 
 // buildBackstory compiles the backstory binary once for daemon_test.go's
-// subprocess tests.
+// subprocess tests, with -tags backstorytest so any of them that inject
+// BACKSTORY_TEST_FAKE_ANCESTRY (cmd/backstory/daemon_procfs_backstorytest.go)
+// via startTestDaemon get it honored — a release build ignores that env var
+// entirely (task fe7aee40; see TestReleaseBuildIgnoresFakeAncestryEnvVar).
 func buildBackstory(t *testing.T) string {
 	t.Helper()
 	bin := filepath.Join(t.TempDir(), "backstory")
-	cmd := exec.Command("go", "build", "-o", bin, ".") //nolint:gosec // bin is a t.TempDir() path this test built, not external input
+	cmd := exec.Command("go", "build", "-tags", "backstorytest", "-o", bin, ".") //nolint:gosec // bin is a t.TempDir() path this test built, not external input
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("go build backstory: %v\n%s", err, out)
