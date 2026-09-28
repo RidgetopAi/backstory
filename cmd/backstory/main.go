@@ -21,7 +21,7 @@ commands:
   hook       run a harness hook (session-start)
   shell      shell integration ("shell init bash", "shell emit")
   install    install or remove the Claude Code integration
-  backfill   import transcripts from another tool (e.g. "backfill claude")
+  backfill   import transcripts from another tool (e.g. "backfill claude", "backfill codex")
   delete     tombstone a record by id (human-only; "delete <id> [--yes]")
   capture    pause or resume capture ("capture off|on|status")
   recall     print a project's trust-annotated ledger narrative, read-only

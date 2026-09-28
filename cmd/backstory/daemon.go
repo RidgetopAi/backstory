@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/RidgetopAi/backstory/internal/backfill/claude"
+	"github.com/RidgetopAi/backstory/internal/backfill/codex"
 	"github.com/RidgetopAi/backstory/internal/ident"
 	"github.com/RidgetopAi/backstory/internal/mcp"
 	"github.com/RidgetopAi/backstory/internal/project"
@@ -84,6 +85,7 @@ func runDaemon(_ []string, stdout, stderr io.Writer) int {
 	defer func() { _ = st.Close() }()
 
 	go runClaudeBackfillOnce(st, logger)
+	go runCodexBackfillOnce(st, logger)
 
 	procfs, err := procFSForDaemon()
 	if err != nil {
@@ -163,6 +165,22 @@ func runClaudeBackfillOnce(st *store.Store, logger *log.Logger) {
 	res, err := claude.Import(st, claude.Options{})
 	if err != nil {
 		logger.Printf("backfill claude: %v", err)
+		return
+	}
+	logger.Printf("%s", res.String())
+}
+
+// runCodexBackfillOnce is runClaudeBackfillOnce's Codex counterpart
+// (decision 3e14db82, task e9cb97dd): it runs once in the background so the
+// daemon's own startup is never delayed by however many rollouts
+// ~/.codex/sessions holds. Root comes from codex.DefaultRoot()
+// ($BACKSTORY_CODEX_ROOT, else ~/.codex/sessions); a missing root or any
+// other failure is logged and never stops the daemon — a machine with no
+// Codex CLI installed must still come up clean.
+func runCodexBackfillOnce(st *store.Store, logger *log.Logger) {
+	res, err := codex.Import(st, codex.Options{})
+	if err != nil {
+		logger.Printf("backfill codex: %v", err)
 		return
 	}
 	logger.Printf("%s", res.String())

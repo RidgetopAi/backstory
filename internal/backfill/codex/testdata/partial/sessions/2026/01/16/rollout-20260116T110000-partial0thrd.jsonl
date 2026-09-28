@@ -1,0 +1,4 @@
+{"type":"session_meta","timestamp":"2026-01-16T11:00:00Z","ordinal":1,"payload":{"id":"partial-thread-uuid","cwd":"/home/quinn/partial-proj","cli_version":"0.151.0","model_provider":"openai","parent_thread_id":"","source":"cli"}}
+{"type":"response_item","timestamp":"2026-01-16T11:00:01Z","ordinal":2,"payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"run the build"}]}}
+{"type":"response_item","timestamp":"2026-01-16T11:00:02Z","ordinal":3,"payload":{"type":"function_call","name":"shell","arguments":"{\"command\":[\"make\",\"build\"]}","call_id":"call_p1"}}
+{"type":"response_item","timestamp":"2026-01-16T11:00:03Z","ordinal":4,"payload":{"type":"function_call_output","call_id":"call_p1","output":"buildin
