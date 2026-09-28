@@ -12,6 +12,7 @@ var KnownHarnesses = []string{
 	"copilot",
 	"hermes",
 	"opencode",
+	"pi",
 }
 
 // matchHarness reports whether procName is a known harness binary, and its

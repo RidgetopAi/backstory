@@ -94,6 +94,32 @@ func TestResolveKnownHarness(t *testing.T) {
 	}
 }
 
+// TestResolveKnownHarnessPi is the punch's (3e14db82) acceptance clause 1:
+// Pi 0.86.1 is a compiled ELF whose process comm is "pi", so a fake
+// ancestry with a comm=pi ancestor must resolve Harness == "pi" the same
+// way TestResolveKnownHarness's comm=claude tree resolves to "claude".
+func TestResolveKnownHarnessPi(t *testing.T) {
+	procfs := fakeProcFS{
+		status: map[int]ident.Status{
+			900: {PPid: 800, Name: "shim"},
+			800: {PPid: 700, Name: "pi"},
+			700: {PPid: 600, Name: "tmux"},
+			600: {PPid: 1, Name: "alacritty"},
+		},
+		cwd: map[int]string{800: "/home/brian/proj"},
+	}
+
+	r := &ident.Resolver{ProcFS: procfs}
+	id := r.Resolve(ident.PeerCreds{UID: 1000, PID: 900})
+
+	if id.Harness != "pi" {
+		t.Errorf("Harness = %q, want pi", id.Harness)
+	}
+	if id.HarnessPID != 800 {
+		t.Errorf("HarnessPID = %d, want 800", id.HarnessPID)
+	}
+}
+
 // TestResolveNoKnownHarness covers a tree that never meets a harness in
 // KnownHarnesses before running off the top.
 func TestResolveNoKnownHarness(t *testing.T) {
