@@ -78,8 +78,8 @@ func testXDGEnv(overrides ...string) []string {
 // exactly once.
 //
 // ancestry, when non-empty, is JSON-encoded onto the daemon's env as
-// BACKSTORY_TEST_FAKE_ANCESTRY (cmd/backstory/daemon.go), so the daemon
-// resolves every connection's identity against that synthetic /proc chain
+// BACKSTORY_TEST_FAKE_ANCESTRY (cmd/backstory/daemon_procfs_backstorytest.go),
+// so the daemon resolves every connection's identity against that synthetic /proc chain
 // instead of the real filesystem — no cmd/backstory test may resolve
 // identity from the real /proc of the process running `go test` (task
 // fe2cff2a). Omitted, startTestDaemon leaves the daemon on RealProcFS

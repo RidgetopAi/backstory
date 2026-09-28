@@ -1,5 +1,16 @@
 version: "2"
 
+# build-tags: [backstorytest] makes the plain `golangci-lint run ./...`
+# invocation golangci-lint-action runs in CI (no --build-tags flag) agree
+# with `make lint`'s explicit --build-tags backstorytest — without it, the
+# action's untagged typecheck fails on cmd/backstory test files that
+# reference fakeAncestryEnvVar, which only exists under that tag (task
+# f61fcd80, follow-up to fe7aee40). `make build`'s release binary is
+# unaffected: this only scopes lint's own typecheck, not the build.
+run:
+  build-tags:
+    - backstorytest
+
 linters:
   default: none
   enable:
