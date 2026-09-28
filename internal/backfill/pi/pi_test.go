@@ -280,6 +280,57 @@ func TestImportBranchedTreeDeterministicUnderShuffledLines(t *testing.T) {
 	}
 }
 
+// TestImportPairsToolResultsByIDNotOrder is the punch's clause 3 and
+// clause 5's second mutation target: asst-e1 issues two toolCalls
+// (call-1, call-2) in one message, but their toolResult nodes appear in
+// the OPPOSITE order in the tree (call-2's result sorts first). Pairing by
+// id must still attribute each result to its own call; pairing by the
+// order results are encountered would swap them — call-1 would wrongly
+// come back isError:true (call-2's actual outcome) instead of its own
+// isError:false.
+func TestImportPairsToolResultsByIDNotOrder(t *testing.T) {
+	st := mustOpenStore(t)
+	if _, err := Import(st, Options{Root: filepath.Join("testdata", "pairing", "sessions"), Git: fakeGit{}}); err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+
+	events := eventsForHarnessSession(t, st, "root-e")
+	results := map[string]payload.ToolResult{}
+	for _, e := range events {
+		if e.Kind != EventToolResult {
+			continue
+		}
+		var p payload.ToolResult
+		if err := json.Unmarshal([]byte(e.Payload), &p); err != nil {
+			t.Fatal(err)
+		}
+		results[p.ToolUseID] = p
+	}
+	if len(results) != 2 {
+		t.Fatalf("got %d tool.result events, want 2: %+v", len(results), results)
+	}
+	r1, ok := results["call-1"]
+	if !ok {
+		t.Fatal("no tool.result for call-1")
+	}
+	if r1.IsError {
+		t.Errorf("call-1 tool.result is_error = true, want false (call-1's own result, not call-2's)")
+	}
+	if r1.Content != "call-1 ok" {
+		t.Errorf("call-1 tool.result content = %q, want %q", r1.Content, "call-1 ok")
+	}
+	r2, ok := results["call-2"]
+	if !ok {
+		t.Fatal("no tool.result for call-2")
+	}
+	if !r2.IsError {
+		t.Errorf("call-2 tool.result is_error = false, want true (call-2's own result, not call-1's)")
+	}
+	if r2.Content != "call-2 failed" {
+		t.Errorf("call-2 tool.result content = %q, want %q", r2.Content, "call-2 failed")
+	}
+}
+
 // TestImportIsIdempotent is the punch's clause 4: re-running Import against
 // the same root adds zero sessions and zero events.
 func TestImportIsIdempotent(t *testing.T) {

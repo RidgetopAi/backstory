@@ -1,0 +1,5 @@
+{"id":"root-e","parentId":"","timestamp":"2026-08-01T00:00:00Z","type":"session","cwd":"/home/erin/pair"}
+{"id":"user-e1","parentId":"root-e","timestamp":"2026-08-01T00:00:01Z","type":"message","role":"user","text":"Run both checks"}
+{"id":"asst-e1","parentId":"user-e1","timestamp":"2026-08-01T00:00:02Z","type":"message","role":"assistant","content":[{"type":"toolCall","id":"call-1","name":"Bash"},{"type":"toolCall","id":"call-2","name":"Read"}]}
+{"id":"result-1-call2","parentId":"asst-e1","timestamp":"2026-08-01T00:00:03Z","type":"toolResult","toolCallId":"call-2","isError":true,"content":"call-2 failed"}
+{"id":"result-2-call1","parentId":"asst-e1","timestamp":"2026-08-01T00:00:03Z","type":"toolResult","toolCallId":"call-1","isError":false,"content":"call-1 ok"}
