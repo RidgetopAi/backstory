@@ -1,0 +1,4 @@
+{"type":"session_meta","timestamp":"2026-07-02T00:00:00Z","ordinal":1,"payload":{"id":"sess-codex-uuid","cwd":"/home/pat/codexwidget","cli_version":"0.151.0","model_provider":"openai","parent_thread_id":"","source":"cli"}}
+{"type":"response_item","timestamp":"2026-07-02T00:00:01Z","ordinal":2,"payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Build the widget"}]}}
+{"type":"response_item","timestamp":"2026-07-02T00:00:02Z","ordinal":3,"payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"On it."}]}}
+{"type":"event_msg","timestamp":"2026-07-02T00:00:03Z","ordinal":4,"payload":{"type":"task_complete"}}

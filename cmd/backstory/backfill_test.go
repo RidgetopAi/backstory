@@ -116,6 +116,59 @@ func TestBackfillClaudeCLIAndDaemonIntegration(t *testing.T) {
 	})
 }
 
+// TestBackfillCodexCLIAndDaemonIntegration is task e9cb97dd's clause 6
+// wiring proof: `backstory backfill codex` as a subprocess, then the daemon
+// running the same importer once on start (mirrors
+// TestBackfillClaudeCLIAndDaemonIntegration above).
+func TestBackfillCodexCLIAndDaemonIntegration(t *testing.T) {
+	bin := buildBackstory(t)
+	fixtures, err := filepath.Abs(filepath.Join("testdata", "codex", "sessions"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("CLI prints summary and exits 0", func(t *testing.T) {
+		dataDir := t.TempDir()
+		cmd := exec.Command(bin, "backfill", "codex", "--root", fixtures) //nolint:gosec // bin is the binary this test just built; fixtures is this test's own testdata
+		cmd.Env = testXDGEnv("XDG_DATA_HOME=" + dataDir)
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("backstory backfill codex: %v\n%s", err, out)
+		}
+		want := "backfill codex: 1 file(s), 1 session(s), 2 event(s), 2 line(s) skipped, 0 file(s) partial\n"
+		if string(out) != want {
+			t.Errorf("output = %q, want %q", out, want)
+		}
+	})
+
+	t.Run("daemon backfills on start without any client call", func(t *testing.T) {
+		runtimeDir := t.TempDir()
+		dataDir := t.TempDir()
+
+		cmd := exec.Command(bin, "daemon") //nolint:gosec // bin is the binary this test just built
+		cmd.Env = testXDGEnv(
+			"XDG_RUNTIME_DIR="+runtimeDir,
+			"XDG_DATA_HOME="+dataDir,
+			"BACKSTORY_CODEX_ROOT="+fixtures,
+		)
+		var out safeBuffer
+		cmd.Stdout = &out
+		cmd.Stderr = &out
+		if err := cmd.Start(); err != nil {
+			t.Fatalf("start daemon: %v", err)
+		}
+		defer stopDaemon(t, cmd)
+
+		sockPath := filepath.Join(runtimeDir, "backstory", "sock")
+		waitForFile(t, sockPath, 2*time.Second)
+
+		// No socket dial anywhere in this subtest: the backfilled session
+		// must appear from the daemon's own on-start run alone.
+		dbPath := filepath.Join(dataDir, "backstory", "backstory.db")
+		waitForSession(t, dbPath, "sess-codex-uuid", 5*time.Second)
+	})
+}
+
 func stopDaemon(t *testing.T, cmd *exec.Cmd) {
 	t.Helper()
 	if cmd.Process == nil {
