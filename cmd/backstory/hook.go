@@ -3,10 +3,12 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net"
 	"os"
+	"strings"
 
 	"github.com/RidgetopAi/backstory/internal/mcp"
 	"github.com/RidgetopAi/backstory/internal/payload"
@@ -34,27 +36,81 @@ type sessionStartPayload struct {
 // it never prints anything to stdout (a PostToolUse hook's stdout is not
 // injected as context the way SessionStart's is).
 //
+// harnessCodex is the `--harness` flag value that switches session-start and
+// post-tool-use to the Codex wire shapes (task 03e19dd4, decision 3e14db82):
+// SessionStart's stdout wrapped in the hookSpecificOutput envelope Codex's
+// hook contract expects instead of Claude's bare block text, and
+// post-tool-use's apply_patch/Bash-only mapping instead of Claude's
+// every-tool-gets-an-event default. Detected from an explicit flag, never
+// guessed from the payload's own shape — the payload is attacker-controlled
+// input, exactly like every other field AGENT-CONTRACT.md §Observed identity
+// already refuses to trust.
+const harnessCodex = "codex"
+
 // A hook must never break a harness boot (AGENT-CONTRACT.md §The
 // SessionStart block): every failure path here — an unknown subcommand, an
 // unreadable payload, no daemon socket, a daemon error — prints nothing to
 // stdout, writes at most one line to stderr, and still exits 0.
 func runHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		_, _ = fmt.Fprintln(stderr, "backstory hook: usage: backstory hook session-start|post-tool-use")
+		_, _ = fmt.Fprintln(stderr, "backstory hook: usage: backstory hook session-start|post-tool-use [--harness codex]")
 		return 0
 	}
-	switch args[0] {
-	case "session-start":
-		return runSessionStartHook(stdin, stdout, stderr)
-	case "post-tool-use":
-		return runPostToolUseHook(stdin, stderr)
-	default:
-		_, _ = fmt.Fprintln(stderr, "backstory hook: usage: backstory hook session-start|post-tool-use")
+	sub := args[0]
+	if sub != "session-start" && sub != "post-tool-use" {
+		_, _ = fmt.Fprintln(stderr, "backstory hook: usage: backstory hook session-start|post-tool-use [--harness codex]")
 		return 0
+	}
+
+	harness, err := parseHookHarness(args[1:])
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "backstory hook:", err)
+		return 0
+	}
+
+	switch sub {
+	case "session-start":
+		return runSessionStartHook(stdin, stdout, stderr, harness)
+	default:
+		return runPostToolUseHook(stdin, stderr, harness)
 	}
 }
 
-func runSessionStartHook(stdin io.Reader, stdout, stderr io.Writer) int {
+// parseHookHarness reads the one flag `backstory hook` accepts after its
+// subcommand: --harness, defaulting to "" (Claude's shape, unchanged). Any
+// other flag or argument is a usage error rather than silently ignored, so a
+// typo (`--harnes codex`) fails loudly on stderr instead of quietly falling
+// back to Claude's wire shape for a Codex payload.
+func parseHookHarness(args []string) (string, error) {
+	fs := flag.NewFlagSet("hook", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	harness := fs.String("harness", "", "harness the payload came from (codex switches to the Codex wire shapes)")
+	if err := fs.Parse(args); err != nil {
+		return "", fmt.Errorf("parse flags: %w", err)
+	}
+	if fs.NArg() > 0 {
+		return "", fmt.Errorf("unexpected argument %q", fs.Arg(0))
+	}
+	return *harness, nil
+}
+
+// sessionStartEnvelope is the JSON stdout shape Codex's SessionStart hook
+// contract expects (docs https://learn.chatgpt.com/docs/hooks): the block
+// Claude's path prints as bare text wrapped so Codex knows which hook it
+// belongs to and where to splice it into context. AdditionalContext carries
+// exactly the same rendered block requestBlock returns for the Claude path
+// against the same store — the daemon renders one warm block per project,
+// never a harness-specific one.
+type sessionStartEnvelope struct {
+	HookSpecificOutput sessionStartHookSpecificOutput `json:"hookSpecificOutput"`
+}
+
+type sessionStartHookSpecificOutput struct {
+	HookEventName     string `json:"hookEventName"`
+	AdditionalContext string `json:"additionalContext"`
+}
+
+func runSessionStartHook(stdin io.Reader, stdout, stderr io.Writer, harness string) int {
 	var payload sessionStartPayload
 	if err := json.NewDecoder(stdin).Decode(&payload); err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory hook: decode session-start payload:", err)
@@ -64,6 +120,20 @@ func runSessionStartHook(stdin io.Reader, stdout, stderr io.Writer) int {
 	block, err := requestBlock(payload.SessionID)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory hook:", err)
+		return 0
+	}
+
+	if harness == harnessCodex {
+		envelope := sessionStartEnvelope{HookSpecificOutput: sessionStartHookSpecificOutput{
+			HookEventName:     "SessionStart",
+			AdditionalContext: block,
+		}}
+		b, err := json.Marshal(envelope)
+		if err != nil {
+			_, _ = fmt.Fprintln(stderr, "backstory hook: marshal session-start envelope:", err)
+			return 0
+		}
+		_, _ = fmt.Fprintln(stdout, string(b))
 		return 0
 	}
 
@@ -198,6 +268,14 @@ func inputStringField(input json.RawMessage, field string) string {
 	return v
 }
 
+// bashToolNameLiteral is the tool_name both Claude and Codex report for a
+// shell command — the one PostToolUse field this task's two harnesses agree
+// on, per the original description's "the same JSON shape as Claude's
+// hooks". buildPostToolUseParams's Bash branch and runCodexPostToolUseHook's
+// dispatch both key off this single constant rather than each repeating the
+// "Bash" literal.
+const bashToolNameLiteral = "Bash"
+
 // buildPostToolUseParams normalises one PostToolUse payload into the wire
 // shape callDaemon sends: Path for a file-editing tool (or Read), Command
 // for Bash, Exit only when the payload's tool_response actually carried
@@ -209,7 +287,7 @@ func buildPostToolUseParams(p postToolUsePayload) mcp.PostToolUseParams {
 	switch {
 	case postToolUseFileTools[p.ToolName]:
 		params.Path = inputStringField(p.ToolInput, "file_path")
-	case p.ToolName == "Bash":
+	case p.ToolName == bashToolNameLiteral:
 		params.Command = inputStringField(p.ToolInput, "command")
 		var tr toolResponseExit
 		if len(p.ToolResponse) > 0 && json.Unmarshal(p.ToolResponse, &tr) == nil {
@@ -227,7 +305,7 @@ func buildPostToolUseParams(p postToolUsePayload) mcp.PostToolUseParams {
 // AGENT-CONTRACT.md §The SessionStart block); with the capture-off flag file
 // present it returns before decoding stdin at all, so a slow or malformed
 // payload can never delay it.
-func runPostToolUseHook(stdin io.Reader, stderr io.Writer) int {
+func runPostToolUseHook(stdin io.Reader, stderr io.Writer, harness string) int {
 	if off, err := captureOff(); err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory hook: check capture-off flag:", err)
 		return 0
@@ -245,10 +323,85 @@ func runPostToolUseHook(stdin io.Reader, stderr io.Writer) int {
 		return 0
 	}
 
+	if harness == harnessCodex {
+		return runCodexPostToolUseHook(payload, stderr)
+	}
+
 	params := buildPostToolUseParams(payload)
 	if _, err := callDaemon(payload.SessionID, mcp.DaemonMethodPostToolUse, params); err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory hook:", err)
 		return 0
+	}
+	return 0
+}
+
+// codexApplyPatchTool is the tool_name Codex's PostToolUse hook reports for
+// every file edit, add, or delete — a single tool covering what Claude
+// splits across Edit/Write/MultiEdit/NotebookEdit. Its tool_input carries the
+// patch text under the same "command" field Bash's tool_input uses (Codex
+// docs https://learn.chatgpt.com/docs/hooks), not a "file_path" field the way
+// Claude's file tools do.
+const codexApplyPatchTool = "apply_patch"
+
+// applyPatchFileHeaders are the apply_patch patch-text line prefixes that
+// each open a new file section, mapped to nothing beyond "this line names a
+// touched path" — apply_patch does not distinguish an add from an update
+// from a delete in what gets recorded here, exactly like Claude's own
+// MutatingFileTools does not distinguish an Edit from a Write. All three are
+// scanned by the SAME loop in parseApplyPatchPaths, not three separate
+// special-cased branches, specifically so dropping any one of them (e.g. Add
+// File) is a one-line regression a mutation test can catch, not three
+// independent chances to silently miss one.
+var applyPatchFileHeaders = []string{
+	"*** Update File: ",
+	"*** Add File: ",
+	"*** Delete File: ",
+}
+
+// parseApplyPatchPaths extracts every file path apply_patch's own patch text
+// touches, in the order their header lines appear. A line that matches none
+// of applyPatchFileHeaders (a hunk body, a context line, "*** Begin Patch")
+// contributes nothing — this never tries to interpret the patch body itself,
+// only the header lines that name what it touches.
+func parseApplyPatchPaths(patch string) []string {
+	var paths []string
+	for _, line := range strings.Split(patch, "\n") {
+		for _, header := range applyPatchFileHeaders {
+			if rest, ok := strings.CutPrefix(line, header); ok {
+				paths = append(paths, strings.TrimSpace(rest))
+				break
+			}
+		}
+	}
+	return paths
+}
+
+// runCodexPostToolUseHook is post-tool-use's Codex mapping (task 03e19dd4,
+// decision 3e14db82): apply_patch becomes one observed file-write event per
+// touched path (DONE WHEN clause 2), Bash is recorded exactly like Claude's
+// Bash already is (DONE WHEN clause 2, reusing buildPostToolUseParams's own
+// Bash branch — Codex's tool_response carries the same exit_code field
+// Claude's does), and any other tool_name — an MCP tool, or anything this
+// mapping does not yet know — records NOTHING and never dials the daemon at
+// all (DONE WHEN clause 3): never guess at a wire shape this hook has not
+// been told the meaning of.
+func runCodexPostToolUseHook(p postToolUsePayload, stderr io.Writer) int {
+	switch p.ToolName {
+	case codexApplyPatchTool:
+		patch := inputStringField(p.ToolInput, "command")
+		for _, path := range parseApplyPatchPaths(patch) {
+			params := mcp.PostToolUseParams{ToolUseID: p.ToolUseID, ToolName: p.ToolName, Path: path}
+			if _, err := callDaemon(p.SessionID, mcp.DaemonMethodPostToolUse, params); err != nil {
+				_, _ = fmt.Fprintln(stderr, "backstory hook:", err)
+				return 0
+			}
+		}
+	case bashToolNameLiteral:
+		params := buildPostToolUseParams(p)
+		if _, err := callDaemon(p.SessionID, mcp.DaemonMethodPostToolUse, params); err != nil {
+			_, _ = fmt.Fprintln(stderr, "backstory hook:", err)
+			return 0
+		}
 	}
 	return 0
 }
