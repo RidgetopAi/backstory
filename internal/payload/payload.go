@@ -75,12 +75,16 @@ type ToolUse struct {
 // of "changed a file" in this codebase (task 393d174c): the SessionStart
 // delta's "files touched" figure counts only these, never every tool that
 // merely carries a path — on Brian's real history that distinction was 105
-// files changed versus 411 paths opened, a 3.9x overstatement.
+// files changed versus 411 paths opened, a 3.9x overstatement. apply_patch
+// is Codex's own single tool for adding, updating, or deleting a file
+// (task 03e19dd4): one ToolUse event per touched path, same as Claude's
+// Edit/Write, so it belongs in the same set.
 var MutatingFileTools = map[string]bool{
 	"Edit":         true,
 	"Write":        true,
 	"MultiEdit":    true,
 	"NotebookEdit": true,
+	"apply_patch":  true,
 }
 
 // IsMutatingFileTool reports whether name is a tool that changes a file's
