@@ -27,7 +27,7 @@ const seededBashrc = "# my prompt\nPS1='$ '\nalias ll='ls -la'\n"
 func TestInstallBashAppendsMarkedBlockOnceAndIsIdempotent(t *testing.T) {
 	home := t.TempDir()
 	path := install.DefaultBashrcPath(home)
-	if err := os.WriteFile(path, []byte(seededBashrc), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(seededBashrc), 0o600); err != nil {
 		t.Fatalf("seed ~/.bashrc: %v", err)
 	}
 
@@ -35,7 +35,7 @@ func TestInstallBashAppendsMarkedBlockOnceAndIsIdempotent(t *testing.T) {
 		t.Fatalf("InstallBashrc: %v", err)
 	}
 
-	got, err := os.ReadFile(path)
+	got, err := os.ReadFile(path) //nolint:gosec // path is a t.TempDir() path this test built, not external input
 	if err != nil {
 		t.Fatalf("read ~/.bashrc after install: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestInstallBashAppendsMarkedBlockOnceAndIsIdempotent(t *testing.T) {
 	if err := install.InstallBashrc(path); err != nil {
 		t.Fatalf("second InstallBashrc: %v", err)
 	}
-	got2, err := os.ReadFile(path)
+	got2, err := os.ReadFile(path) //nolint:gosec // path is a t.TempDir() path this test built, not external input
 	if err != nil {
 		t.Fatalf("read ~/.bashrc after second install: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestUninstallBashRemovesExactlyTheMarkedBlock(t *testing.T) {
 		"# I really like backstory, the memory tool\n" +
 		"alias bs='which backstory'\n" +
 		"backstory-notes: see the wiki for setup tips\n"
-	if err := os.WriteFile(path, []byte(seeded), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(seeded), 0o600); err != nil {
 		t.Fatalf("seed ~/.bashrc: %v", err)
 	}
 
@@ -89,7 +89,7 @@ func TestUninstallBashRemovesExactlyTheMarkedBlock(t *testing.T) {
 		t.Fatalf("RemoveBashrc: %v", err)
 	}
 
-	got, err := os.ReadFile(path)
+	got, err := os.ReadFile(path) //nolint:gosec // path is a t.TempDir() path this test built, not external input
 	if err != nil {
 		t.Fatalf("read ~/.bashrc after remove: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestInstallBashWithNoBashrcCreatesOneWithOnlyTheMarkedBlock(t *testing.T) {
 	if err := install.InstallBashrc(path); err != nil {
 		t.Fatalf("InstallBashrc: %v", err)
 	}
-	got, err := os.ReadFile(path)
+	got, err := os.ReadFile(path) //nolint:gosec // path is a t.TempDir() path this test built, not external input
 	if err != nil {
 		t.Fatalf("read ~/.bashrc after install: %v", err)
 	}
@@ -171,7 +171,7 @@ func TestInstallBashRefusesReadOnlyBashrc(t *testing.T) {
 		t.Errorf("InstallBashrc error = %v, want it to wrap ErrBashrcNotWritable", err)
 	}
 
-	got, readErr := os.ReadFile(path)
+	got, readErr := os.ReadFile(path) //nolint:gosec // path is a t.TempDir() path this test built, not external input
 	if readErr != nil {
 		t.Fatalf("read ~/.bashrc after refused install: %v", readErr)
 	}
@@ -188,7 +188,7 @@ func TestInstallBashRefusesReadOnlyBashrc(t *testing.T) {
 func TestInstallBashWritesThroughRegularOwnedSymlinkTarget(t *testing.T) {
 	home := t.TempDir()
 	real := filepath.Join(t.TempDir(), "real-bashrc")
-	if err := os.WriteFile(real, []byte(seededBashrc), 0o644); err != nil {
+	if err := os.WriteFile(real, []byte(seededBashrc), 0o600); err != nil {
 		t.Fatalf("seed real bashrc target: %v", err)
 	}
 	path := install.DefaultBashrcPath(home)
@@ -215,7 +215,7 @@ func TestInstallBashWritesThroughRegularOwnedSymlinkTarget(t *testing.T) {
 		t.Fatalf("~/.bashrc symlink now points at %q, want unchanged %q", resolved, real)
 	}
 
-	gotReal, err := os.ReadFile(real)
+	gotReal, err := os.ReadFile(real) //nolint:gosec // real is a t.TempDir() path this test built, not external input
 	if err != nil {
 		t.Fatalf("read symlink target after install: %v", err)
 	}
