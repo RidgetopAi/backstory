@@ -31,6 +31,12 @@ type StartSessionParams struct {
 	Window           string
 	StartedAt        time.Time
 	Origin           SessionOrigin
+	// ParentSessionID links a subagent session back to the session that
+	// spawned it (decision 3e14db82, task e9cb97dd's Codex importer: a
+	// rollout whose session_meta carries a parent_thread_id gets its own
+	// full session rather than sharing the parent's, unlike Claude's
+	// Task-tool subagents). Empty for every session with no parent.
+	ParentSessionID string
 }
 
 // StartSession inserts a session row and returns its id.
@@ -45,10 +51,11 @@ func (s *Store) StartSession(p StartSessionParams) (string, error) {
 		pid = *p.PID
 	}
 	_, err := s.db.Exec(`INSERT INTO sessions
-		(id, agent, harness_session_id, pid, cwd, project_key, workspace, window, started_at, origin)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		(id, agent, harness_session_id, pid, cwd, project_key, workspace, window, started_at, origin, parent_session_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, p.Agent, nullable(p.HarnessSessionID), pid, p.CWD, nullable(p.ProjectKey),
-		nullable(p.Workspace), nullable(p.Window), tsToNanos(p.StartedAt), string(p.Origin))
+		nullable(p.Workspace), nullable(p.Window), tsToNanos(p.StartedAt), string(p.Origin),
+		nullable(p.ParentSessionID))
 	if err != nil {
 		return "", fmt.Errorf("store: start session: %w", err)
 	}
@@ -67,6 +74,7 @@ type Session struct {
 	Window           string
 	StartedAt        time.Time
 	Origin           SessionOrigin
+	ParentSessionID  string
 }
 
 // LiveSessionsInProject returns every live session in projectKey (origin
@@ -145,6 +153,51 @@ func (s *Store) LiveSessionByHarnessSessionID(sessionID string) (Session, bool, 
 			return Session{}, false, nil
 		}
 		return Session{}, false, fmt.Errorf("store: live session for harness_session_id %s: %w", sessionID, err)
+	}
+	sess.HarnessSessionID = harnessSessionID.String
+	if pid.Valid {
+		p := int(pid.Int64)
+		sess.PID = &p
+	}
+	sess.ProjectKey = projectKey.String
+	sess.Workspace = workspace.String
+	sess.Window = window.String
+	sess.StartedAt = tsFromNanos(startedAt)
+	sess.Origin = SessionOrigin(origin)
+	return sess, true, nil
+}
+
+// SessionByHarnessSessionID returns the session whose harness_session_id
+// equals sessionID, any origin and whether it has ended — unlike
+// LiveSessionByHarnessSessionID (which exists to attach to a run still being
+// captured live), this is the Codex importer's parent lookup (task
+// e9cb97dd): a subagent rollout's parent_thread_id names another rollout's
+// own session_meta.id, and that parent session is always backfilled, never
+// live, and normally already ended by the time the subagent is imported.
+// found is false when no session carries that harness_session_id, which the
+// caller treats as "no parent to link", never an error.
+func (s *Store) SessionByHarnessSessionID(sessionID string) (Session, bool, error) {
+	if sessionID == "" {
+		return Session{}, false, nil
+	}
+	row := s.db.QueryRow(`SELECT id, agent, harness_session_id, pid, cwd, project_key, workspace, window, started_at, origin
+		FROM sessions WHERE harness_session_id = ? LIMIT 1`, sessionID)
+
+	var (
+		sess              Session
+		harnessSessionID  sql.NullString
+		pid               sql.NullInt64
+		projectKey        sql.NullString
+		workspace, window sql.NullString
+		startedAt         int64
+		origin            string
+	)
+	if err := row.Scan(&sess.ID, &sess.Agent, &harnessSessionID, &pid, &sess.CWD,
+		&projectKey, &workspace, &window, &startedAt, &origin); err != nil {
+		if err == sql.ErrNoRows { //nolint:errorlint // database/sql returns sql.ErrNoRows verbatim from QueryRow.Scan, never wrapped
+			return Session{}, false, nil
+		}
+		return Session{}, false, fmt.Errorf("store: session for harness_session_id %s: %w", sessionID, err)
 	}
 	sess.HarnessSessionID = harnessSessionID.String
 	if pid.Valid {
