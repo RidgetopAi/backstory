@@ -212,6 +212,21 @@ func (s *Store) SessionByHarnessSessionID(sessionID string) (Session, bool, erro
 	return sess, true, nil
 }
 
+// SessionCountForProject counts every session ever observed for projectKey,
+// any origin, ended or still live — recall's empty-project response cites
+// this count so an agent can tell "no records yet" (sessions observed, zero
+// records) apart from "wrong project" (task b172e778, real use 2026-09-28:
+// "recall with no query on a new project returned nothing, and the agent
+// could not tell 'no history yet' from 'wrong project'").
+func (s *Store) SessionCountForProject(projectKey string) (int, error) {
+	projectKey = s.canonicalizeProjectKey(projectKey)
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE project_key = ?`, projectKey).Scan(&n); err != nil {
+		return 0, fmt.Errorf("store: session count for project %s: %w", projectKey, err)
+	}
+	return n, nil
+}
+
 // SessionOrigin returns session id's origin — a caller deciding whether it
 // may end a session (e.g. the Claude backfill importer, which must never
 // end a still-live-origin session: that lifecycle belongs exclusively to

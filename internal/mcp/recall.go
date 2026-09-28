@@ -10,6 +10,7 @@ import (
 	"github.com/RidgetopAi/backstory/internal/ident"
 	"github.com/RidgetopAi/backstory/internal/recall"
 	"github.com/RidgetopAi/backstory/internal/store"
+	"github.com/RidgetopAi/backstory/internal/week"
 )
 
 // DefaultRecallBudgetTokens is recall's token budget when a caller does not
@@ -163,12 +164,44 @@ type RecallItem struct {
 // (always — DONE WHEN's "never a declared one" rule), which anchor kind the
 // query resolved to, the altitude actually used, and the ordered,
 // trust-annotated item set recall.Build produced.
+//
+// DisplayName and Message are additive result fields (task b172e778, real
+// use 2026-09-28): every response names the project it resolved by both key
+// and human-readable display name, and when Items is empty, Message says
+// why in one line — "no records yet for <display_name> (N sessions
+// observed)" when the anchor is the caller's own project with nothing ever
+// written to it, or that the query matched nothing, so an agent can tell
+// "no history yet" apart from "wrong project" apart from "this specific
+// query found nothing" without guessing.
 type RecallResult struct {
-	ProjectKey string       `json:"project_key"`
-	Anchor     string       `json:"anchor"`
-	Query      string       `json:"query,omitempty"`
-	Altitude   string       `json:"altitude"`
-	Items      []RecallItem `json:"items"`
+	ProjectKey  string       `json:"project_key"`
+	DisplayName string       `json:"display_name"`
+	Anchor      string       `json:"anchor"`
+	Query       string       `json:"query,omitempty"`
+	Altitude    string       `json:"altitude"`
+	Items       []RecallItem `json:"items"`
+	Message     string       `json:"message,omitempty"`
+}
+
+// emptyResultMessage is the one-line "why" for an empty Items list (task
+// b172e778's real-use fix): an empty query anchors on the caller's own
+// project (resolveAnchor), so no query text means the honest empty state is
+// "nothing has ever been written here" — named by session count, since a
+// project with zero sessions and a project with a hundred sessions but zero
+// records both render an empty item list otherwise indistinguishable. A
+// non-empty query means the anchor is a record or free-text search that
+// simply found nothing, a different, narrower fact worth saying differently
+// so an agent does not read "no records yet" as "this project has no
+// history at all" when only this one query came up empty.
+func emptyResultMessage(st *store.Store, projectKey, displayName, query string) (string, error) {
+	if strings.TrimSpace(query) == "" {
+		n, err := st.SessionCountForProject(projectKey)
+		if err != nil {
+			return "", fmt.Errorf("session count for project %s: %w", projectKey, err)
+		}
+		return fmt.Sprintf("no records yet for %s (%d sessions observed)", displayName, n), nil
+	}
+	return fmt.Sprintf("query %q matched nothing", query), nil
 }
 
 // handleRecall serves the recall socket method by running the caller's
@@ -206,6 +239,11 @@ func handleRecall(st *store.Store, id ident.Identity, raw json.RawMessage, works
 		return errResponse("internal", err.Error())
 	}
 
+	displayName, err := week.DisplayName(st, projectKey, workspaces)
+	if err != nil {
+		return errResponse("internal", err.Error())
+	}
+
 	items := make([]RecallItem, len(built.Items))
 	for i, item := range built.Items {
 		items[i] = RecallItem{
@@ -218,11 +256,19 @@ func handleRecall(st *store.Store, id ident.Identity, raw json.RawMessage, works
 	}
 
 	result := RecallResult{
-		ProjectKey: projectKey,
-		Anchor:     string(anchor.Kind),
-		Query:      p.Query,
-		Altitude:   altitudeUsed,
-		Items:      items,
+		ProjectKey:  projectKey,
+		DisplayName: displayName,
+		Anchor:      string(anchor.Kind),
+		Query:       p.Query,
+		Altitude:    altitudeUsed,
+		Items:       items,
+	}
+	if len(items) == 0 {
+		msg, err := emptyResultMessage(st, projectKey, displayName, p.Query)
+		if err != nil {
+			return errResponse("internal", err.Error())
+		}
+		result.Message = msg
 	}
 
 	b, err := json.Marshal(result)

@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -393,6 +394,46 @@ func TestNoteExpiredClaimParsesExpires(t *testing.T) {
 	}
 	if rec.ExpiresAt == nil {
 		t.Fatal("stored record has no ExpiresAt")
+	}
+}
+
+// TestNoteResultEchoesSupersedesAndLinksEdges is this punch's DONE WHEN
+// clause 2 (task b172e778, real use 2026-09-28): verified on the desk that
+// a `supersedes` edge (0767ee40 -> 2bdecc89) WAS stored even though the
+// note tool's result gave the agent no sign the link took. A note carrying
+// both `supersedes` and `links` must echo both edges it created in its
+// result, as {type, other_id} pairs — the additive NoteResult.Edges field —
+// so the agent can see the link took without a separate recall round trip.
+//
+// RA-MUTATION-PROBE: drop the `Edges: noteEdges` field from handleNote's
+// json.Marshal(NoteResult{...}) call (mcp/note.go) -> RED (this test's
+// unmarshaled result.Edges is nil, want two entries); restore -> GREEN. See
+// this task's proof.
+func TestNoteResultEchoesSupersedesAndLinksEdges(t *testing.T) {
+	st := mustOpenStore(t)
+	sockPath := testDaemon(t, st, "claude", "/home/brian/proj", "proj-key")
+	shim := dialShim(t, sockPath)
+
+	supersedeTarget := noteText(t, shim, "handoff", "state to supersede")
+	linkTarget := noteText(t, shim, "note", "a link target")
+
+	raw, rerr := shim.CallTool(ToolNote, json.RawMessage(fmt.Sprintf(
+		`{"kind":"handoff","text":"new state","supersedes":%q,"links":[%q]}`,
+		supersedeTarget, linkTarget)))
+	if rerr != nil {
+		t.Fatalf("CallTool(note) with supersedes+links: %v", rerr)
+	}
+	var result NoteResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatalf("unmarshal NoteResult: %v", err)
+	}
+
+	want := []NoteEdge{
+		{Type: string(store.EdgeSupersedes), OtherID: supersedeTarget},
+		{Type: string(store.EdgeInforms), OtherID: linkTarget},
+	}
+	if !reflect.DeepEqual(result.Edges, want) {
+		t.Errorf("Edges = %+v, want %+v", result.Edges, want)
 	}
 }
 

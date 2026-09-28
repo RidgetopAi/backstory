@@ -263,6 +263,86 @@ func TestRecallFreeTextQueryScopedToCallersProject(t *testing.T) {
 	}
 }
 
+// TestRecallEmptyProjectMessageNamesDisplayNameAndSessionCount is this
+// punch's DONE WHEN clause 1's main path (task b172e778, real use
+// 2026-09-28): recall with no query on a project that has a session (the
+// daemon connection itself starts one) but no records ever written returns
+// a response naming both the project's key and its human display name, and
+// an empty Items list carries a Message explaining why: "no records yet for
+// <display_name> (N sessions observed)" — the line an agent reads to tell
+// "no history here yet" apart from "wrong project" (which would instead
+// show a different project's key/display name) or "0 sessions" (which would
+// mean the daemon never even saw this project before).
+//
+// RA-MUTATION-PROBE: drop displayName from emptyResultMessage's fmt.Sprintf
+// (mcp/recall.go), e.g. hardcode a fixed placeholder instead of %s -> RED
+// (this test's want string, built from result.DisplayName itself, no longer
+// matches); restore -> GREEN. See this task's proof.
+func TestRecallEmptyProjectMessageNamesDisplayNameAndSessionCount(t *testing.T) {
+	st := mustOpenStore(t)
+	sockPath := testDaemon(t, st, "claude", "/home/brian/empty-proj", "empty-proj-key")
+	shim := dialShim(t, sockPath)
+
+	result := callRecall(t, shim, nil)
+
+	if result.ProjectKey != "empty-proj-key" {
+		t.Errorf("ProjectKey = %q, want empty-proj-key", result.ProjectKey)
+	}
+	if result.DisplayName == "" {
+		t.Fatal("DisplayName is empty, want a human-readable project name")
+	}
+	if len(result.Items) != 0 {
+		t.Fatalf("Items = %+v, want empty (no records were ever written)", result.Items)
+	}
+
+	n, err := st.SessionCountForProject("empty-proj-key")
+	if err != nil {
+		t.Fatalf("SessionCountForProject: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("SessionCountForProject = 0, want at least the connecting daemon session")
+	}
+	want := fmt.Sprintf("no records yet for %s (%d sessions observed)", result.DisplayName, n)
+	if result.Message != want {
+		t.Errorf("Message = %q, want %q", result.Message, want)
+	}
+}
+
+// TestRecallQueryMatchingNothingSaysMatchedNothingNotNoRecordsYet is this
+// punch's DONE WHEN clause 1's contrast case: a project that DOES have
+// records, queried with text that matches none of them, must not say "no
+// records yet" (false — the project has history) and must instead say the
+// query itself matched nothing.
+//
+// RA-MUTATION-PROBE: emptyResultMessage's `if strings.TrimSpace(query) ==
+// ""` (mcp/recall.go) inverted to always take the "no records yet" branch
+// -> RED (this test's assertion that Message names the query, not "no
+// records yet", fails); restore -> GREEN. See this task's proof.
+func TestRecallQueryMatchingNothingSaysMatchedNothingNotNoRecordsYet(t *testing.T) {
+	st := mustOpenStore(t)
+	sockPath := testDaemon(t, st, "claude", "/home/brian/proj", "proj-key")
+	shim := dialShim(t, sockPath)
+
+	noteText(t, shim, "decision", "chose approach A")
+
+	args, err := json.Marshal(RecallParams{Query: "zzz-no-such-term-zzz"})
+	if err != nil {
+		t.Fatalf("marshal RecallParams: %v", err)
+	}
+	result := callRecall(t, shim, args)
+
+	if len(result.Items) != 0 {
+		t.Fatalf("Items = %+v, want empty (query should match nothing)", result.Items)
+	}
+	want := `query "zzz-no-such-term-zzz" matched nothing`
+	if result.Message != want {
+		t.Errorf("Message = %q, want %q", result.Message, want)
+	}
+	if strings.Contains(result.Message, "no records yet") {
+		t.Errorf("Message = %q, wrongly claims no records yet even though the project has one", result.Message)
+	}
+}
+
 // longRecallBody is long enough (with its embedded newline) that headline,
 // summary and full altitude renderings differ sharply in size: headline
 // keeps only the first line, summary truncates around 240 runes, full keeps
