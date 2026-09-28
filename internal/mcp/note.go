@@ -32,9 +32,29 @@ type NoteParams struct {
 }
 
 // NoteResult is note's return value.
+//
+// Edges is an additive result field (task b172e778, real use 2026-09-28):
+// verified on the desk that a `supersedes` edge WAS stored even though the
+// tool's result gave the agent no sign the link took. It echoes every edge
+// this note actually created — the same {OtherID, Type} pairs
+// handleNote built from `supersedes` and `links` — never a fresh read of
+// what wound up in the edges table, since the insert itself already
+// succeeded atomically (store.InsertRecordWithEdges) or the daemon would
+// have returned an error instead of a NoteResult at all. The frozen v0
+// INPUT schema (testdata/tools-v0.json) is untouched: this only adds an
+// output field.
 type NoteResult struct {
-	ID   string `json:"id"`
-	Tier string `json:"tier"`
+	ID    string     `json:"id"`
+	Tier  string     `json:"tier"`
+	Edges []NoteEdge `json:"edges,omitempty"`
+}
+
+// NoteEdge is one edge NoteResult.Edges echoes back: the edge's type and
+// the id of the OTHER record it connects to (never this note's own new id,
+// which the caller already has as NoteResult.ID).
+type NoteEdge struct {
+	Type    string `json:"type"`
+	OtherID string `json:"other_id"`
 }
 
 // noteKinds is the set of record kinds the note tool may write. It excludes
@@ -145,7 +165,12 @@ func handleNote(st *store.Store, identity store.Identity, sessionID, projectKey,
 		return errResponse("internal", err.Error())
 	}
 
-	result, err := json.Marshal(NoteResult{ID: id, Tier: string(rec.Tier)})
+	noteEdges := make([]NoteEdge, len(edges))
+	for i, e := range edges {
+		noteEdges[i] = NoteEdge{Type: string(e.Type), OtherID: e.OtherID}
+	}
+
+	result, err := json.Marshal(NoteResult{ID: id, Tier: string(rec.Tier), Edges: noteEdges})
 	if err != nil {
 		return errResponse("internal", err.Error())
 	}

@@ -39,7 +39,14 @@ const EmptyProjectLine = "backstory: no history yet for this project."
 // most extreme one: a budget too small even for HeaderLine plus FinalLine
 // together, where FinalLine is dropped so HeaderLine — never dropped —
 // still fits (task 6ae45e80's DONE WHEN clause 2).
-const FinalLine = "ask backstory for more"
+//
+// Its wording agrees with the skill's own "if a SessionStart block is
+// present, do not re-fetch" rule (internal/skill/SKILL.md line 2) rather
+// than contradicting it (task b172e778, real use 2026-09-28: the block's
+// own final line used to invite a recall call unconditionally, while the
+// skill said not to re-fetch when a block is present — an agent reading
+// only the block's own last line had no reason not to call recall anyway).
+const FinalLine = "call recall only if you need more than this block"
 
 // maxLastExitCodes bounds how many exit codes slot 2 lists, oldest kept
 // dropped first, so the delta stays a compressed summary rather than a full

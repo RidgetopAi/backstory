@@ -19,7 +19,7 @@ func TestVerifyStdoutOK(t *testing.T) {
 	}{
 		{
 			name:      "rendered block ending in the final line",
-			out:       "Resume: did the thing\n\nask backstory for more",
+			out:       "Resume: did the thing\n\ncall recall only if you need more than this block",
 			daemonUp:  true,
 			wantValid: true,
 		},

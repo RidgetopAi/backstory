@@ -151,8 +151,8 @@ source and says the block is already loaded — so the agent reading it can tell
 from Backstory and can obey the next paragraph's "do not re-fetch it" without help. Before
 this line existed, nothing in the block named its source: measured on Brian's desktop
 (2026-09-23, binary `0e14cad`), an agent that received `Delta: 50 sessions, 105 files
-touched\n\nask backstory for more` could not tell it came from Backstory and offered to
-call `recall` to fetch it — the exact re-fetch the next rule forbids. The header counts
+touched` followed by the block's own final line could not tell it came from Backstory and
+offered to call `recall` to fetch it — the exact re-fetch the next rule forbids. The header counts
 against the budget below like every slot, but is the **last thing dropped, never the
 first**: at a budget too small to fit any slot, the header is what survives.
 
@@ -173,7 +173,7 @@ auto-memory 200 lines / 25 KB).
    `/proc`, branch known)
 4. **Attention** — unconfirmed drafts count, flagged contradictions, and whether the Resume
    handoff is possibly stale — cleared by `confirm affirm`
-5. **One line** — "ask backstory for more"
+5. **One line** — "call recall only if you need more than this block"
 
 The header plus these five slots are the whole of it. Harnesses with no SessionStart
 (Antigravity) or no injection on passive hooks (Grok) get the block by the skill telling
