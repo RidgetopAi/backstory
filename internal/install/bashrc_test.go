@@ -64,14 +64,20 @@ func TestInstallBashAppendsMarkedBlockOnceAndIsIdempotent(t *testing.T) {
 }
 
 // TestUninstallBashRemovesExactlyTheMarkedBlock is the punch's DONE WHEN
-// clause 2 (uninstall half): uninstall restores ~/.bashrc to its exact
-// pre-install bytes, and a decoy line that merely mentions "backstory" as a
-// substring survives — proving removal matches the marked block exactly,
-// not any line containing the word.
+// clause 2 (uninstall half) and clause 4's second mutation ("make uninstall
+// delete by prefix match on 'backstory' instead of the exact marked
+// line"): uninstall restores ~/.bashrc to its exact pre-install bytes, and
+// decoy lines that merely mention "backstory" — one as a mid-line
+// substring, one as the line's own literal prefix — both survive, proving
+// removal matches the marked block exactly rather than any line containing,
+// or starting with, that word.
 func TestUninstallBashRemovesExactlyTheMarkedBlock(t *testing.T) {
 	home := t.TempDir()
 	path := install.DefaultBashrcPath(home)
-	seeded := seededBashrc + "# I really like backstory, the memory tool\n" + "alias bs='which backstory'\n"
+	seeded := seededBashrc +
+		"# I really like backstory, the memory tool\n" +
+		"alias bs='which backstory'\n" +
+		"backstory-notes: see the wiki for setup tips\n"
 	if err := os.WriteFile(path, []byte(seeded), 0o644); err != nil {
 		t.Fatalf("seed ~/.bashrc: %v", err)
 	}
