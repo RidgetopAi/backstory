@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/RidgetopAi/backstory/internal/payload"
@@ -56,10 +57,16 @@ type ShellEmitResult struct {
 // anything else, exactly like handleNote and handlePostToolUse (task
 // 9c62f9dc, SCHEMA.md invariant 8: "honoured on every write path") — the
 // bash snippet never checks it client-side at all, relying entirely on the
-// daemon refusing the write here (DONE WHEN clause 4). A command beginning
-// with a space never reaches this method in the first place: the snippet's
-// own HISTCONTROL=ignorespace convention means bash itself never adds it to
-// history, so the snippet never observes it to emit.
+// daemon refusing the write here (DONE WHEN clause 4).
+//
+// A command beginning with a space is never stored either, checked HERE
+// rather than trusted to the snippet's own HISTCONTROL=ignorespace
+// convention: shell_emit is reachable from any socket peer, exactly like
+// note and post_tool_use, so a caller that is not Backstory's own bash
+// snippet (or one that bypassed it) could otherwise still record one. This
+// is a quiet skip (EventsRecorded: 0, no error) rather than invalid-params:
+// ignorespace is a recording convention the command's own author opted
+// into, not a malformed request.
 func handleShellEmit(st *store.Store, sessionID string, raw json.RawMessage, captureOff func() (bool, error)) DaemonResponse {
 	if off, err := captureOff(); err != nil {
 		return errResponse("internal", err.Error())
@@ -73,6 +80,13 @@ func handleShellEmit(st *store.Store, sessionID string, raw json.RawMessage, cap
 	}
 	if p.Cmd == "" {
 		return errResponse("invalid-params", `missing required field "cmd"`)
+	}
+	if strings.HasPrefix(p.Cmd, " ") {
+		result, err := json.Marshal(ShellEmitResult{EventsRecorded: 0})
+		if err != nil {
+			return errResponse("internal", err.Error())
+		}
+		return DaemonResponse{Result: result}
 	}
 
 	sc := payload.ShellCommand{Cmd: p.Cmd, CWD: p.CWD, Exit: p.Exit, DurationMS: p.DurationMS}
