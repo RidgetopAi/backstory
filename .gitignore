@@ -1,4 +1,5 @@
 bin/
+/backstory
 *.db
 *.db-wal
 *.db-shm

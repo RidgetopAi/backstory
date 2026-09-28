@@ -23,14 +23,10 @@ func (s *Server) CallTool(name string, args json.RawMessage) (json.RawMessage, *
 	case ToolConfirm:
 		return s.callConfirm(args)
 	case ToolTimeline:
-		return nil, notImplementedError(name)
+		return s.callTimeline(args)
 	default:
 		return nil, &RPCError{Code: CodeMethodNotFound, Message: "unknown tool " + name}
 	}
-}
-
-func notImplementedError(tool string) *RPCError {
-	return &RPCError{Code: CodeNotImplemented, Message: tool + " not implemented in v0.0"}
 }
 
 func (s *Server) callNote(args json.RawMessage) (json.RawMessage, *RPCError) {
@@ -86,6 +82,25 @@ func (s *Server) callRecall(args json.RawMessage) (json.RawMessage, *RPCError) {
 		return nil, &RPCError{Code: CodeInternal, Message: err.Error()}
 	}
 	return s.callDaemon(daemonMethodRecall, clean)
+}
+
+// callTimeline re-serializes args through TimelineParams' own field set
+// before forwarding, the same never-list rule callRecall applies to
+// RecallParams: neither scope=project nor scope=session takes a caller-
+// declared project or session id, only scope|since|kind|limit are ever
+// forwarded (AGENT-CONTRACT.md §The never-list, item 2).
+func (s *Server) callTimeline(args json.RawMessage) (json.RawMessage, *RPCError) {
+	var p TimelineParams
+	if len(args) > 0 {
+		if err := json.Unmarshal(args, &p); err != nil {
+			return nil, &RPCError{Code: CodeInvalidParams, Message: "invalid timeline arguments: " + err.Error()}
+		}
+	}
+	clean, err := json.Marshal(p)
+	if err != nil {
+		return nil, &RPCError{Code: CodeInternal, Message: err.Error()}
+	}
+	return s.callDaemon(daemonMethodTimeline, clean)
 }
 
 // callDaemon sends one DaemonRequest line to the daemon and reads back
