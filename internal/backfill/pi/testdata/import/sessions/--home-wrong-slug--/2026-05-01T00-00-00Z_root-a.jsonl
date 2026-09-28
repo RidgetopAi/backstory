@@ -1,0 +1,5 @@
+{"id":"root-a","parentId":"","timestamp":"2026-05-01T00:00:00Z","type":"session","cwd":"/home/alice/real-project"}
+{"id":"user-a1","parentId":"root-a","timestamp":"2026-05-01T00:00:01Z","type":"message","role":"user","text":"Fix the login bug"}
+{"id":"asst-a1","parentId":"user-a1","timestamp":"2026-05-01T00:00:02Z","type":"message","role":"assistant","content":[{"type":"text","text":"Looking now."},{"type":"toolCall","id":"call-a1","name":"Bash"}]}
+{"id":"result-a1","parentId":"asst-a1","timestamp":"2026-05-01T00:00:03Z","type":"toolResult","toolCallId":"call-a1","isError":false,"content":"tests passed"}
+{"id":"asst-a2","parentId":"result-a1","timestamp":"2026-05-01T00:00:04Z","type":"message","role":"assistant","content":[{"type":"text","text":"Done."}]}
