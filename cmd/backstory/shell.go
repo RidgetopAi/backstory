@@ -127,6 +127,20 @@ func runShellEmit(args []string, stderr io.Writer) int {
 //     with a space is never added to bash's own history at all — precmd's
 //     "history sequence number unchanged since last time" check then skips
 //     it by construction, with no separate leading-space check needed.
+//     _backstory_last_histnum is seeded with the CURRENT history number at
+//     install time (the snippet's own eval line, already in history by the
+//     time it runs this) rather than left empty: a space-led command run as
+//     the very first command afterward leaves history's last entry
+//     unchanged at that same seeded number, which must compare equal (skip),
+//     not "" != anything (looks new). precmd's own "nothing observed yet"
+//     branch (an empty state file — the eval line's own first prompt, fired
+//     before preexec has ever run) returns WITHOUT touching
+//     _backstory_last_histnum at all, for the same reason: this snippet's
+//     own tests caught an earlier version that cleared it to "" there,
+//     wiping out the seeded baseline and making the very next (space-led)
+//     command's unchanged history number look new again, emitting the eval
+//     line's own stale command text under the space-led command's exit
+//     status.
 //   - Exit status is read as literally the first statement of precmd
 //     (`local __bs_exit=$?`), before anything else in this function can
 //     disturb it, and is always the function's own return value too — the
@@ -147,6 +161,9 @@ const bashInitSnippet = `if [[ $- == *i* && -z "${_BACKSTORY_SHELL_READY:-}" ]];
 _BACKSTORY_SHELL_READY=1
 _backstory_state_file="${TMPDIR:-/tmp}/.backstory-shell-$$-$RANDOM"
 _backstory_last_histnum=""
+if [[ "$(HISTTIMEFORMAT= history 1)" =~ ^[[:space:]]*([0-9]+) ]]; then
+    _backstory_last_histnum="${BASH_REMATCH[1]}"
+fi
 (
     umask 077
     : > "$_backstory_state_file"
@@ -179,8 +196,10 @@ _backstory_precmd() {
     local __bs_start __bs_histnum __bs_cmd
     { read -r __bs_start; read -r __bs_histnum; read -r __bs_cmd; } < "$_backstory_state_file" 2>/dev/null
 
-    if [[ -z "$__bs_start" || -z "$__bs_histnum" || "$__bs_histnum" == "$_backstory_last_histnum" ]]; then
-        _backstory_last_histnum="$__bs_histnum"
+    if [[ -z "$__bs_start" || -z "$__bs_histnum" ]]; then
+        return $__bs_exit
+    fi
+    if [[ "$__bs_histnum" == "$_backstory_last_histnum" ]]; then
         return $__bs_exit
     fi
     _backstory_last_histnum="$__bs_histnum"
