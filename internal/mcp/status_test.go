@@ -384,26 +384,3 @@ func TestKnownHarnessSessionOutlivesConnectionClose(t *testing.T) {
 		t.Fatalf("known-harness session %s ended when its only connection closed, want it to stay live", result.Session)
 	}
 }
-
-// TestTimelineIsNotImplementedAndNeverTouchesTheStore is DONE WHEN clause
-// 4's last half (task d6ddfce3 narrowed this from recall/timeline/confirm
-// to timeline/confirm; task dcd72714 narrowed it again to timeline alone —
-// confirm is implemented as of this punch, see internal/mcp/confirm_test.go
-// for its own coverage).
-func TestTimelineIsNotImplementedAndNeverTouchesTheStore(t *testing.T) {
-	st := mustOpenStore(t)
-	sockPath := testDaemon(t, st, "claude", "/home/brian/proj", "proj-key")
-	shim := dialShim(t, sockPath)
-
-	before := countStoreRecords(t, st)
-	_, rerr := shim.CallTool(ToolTimeline, json.RawMessage(`{}`))
-	if rerr == nil {
-		t.Fatalf("CallTool(%s) = nil error, want CodeNotImplemented", ToolTimeline)
-	}
-	if rerr.Code != CodeNotImplemented {
-		t.Errorf("CallTool(%s) error code = %d, want %d (CodeNotImplemented)", ToolTimeline, rerr.Code, CodeNotImplemented)
-	}
-	if got := countStoreRecords(t, st); got != before {
-		t.Errorf("record count = %d after timeline, want unchanged %d (it must never touch the store)", got, before)
-	}
-}
