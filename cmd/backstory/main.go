@@ -19,6 +19,7 @@ commands:
   mcp        run the MCP stdio shim
   status     print daemon status (project, capture, budget); non-zero if unreachable
   hook       run a harness hook (session-start)
+  shell      shell integration ("shell init bash", "shell emit")
   install    install or remove the Claude Code integration
   backfill   import transcripts from another tool (e.g. "backfill claude")
   delete     tombstone a record by id (human-only; "delete <id> [--yes]")
@@ -50,6 +51,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runStatus(args[1:], stdout, stderr)
 	case "hook":
 		return runHook(args[1:], stdin, stdout, stderr)
+	case "shell":
+		return runShell(args[1:], stdout, stderr)
 	case "install":
 		return runInstall(args[1:], stdout, stderr)
 	case "backfill":
