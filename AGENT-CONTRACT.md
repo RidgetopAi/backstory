@@ -233,13 +233,18 @@ with a mutation probe in the store package (`PLAN.md §First three punches`).
 
 ## User-only powers
 
-Three things only the human can do, through the panel or CLI, never through a tool:
+Four things only the human can do, through the panel or CLI, never through a tool:
 
 - **Pause capture** — an `omarchy toggle`-style flag file, the `crash-capture-off`
   precedent. The daemon honours it on every write path.
 - **Delete** — a human-only tombstone (`tombstoned_at`) that scrubs the record's text from
   `records.text` and the FTS index (the row and its edges remain). A permanent ledger without a human
   delete is a privacy product that cannot forget.
+- **Purge** — `backstory purge (--session ID | --project KEY [--since T] [--until T])
+  [--dry-run] [--yes]` erases captured activity by whole session: the sessions' timeline events
+  are deleted, each session is stamped `purged_at` so backfill never re-imports it, and a
+  counts-only `purge_log` row is written. Records are untouched (they have their own delete).
+  Refuses without `--yes` on a non-TTY. No tool or socket call can purge.
 - **Edit (supersede)** — `backstory edit <id>` writes a NEW human-declared record (same kind,
   project, about) with a `supersedes` edge to the old one, via `$VISUAL`/`$EDITOR`, `--file`,
   or `--stdin`. The old record is never updated (append-only); a deleted or already-superseded
