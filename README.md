@@ -41,6 +41,9 @@ run it with `--check` to see what's present, `--remove` to undo it.
   what Backstory has saved for a project, newest first, with each record's tier and status
   (current, superseded, possibly-stale, expired, deleted); superseded and deleted records show
   only with `--history`.
+- **Edit**: `backstory edit <id> [--file PATH | --stdin]` corrects a record by writing a new
+  human-declared record that supersedes it (opens `$VISUAL`/`$EDITOR` on a terminal); the old
+  record stays in the ledger, shown as superseded under `records --history`.
 - **Read-only CLI**: `backstory recall` and `backstory timeline` read the store directly, no
   daemon round trip required; `backstory export` writes a per-project markdown mirror for
   another tool's memory file (Claude auto-memory, Hermes `MEMORY.md`, OpenClaw imports).
