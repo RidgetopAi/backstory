@@ -49,7 +49,7 @@ var codexStubBlock = StubMarkerBegin + "\n" + CodexStubLine + "\n" + StubMarkerE
 
 // ErrForeignConflict marks an item whose slot is occupied by something
 // backstory did not write. The item is left untouched.
-var ErrForeignConflict = errors.New("install: foreign-conflict")
+var ErrForeignConflict = errors.New("foreign-conflict")
 
 // ErrMalformedCodexHooksJSON is returned for an unparseable hooks.json.
 var ErrMalformedCodexHooksJSON = errors.New("install: ~/.codex/hooks.json is not valid JSON")
