@@ -6,7 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
+	"github.com/RidgetopAi/backstory/internal/payload"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
@@ -62,19 +64,18 @@ func TestImportsOversizedLineAndRedactsSecretPayload(t *testing.T) {
 		t.Fatalf("unmarshal tool.result payload: %v", err)
 	}
 
-	// Not truncated or skipped: the huge filler on both sides of the secret
-	// survived the round trip through the 64KiB-line-hostile scanner path.
-	const fillerRun = 550000
-	if got := strings.Count(result.Content, "x"); got < fillerRun {
-		t.Errorf("stored content has %d 'x' filler bytes, want at least %d (line was truncated)", got, fillerRun)
+	// The 1MiB line was imported whole by the scanner, and the stored
+	// content is the bounded excerpt (task c9ab6d28): head and tail kept.
+	if got := utf8.RuneCountInString(result.Content); got > payload.ToolOutputExcerptMaxRunes {
+		t.Errorf("stored content has %d runes, want at most %d", got, payload.ToolOutputExcerptMaxRunes)
+	}
+	if !strings.Contains(result.Content, "runes elided") {
+		t.Errorf("stored content lacks the elision marker: %q", excerpt(result.Content))
 	}
 
 	const secret = "sk-abcdefghijklmnopqrstuvwx"
 	if strings.Contains(result.Content, secret) {
 		t.Errorf("stored tool.result content still contains the raw secret %q", secret)
-	}
-	if !strings.Contains(result.Content, "[redacted:api-key]") {
-		t.Errorf("stored tool.result content = %q (truncated), want it to contain [redacted:api-key]", excerpt(result.Content))
 	}
 }
 

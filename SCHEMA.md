@@ -234,7 +234,9 @@ thousands of tool events rendered "0 files touched".
 | `session.end`      | `payload.SessionEnd`        | `reason?`                                                 |
 | `session.git_state`| `payload.SessionGitState`   | `branch?`, `uncommitted_count?`, `could_not_observe?`     |
 | `tool.use`         | `payload.ToolUse`           | `tool_use_id?`, `name`, `path?` (file tools), `command?` (Bash) |
-| `tool.result`      | `payload.ToolResult`        | `tool_use_id?`, `is_error?`, `exit?`, `content?`          |
+| `tool.result`      | `payload.ToolResult`        | `tool_use_id?`, `is_error?`, `exit?`, `content?`, `interrupted?` |
+
+`tool.result.content` is a bounded, redacted excerpt of the tool output (head + tail, elision marker, at most `payload.ToolOutputExcerptMaxRunes` runes; redaction runs over the FULL output before the cut). A live PostToolUse `tool.result` with no outcome is enriched in place by backfill (`is_error`, `exit` parsed from a leading `Exit code <N>` line, `content`) — the one sanctioned update of `timeline_events`. `interrupted` is additive.
 
 `session.git_state` is written only by the daemon's own live `EndSession` path
 (`internal/mcp/daemon.go`'s `recordSessionEndGitState`, task `c2573b35`) — the observed

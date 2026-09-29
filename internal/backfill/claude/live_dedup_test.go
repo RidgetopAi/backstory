@@ -1,10 +1,14 @@
 package claude
 
 import (
+	"encoding/json"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/RidgetopAi/backstory/internal/payload"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
@@ -114,5 +118,88 @@ func TestImportAttachesToLiveSessionInsteadOfDuplicating(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("no session.start event recorded against the live session %q", liveID)
+	}
+}
+
+// TestBackfillEnrichesContentlessLiveToolResult is task c9ab6d28's DONE WHEN
+// clause 4: live capture stored a content-less tool.result for a tool id;
+// backfilling a transcript whose tool_result for the same id has
+// is_error:true and content 'Exit code 2 …' must leave exactly ONE
+// tool.result for that id, carrying is_error, exit 2 and an excerpt.
+//
+// RA-MUTATION-PROBE: make appendToolEvents skip (not enrich) an existing
+// tool.result -> RED (the surviving event has no is_error/exit/content).
+func TestBackfillEnrichesContentlessLiveToolResult(t *testing.T) {
+	st := mustOpenStore(t)
+	root := t.TempDir()
+	dir := filepath.Join(root, "-home-alice-my-app")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	transcript := strings.Join([]string{
+		`{"type":"user","uuid":"u1","sessionId":"sess-x","cwd":"/home/alice/my-app","timestamp":"2026-01-01T00:00:00Z","message":{"role":"user","content":"run it"}}`,
+		`{"type":"assistant","uuid":"u2","parentUuid":"u1","sessionId":"sess-x","cwd":"/home/alice/my-app","timestamp":"2026-01-01T00:00:05Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_fail","name":"Bash","input":{"command":"false"}}]}}`,
+		`{"type":"user","uuid":"u3","parentUuid":"u2","sessionId":"sess-x","cwd":"/home/alice/my-app","timestamp":"2026-01-01T00:00:06Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_fail","is_error":true,"content":"Exit code 2\nmake: *** [test] Error 2"}]}}`,
+	}, "\n") + "\n"
+	if err := os.WriteFile(filepath.Join(dir, "sess-x.jsonl"), []byte(transcript), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := st.UpsertProject(store.Project{Key: "/home/alice/my-app", Toplevel: "/home/alice/my-app", FirstSeen: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	liveID, err := st.StartSession(store.StartSessionParams{
+		Agent: Agent, HarnessSessionID: "sess-x", CWD: "/home/alice/my-app",
+		ProjectKey: "/home/alice/my-app", StartedAt: time.Now(), Origin: store.OriginLive,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	liveEv, err := st.AppendEvent(store.Event{
+		TS: time.Now(), Kind: EventToolResult, SessionID: liveID, Source: "posttooluse",
+		Payload: `{"tool_use_id":"toolu_fail"}`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Import(st, Options{Root: root, Git: fakeGit{}}); err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+
+	rows, err := st.DB().Query(`SELECT id, payload FROM timeline_events
+		WHERE kind = ? AND json_extract(payload, '$.tool_use_id') = 'toolu_fail'`, EventToolResult)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	var got []payload.ToolResult
+	for rows.Next() {
+		var id int64
+		var raw string
+		if err := rows.Scan(&id, &raw); err != nil {
+			t.Fatal(err)
+		}
+		if id != liveEv {
+			t.Errorf("surviving tool.result id = %d, want the live event %d enriched in place", id, liveEv)
+		}
+		var tr payload.ToolResult
+		if err := json.Unmarshal([]byte(raw), &tr); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, tr)
+	}
+	if len(got) != 1 {
+		t.Fatalf("tool.result events for toolu_fail = %d, want exactly 1", len(got))
+	}
+	tr := got[0]
+	if !tr.IsError {
+		t.Error("is_error = false, want true")
+	}
+	if tr.Exit == nil || *tr.Exit != 2 {
+		t.Errorf("exit = %v, want 2", tr.Exit)
+	}
+	if !strings.Contains(tr.Content, "make: *** [test] Error 2") {
+		t.Errorf("content = %q, want the output excerpt", tr.Content)
 	}
 }
