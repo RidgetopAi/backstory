@@ -14,8 +14,9 @@ const installUsage = `usage: backstory install [harness...] [--check] [--remove]
 
 Registers (or, with --remove, unregisters) Backstory's integration for one
 or more harnesses under $HOME. With no harness named, installs Claude Code
-(today's only available adapter; decision 3e14db82's rest — codex, hermes,
-pi — are recognized names but not yet available; agents is the generic fallback).
+(the default adapter; decision 3e14db82's others — codex and pi — are
+available; hermes is a recognized name but not yet available; agents is
+the generic fallback; pi installs an extension under ~/.pi/agent).
 
 Valid harness names: claude, codex, hermes, pi, agents
 

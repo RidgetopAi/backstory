@@ -52,7 +52,7 @@ func Adapters() []Adapter {
 		claudeAdapter{},
 		codexAdapter{},
 		stubAdapter{name: HarnessHermes},
-		stubAdapter{name: HarnessPi},
+		piAdapter{},
 		agentsAdapter{},
 	}
 }
