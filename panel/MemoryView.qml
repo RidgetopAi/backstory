@@ -35,6 +35,9 @@ Item {
   property var pendingPurge: null
   property string purgeNote: ""
 
+  // The clock, injectable so a test can pin the RFC3339 bound it asserts.
+  property var now: function () { return Date.now() }
+
   readonly property var records: Records.topRecords(root.payload)
 
   function refresh() {
@@ -84,7 +87,7 @@ Item {
     root.pendingPurge = null
     root.purgeNote = ""
     purgeProcess.dryRun = true
-    purgeProcess.scope = { label: scope.label, since: scope.since(Date.now()) }
+    purgeProcess.scope = { label: scope.label, since: scope.since(root.now()) }
     purgeProcess.command = Launchers.purgeCommand(root.projectKey, purgeProcess.scope.since, true)
     root.busy = true
     purgeProcess.running = true
@@ -298,7 +301,7 @@ Item {
 
               Text {
                 textFormat: Text.PlainText
-                text: Memory.relativeAge(Records.recordTs(rec.modelData), Date.now())
+                text: Memory.relativeAge(Records.recordTs(rec.modelData), root.now())
                 font.family: Style.font.family
                 font.pixelSize: Style.font.caption
                 color: Qt.darker(Color.foreground, 1.3)

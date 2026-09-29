@@ -88,6 +88,12 @@ TestCase {
     verify(panel.memoryOpen)
   }
 
+  function pinClock() {
+    var view = TestUtil.findFirst(panel.testContentItem, function (n) { return typeof n.previewPurge === "function" })
+    verify(view !== null, "no MemoryView")
+    view.now = function () { return Date.parse("2026-03-10T15:30:45Z") }
+  }
+
   function texts() { return TestUtil.collectVisibleTexts(panel.testContentItem) }
 
   function runsMatching(argv) {
@@ -188,13 +194,10 @@ TestCase {
   function test_each_forget_option_dry_runs_then_yes() {
     var scopes = ["Last hour", "Today", "Everything in this project"]
     for (var i = 0; i < scopes.length; i++) {
-      ProcessController.reset()
-      ProcessController.respond(Launchers.thisWeekCommand(), { stdout: JSON.stringify({ attention: [], week: [], where_left_off: [] }), stderr: "", exitCode: 0 })
       cleanup()
       init()
       openMemory(readFixture(recordsGolden))
-      // The canned answer depends only on the argv, which embeds the
-      // clock-derived bound — so answer every dry-run shape generically.
+      pinClock()
       clickByLabel(scopes[i])
       var dry = purgeRuns()
       compare(dry.length, 1)
@@ -203,9 +206,10 @@ TestCase {
       compare(argv[3], projectKey)
       compare(argv.indexOf("--yes"), -1)
       if (scopes[i] === "Everything in this project") compare(argv.indexOf("--since"), -1)
+      else if (scopes[i] === "Last hour") compare(argv[argv.indexOf("--since") + 1], "2026-03-10T14:30:45Z")
       else verify(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(argv[argv.indexOf("--since") + 1]), JSON.stringify(argv))
 
-      // No canned stdout was registered -> unparseable; register and redo.
+      // No canned stdout was registered (unparseable); register it and redo.
       ProcessController.respond(argv, { stdout: "would purge 3 sessions, 42 events\n", stderr: "", exitCode: 0 })
       clickByLabel(scopes[i])
       verify(texts().indexOf("Forget 3 sessions (42 events)? This cannot be undone.") !== -1, JSON.stringify(texts()))
@@ -219,6 +223,7 @@ TestCase {
 
   function test_forget_cancel_records_no_yes_run() {
     openMemory(readFixture(recordsGolden))
+    pinClock()
     clickByLabel("Everything in this project")
     var argv = purgeRuns()[0].command
     ProcessController.respond(argv, { stdout: "would purge 1 sessions, 5 events\n", stderr: "", exitCode: 0 })
