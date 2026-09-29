@@ -232,17 +232,11 @@ func equalStrings(a, b []string) bool {
 // same tool.use/tool.result id sequence: the walk is driven by id/parentId,
 // never by file position.
 func TestImportBranchedTreeDeterministicUnderShuffledLines(t *testing.T) {
-	canonical := mustOpenStore(t)
-	if _, err := Import(canonical, Options{Root: filepath.Join("testdata", "branch", "sessions"), Git: fakeGit{}}); err != nil {
-		t.Fatalf("Import canonical: %v", err)
-	}
-
-	shuffled := mustOpenStore(t)
-	if _, err := Import(shuffled, Options{
-		Root: filepath.Join("testdata", "branch", "sessions"),
-		Git:  fakeGit{},
-	}); err != nil {
-		t.Fatalf("Import shuffled: %v", err)
+	// One store, one Import over both files: they carry distinct session ids
+	// (root-c, root-c-shuf) so neither is deduped away, and each is compared.
+	st := mustOpenStore(t)
+	if _, err := Import(st, Options{Root: filepath.Join("testdata", "branch", "sessions"), Git: fakeGit{}}); err != nil {
+		t.Fatalf("Import: %v", err)
 	}
 
 	// Both runs actually imported both the canonical and shuffled files
@@ -254,8 +248,26 @@ func TestImportBranchedTreeDeterministicUnderShuffledLines(t *testing.T) {
 	wantUseOrder := []string{"call-b1", "call-b2"}
 	wantResultOrder := []string{"call-b1", "call-b2"}
 
-	for _, st := range []*store.Store{canonical, shuffled} {
-		events := eventsForHarnessSession(t, st, "root-c")
+	var canonEvents []eventRow
+	for _, id := range []string{"root-c", "root-c-shuf"} {
+		wantUseOrder, wantResultOrder := wantUseOrder, wantResultOrder
+		if id == "root-c-shuf" {
+			// tool ids are deduped store-wide, so the shuffled copy's calls
+			// are named call-s1/call-s2 — same tree shape, same order.
+			wantUseOrder, wantResultOrder = []string{"call-s1", "call-s2"}, []string{"call-s1", "call-s2"}
+		}
+		events := eventsForHarnessSession(t, st, id)
+		if id == "root-c" {
+			canonEvents = events
+		} else if len(events) != len(canonEvents) {
+			t.Fatalf("shuffled event count = %d, canonical = %d", len(events), len(canonEvents))
+		} else {
+			for i := range events {
+				if events[i].Kind != canonEvents[i].Kind {
+					t.Fatalf("shuffled event %d kind = %s, canonical %s", i, events[i].Kind, canonEvents[i].Kind)
+				}
+			}
+		}
 		kinds := eventKinds(events)
 		wantKinds := []string{EventSessionStart, EventToolUse, EventToolResult, EventToolUse, EventToolResult, EventSessionEnd}
 		if !equalStrings(kinds, wantKinds) {

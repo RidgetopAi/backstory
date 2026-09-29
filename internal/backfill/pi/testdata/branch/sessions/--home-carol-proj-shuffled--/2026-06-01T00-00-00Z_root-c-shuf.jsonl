@@ -1,9 +1,9 @@
-{"id":"resultB2","parentId":"asstB2","timestamp":"2026-06-01T00:00:05Z","type":"toolResult","toolCallId":"call-b2","isError":false,"content":"write ok"}
-{"id":"asstB1","parentId":"userB1","timestamp":"2026-06-01T00:00:04Z","type":"message","role":"assistant","content":[{"type":"toolCall","id":"call-b1","name":"Read"}]}
+{"id":"resultB2","parentId":"asstB2","timestamp":"2026-06-01T00:00:05Z","type":"toolResult","toolCallId":"call-s2","isError":false,"content":"write ok"}
+{"id":"asstB1","parentId":"userB1","timestamp":"2026-06-01T00:00:04Z","type":"message","role":"assistant","content":[{"type":"toolCall","id":"call-s1","name":"Read"}]}
 {"id":"userB2","parentId":"asst1","timestamp":"2026-06-01T00:00:03Z","type":"message","role":"user","text":"Try approach two"}
-{"id":"root-c","parentId":"","timestamp":"2026-06-01T00:00:00Z","type":"session","cwd":"/home/carol/proj"}
-{"id":"resultB1","parentId":"asstB1","timestamp":"2026-06-01T00:00:05Z","type":"toolResult","toolCallId":"call-b1","isError":false,"content":"read ok"}
-{"id":"user1","parentId":"root-c","timestamp":"2026-06-01T00:00:01Z","type":"message","role":"user","text":"Let's build a widget"}
-{"id":"asstB2","parentId":"userB2","timestamp":"2026-06-01T00:00:04Z","type":"message","role":"assistant","content":[{"type":"toolCall","id":"call-b2","name":"Write"}]}
+{"id":"root-c-shuf","parentId":"","timestamp":"2026-06-01T00:00:00Z","type":"session","cwd":"/home/carol/proj"}
+{"id":"resultB1","parentId":"asstB1","timestamp":"2026-06-01T00:00:05Z","type":"toolResult","toolCallId":"call-s1","isError":false,"content":"read ok"}
+{"id":"user1","parentId":"root-c-shuf","timestamp":"2026-06-01T00:00:01Z","type":"message","role":"user","text":"Let's build a widget"}
+{"id":"asstB2","parentId":"userB2","timestamp":"2026-06-01T00:00:04Z","type":"message","role":"assistant","content":[{"type":"toolCall","id":"call-s2","name":"Write"}]}
 {"id":"userB1","parentId":"asst1","timestamp":"2026-06-01T00:00:03Z","type":"message","role":"user","text":"Try approach one"}
 {"id":"asst1","parentId":"user1","timestamp":"2026-06-01T00:00:02Z","type":"message","role":"assistant","content":[{"type":"text","text":"Sure, first approach..."}]}
