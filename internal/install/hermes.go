@@ -148,7 +148,7 @@ func isForeign(err error) bool { return errors.Is(err, ErrForeignConflict) }
 
 // foreignDetail strips ErrForeignConflict's own prefix from one item's
 // conflict so InstallHermes can wrap the joined details once: the CLI line
-// then reads "install: foreign-conflict: <item>: …; <item>: …" with the
+// then reads "foreign-conflict: <item>: …; <item>: …" with the
 // prefix exactly once, not once per item plus once for the wrap.
 func foreignDetail(err error) string {
 	return strings.TrimPrefix(err.Error(), ErrForeignConflict.Error()+": ")

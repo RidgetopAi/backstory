@@ -177,7 +177,7 @@ func TestHermesForeignPluginFilesUntouched(t *testing.T) {
 
 // TestHermesForeignConflictPrefixOnce: the foreign-conflict error names
 // its prefix exactly once, whether one item or both conflict (the Walkthrough
-// found "install: foreign-conflict: install: foreign-conflict: …").
+// found "foreign-conflict: foreign-conflict: …" before the prefix was deduplicated).
 func TestHermesForeignConflictPrefixOnce(t *testing.T) {
 	prefix := ErrForeignConflict.Error()
 	t.Run("provider only", func(t *testing.T) {
