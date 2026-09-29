@@ -1,14 +1,14 @@
 package store
 
 import (
-	"encoding/json"
-
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/RidgetopAi/backstory/internal/payload"
 	"strings"
 	"time"
+
+	"github.com/RidgetopAi/backstory/internal/payload"
 )
 
 // Event is a row to append to timeline_events. Only the daemon ever calls

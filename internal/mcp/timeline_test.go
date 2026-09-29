@@ -314,8 +314,9 @@ func TestTimelineToolResultCarriesOutcomeFields(t *testing.T) {
 	if err := json.Unmarshal(result.Events[0].Payload, &got); err != nil {
 		t.Fatal(err)
 	}
+	content, _ := got["content"].(string)
 	if got["is_error"] != true || got["exit"] != float64(2) || got["interrupted"] != true ||
-		!strings.Contains(got["content"].(string), "boom") {
+		!strings.Contains(content, "boom") {
 		t.Errorf("timeline payload = %v, want is_error, exit, interrupted and content", got)
 	}
 }

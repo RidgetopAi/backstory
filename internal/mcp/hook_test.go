@@ -158,7 +158,7 @@ func TestCaptureOffConnectionCreatesNoSessionsRow(t *testing.T) {
 // RA-MUTATION-PROBE: truncate before redacting in handlePostToolUse -> RED.
 func TestPostToolUseBashOutputRedactedBeforeExcerpt(t *testing.T) {
 	st := mustOpenStore(t)
-	sockPath := testDaemonWithCapture(t, st, "claude", "/home/brian/proj", "proj-key", (&toggleCapture{}).fn)
+	sockPath := testDaemon(t, st, "claude", "/home/brian/proj", "proj-key")
 
 	pem := "-----BEGIN RSA PRIVATE KEY-----\n" + strings.Repeat("MIIEowIBAAKCAQEAuVJTUt9Us8cKjMzE\n", 60) + "-----END RSA PRIVATE KEY-----"
 	out := strings.Repeat("p", payload.ToolOutputExcerptMaxRunes/2-50) + pem + strings.Repeat("s", 3000)

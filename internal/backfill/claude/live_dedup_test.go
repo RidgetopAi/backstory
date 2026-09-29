@@ -133,7 +133,7 @@ func TestBackfillEnrichesContentlessLiveToolResult(t *testing.T) {
 	st := mustOpenStore(t)
 	root := t.TempDir()
 	dir := filepath.Join(root, "-home-alice-my-app")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	transcript := strings.Join([]string{

@@ -330,7 +330,7 @@ func TestImportUnknownModelProviderImportsIdentically(t *testing.T) {
 func TestImportCapsOversizedToolOutput(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "2026", "01", "15")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	big := "HEAD" + strings.Repeat("o", 10*1024) + "TAIL"
