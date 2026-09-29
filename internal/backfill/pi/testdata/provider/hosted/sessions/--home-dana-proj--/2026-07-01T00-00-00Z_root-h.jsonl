@@ -1,0 +1,5 @@
+{"id":"root-h","parentId":"","timestamp":"2026-07-01T00:00:00Z","type":"session","cwd":"/home/dana/proj"}
+{"id":"mc-h1","parentId":"root-h","timestamp":"2026-07-01T00:00:00.5Z","type":"model_change","provider":"anthropic","modelId":"claude-x"}
+{"id":"user-h1","parentId":"root-h","timestamp":"2026-07-01T00:00:01Z","type":"message","role":"user","text":"Run the tests"}
+{"id":"asst-h1","parentId":"user-h1","timestamp":"2026-07-01T00:00:02Z","type":"message","role":"assistant","content":[{"type":"toolCall","id":"call-h1","name":"Bash"}]}
+{"id":"result-h1","parentId":"asst-h1","timestamp":"2026-07-01T00:00:03Z","type":"toolResult","toolCallId":"call-h1","isError":false,"content":"ok"}

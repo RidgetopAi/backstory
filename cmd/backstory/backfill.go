@@ -8,10 +8,11 @@ import (
 	"github.com/RidgetopAi/backstory/internal/backfill/claude"
 	"github.com/RidgetopAi/backstory/internal/backfill/codex"
 	"github.com/RidgetopAi/backstory/internal/backfill/hermes"
+	"github.com/RidgetopAi/backstory/internal/backfill/pi"
 )
 
-// runBackfill dispatches `backstory backfill <target>`. claude, codex and
-// hermes are the targets today (PLAN.md §Phase 3, decision 3e14db82);
+// runBackfill dispatches `backstory backfill <target>`. claude, codex,
+// hermes and pi are the targets today (PLAN.md §Phase 3, decision 3e14db82);
 // opencode/Copilot importers are out of scope for this punch.
 func runBackfill(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
@@ -25,6 +26,8 @@ func runBackfill(args []string, stdout, stderr io.Writer) int {
 		return runBackfillCodex(args[1:], stdout, stderr)
 	case "hermes":
 		return runBackfillHermes(args[1:], stdout, stderr)
+	case "pi":
+		return runBackfillPi(args[1:], stdout, stderr)
 	default:
 		_, _ = fmt.Fprintf(stderr, "backstory backfill: unknown target %q\n", args[0])
 		return 2
@@ -121,6 +124,38 @@ func runBackfillHermes(args []string, stdout, stderr io.Writer) int {
 	res, err := hermes.Import(st, hermes.Options{Path: *path})
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory backfill hermes:", err)
+		return 1
+	}
+	_, _ = fmt.Fprintln(stdout, res.String())
+	return 0
+}
+
+// runBackfillPi implements `backstory backfill pi [--root DIR]`: it imports
+// every transcript under the Pi sessions root into the daemon's own store
+// and prints Result's one-line summary.
+func runBackfillPi(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("backfill pi", flag.ContinueOnError)
+	root := fs.String("root", "", "transcript root (default: $BACKSTORY_PI_ROOT, else ~/.pi/agent/sessions)")
+	fs.SetOutput(stderr)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	dbPath, err := storePath()
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "backstory backfill pi:", err)
+		return 1
+	}
+	st, err := openStore(dbPath)
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "backstory backfill pi:", err)
+		return 1
+	}
+	defer func() { _ = st.Close() }()
+
+	res, err := pi.Import(st, pi.Options{Root: *root})
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "backstory backfill pi:", err)
 		return 1
 	}
 	_, _ = fmt.Fprintln(stdout, res.String())

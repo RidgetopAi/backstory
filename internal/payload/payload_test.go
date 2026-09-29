@@ -12,22 +12,25 @@ import (
 // legitimately declare json-tagged structs for something other than a
 // Backstory timeline event payload, so a hit there is not a violation.
 //
-// line.go decodes Claude Code's OWN transcript line format
-// (~/.claude/projects/<slug>/<sessionId>.jsonl) — an external file format
+// line.go decodes Claude Code's / Pi's OWN transcript line format
+// (~/.claude/projects/<slug>/<sessionId>.jsonl,
+// ~/.pi/agent/sessions/--<slug>--/*.jsonl) — an external file format
 // Backstory reads but does not own the shape of. It is not a payload this
 // package's contract governs.
 var exemptFiles = map[string]bool{
 	filepath.Join("backfill", "claude", "line.go"): true,
+	filepath.Join("backfill", "pi", "line.go"):     true,
 }
 
 // TestNoPrivateJSONTaggedPayloadStructsOutsideThisPackage is the punch's
 // clause 1 (task 8ba5487a): internal/block and internal/backfill/claude
-// must build and decode every timeline event payload through this
-// package's types — SessionStart, SessionEnd, ToolUse, ToolResult — never
-// through a private json-tagged struct of their own. A hit here means one
-// of those packages just reintroduced the class of bug this package exists
-// to close: two independent struct definitions for the same wire shape,
-// free to drift apart silently.
+// (and, since task 149a02dc, internal/backfill/pi) must build and decode
+// every timeline event payload through this package's types —
+// SessionStart, SessionEnd, ToolUse, ToolResult — never through a private
+// json-tagged struct of their own. A hit here means one of those packages
+// just reintroduced the class of bug this package exists to close: two
+// independent struct definitions for the same wire shape, free to drift
+// apart silently.
 func TestNoPrivateJSONTaggedPayloadStructsOutsideThisPackage(t *testing.T) {
 	_, thisFile, _, ok := runtime.Caller(0)
 	if !ok {
@@ -40,6 +43,7 @@ func TestNoPrivateJSONTaggedPayloadStructsOutsideThisPackage(t *testing.T) {
 	packages := []string{
 		filepath.Join("block"),
 		filepath.Join("backfill", "claude"),
+		filepath.Join("backfill", "pi"),
 	}
 
 	for _, pkgRel := range packages {
@@ -100,6 +104,7 @@ func TestNoHardcodedMutatingFileToolLiteralOutsideThisPackage(t *testing.T) {
 	packages := []string{
 		filepath.Join("block"),
 		filepath.Join("backfill", "claude"),
+		filepath.Join("backfill", "pi"),
 	}
 
 	for _, pkgRel := range packages {
