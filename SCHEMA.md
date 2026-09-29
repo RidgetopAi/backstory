@@ -1,6 +1,6 @@
-# Backstory Store — Schema v0 (DRAFT)
+# Backstory Store — Schema v0
 
-**Status: DRAFT.** Nothing here is implemented. The first punch after Phase 0
+The first punch after Phase 0
 (`PLAN.md §First three punches`, punch 1) implements it as the `store` package with
 migrations; the DDL below is a sketch for that punch to make concrete, and the open
 questions at the end are the ones it must answer or explicitly defer. Derived from Q1
@@ -191,8 +191,12 @@ unmutated → GREEN.
 
 1. **No UPDATE, no DELETE on `records` or `timeline_events`.** Supersession is a new record
    plus a `supersedes` edge; the old record stays. The one mutable column is
-   `records.tombstoned_at`, writable only from the human path (CLI/panel), and a tombstoned
-   record still exists (recall omits its text, keeps its edges). Enforced by triggers that
+   `records.tombstoned_at`, writable only from the human path (CLI/panel). Tombstoning
+   *forgets*: in one transaction `TombstoneRecord` removes the text from `records_fts` (FTS5
+   external-content `'delete'`), sets `tombstoned_at` and scrubs `records.text` to `''`; the row
+   and its edges remain. `records_no_update` permits only that one UPDATE (tombstoned_at
+   NULL→value, optionally with text→`''`) and refuses every other column change — including
+   `event_cursor` and `git_head` — and any re-tombstone. Enforced by triggers that
    `RAISE(ABORT)` on any other UPDATE and on every DELETE.
 2. **Tier is never a parameter.** `records.tier` is set by the daemon from `SO_PEERCRED`
    identity: an agent process → `agent-declared`; inference → `inferred`; the CLI/panel →

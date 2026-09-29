@@ -340,24 +340,49 @@ func (s *Store) ExpiredClaimsWithoutOutcome(projectKey string, asOf time.Time) (
 	return s.getRecords(ids)
 }
 
-// TombstoneRecord sets records.tombstoned_at and nothing else — the sole
-// mutable column, and the sole human-only power (AGENT-CONTRACT.md
-// §User-only powers). It refuses any identity other than IdentityHuman.
+// TombstoneRecord forgets a record: in ONE transaction it removes the old
+// text from the external-content FTS index, then sets tombstoned_at and
+// scrubs records.text to ”. The row and its edges remain. It is the sole
+// human-only power (AGENT-CONTRACT.md §User-only powers) and refuses any
+// identity other than IdentityHuman. Tombstoning an already-tombstoned
+// record is a no-op (the FTS 'delete' command must never be replayed with
+// text the index no longer holds).
 func (s *Store) TombstoneRecord(id string, identity Identity) error {
 	if identity.Kind != IdentityHuman {
 		return ErrTombstoneRequiresHuman
 	}
-	res, err := s.db.Exec(`UPDATE records SET tombstoned_at = ? WHERE id = ?`,
-		tsToNanos(time.Now()), id)
+	tx, err := s.db.Begin()
 	if err != nil {
 		return fmt.Errorf("store: tombstone record %s: %w", id, err)
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("store: tombstone record %s: %w", id, err)
-	}
-	if n == 0 {
+	defer func() { _ = tx.Rollback() }()
+
+	var (
+		rowid        int64
+		text         string
+		tombstonedAt sql.NullInt64
+	)
+	err = tx.QueryRow(`SELECT rowid, text, tombstoned_at FROM records WHERE id = ?`, id).
+		Scan(&rowid, &text, &tombstonedAt)
+	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("store: tombstone record %s: not found", id)
+	}
+	if err != nil {
+		return fmt.Errorf("store: tombstone record %s: %w", id, err)
+	}
+	if tombstonedAt.Valid {
+		return nil
+	}
+	if _, err := tx.Exec(`INSERT INTO records_fts(records_fts, rowid, text) VALUES('delete', ?, ?)`,
+		rowid, text); err != nil {
+		return fmt.Errorf("store: tombstone record %s: scrub fts: %w", id, err)
+	}
+	if _, err := tx.Exec(`UPDATE records SET tombstoned_at = ?, text = '' WHERE id = ?`,
+		tsToNanos(time.Now()), id); err != nil {
+		return fmt.Errorf("store: tombstone record %s: %w", id, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("store: tombstone record %s: %w", id, err)
 	}
 	return nil
 }

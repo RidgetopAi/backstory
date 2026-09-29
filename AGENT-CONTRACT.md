@@ -237,7 +237,8 @@ Two things only the human can do, through the panel or CLI, never through a tool
 
 - **Pause capture** — an `omarchy toggle`-style flag file, the `crash-capture-off`
   precedent. The daemon honours it on every write path.
-- **Delete** — a human-only tombstone (`tombstoned_at`). A permanent ledger without a human
+- **Delete** — a human-only tombstone (`tombstoned_at`) that scrubs the record's text from
+  `records.text` and the FTS index (the row and its edges remain). A permanent ledger without a human
   delete is a privacy product that cannot forget.
 
 ## Interfaces adopted, not competed with

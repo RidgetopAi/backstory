@@ -23,16 +23,53 @@ import (
 // tool.use rows, routing each row's `detail` value by its own `name` field —
 // logic Go expresses far more legibly than SQLite's json1 functions would.
 var migrationDataHooks = map[int]func(context.Context, *sql.Tx) error{
-	3: rewriteNulProjectKeySeparators,
-	6: rewriteToolUseDetailPayloads,
+	3:  rewriteNulProjectKeySeparators,
+	6:  rewriteToolUseDetailPayloads,
+	10: installRecordsNoUpdateTrigger,
 }
 
-// recordsNoUpdateTriggerSQL recreates records_no_update exactly as
-// 0001_init.sql defines it. rewriteNulProjectKeySeparators drops the
-// trigger to rewrite records.project_key (its WHEN clause requires
-// old.project_key IS new.project_key) and must recreate it identically
-// before the migration commits.
+// recordsNoUpdateTriggerSQL is the one definition of records_no_update.
+// Migration 0010 installs it (via its data hook) and the workspace sweep
+// recreates it after its drop-rewrite-recreate of records.project_key, so
+// the two can never drift. records is append-only except for the human
+// delete path, which may, in one UPDATE, set tombstoned_at from NULL and
+// scrub text to ”. Every other column — including event_cursor and
+// git_head — is immutable. An UPDATE that changes neither text nor
+// tombstoned_at is a harmless no-op; re-tombstoning is refused.
 const recordsNoUpdateTriggerSQL = `
+CREATE TRIGGER records_no_update
+BEFORE UPDATE ON records
+WHEN NOT (
+  old.id           = new.id AND
+  old.ts           = new.ts AND
+  old.kind         = new.kind AND
+  old.tier         = new.tier AND
+  old.about        = new.about AND
+  old.session_id   IS new.session_id AND
+  old.project_key  IS new.project_key AND
+  old.evidence     = new.evidence AND
+  old.outcome      IS new.outcome AND
+  old.promoter     IS new.promoter AND
+  old.expires_at   IS new.expires_at AND
+  old.event_cursor = new.event_cursor AND
+  old.git_head     IS new.git_head AND
+  (
+    (old.text = new.text AND old.tombstoned_at IS new.tombstoned_at)
+    OR
+    (old.tombstoned_at IS NULL AND new.tombstoned_at IS NOT NULL AND
+     (new.text = old.text OR new.text = ''))
+  )
+)
+BEGIN
+  SELECT RAISE(ABORT, 'records: append-only, only tombstoned_at and a tombstone scrub of text may change');
+END;`
+
+// recordsNoUpdateTriggerV1SQL is records_no_update exactly as
+// 0001_init.sql defines it, frozen. Migration 3's data hook drops the
+// trigger to rewrite records.project_key and must recreate the schema as
+// it stood at that version (event_cursor/git_head do not exist yet);
+// migration 0005 and 0010 then replace it.
+const recordsNoUpdateTriggerV1SQL = `
 CREATE TRIGGER records_no_update
 BEFORE UPDATE ON records
 WHEN NOT (
@@ -52,6 +89,15 @@ WHEN NOT (
 BEGIN
   SELECT RAISE(ABORT, 'records: append-only, only tombstoned_at may change');
 END;`
+
+// installRecordsNoUpdateTrigger is migration 0010's data hook: the SQL file
+// drops the old trigger, this creates the current one from the shared const.
+func installRecordsNoUpdateTrigger(ctx context.Context, tx *sql.Tx) error {
+	if _, err := tx.ExecContext(ctx, recordsNoUpdateTriggerSQL); err != nil {
+		return fmt.Errorf("create records_no_update: %w", err)
+	}
+	return nil
+}
 
 // rewriteNulProjectKeySeparators rewrites every NUL-separated project_key
 // in projects, sessions and records to the printable "|" separator
@@ -78,7 +124,7 @@ func rewriteNulProjectKeySeparators(ctx context.Context, tx *sql.Tx) error {
 		`UPDATE records SET project_key = ? WHERE rowid = ?`); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, recordsNoUpdateTriggerSQL); err != nil {
+	if _, err := tx.ExecContext(ctx, recordsNoUpdateTriggerV1SQL); err != nil {
 		return fmt.Errorf("recreate records_no_update: %w", err)
 	}
 	return nil
