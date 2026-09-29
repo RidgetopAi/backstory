@@ -52,6 +52,10 @@ type PostToolUseParams struct {
 	// interrupted flag.
 	Output      string `json:"output,omitempty"`
 	Interrupted bool   `json:"interrupted,omitempty"`
+	// RecordID is the id of the record a Backstory note call created, read
+	// by the hook from that call's tool_response (task d0c8c84b). The hook
+	// only sets it for Backstory's own note tool.
+	RecordID string `json:"record_id,omitempty"`
 }
 
 // PostToolUseResult is post_tool_use's return value: how many timeline
@@ -98,7 +102,7 @@ func handlePostToolUse(st *store.Store, sessionID string, raw json.RawMessage, c
 	n := 0
 	now := time.Now()
 
-	tu := payload.ToolUse{ToolUseID: p.ToolUseID, Name: p.ToolName, Path: p.Path, Command: p.Command}
+	tu := payload.ToolUse{ToolUseID: p.ToolUseID, Name: p.ToolName, Path: p.Path, Command: p.Command, RecordID: p.RecordID}
 	tuBytes, err := json.Marshal(tu)
 	if err != nil {
 		return errResponse("internal", err.Error())

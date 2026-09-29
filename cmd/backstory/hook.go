@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"regexp"
 	"strings"
 
 	"github.com/RidgetopAi/backstory/internal/mcp"
@@ -306,6 +307,55 @@ func inputStringField(input json.RawMessage, field string) string {
 // "Bash" literal.
 const bashToolNameLiteral = "Bash"
 
+// backstoryNoteToolPattern matches Backstory's own note MCP tool however the
+// harness prefixes it (mcp__backstory__note for Claude, mcp_backstory_note,
+// backstory.note, ...). It requires the backstory server segment, so another
+// server's tool that happens to be called note never matches.
+var backstoryNoteToolPattern = regexp.MustCompile(`^(?:mcp[_.:-]+)?backstory[_.:-]+note$`)
+
+// noteRecordID extracts the created record's id from a Backstory note call's
+// tool_response. The MCP result reaches a hook in one of several shapes: the
+// NoteResult object itself, an MCP CallToolResult carrying it as
+// structuredContent or as JSON text in a content block, a bare content-block
+// array, or a JSON string. It returns "" when no id can be read (a failed
+// note call carries none) — never a guess.
+func noteRecordID(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+	var text string
+	if json.Unmarshal(raw, &text) == nil {
+		return noteRecordID(json.RawMessage(text))
+	}
+	var blocks []struct {
+		Text string `json:"text"`
+	}
+	if json.Unmarshal(raw, &blocks) == nil {
+		for _, b := range blocks {
+			if id := noteRecordID(json.RawMessage(b.Text)); id != "" {
+				return id
+			}
+		}
+		return ""
+	}
+	var obj struct {
+		ID         string          `json:"id"`
+		IsError    bool            `json:"isError"`
+		Structured json.RawMessage `json:"structuredContent"`
+		Content    json.RawMessage `json:"content"`
+	}
+	if json.Unmarshal(raw, &obj) != nil || obj.IsError {
+		return ""
+	}
+	if obj.ID != "" {
+		return obj.ID
+	}
+	if id := noteRecordID(obj.Structured); id != "" {
+		return id
+	}
+	return noteRecordID(obj.Content)
+}
+
 // buildPostToolUseParams normalises one PostToolUse payload into the wire
 // shape callDaemon sends: Path for a file-editing tool (or Read), Command
 // for Bash, Exit only when the payload's tool_response actually carried
@@ -325,6 +375,8 @@ func buildPostToolUseParams(p postToolUsePayload) mcp.PostToolUseParams {
 			params.Interrupted = tr.Interrupted
 			params.Output = bashOutput(p.ToolResponse, tr)
 		}
+	case backstoryNoteToolPattern.MatchString(p.ToolName):
+		params.RecordID = noteRecordID(p.ToolResponse)
 	}
 	return params
 }

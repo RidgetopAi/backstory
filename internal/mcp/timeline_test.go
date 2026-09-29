@@ -320,3 +320,62 @@ func TestTimelineToolResultCarriesOutcomeFields(t *testing.T) {
 		t.Errorf("timeline payload = %v, want is_error, exit, interrupted and content", got)
 	}
 }
+
+// TestTimelineLinksToolUseToRecordItWrote is task d0c8c84b's DONE WHEN
+// clause 2: a tool.use event carrying record_id shows the record's id, kind
+// and bounded first line; a foreign-project record id gets no text.
+func TestTimelineLinksToolUseToRecordItWrote(t *testing.T) {
+	st := mustOpenStore(t)
+	sockPath := testDaemon(t, st, "claude", "/home/brian/proj", "proj-key")
+	shim := dialShim(t, sockPath)
+	sessionID := callerSession(t, shim)
+
+	long := strings.Repeat("x", timelineRecordLineMaxRunes+50)
+	raw, rerr := shim.CallTool(ToolNote, json.RawMessage(`{"kind":"handoff","text":"\n  Approved and tagged v1\nsecond line\n"}`))
+	if rerr != nil {
+		t.Fatalf("note: %v", rerr)
+	}
+	var nr NoteResult
+	if err := json.Unmarshal(raw, &nr); err != nil {
+		t.Fatalf("unmarshal NoteResult: %v", err)
+	}
+	rawLong, rerr := shim.CallTool(ToolNote, json.RawMessage(`{"kind":"note","text":"`+long+`"}`))
+	if rerr != nil {
+		t.Fatalf("note: %v", rerr)
+	}
+	var nrLong NoteResult
+	if err := json.Unmarshal(rawLong, &nrLong); err != nil {
+		t.Fatalf("unmarshal NoteResult: %v", err)
+	}
+	if err := st.UpsertProject(store.Project{Key: "other-proj", Toplevel: "/x", FirstSeen: time.Now()}); err != nil {
+		t.Fatalf("upsert project: %v", err)
+	}
+	foreign, err := st.InsertRecord(store.InsertRecordParams{Kind: store.KindNote, Text: "secret elsewhere", ProjectKey: "other-proj"})
+	if err != nil {
+		t.Fatalf("insert foreign record: %v", err)
+	}
+
+	now := time.Now().UTC()
+	for i, rid := range []string{nr.ID, nrLong.ID, foreign} {
+		if _, err := st.AppendEvent(store.Event{
+			TS: now.Add(time.Duration(i) * time.Second), Kind: "tool.use", SessionID: sessionID, Source: "posttooluse",
+			Payload: `{"name":"mcp__backstory__note","record_id":"` + rid + `"}`,
+		}); err != nil {
+			t.Fatalf("AppendEvent: %v", err)
+		}
+	}
+
+	linked := callTimeline(t, shim, `{"kind":"tool.use"}`).Events
+	if len(linked) != 3 {
+		t.Fatalf("got %d tool.use events, want 3: %+v", len(linked), linked)
+	}
+	if e := linked[0]; e.RecordID != nr.ID || e.RecordKind != "handoff" || e.RecordFirstLine != "Approved and tagged v1" {
+		t.Errorf("event 0 = %+v, want record %s handoff %q", e, nr.ID, "Approved and tagged v1")
+	}
+	if want := strings.Repeat("x", timelineRecordLineMaxRunes) + "…"; linked[1].RecordFirstLine != want {
+		t.Errorf("long first line = %q, want bounded to %d runes plus ellipsis", linked[1].RecordFirstLine, timelineRecordLineMaxRunes)
+	}
+	if e := linked[2]; e.RecordID != foreign || e.RecordKind != "" || e.RecordFirstLine != "" {
+		t.Errorf("foreign-project record leaked: %+v", e)
+	}
+}
