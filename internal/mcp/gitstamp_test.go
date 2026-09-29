@@ -46,7 +46,7 @@ func applyGitStampEnv(t *testing.T, mode string) {
 // trimmed stdout.
 func gitIn(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command("git", args...) //nolint:gosec // test helper; args are literals from this file
 	cmd.Dir = dir
 	env := []string{}
 	for _, kv := range os.Environ() {
