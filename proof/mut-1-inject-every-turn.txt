@@ -1,9 +1,0 @@
---- FAIL: TestPiExtensionAgainstFakeBackstory (0.29s)
-    pi_test.go:59: pi extension test failed: exit status 1
-        FAIL: clause 2: second turn in same session does not inject
-        
-        1 !== 0
-        
-FAIL
-FAIL	github.com/RidgetopAi/backstory/internal/install	0.832s
-FAIL
