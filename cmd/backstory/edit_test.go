@@ -206,10 +206,10 @@ func TestEditEditorPrefilledAndVisualWins(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d: %s%s", code, out, errOut)
 	}
-	if b, _ := os.ReadFile(visualSeen); strings.TrimSpace(string(b)) != "use A" {
+	if b, _ := os.ReadFile(visualSeen); strings.TrimSpace(string(b)) != "use A" { //nolint:gosec // test temp path
 		t.Fatalf("editor saw %q, want prefilled old text", b)
 	}
-	if mode, _ := os.ReadFile(visualSeen + ".mode"); strings.TrimSpace(string(mode)) != "600" {
+	if mode, _ := os.ReadFile(visualSeen + ".mode"); strings.TrimSpace(string(mode)) != "600" { //nolint:gosec // test temp path
 		t.Fatalf("temp file mode = %q, want 600", mode)
 	}
 	if _, err := os.Stat(editorSeen); err == nil {
@@ -225,7 +225,7 @@ func TestEditEditorPrefilledAndVisualWins(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d: %s%s", code, out, errOut)
 	}
-	if b, _ := os.ReadFile(editorSeen); strings.TrimSpace(string(b)) != "via visual" {
+	if b, _ := os.ReadFile(editorSeen); strings.TrimSpace(string(b)) != "via visual" { //nolint:gosec // test temp path
 		t.Fatalf("$EDITOR saw %q", b)
 	}
 }
