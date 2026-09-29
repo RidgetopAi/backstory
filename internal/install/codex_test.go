@@ -42,7 +42,7 @@ const codexFixtureHooks = `{
 }
 `
 
-func codexFixture(t *testing.T, toml string) (CodexPaths, string) {
+func codexFixture(t *testing.T, toml string) CodexPaths {
 	t.Helper()
 	home := t.TempDir()
 	p := DefaultCodexPaths(home)
@@ -52,7 +52,7 @@ func codexFixture(t *testing.T, toml string) (CodexPaths, string) {
 	if toml != "" {
 		writeFile(t, p.ConfigTOML, toml)
 	}
-	return p, home
+	return p
 }
 
 func writeFile(t *testing.T, path, s string) {
@@ -64,7 +64,7 @@ func writeFile(t *testing.T, path, s string) {
 
 func readFile(t *testing.T, path string) string {
 	t.Helper()
-	b, err := os.ReadFile(path)
+	b, err := os.ReadFile(path) //nolint:gosec // test fixture path
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func readFile(t *testing.T, path string) string {
 // Clause 1: every original byte survives; file minus the marked block is
 // the original.
 func TestCodexInstallPreservesConfigTOMLBytes(t *testing.T) {
-	p, _ := codexFixture(t, codexFixtureTOML)
+	p := codexFixture(t, codexFixtureTOML)
 	if err := InstallCodex(p, Options{}); err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +103,7 @@ func TestCodexInstallIdempotentAndRemoveRestores(t *testing.T) {
 		{"absent", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			p, _ := codexFixture(t, tc.toml)
+			p := codexFixture(t, tc.toml)
 			hooksPre := codexFixtureHooks
 			writeFile(t, p.HooksJSON, hooksPre)
 			agentsPre := "# my agents\n"
@@ -139,7 +139,7 @@ func TestCodexInstallIdempotentAndRemoveRestores(t *testing.T) {
 				t.Fatal(err)
 			}
 			for f, want := range map[string]string{p.ConfigTOML: tc.toml, p.HooksJSON: hooksPre, p.AgentsMD: agentsPre} {
-				b, err := os.ReadFile(f)
+				b, err := os.ReadFile(f) //nolint:gosec // test fixture path
 				if want == "" {
 					if !os.IsNotExist(err) {
 						t.Errorf("%s should be absent after remove", f)
@@ -162,7 +162,7 @@ func TestCodexForeignBackstoryTableLeftUntouched(t *testing.T) {
 		"[mcp_servers.backstory.env]\nK = \"v\"\n",
 		"mcp_servers.backstory.command = \"other\"\n",
 	} {
-		p, _ := codexFixture(t, codexFixtureTOML+foreign)
+		p := codexFixture(t, codexFixtureTOML+foreign)
 		before := readFile(t, p.ConfigTOML)
 		err := InstallCodex(p, Options{})
 		if !errors.Is(err, ErrForeignConflict) || !strings.Contains(err.Error(), ItemCodexMCPServer) {
@@ -189,7 +189,7 @@ func TestCodexForeignBackstoryTableLeftUntouched(t *testing.T) {
 
 // Clause 4: hooks.json parses, holds both hooks, keeps pre-existing entries.
 func TestCodexHooksJSON(t *testing.T) {
-	p, _ := codexFixture(t, "")
+	p := codexFixture(t, "")
 	writeFile(t, p.HooksJSON, codexFixtureHooks)
 	if err := InstallCodex(p, Options{}); err != nil {
 		t.Fatal(err)
@@ -225,7 +225,7 @@ func TestCodexHooksJSON(t *testing.T) {
 }
 
 func TestCodexMalformedHooksJSONWritesNothing(t *testing.T) {
-	p, _ := codexFixture(t, codexFixtureTOML)
+	p := codexFixture(t, codexFixtureTOML)
 	writeFile(t, p.HooksJSON, "{nope")
 	if err := InstallCodex(p, Options{}); !errors.Is(err, ErrMalformedCodexHooksJSON) {
 		t.Fatalf("err = %v", err)
