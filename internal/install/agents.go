@@ -118,7 +118,7 @@ func RemoveAgents(paths AgentsPaths, _ Options) error {
 		return err
 	}
 	if agentsServerStatus(root) == StatusPresent {
-		servers := root["mcpServers"].(map[string]any)
+		servers, _ := root["mcpServers"].(map[string]any)
 		delete(servers, MCPServerName)
 		if len(servers) == 0 {
 			delete(root, "mcpServers")

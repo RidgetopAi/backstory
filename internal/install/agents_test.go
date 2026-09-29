@@ -50,10 +50,9 @@ func TestAgentsInstallPreservesOtherServerAndAddsOneStub(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	servers := root["mcpServers"].(map[string]any)
-	var orig map[string]any
+	servers, _ := root["mcpServers"].(map[string]any)
 	origRoot, _, _ := loadJSONObject(writeTemp(t, agentsFixtureMCP), ErrMalformedAgentsMCPJSON)
-	orig = origRoot["mcpServers"].(map[string]any)
+	orig, _ := origRoot["mcpServers"].(map[string]any)
 	if !jsonDeepEqual(servers["other"], orig["other"]) {
 		t.Errorf("other server changed: %v", servers["other"])
 	}
