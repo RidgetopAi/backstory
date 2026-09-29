@@ -1,0 +1,4 @@
+# managed by `backstory install hermes`; do not edit
+name: backstory
+version: 1.0.0
+description: Backstory memory provider — warm project block, five tools, turn sync over the Backstory daemon socket

@@ -1,14 +1,8 @@
 // Adapter seam: `backstory install <harness>` routes through one Adapter
 // per harness (decision 3e14db82's v1 list: Claude Code, Codex, Hermes, Pi,
-// and "agents" — the AGENTS.md-based catch-all for the rest). Only claude
-// is a real adapter today; codex, hermes, pi and agents are stubs so the
-// harness list stays honest until their own punches land.
+// and "agents" — the AGENTS.md-based catch-all for the rest). All five are
+// real adapters.
 package install
-
-import (
-	"errors"
-	"fmt"
-)
 
 // Harness names backstory install recognizes, in the order Adapters and
 // HarnessNames report them.
@@ -19,11 +13,6 @@ const (
 	HarnessPi     = "pi"
 	HarnessAgents = "agents"
 )
-
-// ErrAdapterNotAvailable is returned by a stub adapter's Install, Remove and
-// Check: the harness name is recognized but its adapter has not landed yet
-// (a separate punch per decision 3e14db82 replaces the stub).
-var ErrAdapterNotAvailable = errors.New("adapter not available yet")
 
 // Adapter installs, removes, and reports the status of Backstory's
 // integration for one harness under a $HOME. Every method is idempotent (a
@@ -43,15 +32,13 @@ type Adapter interface {
 }
 
 // Adapters returns every harness adapter backstory install knows about, in
-// the order used for enumeration and error messages: the real claude
-// adapter first, then the not-yet-available stubs for the rest of decision
-// 3e14db82's v1 list. codex, hermes, pi and agents become real adapters in
-// their own punches, each replacing its stub here.
+// the order used for enumeration and error messages: claude (the default)
+// first, then the rest of decision 3e14db82's v1 list.
 func Adapters() []Adapter {
 	return []Adapter{
 		claudeAdapter{},
 		codexAdapter{},
-		stubAdapter{name: HarnessHermes},
+		hermesAdapter{},
 		piAdapter{},
 		agentsAdapter{},
 	}
@@ -67,10 +54,8 @@ func HarnessNames() []string {
 	return names
 }
 
-// AdapterByName looks up a harness by name. The bool is false only when the
-// name is not recognized at all; a recognized-but-not-yet-available harness
-// (codex, hermes, pi, agents today) still returns its stub, whose methods
-// themselves fail with ErrAdapterNotAvailable.
+// AdapterByName looks up a harness by name. The bool is false when the name
+// is not recognized.
 func AdapterByName(name string) (Adapter, bool) {
 	for _, a := range Adapters() {
 		if a.Name() == name {
@@ -98,22 +83,4 @@ func (claudeAdapter) Remove(home string, opts Options) error {
 
 func (claudeAdapter) Check(home string, opts Options) ([]Item, error) {
 	return Check(DefaultPaths(home), opts)
-}
-
-// stubAdapter is a placeholder for a harness decision 3e14db82 promises for
-// v1 but whose adapter has not landed yet. Every method fails with
-// ErrAdapterNotAvailable so `backstory install <name>` stays honest:
-// recognized, but not yet installable.
-type stubAdapter struct{ name string }
-
-func (s stubAdapter) Name() string { return s.name }
-
-func (s stubAdapter) Install(string, Options) error { return s.err() }
-
-func (s stubAdapter) Remove(string, Options) error { return s.err() }
-
-func (s stubAdapter) Check(string, Options) ([]Item, error) { return nil, s.err() }
-
-func (s stubAdapter) err() error {
-	return fmt.Errorf("%s: %w", s.name, ErrAdapterNotAvailable)
 }
