@@ -704,6 +704,11 @@ func homeLabelDayStats(events []store.TimelineEvent, records []store.Record, lab
 		}
 	}
 	for _, r := range records {
+		// A tombstoned record was deleted by the human: it is not "written"
+		// (RecordsForProjectAll returns tombstoned rows).
+		if r.TombstonedAt != nil {
+			continue
+		}
 		if !r.TS.Before(dayStart) && r.TS.Before(dayEnd) {
 			recordsWritten++
 		}
@@ -749,6 +754,11 @@ func dayStats(events []store.TimelineEvent, records []store.Record, dayStart, da
 		}
 	}
 	for _, r := range records {
+		// A tombstoned record was deleted by the human: it is not "written"
+		// (RecordsForProjectAll returns tombstoned rows).
+		if r.TombstonedAt != nil {
+			continue
+		}
 		if !r.TS.Before(dayStart) && r.TS.Before(dayEnd) {
 			recordsWritten++
 		}

@@ -281,6 +281,13 @@ func resolveTextAnchor(st *store.Store, projectKey, query string) ([]store.Recor
 	return recs, nil
 }
 
+// Annotate is annotate's exported form: the single status code path, shared
+// with callers (the `records` CLI) that list records outside a recall
+// narrative but must label them exactly as recall does.
+func Annotate(st *store.Store, rec store.Record, workspaces []string) (Item, error) {
+	return annotate(st, rec, workspaces)
+}
+
 // annotate builds an Item from rec: tier carried verbatim, status derived
 // in a fixed precedence — tombstoned first (text omitted per SCHEMA.md
 // invariant 1, so nothing downstream can leak it back in), then superseded,

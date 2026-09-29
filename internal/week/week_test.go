@@ -460,3 +460,40 @@ func TestBuildWeekGridCountsSessionsFilesAndRecords(t *testing.T) {
 		t.Errorf("RecordsWritten = %d, want 1", found.RecordsWritten)
 	}
 }
+
+// TestBuildWeekGridExcludesTombstonedRecords: two records written today, one
+// tombstoned by the human, count as ONE record written.
+func TestBuildWeekGridExcludesTombstonedRecords(t *testing.T) {
+	st := openTestStore(t)
+	const proj = "proj-week-tomb"
+	upsertProject(t, st, proj, "/home/brian/weektomb")
+	day := time.Now().UTC().Truncate(24 * time.Hour)
+	sid := startSession(t, st, "sess-week-tomb", proj, "/home/brian/weektomb", day)
+	var ids []string
+	for _, text := range []string{"kept", "deleted"} {
+		id, err := st.InsertRecord(store.InsertRecordParams{
+			Identity: agentIdentity, Kind: store.KindNote, Text: text, SessionID: sid, ProjectKey: proj,
+		})
+		if err != nil {
+			t.Fatalf("insert note: %v", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := st.TombstoneRecord(ids[1], store.Identity{Kind: store.IdentityHuman, Actor: "human"}); err != nil {
+		t.Fatalf("tombstone: %v", err)
+	}
+	res, err := Build(Params{Store: st, Now: time.Now()})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	var got, seen int
+	for _, d := range res.Week {
+		if d.ProjectKey == proj {
+			got += d.RecordsWritten
+			seen++
+		}
+	}
+	if seen == 0 || got != 1 {
+		t.Fatalf("RecordsWritten = %d over %d day rows, want 1", got, seen)
+	}
+}
