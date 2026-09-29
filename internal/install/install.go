@@ -543,6 +543,12 @@ func removePostToolUseHook(root map[string]any, timeoutSeconds int) (changed boo
 // leaving foreign content on either side of it untouched and never
 // producing a second marker pair.
 func InstallStub(claudeMDPath string) error {
+	return installStubBlock(claudeMDPath, stubBlock)
+}
+
+// installStubBlock is InstallStub for an arbitrary marker-delimited block
+// (the Codex AGENTS.md stub shares the markers but not the text).
+func installStubBlock(claudeMDPath, stubBlock string) error {
 	data, statErr := os.ReadFile(claudeMDPath) //nolint:gosec // claudeMDPath is the caller-chosen CLAUDE.md location
 	if statErr != nil && !os.IsNotExist(statErr) {
 		return statErr
@@ -584,11 +590,18 @@ func InstallStub(claudeMDPath string) error {
 }
 
 func stubStatus(claudeMDPath string) ItemStatus {
+	return stubBlockStatus(claudeMDPath, stubBlock)
+}
+
+// stubBlockStatus is present only when the markers are there AND the block
+// between them is exactly want; a stale block reads as absent (install
+// rewrites it in place).
+func stubBlockStatus(claudeMDPath, want string) ItemStatus {
 	data, err := os.ReadFile(claudeMDPath) //nolint:gosec // claudeMDPath is the caller-chosen CLAUDE.md location
 	if err != nil {
 		return StatusAbsent
 	}
-	if strings.Contains(string(data), StubMarkerBegin) {
+	if strings.Contains(string(data), want) {
 		return StatusPresent
 	}
 	return StatusAbsent

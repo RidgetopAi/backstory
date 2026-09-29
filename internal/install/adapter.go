@@ -50,7 +50,7 @@ type Adapter interface {
 func Adapters() []Adapter {
 	return []Adapter{
 		claudeAdapter{},
-		stubAdapter{name: HarnessCodex},
+		codexAdapter{},
 		stubAdapter{name: HarnessHermes},
 		stubAdapter{name: HarnessPi},
 		stubAdapter{name: HarnessAgents},

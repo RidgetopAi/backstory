@@ -45,26 +45,26 @@ func TestInstallUnknownHarnessListsValidNames(t *testing.T) {
 	}
 }
 
-// TestInstallCodexStubExitsNonZero is clause 2's second half: the codex
+// TestInstallStubHarnessExitsNonZero is clause 2's second half: the hermes
 // adapter is a stub, so `backstory install codex` exits non-zero saying the
 // adapter is not available yet, rather than silently doing nothing or
 // running the claude adapter in its place.
-func TestInstallCodexStubExitsNonZero(t *testing.T) {
+func TestInstallStubHarnessExitsNonZero(t *testing.T) {
 	bin := buildBackstory(t)
 	home := t.TempDir()
 
-	_, stderr, exitCode := runBackstory(t, bin, home, "install", "codex", "--no-verify")
+	_, stderr, exitCode := runBackstory(t, bin, home, "install", "hermes", "--no-verify")
 	if exitCode == 0 {
-		t.Fatalf("install codex: exit code = 0, want non-zero (stderr: %s)", stderr)
+		t.Fatalf("install hermes: exit code = 0, want non-zero (stderr: %s)", stderr)
 	}
 	if !strings.Contains(stderr, "not available") {
-		t.Errorf("install codex: stderr = %q, want it to say the adapter is not available yet", stderr)
+		t.Errorf("install hermes: stderr = %q, want it to say the adapter is not available yet", stderr)
 	}
 
 	// The claude-only surfaces must stay untouched: routing codex through
 	// the claude adapter (or any real adapter) would leave a trace here.
 	if _, err := os.Stat(home + "/.claude.json"); err == nil {
-		t.Errorf("install codex wrote ~/.claude.json; codex must not fall through to another adapter")
+		t.Errorf("install hermes wrote ~/.claude.json; hermes must not fall through to another adapter")
 	}
 }
 
