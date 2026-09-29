@@ -165,7 +165,7 @@ func (s *Store) PurgeSessions(sc PurgeScope, identity Identity) (PurgeCounts, er
 		if _, err := tx.Exec(`DROP TRIGGER timeline_events_no_delete`); err != nil {
 			return PurgeCounts{}, fmt.Errorf("store: purge: drop trigger: %w", err)
 		}
-		if _, err := tx.Exec(`DELETE FROM timeline_events WHERE `+where, args...); err != nil {
+		if _, err := tx.Exec(`DELETE FROM timeline_events WHERE `+where, args...); err != nil { //nolint:gosec // where is assembled from fixed fragments in purgeSelection; every value is a bound arg
 			return PurgeCounts{}, fmt.Errorf("store: purge: delete events: %w", err)
 		}
 		if _, err := tx.Exec(timelineEventsNoDeleteTriggerSQL); err != nil {

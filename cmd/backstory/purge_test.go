@@ -16,7 +16,6 @@ const purgeProject = "acme-purge"
 
 type purgeFixture struct {
 	dbPath          string
-	env             []string
 	a, b, c         string // sessions: a (t0), b (t0+2h), c (t0+4h) in purgeProject
 	aEvents         int
 	recordID        string

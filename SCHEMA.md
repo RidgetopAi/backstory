@@ -197,13 +197,17 @@ unmutated → GREEN.
    and its edges remain. `records_no_update` permits only that one UPDATE (tombstoned_at
    NULL→value, optionally with text→`''`) and refuses every other column change — including
    `event_cursor` and `git_head` — and any re-tombstone. Enforced by triggers that
-   `RAISE(ABORT)` on any other UPDATE and on every DELETE.
+   `RAISE(ABORT)` on any other UPDATE and on every DELETE. The one exception to the
+   no-DELETE rule is the human `purge` (invariant 9): `PurgeSessions` deletes a session's
+   `timeline_events` inside one transaction that drops and recreates `timeline_events_no_delete`
+   from its single definition.
 2. **Tier is never a parameter.** `records.tier` is set by the daemon from `SO_PEERCRED`
    identity: an agent process → `agent-declared`; inference → `inferred`; the CLI/panel →
    `human-declared`. The socket API has no field for it.
 3. **Promotion records the promoter and caps at the promoter's tier.** `confirm` by an agent
    yields `agent-declared`; a draft inferred from session S cannot be promoted by session S.
-4. **Only the daemon writes `timeline_events`.** The socket API exposes no event write.
+4. **Only the daemon writes `timeline_events`** (and only the human `purge` deletes from it).
+   The socket API exposes no event write and no purge.
 5. **Rate and size caps** per session (numbers open below); a rejected write is surfaced in
    `status`.
 6. **Redaction on write.** Token/key patterns are redacted from `records.text` and
@@ -212,7 +216,11 @@ unmutated → GREEN.
    a `contradicts` edge is minted only on positive evidence (`AGENT-CONTRACT.md §Outcomes`).
 8. **Capture-off flag file honoured** on every write path: while set, no events and no
    records are inserted.
-9. **Retention bounds the timeline only.** `timeline_events` are pruned by age;
+9. **Retention bounds the timeline only.** `timeline_events` are pruned by age by the daemon;
+   the human `backstory purge` is the one other delete: it erases whole sessions' events,
+   stamps `sessions.purged_at` (backfill never re-imports a purged session) and appends a
+   counts-only `purge_log` row (`ts, scope, sessions, events`). Session rows, `backfill_cursors`
+   and `records` stay; record evidence / `event_cursor` ids may dangle and readers tolerate it.
    `records` are never pruned except expired `claim`s and expired `inferred` drafts
    (`expires_at`), which are pruned, not tombstoned.
 10. **Ordering is by sequence.** Recall and the SessionStart delta order events by
