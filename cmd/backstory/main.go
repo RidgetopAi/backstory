@@ -23,6 +23,7 @@ commands:
   install    install or remove a harness integration ("install claude|codex|hermes|pi|agents"), or shell capture ("install bash")
   backfill   import transcripts from another tool (e.g. "backfill claude", "backfill codex")
   delete     tombstone a record by id (human-only; "delete <id> [--yes]")
+  edit       correct a record: a new human-declared record supersedes it (human-only; "edit <id> [--file PATH | --stdin]")
   capture    pause or resume capture ("capture off|on|status")
   recall     print a project's trust-annotated ledger narrative, read-only
   timeline   print a project's observed events, read-only
@@ -60,6 +61,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runBackfill(args[1:], stdout, stderr)
 	case "delete":
 		return runDelete(args[1:], stdin, stdout, stderr)
+	case "edit":
+		return runEdit(args[1:], stdin, stdout, stderr)
 	case "capture":
 		return runCapture(args[1:], stdout, stderr)
 	case "recall":
