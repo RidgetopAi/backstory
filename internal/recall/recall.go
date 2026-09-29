@@ -143,6 +143,10 @@ type Item struct {
 	// reason store.HandoffFreshness found, each carrying its own evidence
 	// ids.
 	StaleReasons []store.FreshnessReason
+
+	// Git is the record's write-time repo HEAD compared with the repo's HEAD
+	// now; nil when the record carries no git_head (or is tombstoned).
+	Git *GitStamp
 }
 
 // Result is Build's return value: the items that made the altitude's
@@ -169,11 +173,17 @@ func Build(st *store.Store, anchor Anchor, altitude Altitude, budgetTokens int, 
 		return Result{}, err
 	}
 
+	stamper := newGitStamper(st)
 	items := make([]Item, len(recs))
 	for i, rec := range recs {
 		item, err := annotate(st, rec, workspaces)
 		if err != nil {
 			return Result{}, err
+		}
+		if item.Status != StatusTombstoned {
+			if item.Git, err = stamper.stamp(rec); err != nil {
+				return Result{}, err
+			}
 		}
 		items[i] = item
 	}
@@ -401,6 +411,9 @@ const summaryBodyChars = 240
 // line can contain one), summary truncates the body, full does not.
 func renderItem(item Item, altitude Altitude) string {
 	header := fmt.Sprintf("%s · %s · %s · %s", shortID(item.ID), item.Kind, item.Tier, statusLabel(item))
+	if item.Git != nil {
+		header += " · " + gitLabel(item.Git)
+	}
 	switch altitude {
 	case AltitudeHeadline:
 		if fl := firstLine(item.Text); fl != "" {

@@ -160,6 +160,16 @@ type RecallItem struct {
 	Tier string `json:"tier"`
 	Mark string `json:"mark"`
 	Text string `json:"text,omitempty"`
+	// GitHead, GitShort, CommitsSince, GitNote and GitStatus are additive
+	// (task 5615ddae): the repo HEAD stamped at write, its short form, how
+	// many commits the repo is ahead of it now (absent, with GitNote as the
+	// reason, when that cannot be computed), and the rendered one-liner
+	// ("written at a1b2c3d; repo now 2 commits later").
+	GitHead      string `json:"git_head,omitempty"`
+	GitShort     string `json:"git_short,omitempty"`
+	CommitsSince *int   `json:"commits_since,omitempty"`
+	GitNote      string `json:"git_note,omitempty"`
+	GitStatus    string `json:"git_status,omitempty"`
 }
 
 // RecallResult is recall's Phase 4 return value: the caller's own project
@@ -254,6 +264,13 @@ func handleRecall(st *store.Store, id ident.Identity, raw json.RawMessage, works
 			Tier: string(item.Tier),
 			Mark: trustMark(item),
 			Text: renderItemText(item.Text, altitude),
+		}
+		if g := item.Git; g != nil {
+			items[i].GitHead = g.SHA
+			items[i].GitShort = g.Short
+			items[i].CommitsSince = g.CommitsSince
+			items[i].GitNote = g.Reason
+			items[i].GitStatus = recall.GitLabel(g)
 		}
 	}
 
