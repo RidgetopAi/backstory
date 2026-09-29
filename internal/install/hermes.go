@@ -130,13 +130,13 @@ func InstallHermes(paths HermesPaths, _ Options) error {
 		if !isForeign(err) {
 			return fmt.Errorf("%s: %w", ItemHermesPlugin, err)
 		}
-		conflicts = append(conflicts, err.Error())
+		conflicts = append(conflicts, foreignDetail(err))
 	}
 	if err := installHermesConfig(paths.ConfigYAML); err != nil {
 		if !isForeign(err) {
 			return fmt.Errorf("%s: %w", ItemHermesMemoryProvider, err)
 		}
-		conflicts = append(conflicts, err.Error())
+		conflicts = append(conflicts, foreignDetail(err))
 	}
 	if len(conflicts) > 0 {
 		return fmt.Errorf("%w: %s", ErrForeignConflict, strings.Join(conflicts, "; "))
@@ -145,6 +145,14 @@ func InstallHermes(paths HermesPaths, _ Options) error {
 }
 
 func isForeign(err error) bool { return errors.Is(err, ErrForeignConflict) }
+
+// foreignDetail strips ErrForeignConflict's own prefix from one item's
+// conflict so InstallHermes can wrap the joined details once: the CLI line
+// then reads "install: foreign-conflict: <item>: …; <item>: …" with the
+// prefix exactly once, not once per item plus once for the wrap.
+func foreignDetail(err error) string {
+	return strings.TrimPrefix(err.Error(), ErrForeignConflict.Error()+": ")
+}
 
 // RemoveHermes reverses InstallHermes, restoring pre-install config bytes.
 func RemoveHermes(paths HermesPaths, _ Options) error {

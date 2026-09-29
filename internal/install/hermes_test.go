@@ -175,6 +175,43 @@ func TestHermesForeignPluginFilesUntouched(t *testing.T) {
 	}
 }
 
+// TestHermesForeignConflictPrefixOnce: the foreign-conflict error names
+// its prefix exactly once, whether one item or both conflict (the Walkthrough
+// found "install: foreign-conflict: install: foreign-conflict: …").
+func TestHermesForeignConflictPrefixOnce(t *testing.T) {
+	prefix := ErrForeignConflict.Error()
+	t.Run("provider only", func(t *testing.T) {
+		p := hermesFixture(t, "memory:\n  provider: honcho\n")
+		err := InstallHermes(p, Options{})
+		if !errors.Is(err, ErrForeignConflict) {
+			t.Fatalf("err = %v, want foreign-conflict", err)
+		}
+		if n := strings.Count(err.Error(), prefix); n != 1 {
+			t.Errorf("prefix %q appears %d times, want 1: %q", prefix, n, err)
+		}
+	})
+	t.Run("plugin and provider", func(t *testing.T) {
+		p := hermesFixture(t, "memory:\n  provider: honcho\n")
+		if err := os.MkdirAll(p.PluginDir, 0o750); err != nil {
+			t.Fatal(err)
+		}
+		writeFile(t, filepath.Join(p.PluginDir, "__init__.py"), "# someone else's\n")
+		err := InstallHermes(p, Options{})
+		if !errors.Is(err, ErrForeignConflict) {
+			t.Fatalf("err = %v, want foreign-conflict", err)
+		}
+		msg := err.Error()
+		if n := strings.Count(msg, prefix); n != 1 {
+			t.Errorf("prefix %q appears %d times, want 1: %q", prefix, n, msg)
+		}
+		for _, item := range []string{ItemHermesPlugin, ItemHermesMemoryProvider} {
+			if !strings.Contains(msg, item) {
+				t.Errorf("error does not name %s: %q", item, msg)
+			}
+		}
+	})
+}
+
 func TestHermesNeverWritesHookConsent(t *testing.T) {
 	p := hermesFixture(t, hermesFixtureYAML)
 	if err := InstallHermes(p, Options{}); err != nil {
