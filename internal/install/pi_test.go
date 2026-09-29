@@ -67,7 +67,7 @@ func TestPiExtensionMissingBinaryIsSilent(t *testing.T) {
 	}
 }
 
-func writeFile(t *testing.T, path, content string) {
+func writePiFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		t.Fatal(err)
@@ -119,9 +119,9 @@ func TestPiInstallRemoveRestoresBytes(t *testing.T) {
 	}{
 		{"empty home", func(string) {}},
 		{"existing AGENTS.md and unrelated extension", func(home string) {
-			writeFile(t, filepath.Join(home, ".pi", "agent", "AGENTS.md"), "# mine\nkeep this line\n")
-			writeFile(t, filepath.Join(home, ".pi", "agent", "extensions", "mandrel-mcp.ts"), "export default () => {}\n")
-			writeFile(t, filepath.Join(home, ".pi", "agent", "extensions", "other", "index.ts"), "// other\n")
+			writePiFile(t, filepath.Join(home, ".pi", "agent", "AGENTS.md"), "# mine\nkeep this line\n")
+			writePiFile(t, filepath.Join(home, ".pi", "agent", "extensions", "mandrel-mcp.ts"), "export default () => {}\n")
+			writePiFile(t, filepath.Join(home, ".pi", "agent", "extensions", "other", "index.ts"), "// other\n")
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -173,7 +173,7 @@ func TestPiInstallRemoveRestoresBytes(t *testing.T) {
 func TestPiInstallRefusesForeignExtension(t *testing.T) {
 	home := t.TempDir()
 	ts := DefaultPiPaths(home).ExtensionTS
-	writeFile(t, ts, "// someone else's\n")
+	writePiFile(t, ts, "// someone else's\n")
 	a := piAdapter{}
 	if err := a.Install(home, Options{}); err == nil {
 		t.Fatal("install overwrote a foreign index.ts")
