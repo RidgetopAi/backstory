@@ -138,6 +138,10 @@ func handleNote(st *store.Store, identity store.Identity, sessionID, projectKey,
 		})
 	}
 
+	// Deterministic staleness stamp (task 5615ddae): HEAD of the writing
+	// session's repo; "" (NULL) for a non-git dir, never an error.
+	gitHead, _ := project.HeadSHA(cwd)
+
 	id, err := st.InsertRecordWithEdges(store.InsertRecordParams{
 		Identity:   identity,
 		Kind:       kind,
@@ -147,6 +151,7 @@ func handleNote(st *store.Store, identity store.Identity, sessionID, projectKey,
 		ProjectKey: projectKey,
 		Evidence:   p.Evidence,
 		ExpiresAt:  expiresAt,
+		GitHead:    gitHead,
 	}, edges)
 	if err != nil {
 		var capErr *store.CapError
