@@ -726,3 +726,87 @@ func TestHookPostToolUseBashLargeOutputIsBoundedHeadAndTail(t *testing.T) {
 		t.Error("excerpt has no elision marker")
 	}
 }
+
+// toolUsePayloadsFor runs one PostToolUse payload through the real hook and
+// returns every tool.use payload the project then holds.
+func toolUsePayloadsFor(t *testing.T, hookPayload map[string]any) []payload.ToolUse {
+	t.Helper()
+	bin := buildBackstoryHarness(t)
+	dbPath, _, env := startTestDaemon(t, bin)
+	projectDir := t.TempDir()
+	hookPayload["cwd"] = projectDir
+	_, stderr, exitCode, _ := runHookInDir(t, bin, projectDir, env, []string{"post-tool-use"}, hookPayload)
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", exitCode, stderr)
+	}
+	s := mustOpenTestStore(t, dbPath)
+	var out []payload.ToolUse
+	for _, ev := range queryEventsForProject(t, s, project.Key(projectDir, project.RealGit{}, nil)) {
+		if ev.Kind != payload.KindToolUse {
+			continue
+		}
+		var tu payload.ToolUse
+		if err := json.Unmarshal([]byte(ev.Payload), &tu); err != nil {
+			t.Fatalf("unmarshal tool.use payload %q: %v", ev.Payload, err)
+		}
+		out = append(out, tu)
+	}
+	return out
+}
+
+// TestHookPostToolUseBackstoryNoteRecordsRecordID is task d0c8c84b's DONE
+// WHEN clause 1: a Backstory note call's tool.use carries the created
+// record's id, for every response shape a harness can hand the hook.
+func TestHookPostToolUseBackstoryNoteRecordsRecordID(t *testing.T) {
+	const recID = "rec_0123456789"
+	noteJSON := `{"id":"` + recID + `","tier":"observed"}`
+	responses := map[string]any{
+		"structured": map[string]any{"content": []any{map[string]any{"type": "text", "text": noteJSON}}, "structuredContent": map[string]any{"id": recID}},
+		"text-only":  map[string]any{"content": []any{map[string]any{"type": "text", "text": noteJSON}}},
+		"bare-array": []any{map[string]any{"type": "text", "text": noteJSON}},
+		"direct":     map[string]any{"id": recID, "tier": "observed"},
+	}
+	for name, resp := range responses {
+		t.Run(name, func(t *testing.T) {
+			got := toolUsePayloadsFor(t, map[string]any{
+				"session_id": "claude-note-session", "tool_name": "mcp__backstory__note",
+				"tool_use_id": "toolu_note", "tool_input": map[string]any{"kind": "note", "text": "hi"},
+				"tool_response": resp,
+			})
+			if len(got) != 1 || got[0].RecordID != recID {
+				t.Fatalf("tool.use payloads = %+v, want one with record_id %q", got, recID)
+			}
+		})
+	}
+}
+
+// TestHookPostToolUseNonBackstoryToolGetsNoRecordID is DONE WHEN clause 3:
+// another MCP server's tool with an id in its response — even one named
+// note — never gets a record_id.
+func TestHookPostToolUseNonBackstoryToolGetsNoRecordID(t *testing.T) {
+	for _, tool := range []string{"mcp__github__create_issue", "mcp__other__note"} {
+		t.Run(tool, func(t *testing.T) {
+			got := toolUsePayloadsFor(t, map[string]any{
+				"session_id": "claude-other-session", "tool_name": tool,
+				"tool_use_id":   "toolu_other",
+				"tool_response": map[string]any{"id": "issue-42"},
+			})
+			if len(got) != 1 || got[0].RecordID != "" {
+				t.Fatalf("tool.use payloads = %+v, want one with no record_id", got)
+			}
+		})
+	}
+}
+
+// TestHookPostToolUseFailedBackstoryNoteGetsNoRecordID: an errored note call
+// wrote no record, so the event must not link to one.
+func TestHookPostToolUseFailedBackstoryNoteGetsNoRecordID(t *testing.T) {
+	got := toolUsePayloadsFor(t, map[string]any{
+		"session_id": "claude-note-fail", "tool_name": "mcp__backstory__note",
+		"tool_use_id":   "toolu_fail",
+		"tool_response": map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": "missing required field \"text\""}}},
+	})
+	if len(got) != 1 || got[0].RecordID != "" {
+		t.Fatalf("tool.use payloads = %+v, want one with no record_id", got)
+	}
+}

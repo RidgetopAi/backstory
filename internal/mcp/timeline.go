@@ -2,9 +2,11 @@ package mcp
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/RidgetopAi/backstory/internal/ident"
+	"github.com/RidgetopAi/backstory/internal/payload"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
@@ -32,6 +34,11 @@ type TimelineParams struct {
 	Limit int    `json:"limit,omitempty"`
 }
 
+// timelineRecordLineMaxRunes bounds the first line of a linked record's text
+// inlined on a timeline event (task d0c8c84b); a longer line is cut with an
+// ellipsis. The full text stays one recall away.
+const timelineRecordLineMaxRunes = 200
+
 // TimelineEventResult is one timeline_events row rendered for the wire: ID
 // is always the event's rowid, so a caller can quote it back verbatim in a
 // later note's `evidence` (AGENT-CONTRACT.md §timeline — "the observed
@@ -42,6 +49,29 @@ type TimelineEventResult struct {
 	Kind    string          `json:"kind"`
 	Source  string          `json:"source"`
 	Payload json.RawMessage `json:"payload,omitempty"`
+	// RecordID, RecordKind and RecordFirstLine are additive (task d0c8c84b):
+	// present only on a tool.use event whose payload names a record_id (a
+	// Backstory note call), joined from records at read time. RecordKind and
+	// RecordFirstLine are omitted when the record is not in the caller's own
+	// project, does not exist, or is tombstoned.
+	RecordID        string `json:"record_id,omitempty"`
+	RecordKind      string `json:"record_kind,omitempty"`
+	RecordFirstLine string `json:"record_first_line,omitempty"`
+}
+
+// firstLine returns text's first non-blank line, cut to max runes.
+func firstLine(text string, max int) string {
+	for _, l := range strings.Split(text, "\n") {
+		l = strings.TrimSpace(l)
+		if l == "" {
+			continue
+		}
+		if r := []rune(l); len(r) > max {
+			return string(r[:max]) + "…"
+		}
+		return l
+	}
+	return ""
 }
 
 // TimelineResult is timeline's return value: the caller's own project, the
@@ -106,6 +136,16 @@ func handleTimeline(st *store.Store, id ident.Identity, sessionID string, raw js
 			Kind:    e.Kind,
 			Source:  e.Source,
 			Payload: json.RawMessage(e.Payload),
+		}
+		if e.Kind == payload.KindToolUse {
+			var tu payload.ToolUse
+			if json.Unmarshal([]byte(e.Payload), &tu) == nil && tu.RecordID != "" {
+				out[i].RecordID = tu.RecordID
+				if rec, rerr := st.GetRecord(tu.RecordID); rerr == nil && rec.ProjectKey == id.ProjectKey && rec.TombstonedAt == nil {
+					out[i].RecordKind = string(rec.Kind)
+					out[i].RecordFirstLine = firstLine(rec.Text, timelineRecordLineMaxRunes)
+				}
+			}
 		}
 	}
 

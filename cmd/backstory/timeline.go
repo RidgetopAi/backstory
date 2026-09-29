@@ -7,6 +7,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/RidgetopAi/backstory/internal/payload"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
@@ -141,7 +142,14 @@ func printTimelineText(stdout io.Writer, projectKey string, events []store.Timel
 		if session == "" {
 			session = "-"
 		}
-		_, _ = fmt.Fprintf(stdout, "%d · %s · %s · %s\n", e.ID, e.TS.UTC().Format(time.RFC3339Nano), e.Kind, session)
+		line := fmt.Sprintf("%d · %s · %s · %s", e.ID, e.TS.UTC().Format(time.RFC3339Nano), e.Kind, session)
+		if e.Kind == payload.KindToolUse {
+			var tu payload.ToolUse
+			if json.Unmarshal([]byte(e.Payload), &tu) == nil && tu.RecordID != "" {
+				line += " · record " + tu.RecordID
+			}
+		}
+		_, _ = fmt.Fprintln(stdout, line)
 	}
 	return 0
 }

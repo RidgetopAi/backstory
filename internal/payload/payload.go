@@ -73,6 +73,11 @@ type ToolUse struct {
 	Path      string `json:"path,omitempty"`
 	Command   string `json:"command,omitempty"`
 	AgentID   string `json:"agent_id,omitempty"`
+	// RecordID is additive (task d0c8c84b): set only on the live tool.use of
+	// Backstory's own note tool, naming the record that call wrote, so a
+	// timeline reader can follow the event to the record without the record
+	// text being duplicated into the event.
+	RecordID string `json:"record_id,omitempty"`
 }
 
 // MutatingFileTools are the tool_use names whose Path names a file they
