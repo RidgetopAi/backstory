@@ -57,8 +57,8 @@ func mustGetRecord(t *testing.T, dbPath, id string) store.Record {
 
 // TestDeleteWithYesTombstonesRecordRowStillExists is the punch's DONE WHEN
 // clause 1's success path: `backstory delete <id> --yes` against a temp
-// store sets the record's tombstoned_at and leaves the row itself in place
-// (SCHEMA.md invariant 1: a tombstoned record still exists).
+// store sets the record's tombstoned_at and scrubs its text and leaves the row
+// itself in place (SCHEMA.md invariant 1: a tombstoned record still exists).
 func TestDeleteWithYesTombstonesRecordRowStillExists(t *testing.T) {
 	bin := buildBackstory(t)
 	dataDir := t.TempDir()
@@ -80,8 +80,8 @@ func TestDeleteWithYesTombstonesRecordRowStillExists(t *testing.T) {
 	if rec.TombstonedAt == nil {
 		t.Fatalf("record %s TombstonedAt is nil after delete --yes, want it set", id)
 	}
-	if rec.Text == "" {
-		t.Errorf("record %s Text is empty after tombstone, want the row (and its text) to still exist", id)
+	if rec.Text != "" {
+		t.Errorf("record %s Text = %q after delete --yes, want it scrubbed to '' (the row itself remains)", id, rec.Text)
 	}
 }
 
