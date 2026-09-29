@@ -175,3 +175,14 @@ func TestInstallWritesEmbeddedWhenPackagedPathAbsent(t *testing.T) {
 		t.Errorf("dest content != skill.Embedded")
 	}
 }
+
+// The skill tells agents to set supersedes whenever a record replaces or
+// corrects an earlier one, not only for the Resume handoff.
+func TestEmbeddedSkillInstructsSupersedeOnReplacement(t *testing.T) {
+	s := string(skill.Embedded)
+	for _, want := range []string{"replaces or corrects an earlier one", "`supersedes`", "`confirm supersede`"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("embedded skill missing %q", want)
+		}
+	}
+}
