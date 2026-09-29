@@ -26,6 +26,9 @@ Item {
   property var data: null
   property bool loading: false
   property bool groupEditorOpen: false
+  property bool memoryOpen: false
+  property string memoryProjectKey: ""
+  property string memoryDisplayName: ""
 
   readonly property var attentionItems: root.data ? Model.topAttention(root.data) : []
   readonly property var whereLeftOffRows: root.data ? Model.topWhereLeftOff(root.data) : []
@@ -61,6 +64,13 @@ Item {
   function close() {
     root.opened = false
     root.groupEditorOpen = false
+    root.memoryOpen = false
+  }
+
+  function openMemory(projectKey, displayName) {
+    root.memoryProjectKey = projectKey
+    root.memoryDisplayName = displayName
+    root.memoryOpen = true
   }
 
   function toggle() {
@@ -189,7 +199,7 @@ Item {
 
           Column {
             id: body
-            visible: !root.groupEditorOpen
+            visible: !root.groupEditorOpen && !root.memoryOpen
             width: parent.width
             spacing: Style.spacing.panelGap
 
@@ -245,6 +255,7 @@ Item {
                 width: parent.width
                 onOpenTerminal: (cwd) => root.openTerminal(cwd)
                 onResumeAgent: (cwd, handoffText, handoffId) => root.resumeAgent(cwd, handoffText, handoffId)
+                onOpenMemory: (projectKey, displayName) => root.openMemory(projectKey, displayName)
               }
             }
 
@@ -261,6 +272,15 @@ Item {
             visible: root.groupEditorOpen
             width: parent.width
             onCloseRequested: root.groupEditorOpen = false
+            onChanged: root.refresh()
+          }
+
+          MemoryView {
+            visible: root.memoryOpen
+            width: parent.width
+            projectKey: root.memoryProjectKey
+            displayName: root.memoryDisplayName
+            onCloseRequested: root.memoryOpen = false
             onChanged: root.refresh()
           }
         }

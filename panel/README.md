@@ -189,3 +189,16 @@ isn't on `PATH`.
 The one thing this harness cannot exercise headlessly is a real Wayland
 compositor's own layer-shell placement/exclusion-zone behavior — that
 stays proof-kind "look", the human check below.
+
+## Memory view
+
+Each Where-you-left-off row has a Memory action that swaps the panel body
+for `MemoryView.qml` (Back returns): the project's saved records from
+`backstory records --project K --json [--history]` (tier You/Agent/Inferred,
+a status mark unless current, age, first line; click expands), Edit
+(`xdg-terminal-exec -- backstory edit <id>`, detached), Delete (inline
+confirm, then `backstory delete <id> --yes`) and "Forget activity" (Last
+hour / Today / Everything: `backstory purge --project K [--since RFC3339]
+--dry-run` first, `--yes` only after the human confirms the counts). Record
+fields are read only in `js/records.js`, pinned by `records_contract_test.go`
+against the records goldens.

@@ -14,3 +14,16 @@ function resume() { return "" }       // nf-fa-refresh
 function addProject() { return "" }   // nf-fa-plus
 function week() { return "" }        // nf-fa-calendar
 function back() { return "" } // nf-fa-arrow_left
+function memory() { return "\uf02d" }       // nf-fa-book
+function edit() { return "\uf044" }         // nf-fa-pencil_square_o
+function trash() { return "\uf1f8" }        // nf-fa-trash
+function history() { return "\uf1da" }      // nf-fa-history
+
+// kind glyph for a record's kind; unknown kinds get a neutral dot.
+function recordKind(kind) {
+  if (kind === "note") return "\uf249"      // nf-fa-sticky_note
+  if (kind === "decision") return "\uf0e3"  // nf-fa-gavel
+  if (kind === "claim") return "\uf00c"     // nf-fa-check
+  if (kind === "handoff") return "\uf064"   // nf-fa-share
+  return "\uf111"                           // nf-fa-circle
+}
