@@ -15,6 +15,14 @@ type LiveSession struct {
 	StartedAt string `json:"started_at"`
 }
 
+const (
+	// ResultTimeZone is the zone of all timestamps in timeline/status results.
+	ResultTimeZone = "UTC"
+	// RemainingBudgetUnit is what remaining_budget counts: records this
+	// session may still write in the rolling 60-second window.
+	RemainingBudgetUnit = "records per minute"
+)
+
 // StatusResult is status's return value (AGENT-CONTRACT.md §The five
 // tools): who the caller is as the daemon observed them, who else is live
 // in the same project, and the caller's remaining write budget.
@@ -25,7 +33,11 @@ type StatusResult struct {
 	Session           string        `json:"session"`
 	OtherLiveSessions []LiveSession `json:"other_live_sessions"`
 	RemainingBudget   int           `json:"remaining_budget"`
-	CaptureOn         bool          `json:"capture_on"`
+	// RemainingBudgetUnit names what RemainingBudget counts.
+	RemainingBudgetUnit string `json:"remaining_budget_unit"`
+	// TZ is the zone of every timestamp in the result (always UTC).
+	TZ        string `json:"tz"`
+	CaptureOn bool   `json:"capture_on"`
 	// Reason mirrors ident.Identity.Reason: non-empty only when a harness
 	// was found but its cwd could not be read (task f2718b5b), so a caller
 	// can tell that apart from "no harness found" instead of seeing the
@@ -67,14 +79,16 @@ func handleStatus(st *store.Store, id ident.Identity, sessionID string, captureO
 	}
 
 	result, err := json.Marshal(StatusResult{
-		Kind:              id.Kind.String(),
-		Harness:           id.Harness,
-		ProjectKey:        id.ProjectKey,
-		Session:           sessionID,
-		OtherLiveSessions: others,
-		RemainingBudget:   remaining,
-		CaptureOn:         !off,
-		Reason:            id.Reason,
+		Kind:                id.Kind.String(),
+		Harness:             id.Harness,
+		ProjectKey:          id.ProjectKey,
+		Session:             sessionID,
+		OtherLiveSessions:   others,
+		RemainingBudget:     remaining,
+		RemainingBudgetUnit: RemainingBudgetUnit,
+		TZ:                  ResultTimeZone,
+		CaptureOn:           !off,
+		Reason:              id.Reason,
 	})
 	if err != nil {
 		return errResponse("internal", err.Error())

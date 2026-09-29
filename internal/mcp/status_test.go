@@ -219,6 +219,13 @@ func TestStatusReportsRemainingBudget(t *testing.T) {
 		t.Fatalf("RemainingBudget before any writes = %d, want %d", before.RemainingBudget, store.MaxRecordsPerSessionPerMinute)
 	}
 
+	if before.RemainingBudgetUnit != "records per minute" {
+		t.Fatalf("RemainingBudgetUnit = %q, want %q", before.RemainingBudgetUnit, "records per minute")
+	}
+	if before.TZ != "UTC" {
+		t.Fatalf("status TZ = %q, want UTC", before.TZ)
+	}
+
 	if _, rerr := shim.CallTool(ToolNote, json.RawMessage(`{"kind":"note","text":"spend one unit of budget"}`)); rerr != nil {
 		t.Fatalf("CallTool(note): %v", rerr)
 	}
