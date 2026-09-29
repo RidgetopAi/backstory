@@ -9,9 +9,16 @@ const log = () =>
   readFileSync(process.env.FAKE_LOG, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// A failed assertion must end the process: a live `backstory mcp` child would
+// otherwise keep node running until the Go test times out.
+const die = (e) => {
+  console.error("FAIL:", e && e.message ? e.message : e);
+  process.exit(1);
+};
 const crashes = [];
 process.on("uncaughtException", (e) => crashes.push(e));
 process.on("unhandledRejection", (e) => crashes.push(e));
+process.on("exit", () => {});
 
 function stubPi() {
   const handlers = {};
@@ -30,6 +37,7 @@ function stubPi() {
 }
 const ctxFor = (id) => ({ sessionManager: { getSessionId: () => id } });
 
+async function main() {
 if (process.argv[3] === "missing") {
   // BACKSTORY_BIN points nowhere: every entry point must stay silent.
   const m = await import(pathToFileURL(process.argv[2]).href);
@@ -104,3 +112,5 @@ process.env.FAKE_HOOK_FAIL = "1";
 await assertNoLeak("failing hook");
 await pi.fire("session_shutdown", { reason: "quit" }, ctxFor("s2"));
 console.log("PI EXTENSION OK");
+}
+main().then(() => process.exit(0), die);

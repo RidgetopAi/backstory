@@ -1,0 +1,6 @@
+--- FAIL: TestPiExtensionAgainstFakeBackstory (0.85s)
+    pi_test.go:59: pi extension test failed: exit status 1
+        FAIL: hook failed
+FAIL
+FAIL	github.com/RidgetopAi/backstory/internal/install	1.391s
+FAIL
