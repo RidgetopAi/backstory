@@ -49,6 +49,7 @@ type TimelineEventResult struct {
 type TimelineResult struct {
 	ProjectKey string                `json:"project_key"`
 	Scope      string                `json:"scope"`
+	TZ         string                `json:"tz"`
 	Events     []TimelineEventResult `json:"events"`
 }
 
@@ -112,6 +113,7 @@ func handleTimeline(st *store.Store, id ident.Identity, sessionID string, raw js
 	result := TimelineResult{
 		ProjectKey: id.ProjectKey,
 		Scope:      scope,
+		TZ:         ResultTimeZone,
 		Events:     out,
 	}
 

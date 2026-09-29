@@ -74,6 +74,9 @@ func TestTimelineNoArgsReturnsCallersProjectEvents(t *testing.T) {
 	if result.ProjectKey != "proj-key" {
 		t.Errorf("ProjectKey = %q, want proj-key", result.ProjectKey)
 	}
+	if result.TZ != "UTC" {
+		t.Errorf("TZ = %q, want UTC", result.TZ)
+	}
 	if result.Scope != timelineScopeProject {
 		t.Errorf("Scope = %q, want %q (default)", result.Scope, timelineScopeProject)
 	}

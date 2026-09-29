@@ -64,6 +64,15 @@ func parseAltitude(raw string) (recall.Altitude, string, error) {
 	}
 }
 
+// altitudeAsked returns the altitude name to echo back: the caller's own
+// value when they gave one (alias included), else the defaulted canonical one.
+func altitudeAsked(raw, canonical string) string {
+	if raw == "" {
+		return canonical
+	}
+	return raw
+}
+
 // resolveAnchor turns a caller's query into a recall.Anchor (decision
 // d9d456e7's WHAT TO BUILD: "anchor = the caller's observed project unless
 // query names a record id or free text"): empty query anchors on the
@@ -174,13 +183,16 @@ type RecallItem struct {
 // "no history yet" apart from "wrong project" apart from "this specific
 // query found nothing" without guessing.
 type RecallResult struct {
-	ProjectKey  string       `json:"project_key"`
-	DisplayName string       `json:"display_name"`
-	Anchor      string       `json:"anchor"`
-	Query       string       `json:"query,omitempty"`
-	Altitude    string       `json:"altitude"`
-	Items       []RecallItem `json:"items"`
-	Message     string       `json:"message,omitempty"`
+	ProjectKey  string `json:"project_key"`
+	DisplayName string `json:"display_name"`
+	Anchor      string `json:"anchor"`
+	Query       string `json:"query,omitempty"`
+	// Altitude echoes the value the caller asked for (so "detail" stays
+	// "detail"); AltitudeLevel is the canonical level actually served.
+	Altitude      string       `json:"altitude"`
+	AltitudeLevel string       `json:"altitude_level"`
+	Items         []RecallItem `json:"items"`
+	Message       string       `json:"message,omitempty"`
 }
 
 // emptyResultMessage is the one-line "why" for an empty Items list (task
@@ -256,12 +268,13 @@ func handleRecall(st *store.Store, id ident.Identity, raw json.RawMessage, works
 	}
 
 	result := RecallResult{
-		ProjectKey:  projectKey,
-		DisplayName: displayName,
-		Anchor:      string(anchor.Kind),
-		Query:       p.Query,
-		Altitude:    altitudeUsed,
-		Items:       items,
+		ProjectKey:    projectKey,
+		DisplayName:   displayName,
+		Anchor:        string(anchor.Kind),
+		Query:         p.Query,
+		Altitude:      altitudeAsked(p.Altitude, altitudeUsed),
+		AltitudeLevel: altitudeUsed,
+		Items:         items,
 	}
 	if len(items) == 0 {
 		msg, err := emptyResultMessage(st, projectKey, displayName, p.Query)

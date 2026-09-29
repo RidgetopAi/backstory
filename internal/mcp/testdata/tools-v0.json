@@ -150,7 +150,7 @@
     },
     {
       "name": "status",
-      "description": "Who I am (session, project as the daemon sees them), who else is live here, my budget, capture on/off.",
+      "description": "Who I am (session, project as the daemon sees them), who else is live here, my remaining write budget (remaining_budget, in records per minute; timestamps are UTC), capture on/off.",
       "inputSchema": {
         "type": "object",
         "properties": {},

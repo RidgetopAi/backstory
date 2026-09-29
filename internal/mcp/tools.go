@@ -156,7 +156,8 @@ func ToolsV0() []Tool {
 		{
 			Name: ToolStatus,
 			Description: "Who I am (session, project as the daemon sees them), who else is " +
-				"live here, my budget, capture on/off.",
+				"live here, my remaining write budget (remaining_budget, in records per " +
+				"minute; timestamps are UTC), capture on/off.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {},

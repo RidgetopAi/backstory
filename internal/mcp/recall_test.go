@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -401,6 +402,28 @@ func TestRecallAltitudeChangesItemCountUnderFixedBudget(t *testing.T) {
 	if counts["summary"] <= counts["full"] {
 		t.Errorf("summary kept %d items, full kept %d: want summary strictly more (altitude not wired)",
 			counts["summary"], counts["full"])
+	}
+}
+
+// TestRecallDetailAliasEchoesRequestedAltitude: asking for "detail" reports
+// altitude "detail", altitude_level "full", and the same items as "full".
+func TestRecallDetailAliasEchoesRequestedAltitude(t *testing.T) {
+	st := mustOpenStore(t)
+	sockPath := testDaemon(t, st, "claude", "/home/brian/proj", "proj-key")
+	shim := dialShim(t, sockPath)
+	for i := 0; i < 4; i++ {
+		noteText(t, shim, "decision", fmt.Sprintf("%s (item %d)", longRecallBody, i))
+	}
+	detail := callRecall(t, shim, json.RawMessage(`{"altitude":"detail"}`))
+	full := callRecall(t, shim, json.RawMessage(`{"altitude":"full"}`))
+	if detail.Altitude != "detail" || detail.AltitudeLevel != "full" {
+		t.Errorf("detail: altitude=%q altitude_level=%q, want detail/full", detail.Altitude, detail.AltitudeLevel)
+	}
+	if full.Altitude != "full" || full.AltitudeLevel != "full" {
+		t.Errorf("full: altitude=%q altitude_level=%q, want full/full", full.Altitude, full.AltitudeLevel)
+	}
+	if len(detail.Items) == 0 || !reflect.DeepEqual(detail.Items, full.Items) {
+		t.Errorf("detail items %+v differ from full items %+v", detail.Items, full.Items)
 	}
 }
 
