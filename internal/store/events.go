@@ -1,9 +1,12 @@
 package store
 
 import (
+	"encoding/json"
+
 	"database/sql"
 	"errors"
 	"fmt"
+	"github.com/RidgetopAi/backstory/internal/payload"
 	"strings"
 	"time"
 )
@@ -29,7 +32,7 @@ type Event struct {
 func (s *Store) AppendEvent(e Event) (int64, error) {
 	res, err := s.db.Exec(`INSERT INTO timeline_events (ts, kind, session_id, source, payload, workspace, window)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		tsToNanos(e.TS), e.Kind, nullable(e.SessionID), e.Source, redact(e.Payload),
+		tsToNanos(e.TS), e.Kind, nullable(e.SessionID), e.Source, Redact(e.Payload),
 		nullable(e.Workspace), nullable(e.Window))
 	if err != nil {
 		return 0, fmt.Errorf("store: append event: %w", err)
@@ -312,4 +315,104 @@ func scanTimelineEvents(rows *sql.Rows) ([]TimelineEvent, error) {
 		return nil, err
 	}
 	return out, nil
+}
+
+// ToolOutputExcerpt is the bounded, redacted form of a tool's output that
+// every tool.result writer stores (task c9ab6d28). Redaction runs over the
+// FULL text BEFORE the cut, so a secret straddling the cut point is replaced
+// whole by its marker instead of surviving as a partial key.
+func ToolOutputExcerpt(full string) string {
+	return payload.ElideMiddle(Redact(full), payload.ToolOutputExcerptMaxRunes)
+}
+
+// ToolResultEvent is a stored tool.result event found by tool_use_id.
+type ToolResultEvent struct {
+	ID      int64
+	Payload payload.ToolResult
+}
+
+// FindToolResult returns the tool.result event carrying toolUseID, if any.
+func (s *Store) FindToolResult(toolUseID string) (ToolResultEvent, bool, error) {
+	var (
+		id  int64
+		raw string
+	)
+	err := s.db.QueryRow(`SELECT id, payload FROM timeline_events
+		WHERE kind = ? AND json_extract(payload, '$.tool_use_id') = ? ORDER BY id LIMIT 1`,
+		payload.KindToolResult, toolUseID).Scan(&id, &raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ToolResultEvent{}, false, nil
+	}
+	if err != nil {
+		return ToolResultEvent{}, false, fmt.Errorf("store: find tool.result %s: %w", toolUseID, err)
+	}
+	var p payload.ToolResult
+	if err := json.Unmarshal([]byte(raw), &p); err != nil {
+		return ToolResultEvent{}, false, fmt.Errorf("store: decode tool.result %s: %w", toolUseID, err)
+	}
+	return ToolResultEvent{ID: id, Payload: p}, true, nil
+}
+
+// EnrichToolResult rewrites the payload of the tool.result event id with
+// outcome fields observed after the event was first written (live capture
+// records a tool.result before a transcript's is_error/Exit code line
+// exists). timeline_events is append-only by trigger; this is the single
+// sanctioned exception — only a tool.result's payload, only inside one
+// transaction that restores the trigger — following the precedent of the
+// project-key sweep's records rewrite (sweep.go).
+func (s *Store) EnrichToolResult(id int64, p payload.ToolResult) error {
+	b, err := json.Marshal(p)
+	if err != nil {
+		return fmt.Errorf("store: enrich tool.result %d: %w", id, err)
+	}
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("store: enrich tool.result %d: %w", id, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec(`DROP TRIGGER timeline_events_no_update`); err != nil {
+		return fmt.Errorf("store: enrich tool.result %d: drop trigger: %w", id, err)
+	}
+	if _, err := tx.Exec(`UPDATE timeline_events SET payload = ? WHERE id = ? AND kind = ?`,
+		Redact(string(b)), id, payload.KindToolResult); err != nil {
+		return fmt.Errorf("store: enrich tool.result %d: %w", id, err)
+	}
+	if _, err := tx.Exec(timelineEventsNoUpdateTriggerSQL); err != nil {
+		return fmt.Errorf("store: enrich tool.result %d: recreate trigger: %w", id, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("store: enrich tool.result %d: %w", id, err)
+	}
+	return nil
+}
+
+// ReconcileToolResult is backfill's tool.result writer half: when a
+// tool.result for in.ToolUseID already exists it is never duplicated. If
+// that event carries no outcome yet (live capture recorded only the id) it
+// is ENRICHED in place with in's is_error, exit code and excerpt, keeping
+// anything the existing event already observed (its Exit, Interrupted). It
+// reports whether an existing event was found — the caller then appends
+// nothing. in.Content must already be excerpted (ToolOutputExcerpt).
+func (s *Store) ReconcileToolResult(in payload.ToolResult) (found bool, err error) {
+	existing, ok, err := s.FindToolResult(in.ToolUseID)
+	if err != nil || !ok {
+		return false, err
+	}
+	old := existing.Payload
+	if old.Content != "" || old.IsError {
+		return true, nil
+	}
+	merged := old
+	merged.IsError = in.IsError
+	merged.Content = in.Content
+	if merged.Exit == nil {
+		merged.Exit = in.Exit
+	}
+	if merged.AgentID == "" {
+		merged.AgentID = in.AgentID
+	}
+	if merged.IsError == old.IsError && merged.Content == old.Content && merged.Exit == old.Exit {
+		return true, nil
+	}
+	return true, s.EnrichToolResult(existing.ID, merged)
 }

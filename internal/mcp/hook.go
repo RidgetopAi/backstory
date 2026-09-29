@@ -45,6 +45,13 @@ type PostToolUseParams struct {
 	// real exit code (SCHEMA.md: a writer must never invent 0 — Phase 3 live
 	// capture is the writer that comment already anticipated).
 	Exit *int `json:"exit,omitempty"`
+	// Output is the Bash call's raw stdout+stderr as the hook saw it
+	// (already bounded by the hook's wire cap). The daemon redacts it whole
+	// and only then cuts it to payload.ToolOutputExcerptMaxRunes, so a secret
+	// straddling the cut is still caught. Interrupted is the harness's own
+	// interrupted flag.
+	Output      string `json:"output,omitempty"`
+	Interrupted bool   `json:"interrupted,omitempty"`
 }
 
 // PostToolUseResult is post_tool_use's return value: how many timeline
@@ -105,7 +112,10 @@ func handlePostToolUse(st *store.Store, sessionID string, raw json.RawMessage, c
 	n++
 
 	if p.ToolName == bashToolName {
-		tr := payload.ToolResult{ToolUseID: p.ToolUseID, Exit: p.Exit}
+		tr := payload.ToolResult{
+			ToolUseID: p.ToolUseID, Exit: p.Exit, Interrupted: p.Interrupted,
+			Content: store.ToolOutputExcerpt(p.Output),
+		}
 		trBytes, err := json.Marshal(tr)
 		if err != nil {
 			return errResponse("internal", err.Error())

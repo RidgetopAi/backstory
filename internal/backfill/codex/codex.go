@@ -451,19 +451,20 @@ func appendToolEvents(st *store.Store, sessionID string, lines []rolloutLine, va
 			}
 			n++
 		case "function_call_output", "custom_tool_call_output":
+			tr := payload.ToolResult{
+				ToolUseID: item.CallID,
+				Content:   store.ToolOutputExcerpt(item.Output),
+			}
 			if item.CallID != "" {
-				dup, err := st.HasEventWithToolUseID(EventToolResult, item.CallID)
+				found, err := st.ReconcileToolResult(tr)
 				if err != nil {
 					return n, err
 				}
-				if dup {
+				if found {
 					continue
 				}
 			}
-			payloadBytes, err := json.Marshal(payload.ToolResult{
-				ToolUseID: item.CallID,
-				Content:   item.Output,
-			})
+			payloadBytes, err := json.Marshal(tr)
 			if err != nil {
 				return n, err
 			}

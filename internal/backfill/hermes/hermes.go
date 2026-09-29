@@ -523,17 +523,18 @@ func appendToolEvents(st *store.Store, sessionID string, active []hermesMessage)
 				n++
 			}
 		case m.Role == "tool" && m.ToolCallID != "":
-			dup, err := st.HasEventWithToolUseID(EventToolResult, m.ToolCallID)
+			tr := payload.ToolResult{
+				ToolUseID: m.ToolCallID,
+				Content:   store.ToolOutputExcerpt(m.Content),
+			}
+			found, err := st.ReconcileToolResult(tr)
 			if err != nil {
 				return n, err
 			}
-			if dup {
+			if found {
 				continue
 			}
-			payloadBytes, err := json.Marshal(payload.ToolResult{
-				ToolUseID: m.ToolCallID,
-				Content:   m.Content,
-			})
+			payloadBytes, err := json.Marshal(tr)
 			if err != nil {
 				return n, err
 			}

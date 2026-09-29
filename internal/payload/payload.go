@@ -10,6 +10,13 @@
 // coordination slot read `branch`.
 package payload
 
+import (
+	"fmt"
+	"regexp"
+	"strconv"
+	"unicode/utf8"
+)
+
 // Event kinds: the timeline_events.kind value each payload type below
 // belongs to (SCHEMA.md "Event kinds enum" is free text in v0; these are
 // the values every writer/reader in this codebase actually uses).
@@ -105,6 +112,9 @@ type ToolResult struct {
 	Exit      *int   `json:"exit,omitempty"`
 	Content   string `json:"content,omitempty"`
 	AgentID   string `json:"agent_id,omitempty"`
+	// Interrupted is additive (task c9ab6d28): set when the harness reported
+	// the tool call was interrupted before finishing.
+	Interrupted bool `json:"interrupted,omitempty"`
 }
 
 // ShellCommand is the command event payload: bash preexec/precmd capture of
@@ -119,4 +129,56 @@ type ShellCommand struct {
 	CWD        string `json:"cwd,omitempty"`
 	Exit       int    `json:"exit"`
 	DurationMS int    `json:"duration_ms"`
+}
+
+// ToolOutputExcerptMaxRunes is the cap on ToolResult.Content, for every
+// writer (live PostToolUse, Claude/Codex/Hermes backfill): the recorded
+// OUTCOME is a bounded excerpt of the tool's output, never the whole thing
+// (task c9ab6d28, decision 4fb0cc2c).
+const ToolOutputExcerptMaxRunes = 2048
+
+// ToolOutputWireMaxRunes bounds the raw output the live hook ships to the
+// daemon, so a request line stays well under the daemon's 1 MiB scan limit.
+// The daemon redacts what it receives BEFORE cutting it to the excerpt cap.
+const ToolOutputWireMaxRunes = 200 * 1024
+
+// ElisionMarkerFormat is the marker ElideMiddle leaves where it cut; %d is
+// the number of runes elided.
+const ElisionMarkerFormat = "\n[… %d runes elided …]\n"
+
+// ElideMiddle returns s unchanged when it has at most max runes; otherwise
+// it keeps the head and the tail and joins them with an elision marker, the
+// whole result being at most max runes. Rune-safe.
+func ElideMiddle(s string, max int) string {
+	r := []rune(s)
+	if len(r) <= max {
+		return s
+	}
+	// Reserve room for the marker at its widest (it names at most len(r)).
+	marker := fmt.Sprintf(ElisionMarkerFormat, len(r))
+	keep := max - utf8.RuneCountInString(marker)
+	if keep < 2 {
+		keep = 2
+	}
+	head := keep - keep/2
+	tail := keep / 2
+	return string(r[:head]) + fmt.Sprintf(ElisionMarkerFormat, len(r)-keep) + string(r[len(r)-tail:])
+}
+
+var exitCodeLine = regexp.MustCompile(`^Exit code (\d+)(?:\r?\n|$)`)
+
+// ParseExitCodeLine reads the exit status from a Claude Code Bash
+// tool_result whose content begins with a line `Exit code <N>`. It returns
+// nil when the content does not start that way: an exit code is only ever
+// observed, never guessed.
+func ParseExitCodeLine(content string) *int {
+	m := exitCodeLine.FindStringSubmatch(content)
+	if m == nil {
+		return nil
+	}
+	n, err := strconv.Atoi(m[1])
+	if err != nil {
+		return nil
+	}
+	return &n
 }

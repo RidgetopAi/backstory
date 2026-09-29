@@ -249,6 +249,36 @@ func buildPostToolUseFileTools() map[string]bool {
 // invent 0".
 type toolResponseExit struct {
 	ExitCode *int `json:"exit_code"`
+	// Stdout, Stderr and Interrupted are what real Claude Code sends for a
+	// Bash call (measured on real transcripts: interrupted, isImage,
+	// noOutputExpected, persistedOutputPath, persistedOutputSize, stderr,
+	// stdout — and NO exit_code). Output/Interrupted feed the tool.result's
+	// outcome (task c9ab6d28).
+	Stdout      string `json:"stdout"`
+	Stderr      string `json:"stderr"`
+	Interrupted bool   `json:"interrupted"`
+}
+
+// bashOutput joins a Bash tool_response's stdout and stderr into the one
+// output text the daemon redacts and excerpts, cut to the wire cap (head and
+// tail kept) so the request line stays small. A response that is a bare
+// JSON string (a harness that reports output as text) is taken as the
+// output itself.
+func bashOutput(raw json.RawMessage, tr toolResponseExit) string {
+	out := tr.Stdout
+	if tr.Stderr != "" {
+		if out != "" && !strings.HasSuffix(out, "\n") {
+			out += "\n"
+		}
+		out += tr.Stderr
+	}
+	if out == "" {
+		var text string
+		if json.Unmarshal(raw, &text) == nil {
+			out = text
+		}
+	}
+	return payload.ElideMiddle(out, payload.ToolOutputWireMaxRunes)
 }
 
 // inputStringField extracts field from a tool_use block's raw tool_input
@@ -292,6 +322,8 @@ func buildPostToolUseParams(p postToolUsePayload) mcp.PostToolUseParams {
 		var tr toolResponseExit
 		if len(p.ToolResponse) > 0 && json.Unmarshal(p.ToolResponse, &tr) == nil {
 			params.Exit = tr.ExitCode
+			params.Interrupted = tr.Interrupted
+			params.Output = bashOutput(p.ToolResponse, tr)
 		}
 	}
 	return params
