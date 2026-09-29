@@ -23,6 +23,8 @@ TestCase {
     "BarWidget.qml",
     "GroupEditor.qml",
     "GroupProjectRow.qml",
+    "MemoryButton.qml",
+    "MemoryView.qml",
     "Panel.qml",
     "ProjectRow.qml",
     "WeekSection.qml",

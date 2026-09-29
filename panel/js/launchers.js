@@ -46,6 +46,37 @@ function groupClearCommand(projectKey) {
   return ["backstory", "group", "clear", projectKey]
 }
 
+// Memory view (decision 02c511b3 D5). Every id / project key / RFC3339
+// bound below is its own argv element — never interpolated into a string —
+// the same rule terminalLaunchCommand holds for cwd.
+function recordsCommand(projectKey, history) {
+  var argv = ["backstory", "records", "--project", projectKey, "--json"]
+  if (history) argv.push("--history")
+  return argv
+}
+
+// editCommand runs `backstory edit <id>` in a terminal ($EDITOR needs a
+// TTY), started detached; the id is the LAST argv element on its own.
+function editCommand(recordId) {
+  return ["xdg-terminal-exec", "--", "backstory", "edit", recordId]
+}
+
+// deleteCommand always carries --yes: the panel's own inline "Forget this
+// record?" confirm is the human's confirmation, and there is no TTY here.
+function deleteCommand(recordId) {
+  return ["backstory", "delete", recordId, "--yes"]
+}
+
+// purgeCommand builds `backstory purge --project K [--since T] <mode>`;
+// dryRun true previews (--dry-run), false performs it (--yes). since is an
+// RFC3339 string, or "" for the whole project.
+function purgeCommand(projectKey, since, dryRun) {
+  var argv = ["backstory", "purge", "--project", projectKey]
+  if (since) argv.push("--since", since)
+  argv.push(dryRun ? "--dry-run" : "--yes")
+  return argv
+}
+
 // terminalLaunchCommand opens a terminal at an arbitrary project cwd — the
 // row's own cwd, not necessarily the shell's.
 //

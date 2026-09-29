@@ -23,6 +23,7 @@ Item {
   // at the session's cwd" / "Resume in <agent>").
   signal openTerminal(string cwd)
   signal resumeAgent(string cwd, string handoffText, string handoffId)
+  signal openMemory(string projectKey, string displayName)
 
   implicitHeight: column.implicitHeight + Style.spacing.rowGap
   implicitWidth: parent ? parent.width : Style.space(360)
@@ -44,7 +45,7 @@ Item {
   Column {
     id: column
     anchors.left: parent.left
-    anchors.right: resumeButton.visible ? resumeButton.left : parent.right
+    anchors.right: resumeButton.visible ? resumeButton.left : memoryButton.left
     anchors.leftMargin: root.indented ? Style.space(20) : Style.spacing.rowPaddingX
     anchors.rightMargin: Style.spacing.rowPaddingX
     anchors.verticalCenter: parent.verticalCenter
@@ -85,9 +86,20 @@ Item {
   }
 
   PanelActionButton {
+    id: memoryButton
+    anchors.right: parent.right
+    anchors.verticalCenter: parent.verticalCenter
+    iconText: Glyphs.memory()
+    tooltipText: "Memory"
+    foreground: Color.foreground
+    hoverColor: Color.accent
+    onClicked: root.openMemory(Model.summaryProjectKey(root.summary), Model.summaryDisplayName(root.summary))
+  }
+
+  PanelActionButton {
     id: resumeButton
     visible: root.hasHandoff
-    anchors.right: parent.right
+    anchors.right: memoryButton.left
     anchors.verticalCenter: parent.verticalCenter
     iconText: Glyphs.resume()
     tooltipText: "Resume in agent"
