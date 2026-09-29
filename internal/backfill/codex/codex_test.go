@@ -2,9 +2,13 @@ package codex
 
 import (
 	"database/sql"
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
+	"github.com/RidgetopAi/backstory/internal/payload"
 	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
@@ -317,5 +321,41 @@ func TestImportUnknownModelProviderImportsIdentically(t *testing.T) {
 	}
 	if known.Origin != unknown.Origin {
 		t.Errorf("origin differs: known %q, unknown %q", known.Origin, unknown.Origin)
+	}
+}
+
+// TestImportCapsOversizedToolOutput is task c9ab6d28's DONE WHEN clause 5
+// (Codex half): a function_call_output with 10 KB of output stores an
+// excerpt bounded by payload.ToolOutputExcerptMaxRunes.
+func TestImportCapsOversizedToolOutput(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "2026", "01", "15")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	big := "HEAD" + strings.Repeat("o", 10*1024) + "TAIL"
+	lines := []string{
+		`{"type":"session_meta","timestamp":"2026-01-15T09:00:00Z","ordinal":1,"payload":{"id":"big-thread","cwd":"/home/erin/codex-proj","cli_version":"0.151.0","model_provider":"openai","source":"cli"}}`,
+		`{"type":"response_item","timestamp":"2026-01-15T09:00:01Z","ordinal":2,"payload":{"type":"function_call","name":"shell","arguments":"{\"command\":[\"ls\"]}","call_id":"call_big"}}`,
+		`{"type":"response_item","timestamp":"2026-01-15T09:00:02Z","ordinal":3,"payload":{"type":"function_call_output","call_id":"call_big","output":"` + big + `"}}`,
+	}
+	if err := os.WriteFile(filepath.Join(dir, "rollout-20260115T090000-big000thread.jsonl"), []byte(strings.Join(lines, "\n")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	st := mustOpenStore(t)
+	if _, err := Import(st, Options{Root: root, Git: fakeGit{}, Workspaces: []string{}}); err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	found, ok, err := st.FindToolResult("call_big")
+	if err != nil || !ok {
+		t.Fatalf("FindToolResult: ok=%v err=%v", ok, err)
+	}
+	content := found.Payload.Content
+	if n := utf8.RuneCountInString(content); n > payload.ToolOutputExcerptMaxRunes {
+		t.Errorf("stored content is %d runes, want at most %d", n, payload.ToolOutputExcerptMaxRunes)
+	}
+	if !strings.HasPrefix(content, "HEAD") || !strings.HasSuffix(content, "TAIL") {
+		t.Errorf("excerpt lacks head/tail: %.30q", content)
 	}
 }

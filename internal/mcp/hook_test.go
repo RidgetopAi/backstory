@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/RidgetopAi/backstory/internal/ident"
+	"github.com/RidgetopAi/backstory/internal/payload"
 	"github.com/RidgetopAi/backstory/internal/socket"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
@@ -147,5 +148,38 @@ func TestCaptureOffConnectionCreatesNoSessionsRow(t *testing.T) {
 	}
 	if got := countSessions(t, st); got != 1 {
 		t.Fatalf("sessions after a connection with capture on = %d, want 1", got)
+	}
+}
+
+// TestPostToolUseBashOutputRedactedBeforeExcerpt is task c9ab6d28's DONE
+// WHEN clause 3 through the daemon: a PEM block straddling the excerpt cut
+// is stored as the redaction marker, never as partial key text.
+//
+// RA-MUTATION-PROBE: truncate before redacting in handlePostToolUse -> RED.
+func TestPostToolUseBashOutputRedactedBeforeExcerpt(t *testing.T) {
+	st := mustOpenStore(t)
+	sockPath := testDaemon(t, st, "claude", "/home/brian/proj", "proj-key")
+
+	pem := "-----BEGIN RSA PRIVATE KEY-----\n" + strings.Repeat("MIIEowIBAAKCAQEAuVJTUt9Us8cKjMzE\n", 60) + "-----END RSA PRIVATE KEY-----"
+	out := strings.Repeat("p", payload.ToolOutputExcerptMaxRunes/2-50) + pem + strings.Repeat("s", 3000)
+	params, err := json.Marshal(PostToolUseParams{ToolUseID: "toolu_pem", ToolName: "Bash", Command: "cat key", Output: out})
+	if err != nil {
+		t.Fatal(err)
+	}
+	shim := dialShim(t, sockPath)
+	if _, rerr := shim.callDaemon(DaemonMethodPostToolUse, params); rerr != nil {
+		t.Fatalf("post_tool_use: %v", rerr)
+	}
+
+	found, ok, err := st.FindToolResult("toolu_pem")
+	if err != nil || !ok {
+		t.Fatal(err)
+	}
+	c := found.Payload.Content
+	if !strings.Contains(c, "[redacted:pem-block]") {
+		t.Errorf("content lacks the pem-block marker: %.120q", c)
+	}
+	if strings.Contains(c, "PRIVATE KEY") || strings.Contains(c, "MIIEow") {
+		t.Errorf("content leaks partial key text")
 	}
 }

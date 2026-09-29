@@ -18,9 +18,9 @@ var secretPatterns = []secretPattern{
 	{"password", regexp.MustCompile(`(?i)\bpassword\s*=\s*\S+`)},
 }
 
-// redact replaces every secret pattern match in text with
+// Redact replaces every secret pattern match in text with
 // "[redacted:<kind>]". Text with no match is returned unchanged.
-func redact(text string) string {
+func Redact(text string) string {
 	for _, p := range secretPatterns {
 		text = p.re.ReplaceAllString(text, "[redacted:"+p.kind+"]")
 	}

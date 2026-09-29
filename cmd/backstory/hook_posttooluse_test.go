@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/RidgetopAi/backstory/internal/backfill/claude"
 	"github.com/RidgetopAi/backstory/internal/payload"
@@ -641,5 +642,87 @@ func writeDedupTranscript(t *testing.T, path, sessionID, cwd, filePath, toolUseI
 	}
 	if err := os.WriteFile(path, buf.Bytes(), 0o600); err != nil {
 		t.Fatalf("write transcript %s: %v", path, err)
+	}
+}
+
+// liveBashToolResult runs one Bash PostToolUse through the real hook binary
+// and returns the tool.result payload it stored.
+func liveBashToolResult(t *testing.T, toolUseID string, response map[string]any) payload.ToolResult {
+	t.Helper()
+	bin := buildBackstoryHarness(t)
+	dbPath, _, env := startTestDaemon(t, bin)
+	projectDir := t.TempDir()
+
+	_, stderr, exitCode, _ := runHookInDir(t, bin, projectDir, env, []string{"post-tool-use"}, map[string]any{
+		"session_id":      "claude-outcome-session",
+		"cwd":             projectDir,
+		"hook_event_name": "PostToolUse",
+		"tool_name":       "Bash",
+		"tool_use_id":     toolUseID,
+		"tool_input":      map[string]any{"command": "make test"},
+		"tool_response":   response,
+	})
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0 (stderr: %s)", exitCode, stderr)
+	}
+	s := mustOpenTestStore(t, dbPath)
+	for _, ev := range queryEventsForProject(t, s, project.Key(projectDir, project.RealGit{}, nil)) {
+		if ev.Kind != payload.KindToolResult {
+			continue
+		}
+		var tr payload.ToolResult
+		if err := json.Unmarshal([]byte(ev.Payload), &tr); err != nil {
+			t.Fatalf("unmarshal tool.result %q: %v", ev.Payload, err)
+		}
+		return tr
+	}
+	t.Fatal("no tool.result event recorded")
+	return payload.ToolResult{}
+}
+
+// TestHookPostToolUseRealClaudeBashShapeRecordsOutcome is task c9ab6d28's
+// DONE WHEN clause 1: the tool_response keys real Claude Code sends for a
+// Bash call (stdout, stderr, interrupted, isImage, noOutputExpected — and NO
+// exit_code) yield a tool.result carrying a non-empty output excerpt and the
+// interrupted flag.
+func TestHookPostToolUseRealClaudeBashShapeRecordsOutcome(t *testing.T) {
+	tr := liveBashToolResult(t, "toolu_real_shape_1", map[string]any{
+		"stdout":           "ok  \tpkg/a\t0.4s\n",
+		"stderr":           "warning: flaky\n",
+		"interrupted":      true,
+		"isImage":          false,
+		"noOutputExpected": false,
+	})
+	if tr.Content == "" {
+		t.Fatal("tool.result content is empty, want a non-empty output excerpt")
+	}
+	if !strings.Contains(tr.Content, "pkg/a") || !strings.Contains(tr.Content, "flaky") {
+		t.Errorf("content = %q, want stdout and stderr both present", tr.Content)
+	}
+	if !tr.Interrupted {
+		t.Error("tool.result interrupted = false, want true")
+	}
+	if tr.Exit != nil {
+		t.Errorf("tool.result exit = %d, want nil (the harness sent no exit_code; a writer never invents one)", *tr.Exit)
+	}
+}
+
+// TestHookPostToolUseBashLargeOutputIsBoundedHeadAndTail is clause 2: 10 KB
+// of stdout is stored as an excerpt no longer than the cap constant,
+// containing the head, the tail and an elision marker.
+func TestHookPostToolUseBashLargeOutputIsBoundedHeadAndTail(t *testing.T) {
+	out := "HEADLINE" + strings.Repeat("m", 10*1024) + "TAILLINE"
+	tr := liveBashToolResult(t, "toolu_big_1", map[string]any{"stdout": out, "stderr": "", "interrupted": false})
+	if n := utf8.RuneCountInString(tr.Content); n > payload.ToolOutputExcerptMaxRunes {
+		t.Errorf("excerpt is %d runes, want at most %d", n, payload.ToolOutputExcerptMaxRunes)
+	}
+	if !strings.HasPrefix(tr.Content, "HEADLINE") {
+		t.Errorf("excerpt does not start with the output's head: %.40q", tr.Content)
+	}
+	if !strings.HasSuffix(tr.Content, "TAILLINE") {
+		t.Errorf("excerpt does not end with the output's tail: %.40q", tr.Content[len(tr.Content)-40:])
+	}
+	if !strings.Contains(tr.Content, "runes elided") {
+		t.Error("excerpt has no elision marker")
 	}
 }

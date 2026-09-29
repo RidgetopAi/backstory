@@ -4,6 +4,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
+
+	"github.com/RidgetopAi/backstory/internal/payload"
 )
 
 func TestRedactionOnInsertAndReadback(t *testing.T) {
@@ -105,5 +108,45 @@ func TestRedactionLeavesControlTextVerbatim(t *testing.T) {
 	}
 	if rec.Text != control {
 		t.Errorf("control text stored as %q, want unchanged %q", rec.Text, control)
+	}
+}
+
+// TestToolOutputExcerptRedactsBeforeCutting is task c9ab6d28's DONE WHEN
+// clause 3: a PEM private-key block straddling the excerpt's cut point is
+// stored as the redaction marker, never as partial key text. Redacting only
+// AFTER the cut would leave the block's BEGIN line (or half its body)
+// without an END line, which no pattern matches.
+func TestToolOutputExcerptRedactsBeforeCutting(t *testing.T) {
+	const keyBody = "MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQC7VJTUt9Us8cKj"
+	pem := "-----BEGIN PRIVATE KEY-----\n" + strings.Repeat(keyBody+"\n", 40) + "-----END PRIVATE KEY-----"
+	// Place the block so the head budget (~half the cap) ends inside it.
+	prefix := strings.Repeat("p", payload.ToolOutputExcerptMaxRunes/2-60)
+	out := prefix + pem + strings.Repeat("s", 4000)
+
+	got := ToolOutputExcerpt(out)
+	if !strings.Contains(got, "[redacted:pem-block]") {
+		t.Errorf("excerpt lacks the pem-block redaction marker: %.200q", got)
+	}
+	for _, leak := range []string{"BEGIN PRIVATE KEY", keyBody[:20]} {
+		if strings.Contains(got, leak) {
+			t.Errorf("excerpt leaks partial key text %q", leak)
+		}
+	}
+	if n := utf8.RuneCountInString(got); n > payload.ToolOutputExcerptMaxRunes {
+		t.Errorf("excerpt is %d runes, want at most %d", n, payload.ToolOutputExcerptMaxRunes)
+	}
+}
+
+func TestElideMiddleKeepsHeadTailWithinCap(t *testing.T) {
+	in := "HEAD" + strings.Repeat("é", 5000) + "TAIL"
+	got := payload.ElideMiddle(in, 100)
+	if n := utf8.RuneCountInString(got); n > 100 {
+		t.Errorf("got %d runes, want <= 100", n)
+	}
+	if !strings.HasPrefix(got, "HEAD") || !strings.HasSuffix(got, "TAIL") || !strings.Contains(got, "runes elided") {
+		t.Errorf("got %q, want head, tail and marker", got)
+	}
+	if short := "short"; payload.ElideMiddle(short, 100) != short {
+		t.Error("short input must pass through unchanged")
 	}
 }

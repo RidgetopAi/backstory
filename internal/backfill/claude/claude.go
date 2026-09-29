@@ -468,19 +468,24 @@ func appendToolEvents(st *store.Store, sessionID, agentID string, lines []transc
 				}
 				n++
 			case "tool_result":
+				text := blockText(b.Content)
+				tr := payload.ToolResult{
+					ToolUseID: b.ToolUseID, IsError: b.IsError, Content: store.ToolOutputExcerpt(text),
+					Exit: payload.ParseExitCodeLine(text), AgentID: agentID,
+				}
 				if b.ToolUseID != "" {
-					dup, err := st.HasEventWithToolUseID(EventToolResult, b.ToolUseID)
+					// A live-captured tool.result for this id (content-less) is
+					// ENRICHED with the transcript's outcome, never skipped
+					// (task c9ab6d28).
+					found, err := st.ReconcileToolResult(tr)
 					if err != nil {
 						return n, err
 					}
-					if dup {
+					if found {
 						continue
 					}
 				}
-				payloadBytes, err := json.Marshal(payload.ToolResult{
-					ToolUseID: b.ToolUseID, IsError: b.IsError, Content: blockText(b.Content),
-					AgentID: agentID,
-				})
+				payloadBytes, err := json.Marshal(tr)
 				if err != nil {
 					return n, err
 				}

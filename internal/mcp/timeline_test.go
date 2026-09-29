@@ -3,6 +3,7 @@ package mcp
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -285,5 +286,37 @@ func TestTimelineInvalidScopeIsInvalidParams(t *testing.T) {
 	}
 	if rerr.Code != CodeInvalidParams {
 		t.Errorf("error code = %d, want %d (CodeInvalidParams)", rerr.Code, CodeInvalidParams)
+	}
+}
+
+// TestTimelineToolResultCarriesOutcomeFields is task c9ab6d28's DONE WHEN
+// clause 6: a tool.result event's timeline output includes its outcome
+// fields (is_error, exit, interrupted, content excerpt) so an agent can cite
+// it as evidence.
+func TestTimelineToolResultCarriesOutcomeFields(t *testing.T) {
+	st := mustOpenStore(t)
+	sockPath := testDaemon(t, st, "claude", "/home/brian/proj", "proj-key")
+	shim := dialShim(t, sockPath)
+	sessionID := callerSession(t, shim)
+
+	if _, err := st.AppendEvent(store.Event{
+		TS: time.Now().UTC(), Kind: "tool.result", SessionID: sessionID, Source: "backfill",
+		Payload: `{"tool_use_id":"toolu_1","is_error":true,"exit":2,"interrupted":true,"content":"Exit code 2\nboom"}`,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	result := callTimeline(t, shim, `{"kind":"tool.result"}`)
+	if len(result.Events) != 1 {
+		t.Fatalf("len(Events) = %d, want 1", len(result.Events))
+	}
+	var got map[string]any
+	if err := json.Unmarshal(result.Events[0].Payload, &got); err != nil {
+		t.Fatal(err)
+	}
+	content, _ := got["content"].(string)
+	if got["is_error"] != true || got["exit"] != float64(2) || got["interrupted"] != true ||
+		!strings.Contains(content, "boom") {
+		t.Errorf("timeline payload = %v, want is_error, exit, interrupted and content", got)
 	}
 }

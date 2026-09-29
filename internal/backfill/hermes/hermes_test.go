@@ -5,9 +5,12 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
+	"github.com/RidgetopAi/backstory/internal/payload"
 	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/store"
 
@@ -421,4 +424,35 @@ func TestImportIsIdempotentAndMissingFileIsNoop(t *testing.T) {
 			t.Errorf("Import with missing state.db = %+v, want zero Result", res)
 		}
 	})
+}
+
+// TestImportCapsOversizedToolOutput is task c9ab6d28's DONE WHEN clause 5
+// (Hermes half): a tool message with 10 KB of content stores an excerpt
+// bounded by payload.ToolOutputExcerptMaxRunes.
+func TestImportCapsOversizedToolOutput(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "state.db")
+	t0 := time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)
+	big := "HEAD" + strings.Repeat("o", 10*1024) + "TAIL"
+	newFixtureDB(t, dbPath,
+		[]fixtureSession{{id: "sess-big", cwd: "/work/repo", gitBranch: "main", gitRepoRoot: "/work/repo", startedAt: t0}},
+		[]fixtureMessage{
+			{sessionID: "sess-big", role: "assistant", toolCalls: `[{"id":"call_big","name":"Bash","arguments":{"command":"ls"}}]`, ts: t0.Add(time.Second), active: true},
+			{sessionID: "sess-big", role: "tool", toolCallID: "call_big", content: big, ts: t0.Add(2 * time.Second), active: true},
+		})
+
+	st := mustOpenStore(t)
+	if _, err := Import(st, Options{Path: dbPath, Git: fakeGit{}, Workspaces: []string{}}); err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+	found, ok, err := st.FindToolResult("call_big")
+	if err != nil || !ok {
+		t.Fatalf("FindToolResult: ok=%v err=%v", ok, err)
+	}
+	content := found.Payload.Content
+	if n := utf8.RuneCountInString(content); n > payload.ToolOutputExcerptMaxRunes {
+		t.Errorf("stored content is %d runes, want at most %d", n, payload.ToolOutputExcerptMaxRunes)
+	}
+	if !strings.HasPrefix(content, "HEAD") || !strings.HasSuffix(content, "TAIL") {
+		t.Errorf("excerpt lacks head/tail: %.30q", content)
+	}
 }
