@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/RidgetopAi/backstory/internal/block"
 	"github.com/RidgetopAi/backstory/internal/store"
@@ -100,7 +101,13 @@ const (
 	// the plain StatusContradicted check below never is); no other kind can
 	// carry it.
 	StatusPossiblyStale Status = "possibly-stale"
+	// StatusExpired marks a record whose own ExpiresAt has passed: it was
+	// declared valid only until then, so it must never read as current.
+	StatusExpired Status = "expired"
 )
+
+// now is the clock annotate judges ExpiresAt against; a var so tests can pin it.
+var now = time.Now
 
 // Item is one ledger record in a recall result.
 type Item struct {
@@ -129,6 +136,9 @@ type Item struct {
 	// the timeline event ids the contradicting record cited as its own
 	// evidence, reached only via a `contradicts` edge into this record.
 	ContradictionEvidence []int64
+	// ExpiresAt is the record's own expiry, when it declared one.
+	ExpiresAt *time.Time
+
 	// StaleReasons is set only when Status is StatusPossiblyStale: every
 	// reason store.HandoffFreshness found, each carrying its own evidence
 	// ids.
@@ -282,6 +292,9 @@ func annotate(st *store.Store, rec store.Record, workspaces []string) (Item, err
 		Status: StatusCurrent,
 		Edges:  edges,
 	}
+	if rec.ExpiresAt != nil {
+		item.ExpiresAt = rec.ExpiresAt
+	}
 	if rec.TombstonedAt != nil {
 		item.Status = StatusTombstoned
 		item.Text = ""
@@ -294,6 +307,11 @@ func annotate(st *store.Store, rec store.Record, workspaces []string) (Item, err
 			item.SupersededByID = e.FromID
 			return item, nil
 		}
+	}
+
+	if rec.ExpiresAt != nil && !rec.ExpiresAt.After(now()) {
+		item.Status = StatusExpired
+		return item, nil
 	}
 
 	// A handoff's contradiction signal is folded into HandoffFreshness's own
@@ -411,6 +429,9 @@ func renderBody(header, text string, maxChars int) string {
 	return header + "\n" + text
 }
 
+// StatusLabel is the engine's own human-readable label for item's status.
+func StatusLabel(item Item) string { return statusLabel(item) }
+
 func statusLabel(item Item) string {
 	switch item.Status {
 	case StatusSuperseded:
@@ -421,6 +442,8 @@ func statusLabel(item Item) string {
 		return "contradicted (evidence " + joinInt64s(item.ContradictionEvidence) + ")"
 	case StatusPossiblyStale:
 		return "possibly stale: " + staleReasonSummary(item.StaleReasons)
+	case StatusExpired:
+		return "expired " + item.ExpiresAt.UTC().Format(time.RFC3339)
 	case StatusCurrent:
 		return "current"
 	default:

@@ -81,7 +81,7 @@ func ToolsV0() []Tool {
 					},
 					"supersedes": {
 						"type": "string",
-						"description": "id of the record this one supersedes"
+						"description": "id of the record this one supersedes; set it whenever this record replaces or corrects an earlier one"
 					},
 					"evidence": {
 						"type": "array",

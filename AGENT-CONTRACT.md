@@ -197,7 +197,8 @@ Tesla §1.9 counts eight lines: the `description:` line plus the seven body line
 5. claim "done" only with `note outcome` pointing at a `timeline` event id; a claim without
    evidence is recorded as a claim.
 6. end with `note handoff`: what is true now, what is next, what not to do — set
-   `supersedes` to the Resume slot's id when it showed one.
+   `supersedes` to the Resume slot's id when it showed one; whenever any record replaces or
+   corrects an earlier one, set `supersedes` to its id (or `confirm supersede`).
 7. inferred records are hints; declared records are claims; the timeline is fact.
 8. never put a secret in a note.
 

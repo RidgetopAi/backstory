@@ -134,6 +134,8 @@ func trustMark(item recall.Item) string {
 			return "contradicted"
 		}
 		return "contradicted → evidence " + joinInt64s(item.ContradictionEvidence)
+	case recall.StatusPossiblyStale, recall.StatusExpired:
+		return recall.StatusLabel(item)
 	default:
 		return "current"
 	}
