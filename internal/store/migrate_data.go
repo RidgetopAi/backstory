@@ -182,6 +182,17 @@ BEGIN
   SELECT RAISE(ABORT, 'timeline_events: append-only, no update');
 END;`
 
+// timelineEventsNoDeleteTriggerSQL is the one definition of
+// timeline_events_no_delete, exactly as 0001_init.sql defines it. The human
+// purge (PurgeSessions) drops it, deletes, and recreates this text inside
+// one transaction.
+const timelineEventsNoDeleteTriggerSQL = `
+CREATE TRIGGER timeline_events_no_delete
+BEFORE DELETE ON timeline_events
+BEGIN
+  SELECT RAISE(ABORT, 'timeline_events: append-only, no delete');
+END;`
+
 // toolUseFileFields mirrors internal/backfill/claude/tools.go's fileTools:
 // the tool.use payload's pre-8ba5487a `detail` value becomes `path` for
 // these tools, `command` for Bash, under this migration's routing. store

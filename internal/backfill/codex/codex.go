@@ -216,6 +216,12 @@ func importFile(st *store.Store, git project.Git, workspaces []string, path, par
 	if exists {
 		offset = cursor.ByteOffset
 		sessionID = cursor.SessionID
+		// A purged session (backstory purge) is never re-imported.
+		if purged, err := st.SessionPurged(sessionID); err != nil {
+			return fileStats{}, err
+		} else if purged {
+			return fileStats{}, nil
+		}
 	}
 
 	raws, partial, err := readLinesFrom(path, offset)

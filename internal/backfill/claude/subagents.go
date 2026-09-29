@@ -54,6 +54,11 @@ func importSubagents(st *store.Store, root string) (Result, error) {
 		if !exists {
 			continue
 		}
+		if purged, err := st.SessionPurged(cursor.SessionID); err != nil {
+			return res, fmt.Errorf("backfill/claude: lookup parent purge state for %s: %w", f, err)
+		} else if purged {
+			continue
+		}
 
 		res.FilesScanned++
 		agentID := strings.TrimSuffix(filepath.Base(f), ".jsonl")

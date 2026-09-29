@@ -345,6 +345,14 @@ func importSession(st *store.Store, db *sql.DB, git project.Git, workspaces []st
 		return err
 	}
 	sessionID := cursor.SessionID
+	if exists {
+		// A purged session (backstory purge) is never re-imported.
+		if purged, err := st.SessionPurged(sessionID); err != nil {
+			return err
+		} else if purged {
+			return nil
+		}
+	}
 	lastMsgID := cursor.ByteOffset
 	ended := cursor.LastUUID == endedSentinel
 

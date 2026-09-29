@@ -171,6 +171,13 @@ func importFile(st *store.Store, git project.Git, workspaces []string, path stri
 	if exists {
 		offset = cursor.ByteOffset
 		sessionID = cursor.SessionID
+		// A purged session (backstory purge) is never re-imported, however
+		// much its transcript has grown since.
+		if purged, err := st.SessionPurged(sessionID); err != nil {
+			return fileStats{}, err
+		} else if purged {
+			return fileStats{}, nil
+		}
 	}
 
 	raws, err := readLinesFrom(path, offset)
@@ -221,6 +228,13 @@ func importFile(st *store.Store, git project.Git, workspaces []string, path stri
 	lastTS := parsedLines[len(parsedLines)-1].Timestamp
 
 	if !exists {
+		// A transcript never imported whose session was purged (a live
+		// session the human erased) must not come back either.
+		if purged, err := st.HarnessSessionPurged(firstHarnessSessionID(parsedLines)); err != nil {
+			return fileStats{}, err
+		} else if purged {
+			return fileStats{}, nil
+		}
 		// A run captured live already minted a session for this exact
 		// transcript (internal/mcp's startSession, keyed on the harness's
 		// own declared session id — the same field this transcript's
