@@ -79,6 +79,34 @@ func waitForShellCommandEventCount(t *testing.T, s *store.Store, projectKey stri
 	return nil
 }
 
+// waitForShellCommandsPresent polls queryShellCommandEvents until every Cmd
+// in wantCmds appears at least once or timeout elapses. Unlike a bare row
+// count, it cannot be satisfied early by an incidental event (e.g. the eval
+// line that installs the snippet) standing in for a command the caller
+// actually asserts on.
+func waitForShellCommandsPresent(t *testing.T, s *store.Store, projectKey string, wantCmds []string, timeout time.Duration) []shellCommandRow {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	var got []shellCommandRow
+	for time.Now().Before(deadline) {
+		got = queryShellCommandEvents(t, s, projectKey)
+		seen := map[string]bool{}
+		for _, ev := range got {
+			seen[ev.Cmd] = true
+		}
+		all := true
+		for _, c := range wantCmds {
+			all = all && seen[c]
+		}
+		if all {
+			return got
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for shell command event(s) %q in project %s; got %d: %#v", wantCmds, projectKey, len(got), got)
+	return nil
+}
+
 // shellSessionEnv builds the env a `bash -i` test session runs under:
 // daemonEnv (startTestDaemon's own return, carrying XDG_RUNTIME_DIR/
 // XDG_DATA_HOME) with HOME replaced by a fresh temp dir (this punch's DONE
@@ -270,7 +298,7 @@ func TestShellBashPreservesExistingPS0AndPromptCommandDoubleEvalRecordsOnce(t *t
 
 			projectKey := project.Key(projectDir, project.RealGit{}, nil)
 			s := mustOpenTestStore(t, dbPath)
-			events := waitForShellCommandEventCount(t, s, projectKey, 2, 3*time.Second)
+			events := waitForShellCommandsPresent(t, s, projectKey, []string{"true", "false"}, 3*time.Second)
 			// Counted by Cmd, not by len(events): the SECOND eval line
 			// itself is a real command read while the first eval's hooks
 			// are already active, so it legitimately produces its own
