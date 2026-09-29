@@ -20,7 +20,7 @@ commands:
   status     print daemon status (project, capture, budget); non-zero if unreachable
   hook       run a harness hook (session-start)
   shell      shell integration ("shell init bash", "shell emit")
-  install    install or remove the Claude Code integration
+  install    install or remove a harness integration ("install claude|codex|hermes|pi|agents"), or shell capture ("install bash")
   backfill   import transcripts from another tool (e.g. "backfill claude", "backfill codex")
   delete     tombstone a record by id (human-only; "delete <id> [--yes]")
   capture    pause or resume capture ("capture off|on|status")
