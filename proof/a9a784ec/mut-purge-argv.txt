@@ -1,0 +1,12 @@
+MUTATION: drop --location from purge argv
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+********* Start testing of qmltestrunner *********
+Config: Using QtTest library 6.10.2, Qt 6.10.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 15.2.0), ubuntu 26.04
+FAIL!  : qmltestrunner::MemoryView::test_each_forget_option_dry_runs_then_yes() Compared values are not the same
+   Actual   (): --since
+   Expected (): --location
+   Loc: [/home/ra-builder/builds/a9a784ec/panel/qmltest/tests/tst_memory.qml(209)]
+FAIL!  : qmltestrunner::MemoryView::test_label_row_scopes_records_and_every_forget_option_by_location() 'Last hour purge argv lacks --location <cwd>: ["backstory","purge","--project","workspace:/home/x/projects","--since","2026-03-10T14:30:45Z","--dry-run"]' returned FALSE. ()
+   Loc: [/home/ra-builder/builds/a9a784ec/panel/qmltest/tests/tst_memory.qml(305)]
+Totals: 48 passed, 2 failed, 0 skipped, 0 blacklisted, 2514ms
+********* Finished testing of qmltestrunner *********

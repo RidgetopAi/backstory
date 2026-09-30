@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Io
 import "testutil.js" as TestUtil
 import "../../js/launchers.js" as Launchers
+import "../../js/memory.js" as MemoryJs
 
 // The Memory view suite (task 04d28c19, decision 02c511b3 D5): drives the
 // real Panel.qml click path — a project row's Memory action -> MemoryView —
@@ -21,6 +22,7 @@ TestCase {
   height: 900
 
   readonly property string projectKey: "acme-widgets"
+  readonly property string cwd: "/home/x/acme"
   readonly property string recordsGolden: Qt.resolvedUrl("../../../cmd/backstory/testdata/records/default.json.golden")
   readonly property string historyGolden: Qt.resolvedUrl("../../../cmd/backstory/testdata/records/history.json.golden")
 
@@ -62,7 +64,7 @@ TestCase {
   }
 
   function respondRecords(text, history) {
-    ProcessController.respond(Launchers.recordsCommand(projectKey, !!history), { stdout: text, stderr: "", exitCode: 0 })
+    ProcessController.respond(Launchers.recordsCommand(projectKey, cwd, !!history), { stdout: text, stderr: "", exitCode: 0 })
   }
 
   function clickByTooltip(tooltipText) {
@@ -129,7 +131,7 @@ TestCase {
     openMemory(readFixture(recordsGolden))
     respondRecords(text, true)
     clickByTooltip("Show history")
-    compare(runsMatching(Launchers.recordsCommand(projectKey, true)).length, 1)
+    compare(runsMatching(Launchers.recordsCommand(projectKey, cwd, true)).length, 1)
     verify(texts().indexOf("deleted") !== -1, "deleted status mark missing under --history")
   }
 
@@ -139,7 +141,7 @@ TestCase {
   }
 
   function test_records_error_shows_stderr() {
-    ProcessController.respond(Launchers.recordsCommand(projectKey, false), { stdout: "", stderr: "store is locked", exitCode: 1 })
+    ProcessController.respond(Launchers.recordsCommand(projectKey, cwd, false), { stdout: "", stderr: "store is locked", exitCode: 1 })
     panel.open("{}")
     tryCompare(panel, "loading", false, 2000)
     wait(20)
@@ -166,7 +168,7 @@ TestCase {
     var runs = runsMatching(["backstory", "delete", id, "--yes"])
     compare(runs.length, 1)
     // the list is refreshed afterwards
-    verify(runsMatching(Launchers.recordsCommand(projectKey, false)).length >= 2)
+    verify(runsMatching(Launchers.recordsCommand(projectKey, cwd, false)).length >= 2)
   }
 
   function test_delete_cancel_records_no_delete() {
@@ -192,7 +194,7 @@ TestCase {
   }
 
   function test_each_forget_option_dry_runs_then_yes() {
-    var scopes = ["Last hour", "Today", "Everything in this project"]
+    var scopes = ["Last hour", "Today", "Everything here"]
     for (var i = 0; i < scopes.length; i++) {
       cleanup()
       init()
@@ -204,15 +206,17 @@ TestCase {
       var argv = dry[0].command
       compare(argv[argv.length - 1], "--dry-run")
       compare(argv[3], projectKey)
+      compare(argv[4], "--location")
+      compare(argv[5], cwd)
       compare(argv.indexOf("--yes"), -1)
-      if (scopes[i] === "Everything in this project") compare(argv.indexOf("--since"), -1)
+      if (scopes[i] === "Everything here") compare(argv.indexOf("--since"), -1)
       else if (scopes[i] === "Last hour") compare(argv[argv.indexOf("--since") + 1], "2026-03-10T14:30:45Z")
       else verify(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(argv[argv.indexOf("--since") + 1]), JSON.stringify(argv))
 
       // No canned stdout was registered (unparseable); register it and redo.
-      ProcessController.respond(argv, { stdout: "would purge 3 sessions, 42 events\n", stderr: "", exitCode: 0 })
+      ProcessController.respond(argv, { stdout: "would purge 3 sessions, 42 events, 5 records\n", stderr: "", exitCode: 0 })
       clickByLabel(scopes[i])
-      verify(texts().indexOf("Forget 3 sessions (42 events)? This cannot be undone.") !== -1, JSON.stringify(texts()))
+      verify(texts().indexOf("Forget 3 sessions (42 events) and 5 saved records from acme? This cannot be undone.") !== -1, JSON.stringify(texts()))
       var yesArgv = argv.slice(0, argv.length - 1).concat(["--yes"])
       compare(runsMatching(yesArgv).length, 0, "--yes ran before confirm")
 
@@ -224,14 +228,14 @@ TestCase {
   function test_forget_cancel_records_no_yes_run() {
     openMemory(readFixture(recordsGolden))
     pinClock()
-    clickByLabel("Everything in this project")
+    clickByLabel("Everything here")
     var argv = purgeRuns()[0].command
-    ProcessController.respond(argv, { stdout: "would purge 1 sessions, 5 events\n", stderr: "", exitCode: 0 })
-    clickByLabel("Everything in this project")
+    ProcessController.respond(argv, { stdout: "would purge 1 sessions, 5 events, 0 records\n", stderr: "", exitCode: 0 })
+    clickByLabel("Everything here")
     clickByLabel("Cancel")
     var yes = purgeRuns().filter(function (r) { return r.command.indexOf("--yes") !== -1 })
     compare(yes.length, 0)
-    verify(texts().indexOf("Forget 1 sessions (5 events)? This cannot be undone.") === -1)
+    verify(texts().indexOf("Forget 1 sessions (5 events) and 0 saved records from acme? This cannot be undone.") === -1)
   }
 
   function test_kind_word_on_each_row() {
@@ -255,5 +259,208 @@ TestCase {
     var bad = TestUtil.collectOutOfBounds(panel.testContentItem, panel.testContentItem,
       panel.testImplicitWidth, panel.testImplicitHeight)
     verify(bad.length === 0, bad.length + " item(s) out of bounds: " + JSON.stringify(bad).slice(0, 2000))
+  }
+
+  // ---- Memory and Forget act on exactly the row (task a9a784ec) ----
+
+  readonly property string wsKey: "workspace:/home/x/projects"
+  readonly property string labelCwd: "/home/x/projects/backstory-feedback"
+  readonly property var pinnedNow: Date.parse("2026-03-10T15:30:45Z")
+
+  // A label row: its summary cwd is the folder, its project_key the shared
+  // workspace key.
+  function openLabelRowMemory(recordsText) {
+    ProcessController.respond(Launchers.thisWeekCommand(), {
+      stdout: JSON.stringify({
+        attention: [], week: [],
+        where_left_off: [{ project: { project_key: wsKey, display_name: "projects/backstory-feedback", cwd: labelCwd, last_activity: "2026-01-01T00:00:00Z" } }]
+      }), stderr: "", exitCode: 0
+    })
+    ProcessController.respond(Launchers.recordsCommand(wsKey, labelCwd, false), { stdout: recordsText, stderr: "", exitCode: 0 })
+    panel.open("{}")
+    tryCompare(panel, "loading", false, 2000)
+    wait(20)
+    clickByTooltip("Memory")
+    verify(panel.memoryOpen)
+    pinClock()
+  }
+
+  function followedBy(argv, flag, value) {
+    var i = argv.indexOf(flag)
+    return i >= 0 && argv[i + 1] === value
+  }
+
+  function test_label_row_scopes_records_and_every_forget_option_by_location() {
+    openLabelRowMemory(readFixture(recordsGolden))
+    var lists = ProcessController.runs.filter(function (r) { return r.command[1] === "records" })
+    verify(lists.length >= 1, "no records run")
+    for (var i = 0; i < lists.length; i++)
+      verify(followedBy(lists[i].command, "--location", labelCwd), "records argv lacks --location <cwd>: " + JSON.stringify(lists[i].command))
+
+    var scopes = ["Last hour", "Today", "Everything here"]
+    for (var j = 0; j < scopes.length; j++) {
+      clickByLabel(scopes[j])
+      var runs = purgeRuns()
+      var argv = runs[runs.length - 1].command
+      verify(followedBy(argv, "--location", labelCwd), scopes[j] + " purge argv lacks --location <cwd>: " + JSON.stringify(argv))
+      verify(followedBy(argv, "--project", wsKey), "purge argv lacks the project key")
+    }
+  }
+
+  function test_forget_last_hour_nothing_then_today_confirm_with_all_three_counts() {
+    openLabelRowMemory(readFixture(recordsGolden))
+    var hourSince = MemoryJs.FORGET_SCOPES[0].since(pinnedNow)
+    var todaySince = MemoryJs.FORGET_SCOPES[1].since(pinnedNow)
+    ProcessController.respond(Launchers.purgeCommand(wsKey, labelCwd, hourSince, true), { stdout: "would purge 0 sessions, 0 events, 0 records\n", stderr: "", exitCode: 0 })
+    ProcessController.respond(Launchers.purgeCommand(wsKey, labelCwd, todaySince, true), { stdout: "would purge 1 sessions, 27 events, 2 records\n", stderr: "", exitCode: 0 })
+
+    clickByLabel("Last hour")
+    verify(texts().indexOf("Nothing to forget for last hour.") !== -1, JSON.stringify(texts()))
+    verify(texts().join("|").indexOf("This cannot be undone") === -1, "a confirm showed for 0/0/0")
+
+    clickByLabel("Today")
+    var want = "Forget 1 sessions (27 events) and 2 saved records from projects/backstory-feedback? This cannot be undone."
+    verify(texts().indexOf(want) !== -1, JSON.stringify(texts()))
+    verify(texts().indexOf("Nothing to forget for last hour.") === -1, "stale note left behind")
+    var yesArgv = Launchers.purgeCommand(wsKey, labelCwd, todaySince, false)
+    compare(runsMatching(yesArgv).length, 0, "--yes ran before confirm")
+    clickByLabel("Forget")
+    compare(runsMatching(yesArgv).length, 1)
+  }
+
+  function test_records_only_window_is_not_nothing_to_forget() {
+    openLabelRowMemory(readFixture(recordsGolden))
+    var since = MemoryJs.FORGET_SCOPES[0].since(pinnedNow)
+    ProcessController.respond(Launchers.purgeCommand(wsKey, labelCwd, since, true), { stdout: "would purge 0 sessions, 0 events, 2 records\n", stderr: "", exitCode: 0 })
+    clickByLabel("Last hour")
+    verify(texts().indexOf("Forget 0 sessions (0 events) and 2 saved records from projects/backstory-feedback? This cannot be undone.") !== -1, JSON.stringify(texts()))
+  }
+
+  // ---- the result of a click is scrolled into view ----
+
+  function longPayload() {
+    var records = []
+    for (var i = 0; i < 40; i++)
+      records.push({ id: "bbbb" + ("0000" + i).slice(-4) + "-0000-4000-8000-000000000000", ts: "2026-01-01T00:00:00Z", kind: "note",
+        tier: "agent-declared", status: "current", text: "Long record number " + i })
+    return JSON.stringify({ project_key: wsKey, records: records })
+  }
+
+  function flickable() {
+    var f = TestUtil.findFirst(panel.testContentItem, function (n) { return n.contentY !== undefined && n.contentHeight !== undefined })
+    verify(f !== null, "no Flickable")
+    return f
+  }
+
+  function memoryView() {
+    return TestUtil.findFirst(panel.testContentItem, function (n) { return typeof n.previewPurge === "function" })
+  }
+
+  // The item's rect lies inside the Flickable's visible viewport (mapped
+  // into the PanelWindow and compared with its visible height).
+  function assertInViewport(item, what) {
+    var f = flickable()
+    var top = item.mapToItem(panel.testContentItem, 0, 0).y
+    var viewTop = f.mapToItem(panel.testContentItem, 0, 0).y
+    var viewBottom = viewTop + f.height
+    verify(viewBottom <= panel.testImplicitHeight + 0.5, "viewport exceeds the window")
+    verify(top >= viewTop - 0.5 && top + item.height <= viewBottom + 0.5,
+      what + " outside the visible viewport: y=" + top + " h=" + item.height + " viewport=[" + viewTop + "," + viewBottom + "]")
+  }
+
+  function scrollToTop() {
+    var f = flickable()
+    verify(f.contentHeight > f.height * 1.5, "content is not long enough to need scrolling")
+    f.contentY = 0
+    compare(f.contentY, 0)
+  }
+
+  function clickForgetOptionScrolledToTop(label) {
+    scrollToTop()
+    var button = TestUtil.findFirst(panel.testContentItem, function (n) { return n.label === label })
+    verify(button !== null, "no " + label + " button")
+    // Scrolled to the top the option is below the viewport, so the mouse
+    // cannot reach it: trigger the click handler itself.
+    button.clicked()
+    settle()
+  }
+
+  // Lets the deferred reveal and the layout polish run, so a position read
+  // afterwards is the settled one (an un-laid-out item reports y=0, which
+  // would satisfy any "in view" check vacuously).
+  function settle() { wait(150) }
+
+  function findTextStarting(prefix) {
+    return TestUtil.findFirst(panel.testContentItem, function (n) {
+      return typeof n.text === "string" && n.text.indexOf(prefix) === 0
+    })
+  }
+
+  function test_forget_confirm_is_scrolled_into_view() {
+    openLabelRowMemory(longPayload())
+    var since = MemoryJs.FORGET_SCOPES[0].since(pinnedNow)
+    ProcessController.respond(Launchers.purgeCommand(wsKey, labelCwd, since, true), { stdout: "would purge 1 sessions, 27 events, 2 records\n", stderr: "", exitCode: 0 })
+    clickForgetOptionScrolledToTop("Last hour")
+    tryVerify(function () { return findTextStarting("Forget 1 sessions") !== null }, 2000)
+    var confirmText = findTextStarting("Forget 1 sessions")
+    tryVerify(function () {
+      var top = confirmText.mapToItem(flickable(), 0, 0).y
+      return top >= -0.5 && top + confirmText.height <= flickable().height + 0.5
+    }, 2000, "confirm never scrolled into view")
+    assertInViewport(confirmText, "the Forget confirm")
+    // its buttons too: the confirm's whole block is visible
+    var forgetButtons = TestUtil.findAll(panel.testContentItem, function (n) { return n.label === "Forget" })
+    verify(forgetButtons.length === 1)
+    assertInViewport(forgetButtons[0], "the confirm's Forget button")
+  }
+
+  function test_nothing_to_forget_note_is_scrolled_into_view() {
+    openLabelRowMemory(longPayload())
+    var since = MemoryJs.FORGET_SCOPES[0].since(pinnedNow)
+    ProcessController.respond(Launchers.purgeCommand(wsKey, labelCwd, since, true), { stdout: "would purge 0 sessions, 0 events, 0 records\n", stderr: "", exitCode: 0 })
+    clickForgetOptionScrolledToTop("Last hour")
+    tryVerify(function () { return findTextStarting("Nothing to forget") !== null }, 2000)
+    var note = findTextStarting("Nothing to forget")
+    tryVerify(function () {
+      var top = note.mapToItem(flickable(), 0, 0).y
+      return top >= -0.5 && top + note.height <= flickable().height + 0.5
+    }, 2000, "note never scrolled into view")
+    assertInViewport(note, "the nothing-to-forget note")
+  }
+
+  function test_purge_error_is_scrolled_into_view() {
+    openLabelRowMemory(longPayload())
+    var since = MemoryJs.FORGET_SCOPES[0].since(pinnedNow)
+    ProcessController.respond(Launchers.purgeCommand(wsKey, labelCwd, since, true), { stdout: "", stderr: "store is locked", exitCode: 1 })
+    // The error renders at the TOP of the view while the Forget options sit
+    // at the bottom: scrolled to the bottom (where the click happens on the
+    // desk) the error is out of sight until the view scrolls up to it.
+    var f = flickable()
+    f.contentY = f.contentHeight - f.height
+    var button = TestUtil.findFirst(panel.testContentItem, function (n) { return n.label === "Last hour" })
+    mouseClick(button, button.width / 2, button.height / 2)
+    settle()
+    tryVerify(function () { return findTextStarting("store is locked") !== null }, 2000)
+    var err = findTextStarting("store is locked")
+    tryVerify(function () {
+      var top = err.mapToItem(flickable(), 0, 0).y
+      return top >= -0.5 && top + err.height <= flickable().height + 0.5
+    }, 2000, "error never scrolled into view")
+    assertInViewport(err, "the error")
+  }
+
+  function test_record_delete_confirm_is_scrolled_into_view() {
+    openLabelRowMemory(longPayload())
+    scrollToTop()
+    var lastId = JSON.parse(longPayload()).records[39].id
+    memoryView().askDelete(lastId)
+    settle()
+    tryVerify(function () { return findTextStarting("Forget this record?") !== null }, 2000)
+    var confirm = findTextStarting("Forget this record?")
+    tryVerify(function () {
+      var top = confirm.mapToItem(flickable(), 0, 0).y
+      return top >= -0.5 && top + confirm.height <= flickable().height + 0.5
+    }, 2000, "delete confirm never scrolled into view")
+    assertInViewport(confirm, "the delete confirm")
   }
 }

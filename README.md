@@ -37,17 +37,21 @@ run it with `--check` to see what's present, `--remove` to undo it.
   panel (`panel/`) — Attention, Where you left off, and The week.
 - **Groups**: `backstory group set|clear|list` groups related projects into one row in This
   Week and the panel.
-- **Records**: `backstory records [--project KEY|--here] [--kind K] [--history] [--json]` lists
+- **Records**: `backstory records [--project KEY|--here] [--location DIR] [--kind K] [--history] [--json]` lists
   what Backstory has saved for a project, newest first, with each record's tier and status
   (current, superseded, possibly-stale, expired, deleted); superseded and deleted records show
   only with `--history`.
 - **Edit**: `backstory edit <id> [--file PATH | --stdin]` corrects a record by writing a new
   human-declared record that supersedes it (opens `$VISUAL`/`$EDITOR` on a terminal); the old
   record stays in the ledger, shown as superseded under `records --history`.
-- **Purge**: `backstory purge (--session ID | --project KEY [--since T] [--until T]) [--dry-run]
-  [--yes]` erases captured activity by whole session (`--dry-run` prints `would purge N
-  sessions, M events`); purged sessions are stamped so transcript backfill never re-imports
-  them. Records are untouched — use `delete` for those.
+- **Purge**: `backstory purge (--session ID | --project KEY [--location DIR] [--since T]
+  [--until T]) [--dry-run] [--yes]` forgets a project's captured activity by whole session
+  **and the saved records written in the window** (`--dry-run` prints `would purge N sessions,
+  M events, R records`); purged sessions are stamped so transcript backfill never re-imports
+  them, and the records are tombstoned like `delete`. `--location DIR` (with `--project`) acts
+  on exactly the row This Week shows for DIR — see `records --location` — instead of every
+  session and record sharing the project key (a non-git folder under a workspace shares the
+  workspace's key with its siblings). A per-`--session` purge leaves records alone.
 - **Read-only CLI**: `backstory recall` and `backstory timeline` read the store directly, no
   daemon round trip required; `backstory export` writes a per-project markdown mirror for
   another tool's memory file (Claude auto-memory, Hermes `MEMORY.md`, OpenClaw imports).

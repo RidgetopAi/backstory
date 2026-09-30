@@ -10,6 +10,8 @@ import (
 
 	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/recall"
+	"github.com/RidgetopAi/backstory/internal/store"
+	"github.com/RidgetopAi/backstory/internal/week"
 )
 
 // recordsScanLimit bounds how many of a project's newest records `backstory
@@ -20,7 +22,7 @@ const recordsScanLimit = 10000
 // statusDeleted is the human-facing name of recall's tombstoned status.
 const statusDeleted = "deleted"
 
-// runRecords is `backstory records [--project KEY|--here] [--kind K]
+// runRecords is `backstory records [--project KEY|--here] [--location DIR] [--kind K]
 // [--history] [--json]`: a read-only human-path command that lists what
 // Backstory saved for a project, newest first, opening the store directly
 // (decision d9d456e7). Each record's status comes from recall.Annotate, the
@@ -29,6 +31,7 @@ func runRecords(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("records", flag.ContinueOnError)
 	projectFlag := fs.String("project", "", "project key (default: the git repo of the current directory)")
 	_ = fs.Bool("here", false, "use the git repo of the current directory (the default; accepted for explicitness)")
+	locationFlag := fs.String("location", "", "only the records This Week attributes to this directory's row (a row's cwd)")
 	kindFlag := fs.String("kind", "", "only records of this kind")
 	history := fs.Bool("history", false, "also list superseded and deleted records")
 	jsonOut := fs.Bool("json", false, "print machine-readable JSON instead of rendered text")
@@ -36,11 +39,20 @@ func runRecords(args []string, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
+	if locationGiven(fs) && *locationFlag == "" {
+		_, _ = fmt.Fprintln(stderr, "backstory records: --location needs a directory")
+		return 2
+	}
 
-	projectKey, err := resolveHumanProjectKey(*projectFlag)
-	if err != nil {
-		_, _ = fmt.Fprintln(stderr, "backstory records:", err)
-		return 1
+	var projectKey string
+	if *locationFlag != "" && *projectFlag == "" {
+		projectKey = project.Key(*locationFlag, project.RealGit{}, resolveWorkspaceDirs())
+	} else {
+		var err error
+		if projectKey, err = resolveHumanProjectKey(*projectFlag); err != nil {
+			_, _ = fmt.Fprintln(stderr, "backstory records:", err)
+			return 1
+		}
 	}
 	dbPath, err := storePath()
 	if err != nil {
@@ -57,12 +69,20 @@ func runRecords(args []string, stdout, stderr io.Writer) int {
 	if _, ok, err := st.GetProject(projectKey); err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory records:", err)
 		return 1
-	} else if !ok {
+	} else if !ok && *locationFlag == "" {
 		_, _ = fmt.Fprintf(stderr, "backstory records: unknown project %q\n", projectKey)
 		return 1
 	}
 
-	recs, err := st.RecordsForProjectAll(projectKey, recordsScanLimit)
+	var recs []store.Record
+	if *locationFlag != "" {
+		var ls store.LocationScope
+		if ls, err = week.LocationScope(st, project.RealGit{}, resolveWorkspaceDirs(), *locationFlag); err == nil {
+			recs, err = st.RecordsForLocation(ls, recordsScanLimit)
+		}
+	} else {
+		recs, err = st.RecordsForProjectAll(projectKey, recordsScanLimit)
+	}
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory records:", err)
 		return 1

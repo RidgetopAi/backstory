@@ -23,7 +23,7 @@ Item {
   // at the session's cwd" / "Resume in <agent>").
   signal openTerminal(string cwd)
   signal resumeAgent(string cwd, string handoffText, string handoffId)
-  signal openMemory(string projectKey, string displayName)
+  signal openMemory(string projectKey, string displayName, string cwd)
 
   implicitHeight: column.implicitHeight + Style.spacing.rowGap
   implicitWidth: parent ? parent.width : Style.space(360)
@@ -93,7 +93,7 @@ Item {
     tooltipText: "Memory"
     foreground: Color.foreground
     hoverColor: Color.accent
-    onClicked: root.openMemory(Model.summaryProjectKey(root.summary), Model.summaryDisplayName(root.summary))
+    onClicked: root.openMemory(Model.summaryProjectKey(root.summary), Model.summaryDisplayName(root.summary), Model.summaryCwd(root.summary) || "")
   }
 
   PanelActionButton {

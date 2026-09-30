@@ -1,0 +1,10 @@
+MUTATION: purge forgets activity only (no records)
+--- FAIL: TestPurgeDryRunPrintsExactCountsAndChangesNothing (0.81s)
+    purge_test.go:209: windowless dry-run = "would purge 3 sessions, 3 events, 0 records", want "would purge 3 sessions, 3 events, 1 records"
+--- FAIL: TestPurgeLocationActsOnlyOnTheRow (0.04s)
+    purge_test.go:310: dry-run = "would purge 1 sessions, 1 events, 0 records\n" (exit 0)
+--- FAIL: TestPurgeRecordsWindowDryRunAndRealRun (0.04s)
+    purge_test.go:368: dry-run = "would purge 0 sessions, 0 events, 0 records\n" (exit 0)
+FAIL
+FAIL	github.com/RidgetopAi/backstory/cmd/backstory	2.655s
+FAIL

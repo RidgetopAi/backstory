@@ -140,7 +140,7 @@ func TestPurgeSessionYesErasesOnlyThatSession(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("purge exit %d stderr=%s", code, stderr)
 	}
-	if got, want := strings.TrimSpace(stdout), "purged 1 sessions, 3 events"; got != want {
+	if got, want := strings.TrimSpace(stdout), "purged 1 sessions, 3 events, 0 records"; got != want {
 		t.Errorf("stdout = %q, want %q", got, want)
 	}
 	if n := countRows(t, dbPath, `SELECT COUNT(*) FROM timeline_events WHERE session_id = ?`, f.a); n != 0 {
@@ -186,7 +186,7 @@ func TestPurgeDryRunPrintsExactCountsAndChangesNothing(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("dry-run exit %d stderr=%s", code, stderr)
 	}
-	if got, want := strings.TrimSpace(stdout), "would purge 2 sessions, 7 events"; got != want {
+	if got, want := strings.TrimSpace(stdout), "would purge 2 sessions, 7 events, 0 records"; got != want {
 		t.Errorf("dry-run stdout = %q, want %q", got, want)
 	}
 	if after := tableCounts(t, dbPath); after != before {
@@ -197,7 +197,7 @@ func TestPurgeDryRunPrintsExactCountsAndChangesNothing(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("real run exit %d stderr=%s", code, stderr)
 	}
-	if got, want := strings.TrimSpace(stdout), "purged 2 sessions, 7 events"; got != want {
+	if got, want := strings.TrimSpace(stdout), "purged 2 sessions, 7 events, 0 records"; got != want {
 		t.Errorf("real stdout = %q, want %q", got, want)
 	}
 	if n := countRows(t, dbPath, `SELECT COUNT(*) FROM timeline_events`); n != 3 {
@@ -205,7 +205,7 @@ func TestPurgeDryRunPrintsExactCountsAndChangesNothing(t *testing.T) {
 	}
 	// Without a window, session-less events are never selected.
 	stdout, _, _ = execPurge(t, bin, env, "--project", purgeProject, "--dry-run")
-	if got, want := strings.TrimSpace(stdout), "would purge 3 sessions, 3 events"; got != want {
+	if got, want := strings.TrimSpace(stdout), "would purge 3 sessions, 3 events, 1 records"; got != want {
 		t.Errorf("windowless dry-run = %q, want %q", got, want)
 	}
 }
@@ -270,5 +270,129 @@ func TestReadersSurvivePurgedEvidenceAndCursor(t *testing.T) {
 		if err := cmd.Run(); err != nil {
 			t.Errorf("backstory %v: %v (stderr: %s)", args, err, errb.String())
 		}
+	}
+}
+
+func (f *locFixture) purge(t *testing.T, args ...string) (stdout string, code int) {
+	t.Helper()
+	var outBuf, errBuf bytes.Buffer
+	code = run(append([]string{"purge"}, args...), bytes.NewReader(nil), &outBuf, &errBuf)
+	if code != 0 {
+		t.Logf("purge %v stderr: %s", args, errBuf.String())
+	}
+	return outBuf.String(), code
+}
+
+func (f *locFixture) count(t *testing.T, query string, args ...any) int {
+	t.Helper()
+	return countRows(t, f.dbPath, query, args...)
+}
+
+// TestPurgeLocationActsOnlyOnTheRow is DONE WHEN clause 2: forgetting the
+// non-git feedback-x row under the shared workspace key touches only that
+// row's sessions, events and records.
+func TestPurgeLocationActsOnlyOnTheRow(t *testing.T) {
+	f := newLocFixture(t)
+	eventsOf := func(sid string) int {
+		return f.count(t, `SELECT COUNT(*) FROM timeline_events WHERE session_id = ?`, sid)
+	}
+	liveOf := func(id string) int {
+		return f.count(t, `SELECT COUNT(*) FROM records WHERE id = ? AND tombstoned_at IS NULL AND text != ''`, id)
+	}
+	sessionsBefore := f.count(t, `SELECT COUNT(*) FROM sessions`)
+	recordsBefore := f.count(t, `SELECT COUNT(*) FROM records`)
+	if eventsOf(f.rootSess) != 1 || eventsOf(f.appSess) != 1 || eventsOf(f.fxSess) != 1 {
+		t.Fatal("fixture: want 1 event per session")
+	}
+
+	out, code := f.purge(t, "--project", f.wsKey, "--location", f.feedbackX, "--dry-run")
+	if code != 0 || out != "would purge 1 sessions, 1 events, 2 records\n" {
+		t.Fatalf("dry-run = %q (exit %d)", out, code)
+	}
+	if n := f.count(t, `SELECT COUNT(*) FROM records WHERE tombstoned_at IS NOT NULL`); n != 0 {
+		t.Fatalf("dry run tombstoned %d records", n)
+	}
+
+	out, code = f.purge(t, "--project", f.wsKey, "--location", f.feedbackX, "--yes")
+	if code != 0 || out != "purged 1 sessions, 1 events, 2 records\n" {
+		t.Fatalf("purge = %q (exit %d)", out, code)
+	}
+	if eventsOf(f.fxSess) != 0 || eventsOf(f.rootSess) != 1 || eventsOf(f.appSess) != 1 {
+		t.Errorf("events after: fx=%d root=%d app=%d, want 0/1/1", eventsOf(f.fxSess), eventsOf(f.rootSess), eventsOf(f.appSess))
+	}
+	if n := f.count(t, `SELECT COUNT(*) FROM sessions WHERE purged_at IS NOT NULL`); n != 1 {
+		t.Errorf("purged sessions = %d, want 1", n)
+	}
+	if n := f.count(t, `SELECT COUNT(*) FROM sessions WHERE id = ? AND purged_at IS NOT NULL`, f.fxSess); n != 1 {
+		t.Errorf("feedback-x session not stamped purged")
+	}
+	if n := f.count(t, `SELECT COUNT(*) FROM sessions`); n != sessionsBefore {
+		t.Errorf("session rows = %d, want %d unchanged", n, sessionsBefore)
+	}
+	if n := f.count(t, `SELECT COUNT(*) FROM records`); n != recordsBefore {
+		t.Errorf("record rows = %d, want %d (tombstoned, not deleted)", n, recordsBefore)
+	}
+	for _, id := range []string{f.fxHandoff, f.fxNote} {
+		if liveOf(id) != 0 {
+			t.Errorf("record %s still live", id)
+		}
+	}
+	for _, id := range []string{f.rootNotes[0], f.rootNotes[1], f.appHandoff, f.appRepoNote} {
+		if liveOf(id) != 1 {
+			t.Errorf("record %s (another row) was forgotten", id)
+		}
+	}
+	if n := f.count(t, `SELECT COUNT(*) FROM purge_log WHERE records = 2 AND sessions = 1 AND events = 1`); n != 1 {
+		t.Errorf("purge_log rows with counts 1/1/2 = %d, want 1", n)
+	}
+}
+
+// TestPurgeRecordsWindowDryRunAndRealRun is DONE WHEN clause 3: a window with
+// 0 sessions but 2 records is not nothing-to-forget; the real run tombstones
+// exactly those records (text scrubbed, out of records_fts) and purge_log
+// carries the count.
+func TestPurgeRecordsWindowDryRunAndRealRun(t *testing.T) {
+	f := newLocFixture(t)
+	// feedback-x's session started at +20m; its records are at +22m and +23m.
+	since := f.base.Add(22*time.Minute - 30*time.Second).Format(time.RFC3339Nano)
+	args := []string{"--project", f.wsKey, "--location", f.feedbackX, "--since", since}
+
+	ftsHits := func(term string) int {
+		return f.count(t, `SELECT COUNT(*) FROM records_fts WHERE records_fts MATCH ?`, term)
+	}
+	if ftsHits("tiktok") != 1 {
+		t.Fatalf("fixture: tiktok note not indexed")
+	}
+	out, code := f.purge(t, append(args, "--dry-run")...)
+	if code != 0 || out != "would purge 0 sessions, 0 events, 2 records\n" {
+		t.Fatalf("dry-run = %q (exit %d)", out, code)
+	}
+	if n := f.count(t, `SELECT COUNT(*) FROM records WHERE tombstoned_at IS NOT NULL`); n != 0 {
+		t.Fatalf("dry run tombstoned %d records", n)
+	}
+	out, code = f.purge(t, append(args, "--yes")...)
+	if code != 0 || out != "purged 0 sessions, 0 events, 2 records\n" {
+		t.Fatalf("purge = %q (exit %d)", out, code)
+	}
+	if n := f.count(t, `SELECT COUNT(*) FROM records WHERE tombstoned_at IS NOT NULL AND text = ''`); n != 2 {
+		t.Errorf("tombstoned+scrubbed records = %d, want exactly 2", n)
+	}
+	if n := f.count(t, `SELECT COUNT(*) FROM records WHERE id IN (?, ?) AND tombstoned_at IS NOT NULL AND text = ''`, f.fxHandoff, f.fxNote); n != 2 {
+		t.Errorf("the tombstoned records are not feedback-x's two")
+	}
+	if ftsHits("tiktok") != 0 || ftsHits("feedback") != 0 {
+		t.Errorf("forgotten text still in records_fts")
+	}
+	if n := f.count(t, `SELECT COUNT(*) FROM purge_log WHERE records = 2 AND sessions = 0`); n != 1 {
+		t.Errorf("purge_log records count missing")
+	}
+	// Already-tombstoned records are not counted again.
+	out, _ = f.purge(t, append(args, "--dry-run")...)
+	if out != "would purge 0 sessions, 0 events, 0 records\n" {
+		t.Errorf("second dry-run = %q, want all zero", out)
+	}
+	// Records written BEFORE T are untouched.
+	if n := f.count(t, `SELECT COUNT(*) FROM records WHERE tombstoned_at IS NULL`); n != 4 {
+		t.Errorf("live records = %d, want 4", n)
 	}
 }

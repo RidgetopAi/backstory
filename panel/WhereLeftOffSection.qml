@@ -14,7 +14,7 @@ Column {
 
   signal openTerminal(string cwd)
   signal resumeAgent(string cwd, string handoffText, string handoffId)
-  signal openMemory(string projectKey, string displayName)
+  signal openMemory(string projectKey, string displayName, string cwd)
 
   // Which group rows are expanded, keyed by group name. Collapsed by
   // default — a group is a human-made summary already; a click reveals it,
@@ -91,7 +91,7 @@ Column {
             indented: true
             onOpenTerminal: (cwd) => root.openTerminal(cwd)
             onResumeAgent: (cwd, handoffText, handoffId) => root.resumeAgent(cwd, handoffText, handoffId)
-            onOpenMemory: (projectKey, displayName) => root.openMemory(projectKey, displayName)
+            onOpenMemory: (projectKey, displayName, cwd) => root.openMemory(projectKey, displayName, cwd)
           }
         }
       }
@@ -103,7 +103,7 @@ Column {
         summary: rowDelegate.isGroup ? null : Model.rowProject(rowDelegate.modelData)
         onOpenTerminal: (cwd) => root.openTerminal(cwd)
         onResumeAgent: (cwd, handoffText, handoffId) => root.resumeAgent(cwd, handoffText, handoffId)
-            onOpenMemory: (projectKey, displayName) => root.openMemory(projectKey, displayName)
+            onOpenMemory: (projectKey, displayName, cwd) => root.openMemory(projectKey, displayName, cwd)
       }
     }
   }

@@ -69,12 +69,25 @@ var FORGET_SCOPES = [
       var n = new Date(nowMs)
       return rfc3339(new Date(n.getFullYear(), n.getMonth(), n.getDate()))
     } },
-  { id: "all", label: "Everything in this project", since: function (nowMs) { return "" } }
+  { id: "all", label: "Everything here", since: function (nowMs) { return "" } }
 ]
 
-// parseDryRun reads `purge --dry-run`'s "would purge N sessions, M events"
-// line; null when stdout is not that shape.
+// parseDryRun reads `purge --dry-run`'s "would purge N sessions, M events,
+// R records" line; null when stdout is not that shape.
 function parseDryRun(stdout) {
-  var m = /would purge (\d+) sessions?, (\d+) events?/.exec(stdout || "")
-  return m ? { sessions: parseInt(m[1], 10), events: parseInt(m[2], 10) } : null
+  var m = /would purge (\d+) sessions?, (\d+) events?, (\d+) records?/.exec(stdout || "")
+  return m ? { sessions: parseInt(m[1], 10), events: parseInt(m[2], 10), records: parseInt(m[3], 10) } : null
+}
+
+// nothingToForget is true only when the dry run found no sessions, no events
+// and no saved records: a window with 0 sessions but saved records still has
+// something to forget.
+function nothingToForget(counts) {
+  return counts.sessions === 0 && counts.events === 0 && counts.records === 0
+}
+
+// forgetConfirmText is the Forget confirm's sentence.
+function forgetConfirmText(pending, scopeName) {
+  return "Forget " + pending.sessions + " sessions (" + pending.events + " events) and " +
+    pending.records + " saved records from " + scopeName + "? This cannot be undone."
 }

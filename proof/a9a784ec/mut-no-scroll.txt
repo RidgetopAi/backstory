@@ -1,0 +1,13 @@
+MUTATION: remove scroll-into-view call (root.reveal(target))
+********* Start testing of qmltestrunner *********
+Config: Using QtTest library 6.10.2, Qt 6.10.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 15.2.0), ubuntu 26.04
+FAIL!  : qmltestrunner::MemoryView::test_forget_confirm_is_scrolled_into_view() 'confirm never scrolled into view' returned FALSE. ()
+   Loc: [/home/ra-builder/builds/a9a784ec/panel/qmltest/tests/tst_memory.qml(406)]
+FAIL!  : qmltestrunner::MemoryView::test_nothing_to_forget_note_is_scrolled_into_view() 'note never scrolled into view' returned FALSE. ()
+   Loc: [/home/ra-builder/builds/a9a784ec/panel/qmltest/tests/tst_memory.qml(424)]
+FAIL!  : qmltestrunner::MemoryView::test_purge_error_is_scrolled_into_view() 'error never scrolled into view' returned FALSE. ()
+   Loc: [/home/ra-builder/builds/a9a784ec/panel/qmltest/tests/tst_memory.qml(445)]
+FAIL!  : qmltestrunner::MemoryView::test_record_delete_confirm_is_scrolled_into_view() 'delete confirm never scrolled into view' returned FALSE. ()
+   Loc: [/home/ra-builder/builds/a9a784ec/panel/qmltest/tests/tst_memory.qml(460)]
+Totals: 46 passed, 4 failed, 0 skipped, 0 blacklisted, 12858ms
+********* Finished testing of qmltestrunner *********

@@ -29,6 +29,7 @@ Item {
   property bool memoryOpen: false
   property string memoryProjectKey: ""
   property string memoryDisplayName: ""
+  property string memoryLocation: ""
 
   readonly property var attentionItems: root.data ? Model.topAttention(root.data) : []
   readonly property var whereLeftOffRows: root.data ? Model.topWhereLeftOff(root.data) : []
@@ -67,10 +68,24 @@ Item {
     root.memoryOpen = false
   }
 
-  function openMemory(projectKey, displayName) {
+  function openMemory(projectKey, displayName, cwd) {
     root.memoryProjectKey = projectKey
     root.memoryDisplayName = displayName
+    root.memoryLocation = cwd
     root.memoryOpen = true
+  }
+
+  // Scrolls the card's Flickable so `target` lies inside its visible
+  // viewport: the user never scrolls to find what a click just produced. An
+  // item taller than the viewport is shown from its top.
+  function revealInScroller(target) {
+    contentColumn.forceLayout()
+    var top = target.mapToItem(scroller.contentItem, 0, 0).y
+    var bottom = top + target.height
+    var y = scroller.contentY
+    if (bottom > y + scroller.height) y = bottom - scroller.height
+    if (top < y) y = top
+    scroller.contentY = Math.max(0, Math.min(y, scroller.contentHeight - scroller.height))
   }
 
   function toggle() {
@@ -179,6 +194,7 @@ Item {
       radius: Style.cornerRadius
 
       Flickable {
+        id: scroller
         anchors.fill: parent
         anchors.margins: Style.spacing.panelPadding
         contentWidth: width
@@ -255,7 +271,7 @@ Item {
                 width: parent.width
                 onOpenTerminal: (cwd) => root.openTerminal(cwd)
                 onResumeAgent: (cwd, handoffText, handoffId) => root.resumeAgent(cwd, handoffText, handoffId)
-                onOpenMemory: (projectKey, displayName) => root.openMemory(projectKey, displayName)
+                onOpenMemory: (projectKey, displayName, cwd) => root.openMemory(projectKey, displayName, cwd)
               }
             }
 
@@ -280,6 +296,8 @@ Item {
             width: parent.width
             projectKey: root.memoryProjectKey
             displayName: root.memoryDisplayName
+            location: root.memoryLocation
+            onReveal: (target) => root.revealInScroller(target)
             onCloseRequested: root.memoryOpen = false
             onChanged: root.refresh()
           }
