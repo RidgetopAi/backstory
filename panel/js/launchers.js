@@ -49,8 +49,14 @@ function groupClearCommand(projectKey) {
 // Memory view (decision 02c511b3 D5). Every id / project key / RFC3339
 // bound below is its own argv element — never interpolated into a string —
 // the same rule terminalLaunchCommand holds for cwd.
-function recordsCommand(projectKey, history) {
-  var argv = ["backstory", "records", "--project", projectKey, "--json"]
+//
+// The Memory view and Forget act on exactly the ROW the human opened (task
+// a9a784ec): every records / purge call carries the row's own cwd as
+// `--location`, because a non-git folder under a workspace shares the
+// workspace's project key with every sibling — the key alone would list (or
+// purge) the whole workspace.
+function recordsCommand(projectKey, location, history) {
+  var argv = ["backstory", "records", "--project", projectKey, "--location", location, "--json"]
   if (history) argv.push("--history")
   return argv
 }
@@ -67,11 +73,11 @@ function deleteCommand(recordId) {
   return ["backstory", "delete", recordId, "--yes"]
 }
 
-// purgeCommand builds `backstory purge --project K [--since T] <mode>`;
-// dryRun true previews (--dry-run), false performs it (--yes). since is an
-// RFC3339 string, or "" for the whole project.
-function purgeCommand(projectKey, since, dryRun) {
-  var argv = ["backstory", "purge", "--project", projectKey]
+// purgeCommand builds `backstory purge --project K --location L [--since T]
+// <mode>`; dryRun true previews (--dry-run), false performs it (--yes).
+// since is an RFC3339 string, or "" for everything in the row.
+function purgeCommand(projectKey, location, since, dryRun) {
+  var argv = ["backstory", "purge", "--project", projectKey, "--location", location]
   if (since) argv.push("--since", since)
   argv.push(dryRun ? "--dry-run" : "--yes")
   return argv

@@ -31,6 +31,10 @@ func runPurge(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
+	if locationGiven(fs) && *locationFlag == "" {
+		_, _ = fmt.Fprintln(stderr, "backstory purge: --location needs a directory")
+		return 2
+	}
 	if fs.NArg() != 0 {
 		_, _ = fmt.Fprintln(stderr, "backstory purge: unexpected argument", fs.Arg(0))
 		return 2

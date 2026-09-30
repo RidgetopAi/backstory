@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 
@@ -29,4 +30,13 @@ func resolveHumanProjectKey(projectFlag string) (string, error) {
 	// home dir just means no default workspace.
 	workspaces, _ := project.DefaultWorkspaceDirs()
 	return project.Key(cwd, project.RealGit{}, workspaces), nil
+}
+
+// locationGiven reports whether --location was passed at all, even empty: an
+// empty value must be refused, never silently widen to the whole project
+// key (task a9a784ec).
+func locationGiven(fs *flag.FlagSet) bool {
+	given := false
+	fs.Visit(func(f *flag.Flag) { given = given || f.Name == "location" })
+	return given
 }

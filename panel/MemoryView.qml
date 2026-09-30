@@ -8,8 +8,8 @@ import "js/records.js" as Records
 import "js/memory.js" as Memory
 import "js/glyphs.js" as Glyphs
 
-// Memory view (decision 02c511b3 D5): one project's saved records — see,
-// edit, delete — plus "Forget activity". A CLI CLIENT like the rest of the
+// Memory view (decision 02c511b3 D5): one row's saved records — see,
+// edit, delete — plus "Forget activity and saved records". A CLI CLIENT like the rest of the
 // panel: it runs `backstory records|edit|delete|purge` and reads stdout,
 // never the store. Swapped in for the This Week body by Panel.qml (same
 // pattern as GroupEditor). Refreshes whenever it becomes visible, so a
@@ -19,9 +19,15 @@ Item {
 
   property string projectKey: ""
   property string displayName: ""
+  // The row's own cwd (its This Week summary cwd): every records / purge run
+  // is scoped to this row with --location, never to the shared project key.
+  property string location: ""
 
   signal changed()
   signal closeRequested()
+  // Asks the scroll view to show `target` (the confirm, note or error a
+  // click just produced), so nobody scrolls to find the result of a click.
+  signal reveal(Item target)
 
   property var payload: ({})
   property bool showHistory: false
@@ -42,7 +48,7 @@ Item {
 
   function refresh() {
     if (root.projectKey === "") return
-    listProcess.command = Launchers.recordsCommand(root.projectKey, root.showHistory)
+    listProcess.command = Launchers.recordsCommand(root.projectKey, root.location, root.showHistory)
     listProcess.running = false
     listProcess.running = true
   }
@@ -66,10 +72,43 @@ Item {
     Quickshell.execDetached(Launchers.editCommand(recordId))
   }
 
+  // Scrolls the item a state change just made visible into view. Deferred
+  // one turn so the layout has seen the new state; `kind` names the target.
+  function revealSoon(kind) {
+    Qt.callLater(function () { root.revealNow(kind) })
+  }
+
+  function revealNow(kind) {
+    var target = null
+    if (kind === "error") target = errorLabel
+    else if (kind === "note") target = noteLabel
+    else if (kind === "purge") target = purgeConfirm
+    else if (kind === "record") {
+      for (var i = 0; i < recordRepeater.count; i++) {
+        var row = recordRepeater.itemAt(i)
+        if (row && row.rid === root.confirmingId) target = row.confirmFlow
+      }
+    }
+    if (target && target.visible) {
+      // Lay out innermost-first so the target's own position is final.
+      for (var p = target; p; p = p.parent) {
+        if (typeof p.forceLayout === "function") p.forceLayout()
+      }
+      root.reveal(target)
+    }
+  }
+
+  // Every error path shows the message and brings it into view.
+  function fail(message) {
+    root.errorText = message
+    root.revealSoon("error")
+  }
+
   function askDelete(recordId) {
     root.pendingPurge = null
     root.purgeNote = ""
     root.confirmingId = recordId
+    root.revealSoon("record")
   }
 
   function deleteRecord(recordId) {
@@ -88,7 +127,7 @@ Item {
     root.purgeNote = ""
     purgeProcess.dryRun = true
     purgeProcess.scope = { label: scope.label, since: scope.since(root.now()) }
-    purgeProcess.command = Launchers.purgeCommand(root.projectKey, purgeProcess.scope.since, true)
+    purgeProcess.command = Launchers.purgeCommand(root.projectKey, root.location, purgeProcess.scope.since, true)
     root.busy = true
     purgeProcess.running = true
   }
@@ -100,7 +139,7 @@ Item {
     root.pendingPurge = null
     purgeProcess.dryRun = false
     purgeProcess.scope = scope
-    purgeProcess.command = Launchers.purgeCommand(root.projectKey, scope.since, false)
+    purgeProcess.command = Launchers.purgeCommand(root.projectKey, root.location, scope.since, false)
     root.busy = true
     purgeProcess.running = true
   }
@@ -123,7 +162,7 @@ Item {
     stderr: StdioCollector { id: listStderr }
     onExited: (exitCode, exitStatus) => {
       if (exitCode !== 0) {
-        root.errorText = listStderr.text.length > 0 ? listStderr.text : ("backstory records exited " + exitCode)
+        root.fail(listStderr.text.length > 0 ? listStderr.text : ("backstory records exited " + exitCode))
       }
     }
   }
@@ -136,7 +175,7 @@ Item {
       if (exitCode === 0) {
         root.refresh()
       } else {
-        root.errorText = mutateStderr.text.length > 0 ? mutateStderr.text : ("backstory delete exited " + exitCode)
+        root.fail(mutateStderr.text.length > 0 ? mutateStderr.text : ("backstory delete exited " + exitCode))
       }
     }
   }
@@ -150,17 +189,19 @@ Item {
     onExited: (exitCode, exitStatus) => {
       root.busy = false
       if (exitCode !== 0) {
-        root.errorText = purgeStderr.text.length > 0 ? purgeStderr.text : ("backstory purge exited " + exitCode)
+        root.fail(purgeStderr.text.length > 0 ? purgeStderr.text : ("backstory purge exited " + exitCode))
         return
       }
       if (purgeProcess.dryRun) {
         var counts = Memory.parseDryRun(purgeStdout.text)
         if (counts === null) {
-          root.errorText = "Unexpected output from backstory purge --dry-run"
-        } else if (counts.sessions === 0) {
+          root.fail("Unexpected output from backstory purge --dry-run")
+        } else if (Memory.nothingToForget(counts)) {
           root.purgeNote = "Nothing to forget for " + purgeProcess.scope.label.toLowerCase() + "."
+          root.revealSoon("note")
         } else {
-          root.pendingPurge = { label: purgeProcess.scope.label, since: purgeProcess.scope.since, sessions: counts.sessions, events: counts.events }
+          root.pendingPurge = { label: purgeProcess.scope.label, since: purgeProcess.scope.since, sessions: counts.sessions, events: counts.events, records: counts.records }
+          root.revealSoon("purge")
         }
       } else {
         root.purgeNote = ""
@@ -211,6 +252,7 @@ Item {
     }
 
     Text {
+      id: errorLabel
       visible: root.errorText !== ""
       textFormat: Text.PlainText
       text: root.errorText
@@ -234,6 +276,7 @@ Item {
     }
 
     Repeater {
+      id: recordRepeater
       model: root.records
 
       delegate: Item {
@@ -243,6 +286,7 @@ Item {
         readonly property string mark: Memory.statusMark(Records.recordStatus(modelData))
         readonly property bool deleted: Records.recordStatus(modelData) === "deleted"
         readonly property string body: Records.recordText(modelData)
+        readonly property Item confirmFlow: recordConfirm
         property bool expanded: false
 
         width: content.width
@@ -355,6 +399,7 @@ Item {
           }
 
           Flow {
+            id: recordConfirm
             visible: root.confirmingId === rec.rid
             width: parent.width
             spacing: Style.spacing.controlGap
@@ -385,7 +430,7 @@ Item {
 
     Text {
       textFormat: Text.PlainText
-      text: "Forget activity"
+      text: "Forget activity and saved records"
       font.family: Style.font.family
       font.pixelSize: Style.font.caption
       font.bold: true
@@ -408,6 +453,7 @@ Item {
     }
 
     Text {
+      id: noteLabel
       visible: root.purgeNote !== ""
       textFormat: Text.PlainText
       text: root.purgeNote
@@ -419,6 +465,7 @@ Item {
     }
 
     Column {
+      id: purgeConfirm
       visible: root.pendingPurge !== null
       width: parent.width
       spacing: Style.spacing.labelGap
@@ -426,7 +473,7 @@ Item {
       Text {
         textFormat: Text.PlainText
         text: root.pendingPurge
-          ? ("Forget " + root.pendingPurge.sessions + " sessions (" + root.pendingPurge.events + " events)? This cannot be undone.")
+          ? Memory.forgetConfirmText(root.pendingPurge, root.displayName)
           : ""
         wrapMode: Text.WordWrap
         width: parent.width
