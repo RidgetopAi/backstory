@@ -1,0 +1,7 @@
+--- FAIL: TestLocationRulesExcluded (0.00s)
+    week_test.go:715: Excluded("/root") = false, want true
+    week_test.go:715: Excluded("/") = false, want true
+    week_test.go:715: Excluded("/srv/x") = false, want true
+FAIL
+FAIL	github.com/RidgetopAi/backstory/internal/week	0.174s
+FAIL

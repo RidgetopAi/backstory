@@ -595,6 +595,16 @@ func newDesk(t *testing.T) *desk {
 	sid = d.session(t, "shelly", "unknown", store.OriginLive, d.shellOnly, d.shellOnly)
 	d.event(t, sid, "command", `{"command":"ls"}`)
 
+	// Real agent tool activity in excluded locations: excluded by location
+	// rule alone (outside HOME, dot-directory, HOME itself).
+	for _, dir := range []string{d.outside, localBin, d.home} {
+		sid := d.session(t, "claude-excluded-"+filepath.Base(dir), "claude", store.OriginLive, dir, dir)
+		d.event(t, sid, "tool.use", `{"name":"Read","path":"a.txt"}`)
+	}
+	// An unknown-agent session with a tool event: not a known harness.
+	sid = d.session(t, "unknown-tools", "unknown", store.OriginLive, d.livestream, d.livestream)
+	d.event(t, sid, "tool.use", `{"name":"Read","path":"a.txt"}`)
+
 	// A Claude session in the fixture repo writing the repo, its own memory
 	// and a temp-dir scratchpad; a handoff filed at the workspace makes the
 	// workspace an active home (the desk's label path).
@@ -617,7 +627,7 @@ func newDesk(t *testing.T) *desk {
 		t.Fatalf("TombstoneRecord: %v", err)
 	}
 
-	d.excludedKeys = []string{d.livestream, d.outside, localBin, d.home, d.shellOnly, d.tombstoned}
+	d.excludedKeys = []string{localBin, d.livestream, d.outside, localBin, d.home, d.shellOnly, d.tombstoned}
 	return d
 }
 
@@ -750,8 +760,8 @@ func TestExcludedLocationsRemainReadableInStore(t *testing.T) {
 			t.Errorf("store lost activity for excluded key %s", k)
 		}
 	}
-	if evs, err := d.st.EventsForTimeline(d.livestream, windowStart(fixtureNow), "", 0); err != nil || len(evs) != 4 {
-		t.Errorf("timeline events for livestream = %d (err %v), want 4", len(evs), err)
+	if evs, err := d.st.EventsForTimeline(d.livestream, windowStart(fixtureNow), "", 0); err != nil || len(evs) != 5 {
+		t.Errorf("timeline events for livestream = %d (err %v), want 5", len(evs), err)
 	}
 	if recs, err := d.st.RecordsForProjectAll(d.tombstoned, 10); err != nil || len(recs) != 1 {
 		t.Errorf("records for tombstoned dir = %d (err %v), want 1", len(recs), err)

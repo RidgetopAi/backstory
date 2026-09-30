@@ -1,0 +1,11 @@
+--- FAIL: TestBuildDeskShowsOnlyRealWorkPlaces (0.02s)
+    week_test.go:660: where_left_off rows = 4, want 3 (repo, Work, Notes): [{Group: Project:{ProjectKey:/tmp/TestBuildDeskShowsOnlyRealWorkPlaces1123880380/002/.claude/projects/X/memory DisplayName:memory CWD:/tmp/TestBuildDeskShowsOnlyRealWorkPlaces1123880380/002/.claude/projects/X/memory LastActivity:2026-03-10 11:30:00 +0000 UTC HandoffID:01720ed7-3d3c-4384-b8f2-f05a6e567fae HandoffFirstLine:resume wobble-party HandoffStale:false} Children:[]} {Group: Project:{ProjectKey:/tmp/TestBuildDeskShowsOnlyRealWorkPlaces1123880380/002/Work DisplayName:Work CWD:/tmp/TestBuildDeskShowsOnlyRealWorkPlaces1123880380/002/Work LastActivity:2026-03-10 11:30:00 +0000 UTC HandoffID: HandoffFirstLine: HandoffStale:false} Children:[]} {Group: Project:{ProjectKey:/tmp/TestBuildDeskShowsOnlyRealWorkPlaces1123880380/002/projects/wobble-party DisplayName:projects/wobble-party CWD:/tmp/TestBuildDeskShowsOnlyRealWorkPlaces1123880380/002/projects/wobble-party LastActivity:2026-03-10 11:30:00 +0000 UTC HandoffID:01720ed7-3d3c-4384-b8f2-f05a6e567fae HandoffFirstLine:resume wobble-party HandoffStale:false} Children:[]} {Group: Project:{ProjectKey:/tmp/TestBuildDeskShowsOnlyRealWorkPlaces1123880380/002/Notes DisplayName:Notes CWD: LastActivity:0001-01-01 00:00:00 +0000 UTC HandoffID: HandoffFirstLine: HandoffStale:false} Children:[]}]
+    week_test.go:666: excluded location "memory" has a where_left_off row
+    week_test.go:674: week entry for excluded location: {Day:2026-03-10 00:00:00 +0000 UTC ProjectKey:/tmp/TestBuildDeskShowsOnlyRealWorkPlaces1123880380/002/.claude/projects/X/memory DisplayName:memory Sessions:1 FilesTouched:1 RecordsWritten:0}
+--- FAIL: TestLocationRulesExcluded (0.00s)
+    week_test.go:715: Excluded("/home/fx/.claude/x") = false, want true
+    week_test.go:715: Excluded("/home/fx/.local/bin") = false, want true
+    week_test.go:715: Excluded("/home/fx/.claude/projects/-a/memory") = false, want true
+FAIL
+FAIL	github.com/RidgetopAi/backstory/internal/week	0.183s
+FAIL
