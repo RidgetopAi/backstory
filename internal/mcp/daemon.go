@@ -179,7 +179,7 @@ func dispatchDaemonRequest(line []byte, st *store.Store, procfs ident.ProcFS, id
 	}
 	switch req.Method {
 	case daemonMethodNote:
-		return handleNote(st, identity, sessionID, id.ProjectKey, id.CWD, workspaces, req.Params, captureOff)
+		return handleNote(st, git, identity, sessionID, id.ProjectKey, id.CWD, workspaces, req.Params, captureOff)
 	case daemonMethodStatus:
 		return handleStatus(st, id, sessionID, captureOff)
 	case daemonMethodRecall:

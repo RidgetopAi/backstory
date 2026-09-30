@@ -47,9 +47,30 @@ func (s *Store) sessionLabels(sess Session, git project.Git, workspaces []string
 // label (project.Label(sess.CWD, ...)) to sess.CWD itself, exactly as
 // sessionLabels' old single-label fallback did.
 func (s *Store) sessionLabelDirs(sess Session, git project.Git, workspaces []string) (map[string]string, error) {
-	events, err := s.eventsForSessionID(sess.ID)
+	dirs, err := s.sessionEditedDirs(sess.ID, git, workspaces)
 	if err != nil {
-		return nil, fmt.Errorf("store: session label dirs for %s: %w", sess.ID, err)
+		return nil, err
+	}
+	if len(dirs) == 0 {
+		dirs[project.Label(sess.CWD, git, workspaces)] = sess.CWD
+	}
+	return dirs, nil
+}
+
+// SessionEditedDirs is sessionLabelDirs' file-touching half on its own: the
+// label -> directory map of the locations session sessionID's mutating file
+// tool events touched, with NO cwd fallback — an empty map means the session
+// edited nothing. handleNote's project inference (task fd14c6cc) needs to
+// tell "edited exactly one repo" from "edited nothing", which the fallback
+// would blur; it shares this code with This Week rather than reimplementing.
+func (s *Store) SessionEditedDirs(sessionID string, git project.Git, workspaces []string) (map[string]string, error) {
+	return s.sessionEditedDirs(sessionID, git, workspaces)
+}
+
+func (s *Store) sessionEditedDirs(sessionID string, git project.Git, workspaces []string) (map[string]string, error) {
+	events, err := s.eventsForSessionID(sessionID)
+	if err != nil {
+		return nil, fmt.Errorf("store: session label dirs for %s: %w", sessionID, err)
 	}
 
 	dirs := map[string]string{}
@@ -68,9 +89,6 @@ func (s *Store) sessionLabelDirs(sess Session, git project.Git, workspaces []str
 		if _, ok := dirs[label]; !ok {
 			dirs[label] = dir
 		}
-	}
-	if len(dirs) == 0 {
-		dirs[project.Label(sess.CWD, git, workspaces)] = sess.CWD
 	}
 	return dirs, nil
 }
@@ -293,4 +311,10 @@ func (s *Store) HandoffLabel(h Record, git project.Git, workspaces []string) (st
 		return "", fmt.Errorf("store: handoff label for %s: %w", h.ID, err)
 	}
 	return strings.Join(labels, ", "), nil
+}
+
+// LabelAndDir is labelAndDir for callers outside store (handleNote's about[]
+// fallback, task fd14c6cc): the same per-path resolution This Week uses.
+func LabelAndDir(path string, git project.Git, workspaces []string) (label, dir string) {
+	return labelAndDir(path, git, workspaces)
 }
