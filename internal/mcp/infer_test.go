@@ -184,4 +184,3 @@ func TestWorkspaceSessionNoteKeyInference(t *testing.T) {
 		}
 	})
 }
-

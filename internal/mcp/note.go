@@ -123,7 +123,7 @@ func handleNote(st *store.Store, git project.Git, identity store.Identity, sessi
 			projectKey = home
 		}
 	} else if project.IsWorkspaceKey(projectKey) {
-		repoKey, ok, err := inferRepoKey(st, git, sessionID, cwd, p.About, workspaces)
+		repoKey, ok, err := inferRepoKey(st, git, sessionID, p.About, workspaces)
 		if err != nil {
 			return errResponse("internal", err.Error())
 		}
@@ -239,7 +239,7 @@ func ensureHomeProject(st *store.Store, home string) error {
 // rule to the note's declared about[] paths. Zero or several locations, or a
 // non-git folder, report ok=false: the workspace key stays. The repo's
 // projects row is upserted first (records.project_key is a foreign key).
-func inferRepoKey(st *store.Store, git project.Git, sessionID, cwd string, about, workspaces []string) (string, bool, error) {
+func inferRepoKey(st *store.Store, git project.Git, sessionID string, about, workspaces []string) (string, bool, error) {
 	dirs, err := st.SessionEditedDirs(sessionID, git, workspaces)
 	if err != nil {
 		return "", false, err
