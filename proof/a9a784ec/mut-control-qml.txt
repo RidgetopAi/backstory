@@ -1,5 +1,0 @@
-control (unmutated) qmltest:
-********* Start testing of qmltestrunner *********
-Config: Using QtTest library 6.10.2, Qt 6.10.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 15.2.0), ubuntu 26.04
-Totals: 50 passed, 0 failed, 0 skipped, 0 blacklisted, 3528ms
-********* Finished testing of qmltestrunner *********

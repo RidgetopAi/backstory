@@ -4,3 +4,7 @@ bin/
 *.db-wal
 *.db-shm
 .worktrees/
+
+# Punch-lane scratch: workers' own proof/mutation notes never belong in the repo
+/proof/
+/mut-*.txt
