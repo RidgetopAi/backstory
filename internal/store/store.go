@@ -60,12 +60,20 @@ func Open(path string, workspaceDirs []string, git project.Git) (*Store, error) 
 		return nil, fmt.Errorf("store: open %s: %w", path, err)
 	}
 	targets := resolveSweepTargets(workspaceDirs, git)
-	s := &Store{db: db, path: path, legacyToCanonical: targets}
+	legacy := make(map[string]string, len(targets))
+	for k, v := range targets {
+		legacy[k] = v
+	}
+	s := &Store{db: db, path: path, legacyToCanonical: legacy}
 	if err := s.migrate(); err != nil {
 		_ = db.Close()
 		return nil, err
 	}
 	if err := s.sweepLegacyWorkspaceKeys(targets); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
+	if err := s.mergeRepoIdentities(git); err != nil {
 		_ = db.Close()
 		return nil, err
 	}

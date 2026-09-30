@@ -72,14 +72,14 @@ func TestKeyDifferentRemotesYieldDifferentKeys(t *testing.T) {
 	}
 }
 
-func TestKeyRepoWithNoRemoteUsesToplevel(t *testing.T) {
+func TestKeyRepoWithNoRemoteUsesCommonDir(t *testing.T) {
 	git := fakeGit{
 		"/repo": {CommonDir: "/repo/.git", RemoteURL: "", Toplevel: "/repo"},
 	}
 
 	got := project.Key("/repo", git, nil)
-	if got != "/repo" {
-		t.Fatalf("Key = %q, want toplevel /repo", got)
+	if got != "/repo/.git" {
+		t.Fatalf("Key = %q, want common dir /repo/.git", got)
 	}
 }
 
@@ -136,7 +136,7 @@ func TestKeyRepoUnderWorkspaceYieldsRepoKeyUnchanged(t *testing.T) {
 	workspaces := []string{"/home/b/projects"}
 
 	got := project.Key("/home/b/projects/backstory", git, workspaces)
-	want := "/home/b/projects/backstory/.git|git@example.com:ridgetopai/backstory.git"
+	want := "/home/b/projects/backstory/.git"
 	if got != want {
 		t.Fatalf("Key = %q, want %q (repo key unchanged despite living under a workspace dir)", got, want)
 	}

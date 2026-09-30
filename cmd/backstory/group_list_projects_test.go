@@ -17,7 +17,7 @@ import (
 // (task 4fe02e30 round 5): naively taking the text after the key's last
 // "/" renders this as "omarcade.git" (the remote URL's own basename), not
 // the project's real display name.
-const groupListFixtureOmarcadeKey = fixtureWorkspaceDir + "/omarcade/.git|git@github.com:example/omarcade.git"
+const groupListFixtureOmarcadeKey = fixtureWorkspaceDir + "/omarcade/.git"
 
 // groupListFixtureLegacyKey / groupListFixtureWorkspaceKey are the same
 // workspace folder under its pre- and post-79f7b20e keys (task 50249f56):

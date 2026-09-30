@@ -56,8 +56,14 @@ harness ── spawns ──▶ `backstory mcp` (stdio shim)
 Every recall is "for this project", and a project is **not** a cwd string. A worktree, a
 subdirectory and Claude's dashed-cwd transcript slug are all the same repository.
 
-- `project_key` = `git rev-parse --git-common-dir` (worktree-safe) + the first remote URL
-  when present; the toplevel path is the fallback for non-git directories.
+- `project_key` = the canonical `git rev-parse --git-common-dir` **alone** (worktree-safe:
+  a worktree and its main checkout share it; two clones of one remote at different paths
+  stay two projects). The remote is *not* part of the key, so `git remote add`, `set-url`
+  and removal never split a repo's history (task `029485ae`, shape (a)). A non-git
+  directory's key is its own path. `store.Open` idempotently merges pre-existing rows
+  spelled `<common-dir>|<remote>` or by the remote-less toplevel path onto the common-dir
+  key (backup first, one transaction, `sweepOneTarget`), and `canonicalizeProjectKey`
+  resolves the old spellings so nothing mints a second row.
 - Sessions and ledger records carry `project_key`. **cwd is a timeline fact**, kept on the
   session and the events, never the key.
 - Backfill normalises Claude's slug back to a path and then to a repo key.

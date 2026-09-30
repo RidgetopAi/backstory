@@ -35,6 +35,11 @@ func (s *Store) canonicalizeProjectKey(key string) string {
 	if canon, ok := s.legacyToCanonical[filepath.Clean(key)]; ok {
 		return canon
 	}
+	// A pre-029485ae "<common-dir>|<remote>" spelling names the same repo as
+	// its bare common dir.
+	if dir, ok := project.LegacyRemoteKeyCommonDir(key); ok {
+		return dir
+	}
 	return key
 }
 
@@ -73,7 +78,7 @@ func (s *Store) sweepLegacyWorkspaceKeys(targets map[string]string) error {
 	}
 	defer func() { _ = tx.Rollback() }() // no-op once Commit has run
 	for legacy, canonical := range targets {
-		if err := sweepOneTarget(tx, legacy, canonical); err != nil {
+		if err := sweepOneTarget(tx, legacy, canonical, false); err != nil {
 			return fmt.Errorf("store: sweep %s -> %s: %w", legacy, canonical, err)
 		}
 	}
@@ -88,13 +93,25 @@ func (s *Store) sweepLegacyWorkspaceKeys(targets map[string]string) error {
 // a no-op throughout. The canonical projects row must exist before sessions/
 // project_groups can point at it (both foreign-key into projects(key)); the
 // legacy projects row is deleted last, once nothing references it.
-func sweepOneTarget(tx *sql.Tx, legacy, canonical string) error {
+//
+// repoIdentity selects the shape of a newly minted canonical row: false is
+// the workspace sweep (no common dir, toplevel = the canonical key); true is
+// the repo-identity merge (task 029485ae), where canonical is the repo's git
+// common dir and the legacy row's remote_url and toplevel carry over.
+func sweepOneTarget(tx *sql.Tx, legacy, canonical string, repoIdentity bool) error {
 	// Upsert the canonical row, first_seen sourced from the legacy row and
 	// kept at whichever of the two is earlier.
-	if _, err := tx.Exec(`INSERT INTO projects (key, git_common_dir, remote_url, toplevel, first_seen)
-		SELECT ?, NULL, NULL, ?, first_seen FROM projects WHERE key = ?
+	upsert := `INSERT INTO projects (key, git_common_dir, remote_url, toplevel, first_seen)
+		SELECT ?, NULL, NULL, ?, first_seen FROM projects WHERE key = ?`
+	args := []any{canonical, canonical, legacy}
+	if repoIdentity {
+		upsert = `INSERT INTO projects (key, git_common_dir, remote_url, toplevel, first_seen)
+		SELECT ?, ?, remote_url, toplevel, first_seen FROM projects WHERE key = ?`
+		args = []any{canonical, canonical, legacy}
+	}
+	if _, err := tx.Exec(upsert+`
 		ON CONFLICT(key) DO UPDATE SET first_seen = excluded.first_seen WHERE excluded.first_seen < projects.first_seen`,
-		canonical, canonical, legacy); err != nil {
+		args...); err != nil {
 		return fmt.Errorf("upsert canonical project row: %w", err)
 	}
 

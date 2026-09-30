@@ -319,7 +319,7 @@ const nulProjectKey = "/tmp/proj2/.git\x00git@example.com:ridgetopai/proj2.git"
 
 // wantPrintableProjectKey is nulProjectKey rewritten with the printable "|"
 // separator migration 0003 must produce.
-const wantPrintableProjectKey = "/tmp/proj2/.git|git@example.com:ridgetopai/proj2.git"
+const wantPrintableProjectKey = "/tmp/proj2/.git" // migration 3 yields "<dir>|<remote>"; Open then merges it onto the bare common dir (task 029485ae)
 
 // buildV2Fixture creates a database at path with migrations 0001 and 0002
 // applied (SQLite executed directly, bypassing Store.migrate so migration
