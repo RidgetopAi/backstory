@@ -194,11 +194,14 @@ stays proof-kind "look", the human check below.
 
 Each Where-you-left-off row has a Memory action that swaps the panel body
 for `MemoryView.qml` (Back returns): the project's saved records from
-`backstory records --project K --json [--history]` (tier You/Agent/Inferred,
+`backstory records --project K --location CWD --json [--history]` (scoped to
+the row's own cwd, never the shared workspace key) (tier You/Agent/Inferred,
 a status mark unless current, age, first line; click expands), Edit
 (`xdg-terminal-exec -- backstory edit <id>`, detached), Delete (inline
-confirm, then `backstory delete <id> --yes`) and "Forget activity" (Last
-hour / Today / Everything: `backstory purge --project K [--since RFC3339]
---dry-run` first, `--yes` only after the human confirms the counts). Record
+confirm, then `backstory delete <id> --yes`) and "Forget activity and
+saved records" (Last hour / Today / Everything here: `backstory purge --project K
+--location CWD [--since RFC3339] --dry-run` first, `--yes` only after the human confirms the
+sessions / events / saved-records counts; nothing-to-forget only when all three are 0). The
+confirm, the note, an error and the per-record delete confirm scroll into view. Record
 fields are read only in `js/records.js`, pinned by `records_contract_test.go`
 against the records goldens.

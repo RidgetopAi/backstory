@@ -382,7 +382,13 @@ TestCase {
     // Scrolled to the top the option is below the viewport, so the mouse
     // cannot reach it: trigger the click handler itself.
     button.clicked()
+    settle()
   }
+
+  // Lets the deferred reveal and the layout polish run, so a position read
+  // afterwards is the settled one (an un-laid-out item reports y=0, which
+  // would satisfy any "in view" check vacuously).
+  function settle() { wait(150) }
 
   function findTextStarting(prefix) {
     return TestUtil.findFirst(panel.testContentItem, function (n) {
@@ -426,7 +432,14 @@ TestCase {
     openLabelRowMemory(longPayload())
     var since = MemoryJs.FORGET_SCOPES[0].since(pinnedNow)
     ProcessController.respond(Launchers.purgeCommand(wsKey, labelCwd, since, true), { stdout: "", stderr: "store is locked", exitCode: 1 })
-    clickForgetOptionScrolledToTop("Last hour")
+    // The error renders at the TOP of the view while the Forget options sit
+    // at the bottom: scrolled to the bottom (where the click happens on the
+    // desk) the error is out of sight until the view scrolls up to it.
+    var f = flickable()
+    f.contentY = f.contentHeight - f.height
+    var button = TestUtil.findFirst(panel.testContentItem, function (n) { return n.label === "Last hour" })
+    mouseClick(button, button.width / 2, button.height / 2)
+    settle()
     tryVerify(function () { return findTextStarting("store is locked") !== null }, 2000)
     var err = findTextStarting("store is locked")
     tryVerify(function () {
@@ -441,6 +454,7 @@ TestCase {
     scrollToTop()
     var lastId = JSON.parse(longPayload()).records[39].id
     memoryView().askDelete(lastId)
+    settle()
     tryVerify(function () { return findTextStarting("Forget this record?") !== null }, 2000)
     var confirm = findTextStarting("Forget this record?")
     tryVerify(function () {

@@ -1,0 +1,8 @@
+MUTATION: drop --location from records argv
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+********* Start testing of qmltestrunner *********
+Config: Using QtTest library 6.10.2, Qt 6.10.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 15.2.0), ubuntu 26.04
+FAIL!  : qmltestrunner::MemoryView::test_label_row_scopes_records_and_every_forget_option_by_location() 'records argv lacks --location <cwd>: ["backstory","records","--project","workspace:/home/x/projects","--json"]' returned FALSE. ()
+   Loc: [/home/ra-builder/builds/a9a784ec/panel/qmltest/tests/tst_memory.qml(298)]
+Totals: 49 passed, 1 failed, 0 skipped, 0 blacklisted, 2901ms
+********* Finished testing of qmltestrunner *********

@@ -219,7 +219,8 @@ unmutated → GREEN.
 9. **Retention bounds the timeline only.** `timeline_events` are pruned by age by the daemon;
    the human `backstory purge` is the one other delete: it erases whole sessions' events,
    stamps `sessions.purged_at` (backfill never re-imports a purged session) and appends a
-   counts-only `purge_log` row (`ts, scope, sessions, events`). Session rows, `backfill_cursors`
+   counts-only `purge_log` row (`ts, scope, sessions, events, records`); a project purge also
+   tombstones the in-scope records written in its window (human Delete path). Session rows, `backfill_cursors`
    and `records` stay; record evidence / `event_cursor` ids may dangle and readers tolerate it.
    `records` are never pruned except expired `claim`s and expired `inferred` drafts
    (`expires_at`), which are pruned, not tombstoned.

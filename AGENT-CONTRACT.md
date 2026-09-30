@@ -240,11 +240,22 @@ Four things only the human can do, through the panel or CLI, never through a too
 - **Delete** — a human-only tombstone (`tombstoned_at`) that scrubs the record's text from
   `records.text` and the FTS index (the row and its edges remain). A permanent ledger without a human
   delete is a privacy product that cannot forget.
-- **Purge** — `backstory purge (--session ID | --project KEY [--since T] [--until T])
-  [--dry-run] [--yes]` erases captured activity by whole session: the sessions' timeline events
-  are deleted, each session is stamped `purged_at` so backfill never re-imports it, and a
-  counts-only `purge_log` row is written. Records are untouched (they have their own delete).
-  Refuses without `--yes` on a non-TTY. No tool or socket call can purge.
+- **Purge (Forget)** — `backstory purge (--session ID | --project KEY [--location DIR] [--since T]
+  [--until T]) [--dry-run] [--yes]` forgets activity by whole session AND the saved records
+  written in the window: the sessions' timeline events are deleted, each session is stamped
+  `purged_at` so backfill never re-imports it, every non-tombstoned in-scope record with
+  `ts` in the window is tombstoned and text-scrubbed (the human Delete's own path, same
+  transaction), and a counts-only `purge_log` row (sessions, events, records) is written. A
+  `--session` purge forgets no records. Refuses without `--yes` on a non-TTY. No tool or socket
+  call can purge.
+- **Memory and Forget act on the row** — `backstory records --location DIR` and `purge --location
+  DIR` scope to exactly the sessions and records This Week attributes to the row whose cwd is
+  DIR (one function, `week.LocationScope`, over the same work-location labels the rows use): a
+  repo row is its repo key plus workspace records/sessions attributed to that folder; a label
+  row (non-git folder under a workspace) only what is attributed to that label; the workspace
+  root row only what is attributed to the root, not its child labels. The panel always passes
+  the row's own cwd. A session touching several rows' files is attributed to each, so forgetting
+  one row forgets that whole session.
 - **Edit (supersede)** — `backstory edit <id>` writes a NEW human-declared record (same kind,
   project, about) with a `supersedes` edge to the old one, via `$VISUAL`/`$EDITOR`, `--file`,
   or `--stdin`. The old record is never updated (append-only); a deleted or already-superseded
