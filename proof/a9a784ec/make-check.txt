@@ -1,0 +1,80 @@
+go vet -tags backstorytest ./...
+golangci-lint run --build-tags backstorytest ./...
+0 issues.
+go test -race -count=1 -tags backstorytest ./...
+ok  	github.com/RidgetopAi/backstory/cmd/backstory	104.203s
+ok  	github.com/RidgetopAi/backstory/internal/backfill/claude	8.409s
+ok  	github.com/RidgetopAi/backstory/internal/backfill/codex	3.129s
+ok  	github.com/RidgetopAi/backstory/internal/backfill/hermes	3.788s
+ok  	github.com/RidgetopAi/backstory/internal/backfill/pi	3.460s
+ok  	github.com/RidgetopAi/backstory/internal/block	12.930s
+ok  	github.com/RidgetopAi/backstory/internal/export	4.446s
+ok  	github.com/RidgetopAi/backstory/internal/ident	1.022s
+ok  	github.com/RidgetopAi/backstory/internal/install	3.569s
+ok  	github.com/RidgetopAi/backstory/internal/mcp	36.610s
+ok  	github.com/RidgetopAi/backstory/internal/payload	1.033s
+ok  	github.com/RidgetopAi/backstory/internal/project	1.028s
+ok  	github.com/RidgetopAi/backstory/internal/recall	9.556s
+ok  	github.com/RidgetopAi/backstory/internal/skill	1.029s
+ok  	github.com/RidgetopAi/backstory/internal/socket	6.493s
+ok  	github.com/RidgetopAi/backstory/internal/store	43.959s
+?   	github.com/RidgetopAi/backstory/internal/version	[no test files]
+ok  	github.com/RidgetopAi/backstory/internal/week	5.895s
+ok  	github.com/RidgetopAi/backstory/ops	1.121s
+ok  	github.com/RidgetopAi/backstory/panel	2.640s
+QT_QPA_PLATFORM=offscreen QML_XHR_ALLOW_FILE_READ=1 QT_FATAL_WARNINGS=1 \
+	qmltestrunner -import panel/qmltest/stubs -input panel/qmltest/tests
+********* Start testing of qmltestrunner *********
+Config: Using QtTest library 6.10.2, Qt 6.10.2 (x86_64-little_endian-lp64 shared (dynamic) release build; by GCC 15.2.0), ubuntu 26.04
+PASS   : qmltestrunner::BarWidget::initTestCase()
+PASS   : qmltestrunner::BarWidget::test_click_toggles_via_omarchy_shell()
+PASS   : qmltestrunner::BarWidget::cleanupTestCase()
+PASS   : qmltestrunner::GroupEditor::initTestCase()
+PASS   : qmltestrunner::GroupEditor::test_add_group_runs_backstory_group_set()
+PASS   : qmltestrunner::GroupEditor::test_failed_group_set_shows_stderr()
+PASS   : qmltestrunner::GroupEditor::test_group_row_shows_display_name_from_projects_array()
+PASS   : qmltestrunner::GroupEditor::test_rows_come_only_from_projects_array_never_ungrouped_raw_keys()
+PASS   : qmltestrunner::GroupEditor::cleanupTestCase()
+PASS   : qmltestrunner::LoadAllPanelQml::initTestCase()
+PASS   : qmltestrunner::LoadAllPanelQml::test_loads_without_error(AttentionSection.qml)
+PASS   : qmltestrunner::LoadAllPanelQml::test_loads_without_error(BarWidget.qml)
+PASS   : qmltestrunner::LoadAllPanelQml::test_loads_without_error(GroupEditor.qml)
+PASS   : qmltestrunner::LoadAllPanelQml::test_loads_without_error(GroupProjectRow.qml)
+PASS   : qmltestrunner::LoadAllPanelQml::test_loads_without_error(MemoryButton.qml)
+PASS   : qmltestrunner::LoadAllPanelQml::test_loads_without_error(MemoryView.qml)
+PASS   : qmltestrunner::LoadAllPanelQml::test_loads_without_error(Panel.qml)
+PASS   : qmltestrunner::LoadAllPanelQml::test_loads_without_error(ProjectRow.qml)
+PASS   : qmltestrunner::LoadAllPanelQml::test_loads_without_error(WeekSection.qml)
+PASS   : qmltestrunner::LoadAllPanelQml::test_loads_without_error(WhereLeftOffSection.qml)
+PASS   : qmltestrunner::LoadAllPanelQml::cleanupTestCase()
+PASS   : qmltestrunner::MemoryView::initTestCase()
+PASS   : qmltestrunner::MemoryView::test_delete_cancel_records_no_delete()
+PASS   : qmltestrunner::MemoryView::test_delete_confirm_forget_runs_delete_yes()
+PASS   : qmltestrunner::MemoryView::test_delete_failure_shows_stderr()
+PASS   : qmltestrunner::MemoryView::test_each_forget_option_dry_runs_then_yes()
+PASS   : qmltestrunner::MemoryView::test_edit_records_detached_argv()
+PASS   : qmltestrunner::MemoryView::test_empty_state()
+PASS   : qmltestrunner::MemoryView::test_forget_cancel_records_no_yes_run()
+PASS   : qmltestrunner::MemoryView::test_forget_confirm_is_scrolled_into_view()
+PASS   : qmltestrunner::MemoryView::test_forget_last_hour_nothing_then_today_confirm_with_all_three_counts()
+PASS   : qmltestrunner::MemoryView::test_golden_rows_tier_and_status_marks()
+PASS   : qmltestrunner::MemoryView::test_history_toggle_reruns_with_history_and_marks_deleted()
+PASS   : qmltestrunner::MemoryView::test_kind_word_on_each_row()
+PASS   : qmltestrunner::MemoryView::test_label_row_scopes_records_and_every_forget_option_by_location()
+PASS   : qmltestrunner::MemoryView::test_layout_within_bounds()
+PASS   : qmltestrunner::MemoryView::test_nothing_to_forget_note_is_scrolled_into_view()
+PASS   : qmltestrunner::MemoryView::test_purge_error_is_scrolled_into_view()
+PASS   : qmltestrunner::MemoryView::test_record_delete_confirm_is_scrolled_into_view()
+PASS   : qmltestrunner::MemoryView::test_records_error_shows_stderr()
+PASS   : qmltestrunner::MemoryView::test_records_only_window_is_not_nothing_to_forget()
+PASS   : qmltestrunner::MemoryView::cleanupTestCase()
+PASS   : qmltestrunner::Panel::initTestCase()
+PASS   : qmltestrunner::Panel::test_handles_all_empty_arrays_payload()
+PASS   : qmltestrunner::Panel::test_handles_empty_object_payload()
+PASS   : qmltestrunner::Panel::test_layout_within_bounds_group_editor_open()
+PASS   : qmltestrunner::Panel::test_layout_within_bounds_panel_open()
+PASS   : qmltestrunner::Panel::test_renders_golden_display_names()
+PASS   : qmltestrunner::Panel::test_row_click_opens_terminal_at_cwd()
+PASS   : qmltestrunner::Panel::cleanupTestCase()
+Totals: 50 passed, 0 failed, 0 skipped, 0 blacklisted, 3434ms
+********* Finished testing of qmltestrunner *********

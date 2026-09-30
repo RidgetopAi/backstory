@@ -37,7 +37,7 @@ func newLocFixture(t *testing.T) *locFixture {
 	f.appA = filepath.Join(f.ws, "app-a")
 	f.feedbackX = filepath.Join(f.ws, "feedback-x")
 	for _, d := range []string{f.appA, f.feedbackX} {
-		if err := os.MkdirAll(d, 0o755); err != nil {
+		if err := os.MkdirAll(d, 0o750); err != nil {
 			t.Fatal(err)
 		}
 	}
