@@ -252,17 +252,19 @@ func (s *Store) RealWorkProjectKeys(since time.Time, c RealWorkCriteria) ([]stri
 	args := []any{tsToNanos(since)}
 	args = append(args, kargs...)
 	args = append(args, tsToNanos(since))
-	rows, err := s.db.Query(`
+	//nolint:gosec // only "?" placeholders and a package constant are concatenated; every value is bound
+	query := `
 		SELECT DISTINCT project_key FROM (
 			SELECT s.project_key, e.ts FROM timeline_events e
 				JOIN sessions s ON s.id = e.session_id
 				WHERE s.project_key IS NOT NULL AND e.ts >= ?
-				AND e.kind IN (`+ph+`)
-				AND NOT `+strings.ReplaceAll(unknownAgentSQL, "agent", "s.agent")+`
+				AND e.kind IN (` + ph + `)
+				AND NOT ` + strings.ReplaceAll(unknownAgentSQL, "agent", "s.agent") + `
 			UNION ALL
 			SELECT project_key, ts FROM records
 				WHERE project_key IS NOT NULL AND tombstoned_at IS NULL AND ts >= ?
-		)`, args...)
+		)`
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("store: real-work project keys since %s: %w", since, err)
 	}

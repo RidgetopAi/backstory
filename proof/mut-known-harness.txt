@@ -1,1 +1,8 @@
-ok  	github.com/RidgetopAi/backstory/internal/week	0.168s
+--- FAIL: TestBuildDeskShowsOnlyRealWorkPlaces (0.02s)
+    week_test.go:670: where_left_off rows = 4, want 3 (repo, Work, Notes): [{Group: Project:{ProjectKey:/tmp/TestBuildDeskShowsOnlyRealWorkPlaces3298328306/002/Work DisplayName:Work CWD:/tmp/TestBuildDeskShowsOnlyRealWorkPlaces3298328306/002/Work LastActivity:2026-03-10 11:30:00 +0000 UTC HandoffID: HandoffFirstLine: HandoffStale:false} Children:[]} {Group: Project:{ProjectKey:/tmp/TestBuildDeskShowsOnlyRealWorkPlaces3298328306/002/livestream DisplayName:livestream CWD:/tmp/TestBuildDeskShowsOnlyRealWorkPlaces3298328306/002/livestream LastActivity:2026-03-10 11:30:00 +0000 UTC HandoffID: HandoffFirstLine: HandoffStale:false} Children:[]} {Group: Project:{ProjectKey:/tmp/TestBuildDeskShowsOnlyRealWorkPlaces3298328306/002/projects/wobble-party DisplayName:projects/wobble-party CWD:/tmp/TestBuildDeskShowsOnlyRealWorkPlaces3298328306/002/projects/wobble-party LastActivity:2026-03-10 11:30:00 +0000 UTC HandoffID:f0089934-091a-48f2-90f6-86a7000478d0 HandoffFirstLine:resume wobble-party HandoffStale:false} Children:[]} {Group: Project:{ProjectKey:/tmp/TestBuildDeskShowsOnlyRealWorkPlaces3298328306/002/Notes DisplayName:Notes CWD: LastActivity:0001-01-01 00:00:00 +0000 UTC HandoffID: HandoffFirstLine: HandoffStale:false} Children:[]}]
+    week_test.go:676: excluded location "livestream" has a where_left_off row
+    week_test.go:684: week entry for excluded location: {Day:2026-03-10 00:00:00 +0000 UTC ProjectKey:/tmp/TestBuildDeskShowsOnlyRealWorkPlaces3298328306/002/livestream DisplayName:livestream Sessions:3 FilesTouched:0 RecordsWritten:0}
+    week_test.go:688: week entry for excluded key /tmp/TestBuildDeskShowsOnlyRealWorkPlaces3298328306/002/livestream
+FAIL
+FAIL	github.com/RidgetopAi/backstory/internal/week	0.187s
+FAIL
