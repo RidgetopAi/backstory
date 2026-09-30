@@ -50,7 +50,7 @@ func newIdentityEnv(t *testing.T) *identityEnv {
 
 func (e *identityEnv) git(dir string, args ...string) {
 	e.t.Helper()
-	cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "init.defaultBranch=main"}, args...)...)
+	cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "init.defaultBranch=main"}, args...)...) //nolint:gosec // fixed git argv in a test fixture
 	cmd.Dir = dir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		e.t.Fatalf("git %s in %s: %v\n%s", strings.Join(args, " "), dir, err, out)
@@ -60,7 +60,7 @@ func (e *identityEnv) git(dir string, args ...string) {
 func (e *identityEnv) initRepo(name string) string {
 	e.t.Helper()
 	dir := filepath.Join(e.home, "projects", name)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		e.t.Fatal(err)
 	}
 	e.git(dir, "init")
@@ -224,7 +224,7 @@ func TestExistingStoreWithBothLegacySpellingsMergesIdempotently(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Seed exactly as main's code wrote them (raw keys, no canonicalisation).
-	mk := func(key string, at time.Time, rec string) string {
+	mk := func(key string, at time.Time, rec string) {
 		if _, err := seed.DB().Exec(`INSERT INTO projects (key, git_common_dir, remote_url, toplevel, first_seen) VALUES (?, ?, NULL, ?, ?)`,
 			key, common, foo, at.UnixNano()); err != nil {
 			t.Fatal(err)
@@ -237,7 +237,6 @@ func TestExistingStoreWithBothLegacySpellingsMergesIdempotently(t *testing.T) {
 			VALUES (?, ?, 'decision', 'agent-declared', ?, '[]', ?, ?, '[]', 0)`, rec, at.UnixNano(), "text "+rec, "s-"+rec, key); err != nil {
 			t.Fatal(err)
 		}
-		return rec
 	}
 	t0 := time.Now().Add(-2 * time.Hour)
 	mk(oldTop, t0, "rec-before-remote")

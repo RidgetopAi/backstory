@@ -12,7 +12,7 @@ import (
 
 func gitIn(t *testing.T, dir string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "init.defaultBranch=main"}, args...)...)
+	cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@example.invalid", "-c", "init.defaultBranch=main"}, args...)...) //nolint:gosec // fixed git argv in a test fixture
 	cmd.Dir = dir
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
@@ -40,7 +40,7 @@ func TestKeyWorktreeSharesKeyAndSecondCloneDoesNot(t *testing.T) {
 	git := project.RealGit{}
 
 	foo := filepath.Join(home, "projects", "foo")
-	if err := os.MkdirAll(foo, 0o755); err != nil {
+	if err := os.MkdirAll(foo, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	gitIn(t, foo, "init")
@@ -61,7 +61,7 @@ func TestKeyWorktreeSharesKeyAndSecondCloneDoesNot(t *testing.T) {
 		t.Fatalf("worktree key = %q, want foo's %q", got, withRemote)
 	}
 	sub := filepath.Join(foo, "pkg")
-	if err := os.MkdirAll(sub, 0o755); err != nil {
+	if err := os.MkdirAll(sub, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	if got := project.Key(sub, git, ws); got != withRemote {
