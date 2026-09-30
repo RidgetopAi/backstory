@@ -1,0 +1,2 @@
+FAIL!  : qmltestrunner::MemoryView::test_kind_word_on_each_row() 'no Outcome kind word: ["","Memory · acme","","","","Agent","271d","","","The handoff is wrong.","","","You","272d","","","Use option B.","","","Agent","stale","272d","","","Resume here.","","","Agent","expired","272d","","","Build is green.","","","Agent","272d","","","A current note.","","","Agent","271d","","","Swirl approved.","Forget activity","Last hour","Today","Everything in this project"]' returned FALSE. ()
+Totals: 42 passed, 1 failed, 0 skipped, 0 blacklisted, 1943ms
