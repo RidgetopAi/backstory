@@ -241,6 +241,8 @@ func buildThisWeekFixtureStore(t *testing.T, dataDir string) {
 			t.Fatalf("StartSession(%s): %v", p.key, err)
 		}
 		mustAppendEvent(t, st, store.Event{TS: p.startedAt, Kind: "session.start", SessionID: sid, Source: "shell", Payload: `{}`})
+		// A known-harness session needs a tool event to be real work (week.RealWork).
+		mustAppendEvent(t, st, store.Event{TS: p.startedAt, Kind: "tool.use", SessionID: sid, Source: "shell", Payload: `{"name":"Read"}`})
 		_ = i
 	}
 	human := store.Identity{Kind: store.IdentityHuman, Actor: "human"}
@@ -270,6 +272,7 @@ func runThisWeekCLI(t *testing.T, dataDir string, args ...string) (stdout, stder
 	t.Helper()
 	t.Setenv("XDG_DATA_HOME", dataDir)
 	t.Setenv("BACKSTORY_WORKSPACE_DIRS", fixtureWorkspaceDir)
+	t.Setenv("HOME", "/home/brian") // fixture paths live under this HOME (week.LocationRules)
 	orig := thisWeekNow
 	thisWeekNow = func() time.Time { return thisWeekFixtureNow }
 	t.Cleanup(func() { thisWeekNow = orig })
