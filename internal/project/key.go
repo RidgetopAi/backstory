@@ -44,15 +44,30 @@ type Git interface {
 	State(cwd string) (State, bool)
 }
 
-// keySeparator joins CommonDir and RemoteURL in Key's output. It used to be
-// a NUL byte (0x00): `status` returns project_key over JSON, where a byte
+// KeySeparator joined CommonDir and RemoteURL in Key's output before task
+// 029485ae dropped the remote from the key; it is kept because store's
+// migration and canonicalizeProjectKey must still recognise that old
+// spelling. It used to be a NUL byte (0x00): `status` returns project_key over JSON, where a byte
 // below 0x20 comes back as a \u0000 escape that every agent renders
 // literally instead of a real separator (critic T1 on 14704ebe, task
 // e7951178). "|" is printable ASCII so it needs no JSON escaping, is
 // illegal in a Windows path (defense in depth for cross-platform tooling),
 // and does not occur in the ssh/https URL schemes git remotes use or in a
 // *nix directory path in practice.
-const keySeparator = "|"
+const KeySeparator = "|"
+
+// LegacyRemoteKeyCommonDir reports the common dir a pre-029485ae
+// "<common-dir>|<remote>" key names, and whether key has that shape.
+func LegacyRemoteKeyCommonDir(key string) (string, bool) {
+	if IsWorkspaceKey(key) {
+		return "", false
+	}
+	dir, _, ok := strings.Cut(key, KeySeparator)
+	if !ok || dir == "" {
+		return "", false
+	}
+	return dir, true
+}
 
 // workspaceKeyPrefix marks a Key result as a workspace identity rather than
 // a repo key (decision bcc9fa54): a folder that holds many repos (e.g.
@@ -99,12 +114,14 @@ func workspaceOf(cwd string, workspaces []string) (string, bool) {
 }
 
 // Key computes cwd's project key:
-//   - inside a git working tree: the common dir plus the first remote URL
-//     when the repo has one configured (so a worktree and its main
-//     checkout, which share common dir and remote, collapse to the same
-//     key), else the toplevel path. This applies even when the repo lives
-//     under a workspace dir (decision bcc9fa54): a real repo is always a
-//     project, never swallowed into its parent workspace.
+//   - inside a git working tree: the canonical git common dir ALONE (so a
+//     worktree and its main checkout collapse to the same key, and two
+//     clones of one remote at different paths stay two projects). The
+//     remote is deliberately NOT part of the key: `git remote add`,
+//     `set-url` and removal must never change a repo's identity (task
+//     029485ae). This applies even when the repo lives under a workspace
+//     dir (decision bcc9fa54): a real repo is always a project, never
+//     swallowed into its parent workspace.
 //   - not inside a git working tree, and cwd is a workspace dir or a
 //     direct, non-git child of one: workspaceKeyPrefix + that workspace
 //     dir. workspaces is normally DefaultWorkspaceDirs(), list-valued and
@@ -121,10 +138,7 @@ func Key(cwd string, git Git, workspaces []string) string {
 		}
 		return cwd
 	}
-	if repo.RemoteURL != "" {
-		return repo.CommonDir + keySeparator + repo.RemoteURL
-	}
-	return repo.Toplevel
+	return repo.CommonDir
 }
 
 // WorkspaceHome reports the workspace key that covers cwd — cwd itself, or

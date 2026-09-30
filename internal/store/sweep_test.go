@@ -114,7 +114,7 @@ func seedLegacySweepFixture(t *testing.T) (dbPath, w string) {
 
 	// A real repo living under W, key text-prefixed by W: exact-match only,
 	// must never be swept just because it starts with W's own string.
-	repoKey := w + "/omarcade/.git|git@github.com:example/omarcade.git"
+	repoKey := w + "/omarcade/.git"
 	rawInsertProject(t, db, repoKey, w+"/omarcade", sweepT1)
 	rawInsertSession(t, db, "sess-repo", repoKey, w+"/omarcade", sweepT1)
 	rawInsertRecord(t, db, "rec-repo-handoff", repoKey, "sess-repo", KindHandoff, sweepT1)
@@ -186,7 +186,7 @@ func TestSweepMergesLegacyIntoCanonicalAcrossAllFourTables(t *testing.T) {
 	// The repo key and the outside key are byte for byte untouched — exact
 	// match only, never confused with W just because the repo key's text
 	// happens to start with W's own string.
-	repoKey := w + "/omarcade/.git|git@github.com:example/omarcade.git"
+	repoKey := w + "/omarcade/.git"
 	assertProjectRowUnchanged(t, db, repoKey, w+"/omarcade", sweepT1)
 	assertProjectRowUnchanged(t, db, "/home/u/Work", "/home/u/Work", sweepT1)
 	if n := countWhere(t, db, "sessions", "project_key", repoKey); n != 1 {
@@ -435,17 +435,20 @@ func TestSweepSkipsWorkspaceDirThatIsItselfAGitRepo(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = s.Close() })
 
-	if n := countWhere(t, s.DB(), "projects", "key", w); n != 1 {
-		t.Errorf("count(projects.key = %q) = %d, want 1 (untouched: W is a git repo)", w, n)
+	// W is a git repo: never swept to workspace:W. Its plain-path row is the
+	// repo-identity merge's business (task 029485ae) and moves to W's common dir.
+	repoKey := filepath.Join(w, ".git")
+	if n := countWhere(t, s.DB(), "projects", "key", repoKey); n != 1 {
+		t.Errorf("count(projects.key = %q) = %d, want 1 (merged onto the repo's common dir)", repoKey, n)
 	}
-	if n := countWhere(t, s.DB(), "sessions", "project_key", w); n != 1 {
-		t.Errorf("count(sessions.project_key = %q) = %d, want 1 (untouched)", w, n)
+	if n := countWhere(t, s.DB(), "sessions", "project_key", repoKey); n != 1 {
+		t.Errorf("count(sessions.project_key = %q) = %d, want 1", repoKey, n)
 	}
 	if n := countWhere(t, s.DB(), "projects", "key", "workspace:"+w); n != 0 {
 		t.Errorf("count(projects.key = %q) = %d, want 0: a git-repo workspace dir must never gain a workspace: row", "workspace:"+w, n)
 	}
 
-	if key := project.Key(w, git, []string{w}); key != w {
+	if key := project.Key(w, git, []string{w}); key != repoKey {
 		t.Errorf("project.Key(%s) = %q, want %q (repo identity, unaffected by workspace config)", w, key, w)
 	}
 }
