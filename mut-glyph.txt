@@ -1,0 +1,6 @@
+--- FAIL: TestRecordKindGlyphsAndLabels (0.14s)
+    record_kinds_test.go:57: kind "outcome" has no distinct non-fallback glyph ("\uf111")
+    record_kinds_test.go:68: outcome/decision mapping wrong: "\uf111" map[claim:Claim confirm:Confirm decision:Decision handoff:Handoff note:Note outcome:Outcome punch:Punch stage:Stage]
+FAIL
+FAIL	github.com/RidgetopAi/backstory/panel	0.147s
+FAIL

@@ -19,11 +19,23 @@ function edit() { return "\uf044" }         // nf-fa-pencil_square_o
 function trash() { return "\uf1f8" }        // nf-fa-trash
 function history() { return "\uf1da" }      // nf-fa-history
 
-// kind glyph for a record's kind; unknown kinds get a neutral dot.
+// One glyph per record kind the store defines (SCHEMA.md records.kind CHECK).
+var RECORD_KIND_GLYPHS = {
+  decision: "\uf0e3", // nf-fa-gavel
+  outcome: "\uf11e",  // nf-fa-flag_checkered
+  handoff: "\uf064",  // nf-fa-share
+  note: "\uf249",     // nf-fa-sticky_note
+  claim: "\uf00c",    // nf-fa-check
+  punch: "\uf0e7",    // nf-fa-bolt
+  stage: "\uf0c9",    // nf-fa-bars
+  confirm: "\uf058"   // nf-fa-check_circle
+}
+
+var RECORD_KIND_FALLBACK = "\uf111" // nf-fa-circle
+
+// kind glyph for a record's kind; a kind the store does not define gets a
+// neutral dot.
 function recordKind(kind) {
-  if (kind === "note") return "\uf249"      // nf-fa-sticky_note
-  if (kind === "decision") return "\uf0e3"  // nf-fa-gavel
-  if (kind === "claim") return "\uf00c"     // nf-fa-check
-  if (kind === "handoff") return "\uf064"   // nf-fa-share
-  return "\uf111"                           // nf-fa-circle
+  if (Object.prototype.hasOwnProperty.call(RECORD_KIND_GLYPHS, kind)) return RECORD_KIND_GLYPHS[kind]
+  return RECORD_KIND_FALLBACK
 }

@@ -234,6 +234,20 @@ TestCase {
     verify(texts().indexOf("Forget 1 sessions (5 events)? This cannot be undone.") === -1)
   }
 
+  function test_kind_word_on_each_row() {
+    var golden = JSON.parse(readFixture(recordsGolden))
+    golden.records.push({ id: "aaaa0009-0000-4000-8000-000000000009", ts: "2026-01-01T00:07:00Z", kind: "outcome",
+      tier: "agent-declared", status: "current", text: "Swirl approved." })
+    openMemory(JSON.stringify(golden))
+    var t = texts()
+    verify(t.indexOf("Outcome") !== -1, "no Outcome kind word: " + JSON.stringify(t))
+    verify(t.indexOf("Decision") !== -1, "no Decision kind word")
+    verify(t.indexOf("\uf11e") !== -1, "outcome row lacks the flag glyph")
+    var bad = TestUtil.collectOutOfBounds(panel.testContentItem, panel.testContentItem,
+      panel.testImplicitWidth, panel.testImplicitHeight)
+    verify(bad.length === 0, bad.length + " item(s) out of bounds: " + JSON.stringify(bad).slice(0, 2000))
+  }
+
   function test_layout_within_bounds() {
     openMemory(readFixture(recordsGolden))
     // exercise the taller states too: an open delete confirm.

@@ -283,6 +283,15 @@ Item {
 
               Text {
                 textFormat: Text.PlainText
+                text: Memory.kindLabel(Records.recordKind(rec.modelData))
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+                font.bold: true
+                color: Color.foreground
+              }
+
+              Text {
+                textFormat: Text.PlainText
                 text: Memory.tierLabel(Records.recordTier(rec.modelData))
                 font.family: Style.font.family
                 font.pixelSize: Style.font.caption
