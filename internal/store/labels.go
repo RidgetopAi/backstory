@@ -107,7 +107,7 @@ type ActiveWorkLocation struct {
 // label scan: a home's active work locations are the union of every one of
 // its sessions' own OBSERVED labels, independent of whether that session's
 // own project_key happens to equal a per-repo key. Sorted by label.
-func (s *Store) ActiveHomeLabels(home string, since, asOf time.Time, git project.Git, workspaces []string) ([]ActiveWorkLocation, error) {
+func (s *Store) ActiveHomeLabels(home string, since, asOf time.Time, git project.Git, workspaces []string, keep func(Session) (bool, error)) ([]ActiveWorkLocation, error) {
 	sessions, err := s.sessionsForHome(home, workspaces)
 	if err != nil {
 		return nil, fmt.Errorf("store: active home labels for %s: %w", home, err)
@@ -115,6 +115,15 @@ func (s *Store) ActiveHomeLabels(home string, since, asOf time.Time, git project
 
 	byLabel := map[string]*ActiveWorkLocation{}
 	for _, sess := range sessions {
+		if keep != nil {
+			ok, err := keep(sess)
+			if err != nil {
+				return nil, fmt.Errorf("store: active home labels for %s: %w", home, err)
+			}
+			if !ok {
+				continue
+			}
+		}
 		last, ok, err := s.sessionLastActivity(sess, asOf)
 		if err != nil {
 			return nil, fmt.Errorf("store: active home labels for %s: %w", home, err)

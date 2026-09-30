@@ -96,6 +96,7 @@ func seedUncommittedProject(t *testing.T, st *store.Store) {
 		Payload: `{"branch":"main","uncommitted_count":3}`,
 	})
 	_ = count
+	appendEvent(t, st, store.Event{TS: fixtureNow.Add(-1 * 24 * time.Hour), Kind: "tool.use", SessionID: sid, Source: "shell", Payload: `{"name":"Read","path":"main.go"}`})
 }
 
 // seedCouldNotObserveProject records a session-end git-state event that
@@ -367,8 +368,8 @@ func TestBuildGroupedProjectsCollapseIntoOneRowWithBothAsChildren(t *testing.T) 
 	upsertProject(t, st, "proj-group-b", "/home/brian/group-b")
 	sidA := startSession(t, st, "sess-group-a", "proj-group-a", "/home/brian/group-a", fixtureNow.Add(-1*24*time.Hour))
 	sidB := startSession(t, st, "sess-group-b", "proj-group-b", "/home/brian/group-b", fixtureNow.Add(-2*24*time.Hour))
-	appendEvent(t, st, store.Event{TS: fixtureNow.Add(-1 * 24 * time.Hour), Kind: "session.start", SessionID: sidA, Source: "shell", Payload: `{}`})
-	appendEvent(t, st, store.Event{TS: fixtureNow.Add(-2 * 24 * time.Hour), Kind: "session.start", SessionID: sidB, Source: "shell", Payload: `{}`})
+	appendEvent(t, st, store.Event{TS: fixtureNow.Add(-1 * 24 * time.Hour), Kind: "tool.use", SessionID: sidA, Source: "shell", Payload: `{}`})
+	appendEvent(t, st, store.Event{TS: fixtureNow.Add(-2 * 24 * time.Hour), Kind: "tool.use", SessionID: sidB, Source: "shell", Payload: `{}`})
 
 	human := store.Identity{Kind: store.IdentityHuman, Actor: "human"}
 	if err := st.SetProjectGroup(human, "widget-suite", "proj-group-a"); err != nil {

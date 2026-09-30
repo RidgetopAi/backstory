@@ -5,6 +5,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/RidgetopAi/backstory/internal/project"
@@ -49,7 +51,7 @@ func runThisWeek(args []string, stdout, stderr io.Writer) int {
 	// (task 482b2320, decision f3fa04c7's clause 7).
 	workspaceDirs := resolveWorkspaceDirs()
 
-	result, err := week.Build(week.Params{Store: st, Git: project.RealGit{}, WorkspaceDirs: workspaceDirs, Now: thisWeekNow()})
+	result, err := week.Build(week.Params{Store: st, Git: project.RealGit{}, WorkspaceDirs: workspaceDirs, Locations: thisWeekLocations(), Now: thisWeekNow()})
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory this-week:", err)
 		return 1
@@ -187,4 +189,16 @@ func printThisWeekText(stdout io.Writer, result week.Result) int {
 	}
 	_, _ = fmt.Fprintln(stdout, result.Rendered)
 	return 0
+}
+
+// thisWeekLocations resolves week.LocationRules from the process
+// environment at the entry point ($HOME, $TMPDIR, $XDG_RUNTIME_DIR, the OS
+// temp dir), so internal/week itself never reads it.
+func thisWeekLocations() week.LocationRules {
+	home, _ := os.UserHomeDir()
+	roots := []string{os.TempDir(), os.Getenv("TMPDIR"), os.Getenv("XDG_RUNTIME_DIR")}
+	if home != "" {
+		home = filepath.Clean(home)
+	}
+	return week.DefaultLocationRules(home, roots...)
 }

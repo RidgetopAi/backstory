@@ -4,7 +4,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+
+	"github.com/RidgetopAi/backstory/internal/ident"
 )
 
 // Project is a row in projects. Deriving Key from git common dir + first
@@ -218,4 +221,75 @@ func (s *Store) getSession(id string) (Session, error) {
 	sess.StartedAt = tsFromNanos(startedAt)
 	sess.Origin = SessionOrigin(origin)
 	return sess, nil
+}
+
+// RealWorkCriteria is what counts as real agent work for This Week's
+// read-side filter (task ade3a4c3): a non-tombstoned record, or a session
+// whose agent is a known harness with at least one of EventKinds in the
+// window. Session start/end/git_state and shell commands are never
+// evidence on their own.
+type RealWorkCriteria struct {
+	EventKinds []string
+}
+
+// unknownAgentSQL is the sessions.agent predicate for "not a known harness".
+const unknownAgentSQL = `(agent IS NULL OR agent = '' OR agent = '` + ident.HarnessUnknown + `')`
+
+func (c RealWorkCriteria) kindPlaceholders() (string, []any) {
+	ph := make([]string, len(c.EventKinds))
+	args := make([]any, len(c.EventKinds))
+	for i, k := range c.EventKinds {
+		ph[i] = "?"
+		args[i] = k
+	}
+	return strings.Join(ph, ","), args
+}
+
+// RealWorkProjectKeys is ActiveProjectKeys narrowed to keys with real work
+// (RealWorkCriteria) at or after since. Read-only; nothing is deleted.
+func (s *Store) RealWorkProjectKeys(since time.Time, c RealWorkCriteria) ([]string, error) {
+	ph, kargs := c.kindPlaceholders()
+	args := []any{tsToNanos(since)}
+	args = append(args, kargs...)
+	args = append(args, tsToNanos(since))
+	rows, err := s.db.Query(`
+		SELECT DISTINCT project_key FROM (
+			SELECT s.project_key, e.ts FROM timeline_events e
+				JOIN sessions s ON s.id = e.session_id
+				WHERE s.project_key IS NOT NULL AND e.ts >= ?
+				AND e.kind IN (`+ph+`)
+				AND NOT `+strings.ReplaceAll(unknownAgentSQL, "agent", "s.agent")+`
+			UNION ALL
+			SELECT project_key, ts FROM records
+				WHERE project_key IS NOT NULL AND tombstoned_at IS NULL AND ts >= ?
+		)`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("store: real-work project keys since %s: %w", since, err)
+	}
+	return scanIDs(rows)
+}
+
+// SessionHasRealWork reports whether sess has real work (RealWorkCriteria)
+// at or after since: a non-tombstoned record it wrote, or — when its agent
+// is a known harness — one of c.EventKinds.
+func (s *Store) SessionHasRealWork(sess Session, since time.Time, c RealWorkCriteria) (bool, error) {
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM records
+		WHERE session_id = ? AND tombstoned_at IS NULL AND ts >= ?`,
+		sess.ID, tsToNanos(since)).Scan(&n); err != nil {
+		return false, fmt.Errorf("store: session real work for %s: %w", sess.ID, err)
+	}
+	if n > 0 {
+		return true, nil
+	}
+	if sess.Agent == "" || sess.Agent == ident.HarnessUnknown {
+		return false, nil
+	}
+	ph, kargs := c.kindPlaceholders()
+	args := append([]any{sess.ID, tsToNanos(since)}, kargs...)
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM timeline_events
+		WHERE session_id = ? AND ts >= ? AND kind IN (`+ph+`)`, args...).Scan(&n); err != nil {
+		return false, fmt.Errorf("store: session real work for %s: %w", sess.ID, err)
+	}
+	return n > 0, nil
 }

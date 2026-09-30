@@ -29,7 +29,7 @@ const groupListFixtureWorkspaceKey = "workspace:" + fixtureWorkspaceDir
 // groupListFixtureOutsideKey is a folder outside any configured workspace
 // dir — internal/project.Key's third case (neither a git repo nor a
 // workspace dir/child): its own key is just the directory itself.
-const groupListFixtureOutsideKey = "/home/brian/.local/bin"
+const groupListFixtureOutsideKey = "/home/brian/bin"
 
 // buildGroupListFixtureStore seeds exactly the store shape DONE WHEN
 // clause 1 describes: "a git-repo key under a workspace, a legacy plain
@@ -90,6 +90,10 @@ func buildGroupListFixtureStore(t *testing.T, dataDir string) {
 		}); err != nil {
 			t.Fatalf("StartSession(%s): %v", sess.key, err)
 		}
+		// A known-harness session needs a tool event to be real work (week.RealWork).
+		if _, err := st.AppendEvent(store.Event{TS: date(3, 9, 5), Kind: "tool.use", SessionID: sess.id, Source: "shell", Payload: `{"name":"Read"}`}); err != nil {
+			t.Fatalf("AppendEvent(%s): %v", sess.key, err)
+		}
 	}
 
 	human := store.Identity{Kind: store.IdentityHuman, Actor: "human"}
@@ -108,6 +112,7 @@ func runGroupListCLI(t *testing.T, dataDir string, args ...string) (stdout, stde
 	t.Helper()
 	t.Setenv("XDG_DATA_HOME", dataDir)
 	t.Setenv("BACKSTORY_WORKSPACE_DIRS", fixtureWorkspaceDir)
+	t.Setenv("HOME", "/home/brian") // fixture paths live under this HOME (week.LocationRules)
 	origGroupListNow := groupListNow
 	groupListNow = func() time.Time { return thisWeekFixtureNow }
 	t.Cleanup(func() { groupListNow = origGroupListNow })
@@ -255,6 +260,7 @@ func TestGroupListDisplayNameMatchesThisWeekForActiveProject(t *testing.T) {
 
 	t.Setenv("XDG_DATA_HOME", dataDir)
 	t.Setenv("BACKSTORY_WORKSPACE_DIRS", fixtureWorkspaceDir)
+	t.Setenv("HOME", "/home/brian") // fixture paths live under this HOME (week.LocationRules)
 
 	var outBuf, errBuf bytes.Buffer
 	if c := run([]string{"this-week", "--json"}, bytes.NewReader(nil), &outBuf, &errBuf); c != 0 {

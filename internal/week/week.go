@@ -52,6 +52,10 @@ type Params struct {
 	// is: Build then finds no active project_key resolves inside a
 	// workspace.
 	WorkspaceDirs []string
+	// Locations is the excluded-location rule set (LocationRules, rule R2),
+	// resolved by the caller from $HOME and the environment. The zero value
+	// excludes nothing.
+	Locations LocationRules
 	// Now is the reference instant for the window and every "possibly
 	// stale" / "expired" check. Zero means time.Now().
 	Now time.Time
@@ -190,7 +194,7 @@ func Build(p Params) (Result, error) {
 	}
 	since := windowStart(now)
 
-	repoKeys, homeKeys, err := partitionActiveProjectKeys(p.Store, since)
+	repoKeys, homeKeys, err := partitionActiveProjectKeys(p.Store, since, p.Locations)
 	if err != nil {
 		return Result{}, err
 	}
@@ -231,12 +235,14 @@ func Build(p Params) (Result, error) {
 		if p.Git == nil {
 			break
 		}
-		locs, err := p.Store.ActiveHomeLabels(home, since, now, p.Git, workspaces)
+		locs, err := p.Store.ActiveHomeLabels(home, since, now, p.Git, workspaces, func(sess store.Session) (bool, error) {
+			return p.Store.SessionHasRealWork(sess, since, RealWork)
+		})
 		if err != nil {
 			return Result{}, fmt.Errorf("week: active home labels for %s: %w", home, err)
 		}
 		for _, loc := range locs {
-			if coveredLabels[loc.Label] {
+			if coveredLabels[loc.Label] || p.Locations.Excluded(loc.Dir) {
 				continue
 			}
 			coveredLabels[loc.Label] = true
@@ -288,17 +294,27 @@ func Build(p Params) (Result, error) {
 // because a handoff was filed there (HOME) or because a session started at
 // the workspace root itself (decision f3fa04c7 clause 5). Both lists are
 // sorted for a deterministic iteration order.
-func partitionActiveProjectKeys(st *store.Store, since time.Time) (repoKeys, homeKeys []string, err error) {
-	all, err := st.ActiveProjectKeys(since)
+//
+// Only keys with real work (RealWork, rule R1) are considered, and repo keys
+// whose location is excluded (rules, R2) are dropped — read-side only.
+func partitionActiveProjectKeys(st *store.Store, since time.Time, rules LocationRules) (repoKeys, homeKeys []string, err error) {
+	all, err := st.RealWorkProjectKeys(since, RealWork)
 	if err != nil {
 		return nil, nil, fmt.Errorf("week: active project keys: %w", err)
 	}
 	for _, k := range all {
 		if project.IsWorkspaceKey(k) {
 			homeKeys = append(homeKeys, k)
-		} else {
-			repoKeys = append(repoKeys, k)
+			continue
 		}
+		dir, err := projectDir(st, k)
+		if err != nil {
+			return nil, nil, err
+		}
+		if rules.Excluded(dir) {
+			continue
+		}
+		repoKeys = append(repoKeys, k)
 	}
 	sort.Strings(repoKeys)
 	sort.Strings(homeKeys)
@@ -846,4 +862,25 @@ func firstLine(text string) string {
 		return text[:i]
 	}
 	return text
+}
+
+// projectDir is the directory a project key's location rules are judged
+// against: its latest session's cwd, else its recorded toplevel, else the
+// key itself (a non-repo project's key is its cwd).
+func projectDir(st *store.Store, key string) (string, error) {
+	sess, ok, err := st.LatestSessionForProject(key)
+	if err != nil {
+		return "", fmt.Errorf("week: latest session for %s: %w", key, err)
+	}
+	if ok && sess.CWD != "" {
+		return sess.CWD, nil
+	}
+	proj, ok, err := st.GetProject(key)
+	if err != nil {
+		return "", fmt.Errorf("week: project %s: %w", key, err)
+	}
+	if ok && proj.Toplevel != "" {
+		return proj.Toplevel, nil
+	}
+	return key, nil
 }
