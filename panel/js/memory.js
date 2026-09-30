@@ -15,6 +15,25 @@ function tierLabel(tier) {
   return tier || ""
 }
 
+// kindLabel maps a record's kind to the human-facing word. A kind the store
+// does not define shows as itself, capitalised ("" for no kind).
+var KIND_LABELS = {
+  decision: "Decision",
+  outcome: "Outcome",
+  handoff: "Handoff",
+  note: "Note",
+  claim: "Claim",
+  punch: "Punch",
+  stage: "Stage",
+  confirm: "Confirm"
+}
+
+function kindLabel(kind) {
+  if (Object.prototype.hasOwnProperty.call(KIND_LABELS, kind)) return KIND_LABELS[kind]
+  if (!kind) return ""
+  return kind.charAt(0).toUpperCase() + kind.substring(1)
+}
+
 // statusMark is "" for a current record (no mark at all), else the word.
 function statusMark(status) {
   if (!status || status === "current") return ""
