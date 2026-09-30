@@ -357,12 +357,25 @@ func (s *Store) TombstoneRecord(id string, identity Identity) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	if err := tombstoneRecordTx(tx, id); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("store: tombstone record %s: %w", id, err)
+	}
+	return nil
+}
+
+// tombstoneRecordTx is TombstoneRecord's body inside the caller's
+// transaction, so purge can forget records in the same transaction as its
+// event delete.
+func tombstoneRecordTx(tx *sql.Tx, id string) error {
 	var (
 		rowid        int64
 		text         string
 		tombstonedAt sql.NullInt64
 	)
-	err = tx.QueryRow(`SELECT rowid, text, tombstoned_at FROM records WHERE id = ?`, id).
+	err := tx.QueryRow(`SELECT rowid, text, tombstoned_at FROM records WHERE id = ?`, id).
 		Scan(&rowid, &text, &tombstonedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("store: tombstone record %s: not found", id)
@@ -379,9 +392,6 @@ func (s *Store) TombstoneRecord(id string, identity Identity) error {
 	}
 	if _, err := tx.Exec(`UPDATE records SET tombstoned_at = ?, text = '' WHERE id = ?`,
 		tsToNanos(time.Now()), id); err != nil {
-		return fmt.Errorf("store: tombstone record %s: %w", id, err)
-	}
-	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("store: tombstone record %s: %w", id, err)
 	}
 	return nil

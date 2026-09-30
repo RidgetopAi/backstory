@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/RidgetopAi/backstory/internal/payload"
+	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
@@ -83,4 +84,13 @@ func (r LocationRules) Excluded(dir string) bool {
 		}
 	}
 	return false
+}
+
+// LocationScope is the ONE row-scope function (task a9a784ec): exactly the
+// sessions and records This Week attributes to the row whose summary cwd is
+// dir — built from the same label attribution (store.sessionLabels) the
+// per-label rows, handoff resolution and week bars use. The human
+// `records --location` and `purge --location` both resolve through it.
+func LocationScope(st *store.Store, git project.Git, workspaces []string, dir string) (store.LocationScope, error) {
+	return st.LocationScope(dir, git, workspaces)
 }

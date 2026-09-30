@@ -23,6 +23,11 @@ type PurgeScope struct {
 	ProjectKey string
 	Since      time.Time
 	Until      time.Time
+	// Location, when set with ProjectKey, narrows the purge to exactly the
+	// sessions and records This Week attributes to one row (LocationScope)
+	// instead of everything filed under ProjectKey: a non-git folder under
+	// a workspace shares the workspace's project key with its siblings.
+	Location *LocationScope
 }
 
 func (sc PurgeScope) windowed() bool { return !sc.Since.IsZero() || !sc.Until.IsZero() }
@@ -31,6 +36,9 @@ func (sc PurgeScope) windowed() bool { return !sc.Since.IsZero() || !sc.Until.Is
 type PurgeCounts struct {
 	Sessions int
 	Events   int
+	// Records is how many non-tombstoned in-scope records written in the
+	// window are (or would be) tombstoned; always 0 for a --session scope.
+	Records int
 }
 
 // String is the scope text stored in purge_log: identifiers and bounds only.
@@ -39,6 +47,9 @@ func (sc PurgeScope) String() string {
 		return "session=" + sc.SessionID
 	}
 	out := "project=" + sc.ProjectKey
+	if sc.Location != nil {
+		out += " location=" + sc.Location.Dir
+	}
 	if !sc.Since.IsZero() {
 		out += " since=" + sc.Since.UTC().Format(time.RFC3339)
 	}
@@ -63,6 +74,9 @@ func (s *Store) purgeSelection(q purgeQuerier, sc PurgeScope) (ids []string, evW
 	case sc.ProjectKey != "" && sc.SessionID == "":
 		query := `SELECT id FROM sessions WHERE project_key = ?`
 		args := []any{s.canonicalizeProjectKey(sc.ProjectKey)}
+		if sc.Location != nil {
+			query, args = `SELECT id FROM sessions WHERE 1 = 1`, nil
+		}
 		if !sc.Since.IsZero() {
 			query += ` AND started_at >= ?`
 			args = append(args, tsToNanos(sc.Since))
@@ -82,6 +96,15 @@ func (s *Store) purgeSelection(q purgeQuerier, sc PurgeScope) (ids []string, evW
 	if err != nil {
 		return nil, "", nil, fmt.Errorf("store: purge: select sessions: %w", err)
 	}
+	if sc.Location != nil {
+		kept := ids[:0]
+		for _, id := range ids {
+			if sc.Location.SessionIDs[id] {
+				kept = append(kept, id)
+			}
+		}
+		ids = kept
+	}
 
 	var clauses []string
 	if len(ids) > 0 {
@@ -91,7 +114,9 @@ func (s *Store) purgeSelection(q purgeQuerier, sc PurgeScope) (ids []string, evW
 			evArgs = append(evArgs, id)
 		}
 	}
-	if sc.ProjectKey != "" && sc.windowed() {
+	// Session-less OS events carry no row attribution, so a location scope
+	// never selects them.
+	if sc.ProjectKey != "" && sc.Location == nil && sc.windowed() {
 		c := "session_id IS NULL"
 		if !sc.Since.IsZero() {
 			c += " AND ts >= ?"
@@ -120,6 +145,27 @@ func countEvents(q purgeQuerier, where string, args []any) (int, error) {
 	return n, nil
 }
 
+// purgeRecordIDs resolves the non-tombstoned in-scope records written in
+// sc's window (by record ts, not session start). A per-session scope
+// forgets no records.
+func (s *Store) purgeRecordIDs(q purgeQuerier, sc PurgeScope) ([]string, error) {
+	if sc.ProjectKey == "" || sc.SessionID != "" {
+		return nil, nil
+	}
+	var since, until int64
+	if !sc.Since.IsZero() {
+		since = tsToNanos(sc.Since)
+	}
+	if !sc.Until.IsZero() {
+		until = tsToNanos(sc.Until)
+	}
+	ls := LocationScope{RepoKey: s.canonicalizeProjectKey(sc.ProjectKey)}
+	if sc.Location != nil {
+		ls = *sc.Location
+	}
+	return s.recordIDsInScope(q, ls, since, until, true)
+}
+
 // PurgePreview reports the exact counts PurgeSessions would remove for sc,
 // writing nothing.
 func (s *Store) PurgePreview(sc PurgeScope) (PurgeCounts, error) {
@@ -131,14 +177,18 @@ func (s *Store) PurgePreview(sc PurgeScope) (PurgeCounts, error) {
 	if err != nil {
 		return PurgeCounts{}, err
 	}
-	return PurgeCounts{Sessions: len(ids), Events: n}, nil
+	recIDs, err := s.purgeRecordIDs(s.db, sc)
+	if err != nil {
+		return PurgeCounts{}, err
+	}
+	return PurgeCounts{Sessions: len(ids), Events: n, Records: len(recIDs)}, nil
 }
 
 // PurgeSessions erases the timeline events of the sessions sc selects, in
 // ONE transaction: drop timeline_events_no_delete, delete the events,
 // recreate the trigger from its single definition, stamp each session's
 // purged_at (so backfill never re-imports it) and append one purge_log row
-// of counts. Session rows, backfill_cursors and records stay. It is a
+// of counts. Session rows and backfill_cursors stay; a project scope also tombstones the in-scope records written in its window (TombstoneRecord's own text scrub + FTS delete, same transaction). It is a
 // human-only power and refuses any other identity, changing nothing.
 // Events referenced by records' evidence or event_cursor simply dangle;
 // every reader tolerates that.
@@ -160,6 +210,10 @@ func (s *Store) PurgeSessions(sc PurgeScope, identity Identity) (PurgeCounts, er
 	if err != nil {
 		return PurgeCounts{}, err
 	}
+	recIDs, err := s.purgeRecordIDs(tx, sc)
+	if err != nil {
+		return PurgeCounts{}, err
+	}
 	now := tsToNanos(time.Now())
 	if where != "" {
 		if _, err := tx.Exec(`DROP TRIGGER timeline_events_no_delete`); err != nil {
@@ -177,14 +231,19 @@ func (s *Store) PurgeSessions(sc PurgeScope, identity Identity) (PurgeCounts, er
 			return PurgeCounts{}, fmt.Errorf("store: purge: stamp session %s: %w", id, err)
 		}
 	}
-	if _, err := tx.Exec(`INSERT INTO purge_log (ts, scope, sessions, events) VALUES (?, ?, ?, ?)`,
-		now, sc.String(), len(ids), n); err != nil {
+	for _, id := range recIDs {
+		if err := tombstoneRecordTx(tx, id); err != nil {
+			return PurgeCounts{}, fmt.Errorf("store: purge: %w", err)
+		}
+	}
+	if _, err := tx.Exec(`INSERT INTO purge_log (ts, scope, sessions, events, records) VALUES (?, ?, ?, ?, ?)`,
+		now, sc.String(), len(ids), n, len(recIDs)); err != nil {
 		return PurgeCounts{}, fmt.Errorf("store: purge: log: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
 		return PurgeCounts{}, fmt.Errorf("store: purge: %w", err)
 	}
-	return PurgeCounts{Sessions: len(ids), Events: n}, nil
+	return PurgeCounts{Sessions: len(ids), Events: n, Records: len(recIDs)}, nil
 }
 
 // SessionPurged reports whether session id carries purged_at.
