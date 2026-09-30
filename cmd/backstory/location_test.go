@@ -212,3 +212,35 @@ func TestRecordsLocationScopesToTheRow(t *testing.T) {
 		}
 	}
 }
+
+// TestRecordsLocationListsRepoFiledDecisionOnce is task fd14c6cc's clause 5:
+// a decision written from a workspace-cwd session that edited app-a is filed
+// under app-a's key (what handleNote now does); it is ALSO attributed to
+// app-a by session label, yet `records --location app-a` lists it once.
+func TestRecordsLocationListsRepoFiledDecisionOnce(t *testing.T) {
+	f := newLocFixture(t)
+	st, err := store.Open(f.dbPath, []string{f.ws}, project.RealGit{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	appKey := project.Key(f.appA, project.RealGit{}, []string{f.ws})
+	if _, err := st.StartSession(store.StartSessionParams{
+		ID: "sess-ws-edit", Agent: "claude", CWD: f.ws, ProjectKey: f.wsKey, StartedAt: f.base.Add(30 * time.Minute), Origin: store.OriginLive,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	p, _ := json.Marshal(map[string]string{"name": "Edit", "path": filepath.Join(f.appA, "x.go")})
+	mustAppendEvent(t, st, store.Event{TS: f.base.Add(31 * time.Minute), Kind: "tool.use", SessionID: "sess-ws-edit", Source: "hook", Payload: string(p)})
+	mustInsertThisWeekRecord(t, st, fixtureRecord{ID: "ws-decision", ProjectKey: appKey, SessionID: "sess-ws-edit", TS: f.base.Add(32 * time.Minute), Kind: store.KindDecision, Tier: store.TierAgentDeclared, Text: "chose X"})
+	_ = st.Close()
+
+	n := 0
+	for _, id := range f.recordIDs(t, "--location", f.appA) {
+		if id == "ws-decision" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("records --location app-a lists the decision %d times, want exactly 1", n)
+	}
+}

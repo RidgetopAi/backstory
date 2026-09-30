@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/RidgetopAi/backstory/internal/project"
@@ -44,9 +45,13 @@ type NoteParams struct {
 // INPUT schema (testdata/tools-v0.json) is untouched: this only adds an
 // output field.
 type NoteResult struct {
-	ID    string     `json:"id"`
-	Tier  string     `json:"tier"`
-	Edges []NoteEdge `json:"edges,omitempty"`
+	ID   string `json:"id"`
+	Tier string `json:"tier"`
+	// ProjectKey is the key the record actually landed under, read back from
+	// the stored record (task fd14c6cc): a note from a workspace-cwd session
+	// that edited one repo is filed under that repo, not the workspace.
+	ProjectKey string     `json:"project_key,omitempty"`
+	Edges      []NoteEdge `json:"edges,omitempty"`
 }
 
 // NoteEdge is one edge NoteResult.Edges echoes back: the edge's type and
@@ -79,7 +84,7 @@ var noteKinds = map[string]store.RecordKind{
 // `backstory hook post-tool-use` already does before it ever dials the
 // daemon — note is reachable from any socket peer, so the daemon itself
 // must refuse it too.
-func handleNote(st *store.Store, identity store.Identity, sessionID, projectKey, cwd string, workspaces []string, raw json.RawMessage, captureOff func() (bool, error)) DaemonResponse {
+func handleNote(st *store.Store, git project.Git, identity store.Identity, sessionID, projectKey, cwd string, workspaces []string, raw json.RawMessage, captureOff func() (bool, error)) DaemonResponse {
 	if off, err := captureOff(); err != nil {
 		return errResponse("internal", err.Error())
 	} else if off {
@@ -116,6 +121,14 @@ func handleNote(st *store.Store, identity store.Identity, sessionID, projectKey,
 				return errResponse("internal", err.Error())
 			}
 			projectKey = home
+		}
+	} else if project.IsWorkspaceKey(projectKey) {
+		repoKey, ok, err := inferRepoKey(st, git, sessionID, p.About, workspaces)
+		if err != nil {
+			return errResponse("internal", err.Error())
+		}
+		if ok {
+			projectKey = repoKey
 		}
 	}
 
@@ -175,7 +188,7 @@ func handleNote(st *store.Store, identity store.Identity, sessionID, projectKey,
 		noteEdges[i] = NoteEdge{Type: string(e.Type), OtherID: e.OtherID}
 	}
 
-	result, err := json.Marshal(NoteResult{ID: id, Tier: string(rec.Tier), Edges: noteEdges})
+	result, err := json.Marshal(NoteResult{ID: id, Tier: string(rec.Tier), ProjectKey: rec.ProjectKey, Edges: noteEdges})
 	if err != nil {
 		return errResponse("internal", err.Error())
 	}
@@ -215,4 +228,46 @@ func ensureHomeProject(st *store.Store, home string) error {
 		return nil // home is always workspace-prefixed here; defensive only
 	}
 	return st.UpsertProject(store.Project{Key: home, Toplevel: dir, FirstSeen: time.Now()})
+}
+
+// inferRepoKey is the daemon's project inference for a non-handoff note
+// written by a session whose own key is a workspace key (task fd14c6cc): when
+// the session's edited-file locations (store.SessionEditedDirs — the same
+// extraction This Week uses) resolve to exactly one location and that
+// location is a git repo, the record is filed under that repo's key, so the
+// repo's own recall finds it. A session that edited nothing applies the same
+// rule to the note's declared about[] paths. Zero or several locations, or a
+// non-git folder, report ok=false: the workspace key stays. The repo's
+// projects row is upserted first (records.project_key is a foreign key).
+func inferRepoKey(st *store.Store, git project.Git, sessionID string, about, workspaces []string) (string, bool, error) {
+	dirs, err := st.SessionEditedDirs(sessionID, git, workspaces)
+	if err != nil {
+		return "", false, err
+	}
+	if len(dirs) == 0 {
+		for _, a := range about {
+			if a == "" || !filepath.IsAbs(a) {
+				continue
+			}
+			label, dir := store.LabelAndDir(a, git, workspaces)
+			dirs[label] = dir
+		}
+	}
+	if len(dirs) != 1 {
+		return "", false, nil
+	}
+	for _, dir := range dirs {
+		key := project.Key(dir, git, workspaces)
+		if project.IsWorkspaceKey(key) {
+			return "", false, nil
+		}
+		if _, isRepo := git.Repo(dir); !isRepo {
+			return "", false, nil
+		}
+		if err := st.UpsertProject(store.Project{Key: key, Toplevel: dir, FirstSeen: time.Now()}); err != nil {
+			return "", false, err
+		}
+		return key, true, nil
+	}
+	return "", false, nil
 }

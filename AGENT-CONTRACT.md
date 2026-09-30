@@ -68,6 +68,11 @@ subdirectory and Claude's dashed-cwd transcript slug are all the same repository
   workspace dir itself, or a non-git dir directly under one, resolves to a `workspace:`-
   prefixed identity, distinct from any repo key. A cwd inside a git repo under a workspace
   dir still resolves to that repo's own key, unchanged.
+- **A note follows the repo the session edited.** A session launched at a workspace dir
+  keeps the workspace key, but a non-handoff `note` it writes is filed under the single
+  repo it edited (else the single repo its `about[]` names), so that repo's `recall` finds
+  it. Two or more repos, or none, keep the workspace key; handoffs never move (decision
+  `f3fa04c7`).
 
 ## Records carry `about[]`
 
@@ -106,7 +111,14 @@ note({ kind: decision | outcome | handoff | note | claim,  text })
   why.
 - **Optional:** `about[]`, `supersedes`, `evidence[]` (timeline event ids), `links`,
   `expires` (claims).
-- **Inferred by the daemon:** session, agent, project, time, window.
+- **Inferred by the daemon:** session, agent, project, time, window. `project` is the
+  session's own key, with one exception: a non-handoff note (decision, outcome, note,
+  claim) from a session whose key is a `workspace:` key is filed under the git repo that
+  session edited, when its mutating-file-tool events (the same extraction This Week uses)
+  resolve to exactly one location and that location is a git repo; a session that edited
+  nothing applies the same rule to the note's `about[]` paths. Zero or several locations,
+  or only non-git folders, keep the workspace key. Handoffs always stay homed on the
+  workspace. The result's additive `project_key` field reports where the record landed.
 - **Tier is set by the daemon from the caller's identity, never from a parameter.** A note
   from an agent process is `agent-declared`. `human-declared` is reachable only from the
   panel/CLI.
