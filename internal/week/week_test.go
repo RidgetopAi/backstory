@@ -2,11 +2,13 @@ package week
 
 import (
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
@@ -496,5 +498,262 @@ func TestBuildWeekGridExcludesTombstonedRecords(t *testing.T) {
 	}
 	if seen == 0 || got != 1 {
 		t.Fatalf("RecordsWritten = %d over %d day rows, want 1", got, seen)
+	}
+}
+
+// --- task ade3a4c3: This Week shows only places where real agent work happened ---
+
+// repoGit is a fake project.Git: root is a git repo (no remote, so its key
+// is its toplevel); every other dir is not.
+type repoGit struct{ root string }
+
+func (g repoGit) Repo(dir string) (project.Repo, bool) {
+	if within(dir, g.root) {
+		return project.Repo{CommonDir: filepath.Join(g.root, ".git"), Toplevel: g.root}, true
+	}
+	return project.Repo{}, false
+}
+
+func (g repoGit) State(string) (project.State, bool) { return project.State{}, false }
+
+// desk is the synthetic mirror of the desk store; every path hangs off home.
+type desk struct {
+	st                                       *store.Store
+	home, scratch, outside, workspace        string
+	repo, livestream, work, shellOnly, notes string
+	tombstoned                               string
+	git                                      repoGit
+	excludedKeys                             []string
+	rules                                    LocationRules
+}
+
+func (d *desk) session(t *testing.T, id, agent string, origin store.SessionOrigin, cwd, key string) string {
+	t.Helper()
+	upsertProject(t, d.st, key, cwd)
+	sid, err := d.st.StartSession(store.StartSessionParams{
+		ID: id, Agent: agent, CWD: cwd, ProjectKey: key, StartedAt: fixtureNow.Add(-time.Hour), Origin: origin,
+	})
+	if err != nil {
+		t.Fatalf("StartSession(%s): %v", id, err)
+	}
+	return sid
+}
+
+func (d *desk) event(t *testing.T, sid, kind, payload string) {
+	t.Helper()
+	appendEvent(t, d.st, store.Event{TS: fixtureNow.Add(-30 * time.Minute), Kind: kind, SessionID: sid, Source: "shell", Payload: payload})
+}
+
+func (d *desk) record(t *testing.T, sid, key string, kind store.RecordKind, text string) string {
+	t.Helper()
+	upsertProject(t, d.st, key, strings.TrimPrefix(key, "workspace:"))
+	id, err := d.st.InsertRecord(store.InsertRecordParams{
+		Identity: agentIdentity, Kind: kind, Text: text, About: []string{"x.go"}, SessionID: sid, ProjectKey: key,
+	})
+	if err != nil {
+		t.Fatalf("InsertRecord: %v", err)
+	}
+	return id
+}
+
+func newDesk(t *testing.T) *desk {
+	t.Helper()
+	d := &desk{st: openTestStore(t)}
+	d.home = t.TempDir()
+	d.scratch = t.TempDir() // a sibling temp dir: outside home, the scratchpad
+	d.outside = t.TempDir() // outside home, like /root
+	d.workspace = filepath.Join(d.home, "projects")
+	d.repo = filepath.Join(d.workspace, "wobble-party")
+	d.livestream = filepath.Join(d.home, "livestream")
+	d.work = filepath.Join(d.home, "Work")
+	d.shellOnly = filepath.Join(d.home, "Shelly")
+	d.notes = filepath.Join(d.home, "Notes")
+	d.tombstoned = filepath.Join(d.home, "Gone")
+	d.git = repoGit{root: d.repo}
+	d.rules = DefaultLocationRules(d.home, d.scratch)
+	localBin := filepath.Join(d.home, ".local", "bin")
+
+	// Shell-only sessions (agent unknown, command events) in HOME/livestream.
+	for i, id := range []string{"live-1", "live-2"} {
+		sid := d.session(t, id, "unknown", store.OriginLive, d.livestream, d.livestream)
+		d.event(t, sid, "command", `{"command":"ls"}`)
+		d.event(t, sid, "session.git_state", `{"could_not_observe":true}`)
+		_ = i
+	}
+	// Unknown git_state-only sessions outside HOME and in HOME/.local/bin.
+	for _, dir := range []string{d.outside, localBin} {
+		sid := d.session(t, "cli-"+filepath.Base(dir), "unknown", store.OriginLive, dir, dir)
+		d.event(t, sid, "session.git_state", `{"could_not_observe":true}`)
+	}
+	// Unknown shell + backfilled pi start/end-only sessions in HOME itself.
+	sid := d.session(t, "home-shell", "unknown", store.OriginLive, d.home, d.home)
+	d.event(t, sid, "command", `{"command":"cd livestream"}`)
+	sid = d.session(t, "home-pi", "pi", store.OriginBackfilled, d.home, d.home)
+	d.event(t, sid, "session.start", `{}`)
+	d.event(t, sid, "session.end", `{}`)
+	// Shell-only in a non-repo dir under HOME.
+	sid = d.session(t, "shelly", "unknown", store.OriginLive, d.shellOnly, d.shellOnly)
+	d.event(t, sid, "command", `{"command":"ls"}`)
+
+	// A Claude session in the fixture repo writing the repo, its own memory
+	// and a temp-dir scratchpad; a handoff filed at the workspace makes the
+	// workspace an active home (the desk's label path).
+	memory := filepath.Join(d.home, ".claude", "projects", "X", "memory", "m.md")
+	pad := filepath.Join(d.scratch, "claude-1000", "scratchpad", "s.md")
+	sid = d.session(t, "claude-repo", "claude", store.OriginLive, d.repo, d.repo)
+	for _, p := range []string{filepath.Join(d.repo, "main.go"), memory, pad} {
+		d.event(t, sid, "tool.use", fmt.Sprintf(`{"name":"Write","path":%q}`, p))
+	}
+	d.record(t, sid, d.repo, store.KindNote, "repo note")
+	d.record(t, sid, "workspace:"+d.workspace, store.KindHandoff, "resume wobble-party")
+
+	// (2) A non-repo dir with a Claude tool.use session; a dir with only a
+	// non-tombstoned record; a dir whose only record is tombstoned.
+	sid = d.session(t, "claude-work", "claude", store.OriginLive, d.work, d.work)
+	d.event(t, sid, "tool.use", `{"name":"Read","path":"a.txt"}`)
+	d.record(t, "", d.notes, store.KindNote, "kept")
+	goneID := d.record(t, "", d.tombstoned, store.KindNote, "removed")
+	if err := d.st.TombstoneRecord(goneID, store.Identity{Kind: store.IdentityHuman, Actor: "human"}); err != nil {
+		t.Fatalf("TombstoneRecord: %v", err)
+	}
+
+	d.excludedKeys = []string{d.livestream, d.outside, localBin, d.home, d.shellOnly, d.tombstoned}
+	return d
+}
+
+func (d *desk) build(t *testing.T, rules LocationRules) Result {
+	t.Helper()
+	res, err := Build(Params{Store: d.st, Git: d.git, WorkspaceDirs: []string{d.workspace}, Locations: rules, Now: fixtureNow})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	return res
+}
+
+func whereKeys(res Result) map[string]bool {
+	got := map[string]bool{}
+	for _, row := range res.WhereLeftOff {
+		if row.Group == "" {
+			got[row.Project.ProjectKey] = true
+			continue
+		}
+		for _, c := range row.Children {
+			got[c.ProjectKey] = true
+		}
+	}
+	return got
+}
+
+// Clause 1+2: only real-work places get a row; nothing excluded leaks into
+// where_left_off, week or attention.
+func TestBuildDeskShowsOnlyRealWorkPlaces(t *testing.T) {
+	d := newDesk(t)
+	res := d.build(t, d.rules)
+
+	got := whereKeys(res)
+	for _, want := range []string{d.repo, d.work, d.notes} {
+		if !got[want] {
+			t.Errorf("where_left_off missing %s; got %v", want, got)
+		}
+	}
+	if len(res.WhereLeftOff) != 3 {
+		t.Errorf("where_left_off rows = %d, want 3 (repo, Work, Notes): %+v", len(res.WhereLeftOff), res.WhereLeftOff)
+	}
+	for _, row := range res.WhereLeftOff {
+		name := row.Project.DisplayName
+		for _, bad := range []string{"memory", "scratchpad", "livestream", "Shelly", "Gone", "bin", filepath.Base(d.home)} {
+			if name == bad {
+				t.Errorf("excluded location %q has a where_left_off row", name)
+			}
+		}
+	}
+	// week and attention name only surviving locations.
+	allowed := map[string]bool{d.repo: true, d.work: true, d.notes: true}
+	for _, w := range res.Week {
+		if !allowed[w.ProjectKey] && !strings.HasPrefix(w.ProjectKey, "workspace:") && w.DisplayName != "projects/wobble-party" {
+			t.Errorf("week entry for excluded location: %+v", w)
+		}
+		for _, bad := range d.excludedKeys {
+			if w.ProjectKey == bad {
+				t.Errorf("week entry for excluded key %s", bad)
+			}
+		}
+	}
+	for _, a := range res.Attention {
+		for _, bad := range d.excludedKeys {
+			if a.ProjectKey == bad {
+				t.Errorf("attention item for excluded key %s: %+v", bad, a)
+			}
+		}
+	}
+}
+
+// Clause 2 in isolation: same directory, shell-only vs tool.use vs record.
+func TestBuildRealWorkRule(t *testing.T) {
+	d := newDesk(t)
+	got := whereKeys(d.build(t, d.rules))
+	if !got[d.work] {
+		t.Errorf("Claude tool.use session in %s must earn a row", d.work)
+	}
+	if got[d.shellOnly] {
+		t.Errorf("shell-only dir %s must not earn a row", d.shellOnly)
+	}
+	if !got[d.notes] {
+		t.Errorf("non-tombstoned record dir %s must earn a row", d.notes)
+	}
+	if got[d.tombstoned] {
+		t.Errorf("tombstoned-only dir %s must not earn a row", d.tombstoned)
+	}
+}
+
+// Clause 3: the config is the single source of the exclusion decision.
+func TestLocationRulesExcluded(t *testing.T) {
+	home, tmp := "/home/fx", "/tmp/fx-scratch"
+	r := DefaultLocationRules(home, tmp)
+	for _, dir := range []string{home, "/root", "/", "/srv/x", tmp, tmp + "/claude/scratchpad", home + "/.claude/x", home + "/.local/bin", home + "/.claude/projects/-a/memory"} {
+		if !r.Excluded(dir) {
+			t.Errorf("Excluded(%q) = false, want true", dir)
+		}
+	}
+	for _, dir := range []string{home + "/projects/x", home + "/Work", home + "/livestream", home + "/projects/.hidden-in-repo/x"} {
+		if r.Excluded(dir) {
+			t.Errorf("Excluded(%q) = true, want false", dir)
+		}
+	}
+	if (LocationRules{}).Excluded("/root") {
+		t.Errorf("zero LocationRules must exclude nothing")
+	}
+}
+
+// Clause 4: the filter is read-side only — the store still holds and
+// returns every excluded location's sessions, events and records.
+func TestExcludedLocationsRemainReadableInStore(t *testing.T) {
+	d := newDesk(t)
+	before, err := d.st.ActiveProjectKeys(windowStart(fixtureNow))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.build(t, d.rules)
+	after, err := d.st.ActiveProjectKeys(windowStart(fixtureNow))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(before) != len(after) {
+		t.Fatalf("Build changed active keys: %d -> %d", len(before), len(after))
+	}
+	have := map[string]bool{}
+	for _, k := range after {
+		have[k] = true
+	}
+	for _, k := range d.excludedKeys {
+		if !have[k] && k != d.tombstoned {
+			t.Errorf("store lost activity for excluded key %s", k)
+		}
+	}
+	if evs, err := d.st.EventsForTimeline(d.livestream, windowStart(fixtureNow), "", 0); err != nil || len(evs) != 4 {
+		t.Errorf("timeline events for livestream = %d (err %v), want 4", len(evs), err)
+	}
+	if recs, err := d.st.RecordsForProjectAll(d.tombstoned, 10); err != nil || len(recs) != 1 {
+		t.Errorf("records for tombstoned dir = %d (err %v), want 1", len(recs), err)
 	}
 }
