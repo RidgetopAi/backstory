@@ -24,12 +24,13 @@ var thisWeekNow = time.Now
 // runThisWeek is `backstory this-week [--json]`: a read-only, store-wide
 // human-path command, like recall and timeline (PLAN.md §Phase 4 CLI,
 // decision d9d456e7's "commands reading the store directly") — but unlike
-// them, it is never scoped to one project (no --project/--here): This Week
+// them, it is never scoped to one project (--here only names the project you are in): This Week
 // is a summary across every project with activity in the window
 // (decision 9be5c1d5), the Quickshell panel's single data source.
 func runThisWeek(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("this-week", flag.ContinueOnError)
 	jsonOut := fs.Bool("json", false, "print machine-readable JSON instead of rendered text")
+	hereFlag := fs.String("here", "", "with --json: name the project of DIR, or of the focused terminal when `auto`")
 	fs.SetOutput(stderr)
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -58,7 +59,31 @@ func runThisWeek(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if *jsonOut {
-		return printThisWeekJSON(stdout, result)
+		var here *hereJSON
+		var windows map[string]string
+		if *hereFlag != "" {
+			r := hereResolver{git: project.RealGit{}, workspaces: workspaceDirs, result: result,
+				displayName: func(key, dir string) string {
+					if proj, ok, err := st.GetProject(key); err == nil && ok {
+						if name, err := week.DisplayName(st, key, workspaceDirs); err == nil && proj.Toplevel != "" {
+							return name
+						}
+					}
+					return project.Label(dir, project.RealGit{}, workspaceDirs)
+				}}
+			here, err = r.resolveHere(*hereFlag)
+			if err != nil {
+				_, _ = fmt.Fprintln(stderr, "backstory this-week:", err)
+				return 1
+			}
+			if *hereFlag == hereAuto {
+				windows = r.windowsByProject()
+				if windows == nil {
+					windows = map[string]string{}
+				}
+			}
+		}
+		return printThisWeekJSON(stdout, result, here, windows)
 	}
 	return printThisWeekText(stdout, result)
 }
@@ -84,6 +109,8 @@ type projectSummaryJSON struct {
 	HandoffStale     bool   `json:"handoff_stale,omitempty"`
 	HandoffNext      string `json:"handoff_next"`
 	LastAgent        string `json:"last_agent"`
+	// Window is set (possibly "") only under --here auto.
+	Window *string `json:"window,omitempty"`
 }
 
 // whereLeftOffRowJSON is one row: Project is set for a standalone project
@@ -115,13 +142,25 @@ type thisWeekOutputJSON struct {
 	Attention    []attentionItemJSON   `json:"attention"`
 	WhereLeftOff []whereLeftOffRowJSON `json:"where_left_off"`
 	Week         []dayProjectStatsJSON `json:"week"`
+	Here         *hereJSON             `json:"here,omitempty"`
 }
 
-func printThisWeekJSON(stdout io.Writer, result week.Result) int {
+// windows is nil unless --here auto was given (then every summary carries
+// a window, "" when none).
+func printThisWeekJSON(stdout io.Writer, result week.Result, here *hereJSON, windows map[string]string) int {
 	out := thisWeekOutputJSON{
 		Attention:    []attentionItemJSON{},
 		WhereLeftOff: []whereLeftOffRowJSON{},
 		Week:         []dayProjectStatsJSON{},
+		Here:         here,
+	}
+	summary := func(p week.ProjectSummary) projectSummaryJSON {
+		s := projectSummary(p)
+		if windows != nil {
+			w := windows[p.ProjectKey]
+			s.Window = &w
+		}
+		return s
 	}
 	for _, it := range result.Attention {
 		out.Attention = append(out.Attention, attentionItemJSON{
@@ -133,13 +172,13 @@ func printThisWeekJSON(stdout io.Writer, result week.Result) int {
 	}
 	for _, row := range result.WhereLeftOff {
 		if row.Group == "" {
-			p := projectSummary(row.Project)
+			p := summary(row.Project)
 			out.WhereLeftOff = append(out.WhereLeftOff, whereLeftOffRowJSON{Project: &p})
 			continue
 		}
 		children := make([]projectSummaryJSON, len(row.Children))
 		for i, c := range row.Children {
-			children[i] = projectSummary(c)
+			children[i] = summary(c)
 		}
 		out.WhereLeftOff = append(out.WhereLeftOff, whereLeftOffRowJSON{Group: row.Group, Children: children})
 	}

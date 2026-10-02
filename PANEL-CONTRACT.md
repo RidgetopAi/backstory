@@ -31,6 +31,30 @@ All three arrays are always present, always arrays (never `null`, never omitted)
 `attention` array is itself the signal "nothing to flag this week" (decision `9be5c1d5`),
 not the absence of a key a panel has to guard against with an existence check.
 
+## `here` and `window` — `--here DIR|auto`
+
+`backstory this-week --json --here <DIR|auto>` is optional. Without it the output is
+byte-for-byte unchanged: no `here` key, no `window` fields.
+
+`here` (top level, only with `--here`):
+
+| Field          | Type   | Meaning |
+|----------------|--------|---------|
+| `project_key`  | string | `internal/project.Key` of the folder — the daemon's own function, so a worktree resolves to its main checkout's key and a non-git folder under a workspace dir to the workspace key. `""` only when `source` is `recent` and there is no activity at all. |
+| `display_name` | string | The stored project's display name when known, else the folder's label. |
+| `cwd`          | string | The resolved folder (for `recent`: the project's `cwd`). |
+| `source`       | string | `arg` (DIR given), `focused` (the focused terminal's folder), `recent` (the most recently active where-you-left-off project — `--here auto` could not resolve a focused folder). |
+
+`--here auto` runs `hyprctl activewindow -j`, walks the window pid's `/proc` descendants and
+takes the folder of a `tmux: client` descendant (`tmux display-message -c <its tty> -p
+'#{pane_current_path}'`), else the cwd of the deepest descendant (ties → newest). A missing
+or failing `hyprctl`/`tmux`, or a focused window with no descendant (a browser), degrades to
+`source: "recent"`: never a non-zero exit, stdout is always valid JSON.
+
+With `--here auto` every `ProjectSummary` (standalone or group child) also carries `window`:
+the Hyprland address of an open window (`hyprctl clients -j`) whose folder, resolved by the
+same rule, maps to that project; `""` when none; with several, the lowest `focusHistoryID`.
+
 ## Attention — `AttentionItem`
 
 Positive evidence only, never elapsed time and never the absence of activity
