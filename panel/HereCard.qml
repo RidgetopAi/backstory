@@ -52,6 +52,7 @@ Rectangle {
       spacing: Style.spacing.controlGap
 
       Text {
+        objectName: "hereTitle"
         textFormat: Text.PlainText
         text: root.hereName
         font.family: Style.font.family

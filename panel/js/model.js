@@ -74,3 +74,15 @@ function dayDisplayName(d) { return d.display_name }
 function daySessions(d) { return d.sessions }
 function dayFilesTouched(d) { return d.files_touched }
 function dayRecordsWritten(d) { return d.records_written }
+
+// The workspace directory every display name is relative to; shortName
+// drops it so rows read "foo", not "projects/foo".
+var WORKSPACE_DIR_PREFIX = "projects/"
+
+// shortName: a display name without its leading "projects/". Other names
+// are unchanged, and the result is never empty ("projects" stays "projects").
+function shortName(displayName) {
+  var n = displayName || ""
+  if (n.indexOf(WORKSPACE_DIR_PREFIX) !== 0 || n.length === WORKSPACE_DIR_PREFIX.length) return n
+  return n.slice(WORKSPACE_DIR_PREFIX.length)
+}

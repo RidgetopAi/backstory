@@ -109,8 +109,9 @@ TestCase {
       renderedSet[rendered[i].replace(/ \u00b7 workspace notes$/, "")] = true
     }
 
+    // Rows drop the leading "projects/" (decision 63ce9687 P4).
     for (var name in names) {
-      verify(renderedSet[name] === true, "expected display name " + JSON.stringify(name) + " to be rendered; got " + JSON.stringify(rendered))
+      verify(renderedSet[name.replace(/^projects\/(?=.)/, "")] === true, "expected display name " + JSON.stringify(name) + " to be rendered; got " + JSON.stringify(rendered))
     }
   }
 

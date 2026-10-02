@@ -93,6 +93,13 @@ TestCase {
     compare(JSON.stringify(last.command), JSON.stringify(["omarchy-shell", "shell", "toggle", "backstory.this-week", "{}"]))
   }
 
+  function test_label_drops_projects_prefix() {
+    var widget = start(fixture())
+    var label = TestUtil.findFirst(widget, function (n) { return n.objectName === "barLabel" })
+    verify(label !== null, "barLabel missing")
+    compare(label.text, "foo")
+  }
+
   function test_right_click_is_continue_on_here() {
     var widget = start(fixture())
     mouseClick(widget, widget.width / 2, widget.height / 2, Qt.RightButton)

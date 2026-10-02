@@ -40,7 +40,7 @@ Item {
 
   readonly property var hereData: root.payload ? Model.topHere(root.payload) : null
   readonly property var hereProject: root.payload ? Derive.hereSummary(root.payload) : null
-  readonly property string hereName: root.hereData ? Format.shortName(Model.hereDisplayName(root.hereData)) : ""
+  readonly property string hereName: root.hereData ? Model.shortName(Model.hereDisplayName(root.hereData)) : ""
   readonly property bool needsAttention: root.payload ? Model.topAttention(root.payload).length > 0 : false
 
   implicitWidth: label.implicitWidth + (attentionDot.visible ? attentionDot.width + Style.spacing.controlGap : 0) + Style.space(12)

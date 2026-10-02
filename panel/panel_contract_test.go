@@ -41,6 +41,10 @@ var fieldAccessPattern = regexp.MustCompile(`\w\.([a-z_][a-zA-Z0-9_]*)\b`)
 // doc comment is never mistaken for a field access.
 var lineCommentPattern = regexp.MustCompile(`//.*$`)
 
+// stringMethods are JS String members model.js's display helpers (shortName)
+// call; they are not JSON fields, so they are never contract fields.
+var stringMethods = map[string]bool{"indexOf": true, "length": true, "slice": true}
+
 // extractFieldAccesses returns the set of field names model.js reads off a
 // JSON value, by stripping comments and running fieldAccessPattern over
 // what remains.
@@ -49,7 +53,9 @@ func extractFieldAccesses(src string) map[string]bool {
 	for _, line := range strings.Split(src, "\n") {
 		code := lineCommentPattern.ReplaceAllString(line, "")
 		for _, m := range fieldAccessPattern.FindAllStringSubmatch(code, -1) {
-			fields[m[1]] = true
+			if !stringMethods[m[1]] {
+				fields[m[1]] = true
+			}
 		}
 	}
 	return fields
