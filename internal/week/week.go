@@ -7,6 +7,7 @@ package week
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -108,6 +109,13 @@ type ProjectSummary struct {
 	// handoff record at all.
 	HandoffID        string
 	HandoffFirstLine string
+	// HandoffNext is the handoff's one-line next step: its stored `next`
+	// when set, else its first line with leading boilerplate stripped
+	// (handoffNextFromText). "" when there is no handoff.
+	HandoffNext string
+	// LastAgent is the agent of the project's most recently started session,
+	// "" when unknown.
+	LastAgent string
 	// HandoffStale mirrors whether an AttentionPossiblyStaleHandoff item
 	// exists for this project's handoff — the same store.HandoffFreshness
 	// call feeds both, so the two can never disagree.
@@ -371,6 +379,7 @@ func buildProject(st *store.Store, projectKey string, since, now time.Time, git 
 		return ProjectSummary{}, nil, fmt.Errorf("week: latest session for %s: %w", projectKey, err)
 	} else if hasSess {
 		summary.CWD = sess.CWD
+		summary.LastAgent = sess.Agent
 	}
 
 	if last, ok, err := st.LastActivity(projectKey, now); err != nil {
@@ -388,6 +397,7 @@ func buildProject(st *store.Store, projectKey string, since, now time.Time, git 
 	if hasHandoff {
 		summary.HandoffID = handoff.ID
 		summary.HandoffFirstLine = firstLine(handoff.Text)
+		summary.HandoffNext = handoffNext(handoff)
 
 		reasons, err := st.HandoffFreshness(handoff, workspaces)
 		if err != nil {
@@ -615,6 +625,12 @@ func buildHomeLabelProject(st *store.Store, home string, loc store.ActiveWorkLoc
 		LastActivity: loc.LastActivity,
 	}
 
+	agent, err := st.NewestSessionAgent(loc.SessionIDs)
+	if err != nil {
+		return ProjectSummary{}, nil, fmt.Errorf("week: last agent for label %s: %w", loc.Label, err)
+	}
+	summary.LastAgent = agent
+
 	var attention []AttentionItem
 	handoff, hasHandoff, err := st.HandoffForLabel(home, loc.Label, git, workspaces)
 	if err != nil {
@@ -623,6 +639,7 @@ func buildHomeLabelProject(st *store.Store, home string, loc store.ActiveWorkLoc
 	if hasHandoff {
 		summary.HandoffID = handoff.ID
 		summary.HandoffFirstLine = firstLine(handoff.Text)
+		summary.HandoffNext = handoffNext(handoff)
 
 		reasons, err := st.HandoffFreshness(handoff, workspaces)
 		if err != nil {
@@ -855,6 +872,31 @@ func shortID(id string) string {
 		return id
 	}
 	return id[:shortIDLen]
+}
+
+// handoffBoilerplate matches the leading boilerplate of a handoff's first
+// line: optional ★, the word HANDOFF, and an ISO date with optional time and
+// Z, each followed by the separators - — – . : and whitespace. Every piece
+// is optional, but separators are only consumed after a piece, so a line
+// that starts with none of them is left alone.
+var handoffBoilerplate = regexp.MustCompile(
+	`^(?:★[\s]*)?` +
+		`(?:(?i:HANDOFF)\b[\s\-—–.:]*)?` +
+		`(?:\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?)?(?:Z|[+-]\d{2}:?\d{2})?[\s\-—–.:]*)?`)
+
+// handoffNext is the Next line a project's panel row shows: the handoff's
+// stored next when set, else the first line with boilerplate stripped. A
+// first line that is nothing but boilerplate falls back to itself rather
+// than going blank.
+func handoffNext(h store.Record) string {
+	if next := strings.TrimSpace(h.Next); next != "" {
+		return next
+	}
+	line := strings.TrimSpace(firstLine(h.Text))
+	if stripped := strings.TrimSpace(handoffBoilerplate.ReplaceAllString(line, "")); stripped != "" {
+		return stripped
+	}
+	return line
 }
 
 func firstLine(text string) string {

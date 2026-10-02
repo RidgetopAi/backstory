@@ -26,6 +26,7 @@ var migrationDataHooks = map[int]func(context.Context, *sql.Tx) error{
 	3:  rewriteNulProjectKeySeparators,
 	6:  rewriteToolUseDetailPayloads,
 	10: installRecordsNoUpdateTrigger,
+	13: installRecordsNoUpdateTrigger,
 }
 
 // recordsNoUpdateTriggerSQL is the one definition of records_no_update.
@@ -34,7 +35,7 @@ var migrationDataHooks = map[int]func(context.Context, *sql.Tx) error{
 // the two can never drift. records is append-only except for the human
 // delete path, which may, in one UPDATE, set tombstoned_at from NULL and
 // scrub text to ”. Every other column — including event_cursor and
-// git_head — is immutable. An UPDATE that changes neither text nor
+// git_head, next — is immutable (a tombstone scrub may also clear next). An UPDATE that changes neither text nor
 // tombstoned_at is a harmless no-op; re-tombstoning is refused.
 const recordsNoUpdateTriggerSQL = `
 CREATE TRIGGER records_no_update
@@ -54,10 +55,11 @@ WHEN NOT (
   old.event_cursor = new.event_cursor AND
   old.git_head     IS new.git_head AND
   (
-    (old.text = new.text AND old.tombstoned_at IS new.tombstoned_at)
+    (old.text = new.text AND old.next IS new.next AND old.tombstoned_at IS new.tombstoned_at)
     OR
     (old.tombstoned_at IS NULL AND new.tombstoned_at IS NOT NULL AND
-     (new.text = old.text OR new.text = ''))
+     (new.text = old.text OR new.text = '') AND
+     (new.next IS old.next OR new.next IS NULL))
   )
 )
 BEGIN

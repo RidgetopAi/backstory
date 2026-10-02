@@ -91,6 +91,8 @@ standalone row; `project` is present only on a standalone row. A panel branches 
 | `handoff_id`          | string  | only if the project has a handoff record | The latest handoff's record id. |
 | `handoff_first_line`  | string  | only if the project has a handoff record | The first line of that handoff's text. |
 | `handoff_stale`       | bool    | only `true` (omitted, meaning `false`, otherwise) | Mirrors whether a `possibly-stale-handoff` Attention item exists for this project — the same `store.HandoffFreshness` call feeds both, so they can never disagree. |
+| `handoff_next`        | string  | yes (`""` when there is no handoff) | The handoff's stored `next` when set; otherwise its first line with leading boilerplate stripped (a leading ★, the word HANDOFF, a leading ISO date with optional time/Z, and the separators `-` `—` `.` `:` between them). |
+| `last_agent`          | string  | yes (`""` when unknown) | The agent of the project's most recently started session. |
 
 ## The week — `DayProjectStats`
 

@@ -95,6 +95,10 @@ func ToolsV0() []Tool {
 					"expires": {
 						"type": "string",
 						"description": "RFC 3339 timestamp; claims only"
+					},
+					"next": {
+						"type": "string",
+						"description": "handoff only: the single next step, one line, at most 200 characters"
 					}
 				},
 				"required": ["kind", "text"]

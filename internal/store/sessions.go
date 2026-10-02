@@ -2,7 +2,9 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -267,4 +269,27 @@ func (s *Store) EndSession(id string, endedAt time.Time, exitKind string) error 
 		return fmt.Errorf("store: end session %s: not found", id)
 	}
 	return nil
+}
+
+// NewestSessionAgent returns the agent of the most recently started session
+// among ids, "" when ids is empty or names no session.
+func (s *Store) NewestSessionAgent(ids []string) (string, error) {
+	if len(ids) == 0 {
+		return "", nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	var agent string
+	err := s.db.QueryRow(`SELECT agent FROM sessions WHERE id IN (`+placeholders+`)
+		ORDER BY started_at DESC, rowid DESC LIMIT 1`, args...).Scan(&agent)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("store: newest session agent: %w", err)
+	}
+	return agent, nil
 }
