@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -104,5 +106,90 @@ func TestTerminalLaunchCommandCatchesCwdInterpolation(t *testing.T) {
 	}
 	if err := checkTerminalLaunchCommand(bad, cwd); err == nil {
 		t.Fatalf("expected the cwd-interpolation mutation to fail checkTerminalLaunchCommand, but it passed: %v", bad)
+	}
+}
+
+// TestWindowAddressIsValidatedBeforeAnyHyprctlDispatch is task fc1f340d's
+// DONE WHEN clause (2) for the address that reaches a hyprctl dispatch
+// string: only 0x<hex> passes, anything that could break out of the
+// dispatch argument is refused.
+func TestWindowAddressIsValidatedBeforeAnyHyprctlDispatch(t *testing.T) {
+	cases := map[string]bool{
+		"0x55aa":          true,
+		"0xDEADbeef":      true,
+		"":                false,
+		"0x":              false,
+		"55aa":            false,
+		"0x1; rm":         false,
+		"0x1\" }) --":     false,
+		"0x55aa\n":        false,
+		" 0x55aa":         false,
+		"address:0x55aa":  false,
+		"0x55aa$(reboot)": false,
+		"0xZZ":            false,
+	}
+	for addr, want := range cases {
+		raw := evalJS(t, "isWindowAddress("+jsStringLiteral(addr)+")", launchersJSPath)
+		if got := string(raw) == "true"; got != want {
+			t.Errorf("isWindowAddress(%q) = %v, want %v", addr, got, want)
+		}
+	}
+}
+
+// TestFocusAndAgentCommandShapes pins the argv of every command task
+// fc1f340d added to js/launchers.js.
+func TestFocusAndAgentCommandShapes(t *testing.T) {
+	cases := []struct {
+		expr string
+		want []string
+	}{
+		{`focusWindowCommand("0x55aa")`, []string{"hyprctl", "dispatch", `hl.dsp.focus({ window = "address:0x55aa" })`}},
+		{`focusWindowFallbackCommand("0x55aa")`, []string{"hyprctl", "dispatch", "focuswindow", "address:0x55aa"}},
+		{`agentPickCommand()`, []string{"omarchy", "agent", "--pick"}},
+		{`defaultAgentCommand()`, []string{"omarchy-default-agent"}},
+		{`thisWeekCommand()`, []string{"backstory", "this-week", "--json", "--here", "auto"}},
+		{`agentPromptCommand("go")`, []string{"omarchy", "agent", "prompt", "go"}},
+	}
+	for _, c := range cases {
+		var got []string
+		if err := json.Unmarshal(evalJS(t, c.expr, launchersJSPath), &got); err != nil {
+			t.Fatalf("%s: %v", c.expr, err)
+		}
+		if strings.Join(got, "\x00") != strings.Join(c.want, "\x00") {
+			t.Errorf("%s = %q, want %q", c.expr, got, c.want)
+		}
+	}
+}
+
+// TestNewFieldsAreReadOnlyThroughModelJS: the fields the redesign consumes
+// are accessors in js/model.js, and no other panel file reads them off a
+// parsed object directly.
+func TestNewFieldsAreReadOnlyThroughModelJS(t *testing.T) {
+	fields := loadModelFields(t)
+	for _, f := range []string{"here", "window", "handoff_next", "last_agent", "display_name", "cwd", "source"} {
+		if !fields[f] {
+			t.Errorf("js/model.js has no accessor reading %q", f)
+		}
+	}
+	direct := regexp.MustCompile(`\.(handoff_next|last_agent|window|here)\b`)
+	for _, pattern := range []string{"*.qml", "js/*.js"} {
+		files, err := filepath.Glob(pattern)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, path := range files {
+			if path == modelJSPath {
+				continue
+			}
+			raw, err := os.ReadFile(path) //nolint:gosec // glob of this package's own files
+			if err != nil {
+				t.Fatal(err)
+			}
+			for i, line := range strings.Split(string(raw), "\n") {
+				if m := direct.FindString(lineCommentPattern.ReplaceAllString(line, "")); m != "" {
+					t.Errorf("%s:%d reads %s directly; use js/model.js", path, i+1, m)
+				}
+			}
+		}
 	}
 }

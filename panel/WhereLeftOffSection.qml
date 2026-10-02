@@ -4,7 +4,7 @@ import qs.Commons
 import "js/model.js" as Model
 import "js/glyphs.js" as Glyphs
 
-// Where you left off: one row per project, most recently active first, with
+// Recent: one row per project, most recently active first, with
 // a project in a user group collapsed into one expandable row with its
 // group-mates as children (PANEL-CONTRACT.md "Where you left off").
 Column {
@@ -13,13 +13,18 @@ Column {
   property var rows: []
 
   signal openTerminal(string cwd)
-  signal resumeAgent(string cwd, string handoffText, string handoffId)
+  signal continueRequested(var summary)
   signal openMemory(string projectKey, string displayName, string cwd)
 
   // Which group rows are expanded, keyed by group name. Collapsed by
   // default — a group is a human-made summary already; a click reveals it,
   // not the other way around.
   property var expandedGroups: ({})
+  property var week: []
+  // Identity (key + cwd) of the keyboard-selected row, "" for none.
+  property string selectedId: ""
+
+  signal toggleGroup(string group)
 
   width: parent ? parent.width : Style.space(360)
   spacing: 0
@@ -44,10 +49,7 @@ Column {
           anchors.fill: parent
           cursorShape: Qt.PointingHandCursor
           onClicked: {
-            var g = Model.rowGroup(rowDelegate.modelData)
-            var next = Object.assign({}, root.expandedGroups)
-            next[g] = !next[g]
-            root.expandedGroups = next
+            root.toggleGroup(Model.rowGroup(rowDelegate.modelData))
           }
         }
 
@@ -90,7 +92,9 @@ Column {
             summary: modelData
             indented: true
             onOpenTerminal: (cwd) => root.openTerminal(cwd)
-            onResumeAgent: (cwd, handoffText, handoffId) => root.resumeAgent(cwd, handoffText, handoffId)
+            week: root.week
+            selected: root.selectedId === Model.summaryProjectKey(modelData) + "\n" + Model.summaryCwd(modelData)
+            onContinueRequested: root.continueRequested(modelData)
             onOpenMemory: (projectKey, displayName, cwd) => root.openMemory(projectKey, displayName, cwd)
           }
         }
@@ -102,8 +106,10 @@ Column {
         width: root.width
         summary: rowDelegate.isGroup ? null : Model.rowProject(rowDelegate.modelData)
         onOpenTerminal: (cwd) => root.openTerminal(cwd)
-        onResumeAgent: (cwd, handoffText, handoffId) => root.resumeAgent(cwd, handoffText, handoffId)
-            onOpenMemory: (projectKey, displayName, cwd) => root.openMemory(projectKey, displayName, cwd)
+        week: root.week
+        selected: !rowDelegate.isGroup && root.selectedId === Model.summaryProjectKey(summary) + "\n" + Model.summaryCwd(summary)
+        onContinueRequested: root.continueRequested(summary)
+        onOpenMemory: (projectKey, displayName, cwd) => root.openMemory(projectKey, displayName, cwd)
       }
     }
   }

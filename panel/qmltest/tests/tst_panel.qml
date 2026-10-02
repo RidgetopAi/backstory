@@ -98,9 +98,16 @@ TestCase {
       }
     }
 
+    // Group children are drawn only while their group is expanded; a
+    // workspace-keyed row's text is "<dir> · workspace notes".
+    panel.toggleGroup("widget-suite")
+    wait(20)
     var rendered = TestUtil.collectVisibleTexts(panel.testContentItem)
     var renderedSet = {}
-    for (i = 0; i < rendered.length; i++) renderedSet[rendered[i]] = true
+    for (i = 0; i < rendered.length; i++) {
+      renderedSet[rendered[i]] = true
+      renderedSet[rendered[i].replace(/ \u00b7 workspace notes$/, "")] = true
+    }
 
     for (var name in names) {
       verify(renderedSet[name] === true, "expected display name " + JSON.stringify(name) + " to be rendered; got " + JSON.stringify(rendered))

@@ -72,18 +72,28 @@ func collectJSONKeys(v interface{}, into map[string]bool) {
 	}
 }
 
+// thisWeekHereFixturePath is the shape PANEL-CONTRACT.md documents for
+// `--here auto` (the `here` block and each summary's `window`), which the
+// plain golden above deliberately lacks: it must stay byte-for-byte what
+// `this-week --json` prints without --here. The qmltest panel suites feed
+// this file too (day placeholders substituted), so it is exercised, not
+// just parsed.
+const thisWeekHereFixturePath = "testdata/this-week-here.json"
+
 func loadGoldenKeys(t *testing.T) map[string]bool {
 	t.Helper()
-	raw, err := os.ReadFile(thisWeekGoldenPath)
-	if err != nil {
-		t.Fatalf("read golden %s: %v", thisWeekGoldenPath, err)
-	}
-	var decoded interface{}
-	if err := json.Unmarshal(raw, &decoded); err != nil {
-		t.Fatalf("unmarshal golden %s: %v", thisWeekGoldenPath, err)
-	}
 	keys := map[string]bool{}
-	collectJSONKeys(decoded, keys)
+	for _, path := range []string{thisWeekGoldenPath, thisWeekHereFixturePath} {
+		raw, err := os.ReadFile(path) //nolint:gosec // fixed in-repo fixture path
+		if err != nil {
+			t.Fatalf("read golden %s: %v", path, err)
+		}
+		var decoded interface{}
+		if err := json.Unmarshal(raw, &decoded); err != nil {
+			t.Fatalf("unmarshal golden %s: %v", path, err)
+		}
+		collectJSONKeys(decoded, keys)
+	}
 	return keys
 }
 

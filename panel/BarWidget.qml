@@ -1,8 +1,12 @@
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import qs.Ui
 import qs.Commons
+import "js/model.js" as Model
+import "js/derive.js" as Derive
 import "js/launchers.js" as Launchers
+import "js/format.js" as Format
 import "js/glyphs.js" as Glyphs
 
 // The "bar-widget" entry point (manifest.json "kinds": ["panel",
@@ -22,11 +26,56 @@ import "js/glyphs.js" as Glyphs
 // from js/launchers.js"). This file spawns no process of its own beyond
 // that one execDetached call — like every file in this plugin except
 // js/launchers.js itself.
+//
+// It shows the `here` project's short name (the calendar glyph only when
+// there is no `here`) and a dot when Attention is non-empty. Left click
+// toggles the panel, right click is Continue on `here`, middle click
+// refreshes; it refreshes on every click (the panel opening or closing),
+// and every refreshIntervalMs.
 Item {
   id: root
 
-  implicitWidth: icon.implicitWidth + Style.space(12)
-  implicitHeight: icon.implicitHeight + Style.space(6)
+  property int refreshIntervalMs: 60000
+  property var payload: null
+
+  readonly property var hereData: root.payload ? Model.topHere(root.payload) : null
+  readonly property var hereProject: root.payload ? Derive.hereSummary(root.payload) : null
+  readonly property string hereName: root.hereData ? Format.shortName(Model.hereDisplayName(root.hereData)) : ""
+  readonly property bool needsAttention: root.payload ? Model.topAttention(root.payload).length > 0 : false
+
+  implicitWidth: label.implicitWidth + (attentionDot.visible ? attentionDot.width + Style.spacing.controlGap : 0) + Style.space(12)
+  implicitHeight: label.implicitHeight + Style.space(6)
+
+  function refresh() {
+    continueAction.refreshDefaultAgent()
+    dataProcess.running = false
+    dataProcess.running = true
+  }
+
+  Component.onCompleted: root.refresh()
+
+  Timer {
+    interval: root.refreshIntervalMs
+    running: true
+    repeat: true
+    onTriggered: root.refresh()
+  }
+
+  ContinueAction { id: continueAction }
+
+  Process {
+    id: dataProcess
+    command: Launchers.thisWeekCommand()
+    stdout: StdioCollector {
+      onStreamFinished: {
+        try {
+          root.payload = JSON.parse(text || "{}")
+        } catch (e) {
+          root.payload = null
+        }
+      }
+    }
+  }
 
   Rectangle {
     anchors.fill: parent
@@ -39,16 +88,43 @@ Item {
     anchors.fill: parent
     hoverEnabled: true
     cursorShape: Qt.PointingHandCursor
-    onClicked: Quickshell.execDetached(Launchers.barToggleCommand())
+    acceptedButtons: Qt.LeftButton | Qt.RightButton | Qt.MiddleButton
+    onClicked: (event) => {
+      if (event.button === Qt.RightButton) {
+        continueAction.continueOn(root.hereProject)
+      } else if (event.button === Qt.MiddleButton) {
+        root.refresh()
+      } else {
+        Quickshell.execDetached(Launchers.barToggleCommand())
+        root.refresh()
+      }
+    }
   }
 
-  Text {
-    id: icon
+  Row {
     anchors.centerIn: parent
-    textFormat: Text.PlainText
-    text: Glyphs.week()
-    font.family: Style.font.family
-    font.pixelSize: Style.font.body
-    color: Color.foreground
+    spacing: Style.spacing.controlGap
+
+    Text {
+      id: label
+      objectName: "barLabel"
+      anchors.verticalCenter: parent.verticalCenter
+      textFormat: Text.PlainText
+      text: root.hereName !== "" ? root.hereName : Glyphs.week()
+      font.family: Style.font.family
+      font.pixelSize: Style.font.body
+      color: Color.foreground
+    }
+
+    Rectangle {
+      id: attentionDot
+      objectName: "attentionDot"
+      visible: root.needsAttention
+      anchors.verticalCenter: parent.verticalCenter
+      width: Style.space(7)
+      height: width
+      radius: width / 2
+      color: Color.urgent
+    }
   }
 }
