@@ -366,4 +366,66 @@ func TestHereAutoSkipsPseudoFoldersAndHome(t *testing.T) {
 			t.Fatalf("browser address leaked into output: %s", raw)
 		}
 	})
+	t.Run("HOME-keyed project never gets a browser's window address", func(t *testing.T) {
+		e := newHereEnv(t)
+		st, err := store.Open(filepath.Join(e.dataDir, "backstory", "backstory.db"), nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// This Week hides a project whose latest session cwd IS home, so the
+		// session reaches home through a symlink inside it: the project key
+		// is still home itself, and the row shows.
+		homeLink := filepath.Join(e.home, "homelink")
+		if err := os.Symlink(e.home, homeLink); err != nil {
+			t.Fatal(err)
+		}
+		homeKey := e.home
+		if err := st.UpsertProject(store.Project{Key: homeKey, Toplevel: e.home, FirstSeen: date(4, 9, 0)}); err != nil {
+			t.Fatal(err)
+		}
+		sess, err := st.StartSession(store.StartSessionParams{ID: "here-home", Agent: "claude", CWD: homeLink,
+			ProjectKey: homeKey, StartedAt: date(8, 9, 0), Origin: store.OriginLive})
+		if err != nil {
+			t.Fatal(err)
+		}
+		mustInsertThisWeekRecord(t, st, fixtureRecord{ID: "here-home-h", ProjectKey: homeKey, SessionID: sess,
+			TS: date(8, 10, 0), Kind: store.KindHandoff, Tier: store.TierAgentDeclared, Text: "left off"})
+		if err := st.Close(); err != nil {
+			t.Fatal(err)
+		}
+		e.fakeHyprctl(t, `{"address":"0xbrowser","pid":500}`,
+			`[{"address":"0xbrowser","class":"google-chrome","pid":500,"focusHistoryID":0},`+
+				`{"address":"0xterm","class":"ghostty","pid":600,"focusHistoryID":1}]`)
+		e.addProc(t, 500, 1, "chrome", e.home, "")
+		e.addProc(t, 501, 500, "chrome", e.home, "")
+		e.addProc(t, 600, 1, "ghostty", e.home, "")
+		e.addProc(t, 601, 600, "bash", e.foo, "")
+		m := mustRun(t, e, "--here", "auto")
+		got := map[string]string{}
+		rows, _ := m["where_left_off"].([]any)
+		for _, r := range rows {
+			row, _ := r.(map[string]any)
+			var ps []any
+			if p, ok := row["project"]; ok {
+				ps = []any{p}
+			} else {
+				ps, _ = row["children"].([]any)
+			}
+			for _, p := range ps {
+				pm, _ := p.(map[string]any)
+				pk, _ := pm["project_key"].(string)
+				w, ok := pm["window"].(string)
+				if !ok {
+					t.Fatalf("project %v has no window string", pk)
+				}
+				got[pk] = w
+			}
+		}
+		if w, ok := got[homeKey]; !ok || w != "" {
+			t.Fatalf("HOME-keyed project window = %q (present %v), want \"\"; windows = %v", w, ok, got)
+		}
+		if got[e.fooKey] != "0xterm" {
+			t.Fatalf("foo window = %q, want 0xterm; windows = %v", got[e.fooKey], got)
+		}
+	})
 }
