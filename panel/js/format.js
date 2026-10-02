@@ -1,4 +1,5 @@
 .pragma library
+.import "model.js" as Model
 
 // format.js: pure display helpers (names, relative time, the 7-day strip,
 // the agent notice). It reads no JSON field and names no command — those
