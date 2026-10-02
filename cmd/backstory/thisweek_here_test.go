@@ -327,7 +327,7 @@ func TestHereAutoSkipsPseudoFoldersAndHome(t *testing.T) {
 		e.fakeHyprctl(t, `{"address":"0xc","class":"google-chrome","pid":500}`, `[]`)
 		e.addProc(t, 500, 1, "chrome", e.home, "")
 		e.addProc(t, 501, 500, "chrome", e.home, "")
-		e.addProc(t, 502, 501, "chrome", "/proc/25001/fdinfo", "")
+		e.addProc(t, 502, 501, "chrome", "/proc/self/fdinfo", "")
 		m := mustRun(t, e, "--here", "auto")
 		h := hereOf(t, m)
 		if h["source"] != "recent" || h["project_key"] != recentKey(t, m) || strings.Contains(fmt.Sprint(h), "/proc") {
@@ -348,7 +348,7 @@ func TestHereAutoSkipsPseudoFoldersAndHome(t *testing.T) {
 		e.fakeHyprctl(t, `{"address":"0xc","pid":500}`, `[]`)
 		e.addProc(t, 500, 1, "ghostty", e.home, "")
 		e.addProc(t, 501, 500, "bash", e.foo, "")
-		e.addProc(t, 502, 501, "child", "/proc/9/fdinfo", "")
+		e.addProc(t, 502, 501, "child", "/proc/self/fdinfo", "")
 		h := hereOf(t, mustRun(t, e, "--here", "auto"))
 		if h["project_key"] != e.fooKey || h["source"] != "focused" {
 			t.Fatalf("here = %v", h)
@@ -360,7 +360,7 @@ func TestHereAutoSkipsPseudoFoldersAndHome(t *testing.T) {
 			`[{"address":"0xbrowser","class":"google-chrome","pid":500,"focusHistoryID":0}]`)
 		e.addProc(t, 500, 1, "chrome", e.home, "")
 		e.addProc(t, 501, 500, "chrome", e.home, "")
-		e.addProc(t, 502, 501, "chrome", "/proc/25001/fdinfo", "")
+		e.addProc(t, 502, 501, "chrome", "/proc/self/fdinfo", "")
 		_, raw := e.run(t, "--here", "auto")
 		if strings.Contains(raw, "0xbrowser") {
 			t.Fatalf("browser address leaked into output: %s", raw)
