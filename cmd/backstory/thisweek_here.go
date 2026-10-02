@@ -1,0 +1,321 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/RidgetopAi/backstory/internal/project"
+	"github.com/RidgetopAi/backstory/internal/week"
+)
+
+// hereAuto is the --here value that asks for the focused terminal's folder.
+const hereAuto = "auto"
+
+// Sources of hereJSON.Source (PANEL-CONTRACT.md §here).
+const (
+	hereSourceArg     = "arg"
+	hereSourceFocused = "focused"
+	hereSourceRecent  = "recent"
+)
+
+// External-command tunables. hyprctl and tmux are looked up on PATH.
+const (
+	hyprctlBin = "hyprctl"
+	tmuxBin    = "tmux"
+	// hereCommandTimeout bounds each hyprctl/tmux call so a wedged compositor
+	// can never hang the panel's data fetch.
+	hereCommandTimeout = 3 * time.Second
+	// tmuxClientCommPrefix/Suffix identify a tmux client process by its comm
+	// ("tmux: client").
+	tmuxClientCommPrefix = "tmux:"
+	tmuxClientCommSuffix = "client"
+)
+
+// thisWeekProcRoot is the /proc this command walks. A package variable, the
+// test seam for a fake /proc tree (the daemon's equivalent is
+// procFSForDaemon); it is never read from the environment.
+var thisWeekProcRoot = "/proc"
+
+// hereJSON is the top-level `here` object (PANEL-CONTRACT.md §here).
+type hereJSON struct {
+	ProjectKey  string `json:"project_key"`
+	DisplayName string `json:"display_name"`
+	CWD         string `json:"cwd"`
+	Source      string `json:"source"`
+}
+
+// runCommand runs a PATH-resolved command with a timeout and returns stdout.
+func runCommand(name string, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), hereCommandTimeout)
+	defer cancel()
+	return exec.CommandContext(ctx, name, args...).Output() //nolint:gosec // fixed binary names, args built from pids/ttys
+}
+
+type hyprWindow struct {
+	Address        string `json:"address"`
+	Class          string `json:"class"`
+	PID            int    `json:"pid"`
+	FocusHistoryID int    `json:"focusHistoryID"`
+}
+
+func hyprActiveWindow() (hyprWindow, error) {
+	out, err := runCommand(hyprctlBin, "activewindow", "-j")
+	if err != nil {
+		return hyprWindow{}, fmt.Errorf("hyprctl activewindow: %w", err)
+	}
+	var w hyprWindow
+	if err := json.Unmarshal(out, &w); err != nil {
+		return hyprWindow{}, fmt.Errorf("hyprctl activewindow: %w", err)
+	}
+	return w, nil
+}
+
+func hyprClients() ([]hyprWindow, error) {
+	out, err := runCommand(hyprctlBin, "clients", "-j")
+	if err != nil {
+		return nil, fmt.Errorf("hyprctl clients: %w", err)
+	}
+	var ws []hyprWindow
+	if err := json.Unmarshal(out, &ws); err != nil {
+		return nil, fmt.Errorf("hyprctl clients: %w", err)
+	}
+	return ws, nil
+}
+
+type procNode struct {
+	pid        int
+	depth      int
+	comm       string
+	startTicks uint64
+}
+
+func procPath(pid int, rest string) string {
+	return filepath.Join(thisWeekProcRoot, strconv.Itoa(pid), rest)
+}
+
+// procPPidAndComm reads PPid and Name from <proc>/<pid>/status.
+func procPPidAndComm(pid int) (ppid int, comm string, ok bool) {
+	b, err := os.ReadFile(procPath(pid, "status")) //nolint:gosec // path built from an int pid
+	if err != nil {
+		return 0, "", false
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		switch {
+		case strings.HasPrefix(line, "PPid:"):
+			v, err := strconv.Atoi(strings.TrimSpace(strings.TrimPrefix(line, "PPid:")))
+			if err != nil {
+				return 0, "", false
+			}
+			ppid = v
+		case strings.HasPrefix(line, "Name:"):
+			comm = strings.TrimSpace(strings.TrimPrefix(line, "Name:"))
+		}
+	}
+	return ppid, comm, true
+}
+
+// procStartTicks reads stat field 22; 0 when unavailable (ordering then
+// falls back to pid).
+func procStartTicks(pid int) uint64 {
+	b, err := os.ReadFile(procPath(pid, "stat")) //nolint:gosec // path built from an int pid
+	if err != nil {
+		return 0
+	}
+	s := string(b)
+	i := strings.LastIndexByte(s, ')')
+	if i == -1 || i+2 > len(s) {
+		return 0
+	}
+	fields := strings.Fields(s[i+2:])
+	const startTimeField = 19
+	if len(fields) <= startTimeField {
+		return 0
+	}
+	v, _ := strconv.ParseUint(fields[startTimeField], 10, 64)
+	return v
+}
+
+// procDescendants returns every descendant of root (excluding root).
+func procDescendants(root int) []procNode {
+	entries, err := os.ReadDir(thisWeekProcRoot)
+	if err != nil {
+		return nil
+	}
+	children := map[int][]procNode{}
+	for _, e := range entries {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue
+		}
+		ppid, comm, ok := procPPidAndComm(pid)
+		if !ok {
+			continue
+		}
+		children[ppid] = append(children[ppid], procNode{pid: pid, comm: comm, startTicks: procStartTicks(pid)})
+	}
+	var out []procNode
+	seen := map[int]bool{root: true}
+	var walk func(pid, depth int)
+	walk = func(pid, depth int) {
+		for _, c := range children[pid] {
+			if seen[c.pid] {
+				continue
+			}
+			seen[c.pid] = true
+			c.depth = depth
+			out = append(out, c)
+			walk(c.pid, depth+1)
+		}
+	}
+	walk(root, 1)
+	return out
+}
+
+func isTmuxClient(comm string) bool {
+	return strings.HasPrefix(comm, tmuxClientCommPrefix) && strings.HasSuffix(comm, tmuxClientCommSuffix)
+}
+
+// folderOfWindowPID resolves the folder a window's terminal is in: the pane
+// path of a tmux client descendant (asked of tmux by the client's tty), else
+// the cwd of the deepest descendant (ties → newest). ok is false when the
+// window has no descendant or no cwd is readable.
+func folderOfWindowPID(pid int) (string, bool) {
+	if pid <= 0 {
+		return "", false
+	}
+	desc := procDescendants(pid)
+	if len(desc) == 0 {
+		return "", false
+	}
+	for _, d := range desc {
+		if !isTmuxClient(d.comm) {
+			continue
+		}
+		tty, err := os.Readlink(procPath(d.pid, "fd/0")) //nolint:gosec // path built from an int pid
+		if err != nil {
+			continue
+		}
+		out, err := runCommand(tmuxBin, "display-message", "-c", tty, "-p", "#{pane_current_path}")
+		if p := strings.TrimSpace(string(out)); err == nil && p != "" {
+			return p, true
+		}
+	}
+	// Deepest descendant whose cwd is readable (ties → newest).
+	for len(desc) > 0 {
+		best := newestDeepest(desc)
+		cwd, err := os.Readlink(procPath(desc[best].pid, "cwd")) //nolint:gosec // path built from an int pid
+		if err == nil && cwd != "" {
+			return cwd, true
+		}
+		desc = append(desc[:best], desc[best+1:]...)
+	}
+	return "", false
+}
+
+func newestDeepest(nodes []procNode) int {
+	best := 0
+	for i, d := range nodes {
+		b := nodes[best]
+		if d.depth != b.depth {
+			if d.depth > b.depth {
+				best = i
+			}
+			continue
+		}
+		if d.startTicks != b.startTicks {
+			if d.startTicks > b.startTicks {
+				best = i
+			}
+			continue
+		}
+		if d.pid > b.pid {
+			best = i
+		}
+	}
+	return best
+}
+
+// hereResolver turns folders into project identities with the daemon's own
+// project-key function.
+type hereResolver struct {
+	git         project.Git
+	workspaces  []string
+	result      week.Result
+	displayName func(key, dir string) string
+}
+
+func (r hereResolver) key(dir string) string {
+	return project.Key(dir, r.git, r.workspaces)
+}
+
+func (r hereResolver) here(dir, source string) hereJSON {
+	key := r.key(dir)
+	return hereJSON{ProjectKey: key, DisplayName: r.displayName(key, dir), CWD: dir, Source: source}
+}
+
+// firstProject is the most recently active where_left_off project.
+func firstProject(result week.Result) (week.ProjectSummary, bool) {
+	for _, row := range result.WhereLeftOff {
+		if row.Group == "" {
+			return row.Project, true
+		}
+		if len(row.Children) > 0 {
+			return row.Children[0], true
+		}
+	}
+	return week.ProjectSummary{}, false
+}
+
+// resolveHere implements `--here DIR|auto`. Only a DIR that cannot be made
+// absolute is an error; every `auto` failure degrades to source "recent".
+func (r hereResolver) resolveHere(arg string) (*hereJSON, error) {
+	if arg != hereAuto {
+		abs, err := filepath.Abs(arg)
+		if err != nil {
+			return nil, fmt.Errorf("resolve --here %q: %w", arg, err)
+		}
+		h := r.here(abs, hereSourceArg)
+		return &h, nil
+	}
+	if w, err := hyprActiveWindow(); err == nil {
+		if dir, ok := folderOfWindowPID(w.PID); ok {
+			h := r.here(dir, hereSourceFocused)
+			return &h, nil
+		}
+	}
+	if p, ok := firstProject(r.result); ok {
+		return &hereJSON{ProjectKey: p.ProjectKey, DisplayName: p.DisplayName, CWD: p.CWD, Source: hereSourceRecent}, nil
+	}
+	return &hereJSON{Source: hereSourceRecent}, nil
+}
+
+// windowsByProject maps project key → the address of its most recently
+// focused open window; empty when hyprctl is unavailable.
+func (r hereResolver) windowsByProject() map[string]string {
+	clients, err := hyprClients()
+	if err != nil {
+		return nil
+	}
+	out := map[string]string{}
+	best := map[string]int{}
+	for _, c := range clients {
+		dir, ok := folderOfWindowPID(c.PID)
+		if !ok || c.Address == "" {
+			continue
+		}
+		key := r.key(dir)
+		if prev, seen := best[key]; seen && prev <= c.FocusHistoryID {
+			continue
+		}
+		best[key] = c.FocusHistoryID
+		out[key] = c.Address
+	}
+	return out
+}
