@@ -1,7 +1,6 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
-import Quickshell.Wayland
 import qs.Ui
 import qs.Commons
 import "js/model.js" as Model
@@ -118,15 +117,21 @@ Item {
     continueAction.continueOn(summary)
   }
 
-  // Test-only handles onto the PanelWindow's own `id: panel` (harmless on
-  // the real desk: PanelWindow genuinely has contentItem/implicitWidth/
+  // Test-only handles onto the FloatingWindow's own `id: panel` (harmless on
+  // the real desk: FloatingWindow genuinely has contentItem/implicitWidth/
   // implicitHeight — a QML `id` just isn't reachable from outside this
   // file any other way). qmltest/tests/tst_panel.qml's generic layout-
   // bounds walker (task 4fe02e30 DONE WHEN clause 3) uses these.
   readonly property Item testContentItem: panel.contentItem
+  readonly property var testWindow: panel
   readonly property Item testKeyItem: card
   readonly property real testImplicitWidth: panel.implicitWidth
   readonly property real testImplicitHeight: panel.implicitHeight
+
+  // Stable window class/title the Hyprland windowrule in
+  // ops/hyprland/backstory.conf matches (panel_windowrule_test.go and
+  // tst_panel_window.qml pin the two together).
+  readonly property string windowClass: "backstory"
 
   function refresh() {
     root.nowMs = Date.now()
@@ -216,31 +221,17 @@ Item {
     function ping(): string { return "ok" }
   }
 
-  PanelWindow {
+  // A regular xdg toplevel (NOT a wlr-layer-shell PanelWindow): Hyprland
+  // manages toplevels, so Omarchy's own move/resize binds (SUPER+drag,
+  // resize keys) work on it. ops/hyprland/backstory.conf floats it by
+  // windowClass at a default size/position.
+  FloatingWindow {
     id: panel
+    title: root.windowClass
     visible: root.opened
-    anchors { top: true; right: true }
-    margins { top: Style.space(8); right: Style.space(8) }
     color: "transparent"
-    exclusionMode: ExclusionMode.Ignore
     implicitWidth: card.width
     implicitHeight: card.height
-
-    // Not every compositor backs PanelWindow with wlr-layer-shell (X11,
-    // some non-wlroots Wayland compositors) — WlrLayershell is then simply
-    // absent. This is real Quickshell/WlrLayershell's own documented
-    // portability pattern (`if (this.WlrLayershell != null) { ... }`), not
-    // a workaround invented for this plugin's own test harness — see
-    // qmltest/stubs/Quickshell/PanelWindow.qml's doc comment for why a
-    // static `WlrLayershell.namespace: value` binding (round 3's form)
-    // cannot be loaded by a plain Qt/QtTest engine at all, attached or not.
-    Component.onCompleted: {
-      if (panel.WlrLayershell) {
-        panel.WlrLayershell.namespace = "backstory-this-week"
-        panel.WlrLayershell.layer = WlrLayer.Top
-        panel.WlrLayershell.keyboardFocus = WlrKeyboardFocus.OnDemand
-      }
-    }
 
     BorderSurface {
       id: card
