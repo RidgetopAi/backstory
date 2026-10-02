@@ -218,7 +218,24 @@ TestCase {
     var row = TestUtil.findFirst(panel.testContentItem, function (n) { return n.objectName === "rowName" && n.text.indexOf("notes") >= 0 })
     verify(row !== null)
     verify(/workspace notes$/.test(row.text), row.text)
-    verify(row.text.indexOf("projects/notes") === 0, row.text)
+    compare(row.text, "notes \u00b7 workspace notes")
+  }
+
+  // Decision 63ce9687 P4: no row, Recent or here, shows the "projects/" prefix.
+  function test_recent_rows_and_here_card_drop_projects_prefix() {
+    open(payload(function (d) {
+      d.where_left_off[1].project.display_name = "projects/bar"
+    }))
+    var rows = TestUtil.findAll(panel.testContentItem, function (n) { return n.objectName === "rowName" })
+    var names = rows.map(function (r) { return r.text })
+    verify(names.indexOf("foo") >= 0, JSON.stringify(names))
+    verify(names.indexOf("bar") >= 0, JSON.stringify(names))
+    names.forEach(function (n) { verify(n.indexOf("projects/") < 0, "Recent row shows prefix: " + n) })
+    var tree = texts()
+    tree.forEach(function (t) { verify(t.indexOf("projects/") < 0, "visible text shows prefix: " + t) })
+    var title = TestUtil.findFirst(panel.testContentItem, function (n) { return n.objectName === "hereTitle" })
+    verify(title !== null, "here card title missing")
+    compare(title.text, "foo")
   }
 
   // ---- (5) keyboard ----

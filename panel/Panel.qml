@@ -38,7 +38,7 @@ Item {
   readonly property var weekDays: root.data ? Model.topWeek(root.data) : []
   readonly property var hereData: root.data ? Model.topHere(root.data) : null
   readonly property var hereProject: root.data ? Derive.hereSummary(root.data) : null
-  readonly property string hereName: root.hereData ? Format.shortName(Model.hereDisplayName(root.hereData)) : ""
+  readonly property string hereName: root.hereData ? Model.shortName(Model.hereDisplayName(root.hereData)) : ""
   readonly property string summaryText: Format.summaryLine(Derive.weekTotals(root.weekDays))
   property real nowMs: Date.now()
 

@@ -25,7 +25,7 @@ Item {
   readonly property bool stale: summary ? !!Model.summaryHandoffStale(summary) : false
   readonly property string next: summary ? (Model.summaryHandoffNext(summary) || "") : ""
   readonly property string nameText: {
-    var n = summary ? (Model.summaryDisplayName(summary) || "") : ""
+    var n = summary ? Model.shortName(Model.summaryDisplayName(summary)) : ""
     return root.workspaceRow ? n + " \u00b7 workspace notes" : n
   }
   readonly property color nameColor: root.workspaceRow ? Qt.darker(Color.foreground, 1.3) : Color.foreground

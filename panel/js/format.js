@@ -15,7 +15,6 @@ var AGENT_NAMES = {
 }
 
 var WORKSPACE_KEY_PREFIX = "workspace:"
-var WORKSPACE_DIR_PREFIX = "projects/"
 var STRIP_DAYS = 7
 var DAY_MS = 24 * 60 * 60 * 1000
 
@@ -38,12 +37,6 @@ function continueLabel(defaultAgent) {
 function agentNotice(lastAgent, defaultAgent) {
   if (!lastAgent || !defaultAgent || !isKnownAgent(lastAgent) || lastAgent === defaultAgent) return ""
   return "Last worked in " + agentName(lastAgent) + " · Continue opens " + agentName(defaultAgent) + " (your Omarchy default)"
-}
-
-// shortName drops the leading "projects/" of a workspace-relative name.
-function shortName(displayName) {
-  var n = displayName || ""
-  return n.indexOf(WORKSPACE_DIR_PREFIX) === 0 ? n.slice(WORKSPACE_DIR_PREFIX.length) : n
 }
 
 function isWorkspaceKey(projectKey) {
@@ -82,7 +75,7 @@ function stripAlpha(sessions, maxSessions) {
 // handoffPrompt: the text `omarchy agent prompt` gets — names the handoff
 // id and its Next line so the agent can pick the work up.
 function handoffPrompt(displayName, handoffId, next) {
-  var text = "Continue work on " + shortName(displayName) + "."
+  var text = "Continue work on " + Model.shortName(displayName) + "."
   if (handoffId) text += " Read backstory handoff " + handoffId + "."
   if (next) text += " Next: " + next
   return text

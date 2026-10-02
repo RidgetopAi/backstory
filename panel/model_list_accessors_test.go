@@ -45,3 +45,27 @@ func TestModelListAccessorsReturnArrayForAbsentField(t *testing.T) {
 		})
 	}
 }
+
+// TestModelShortName: decision 63ce9687 P4 — one helper drops a leading
+// "projects/" from display names; everything else is unchanged and the
+// result is never emptied.
+func TestModelShortName(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"projects/foo", "foo"},
+		{"projects", "projects"},
+		{"projects/", "projects/"},
+		{"work/foo", "work/foo"},
+		{"", ""},
+	}
+	for _, c := range cases {
+		in, _ := json.Marshal(c.in)
+		raw := evalJS(t, "shortName("+string(in)+")", modelJSPathForRuntime)
+		var got string
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatalf("decode %s: %v", raw, err)
+		}
+		if got != c.want {
+			t.Errorf("shortName(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
