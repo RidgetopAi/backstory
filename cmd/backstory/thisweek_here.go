@@ -38,6 +38,11 @@ const (
 	tmuxClientCommSuffix = "client"
 )
 
+// hereIgnoredRoots are kernel pseudo-filesystems: a process whose cwd lies
+// under one (a browser's sandboxed renderer sits in /proc/<pid>/fdinfo) is not
+// in any project folder.
+var hereIgnoredRoots = []string{"/proc", "/sys", "/dev"}
+
 // thisWeekProcRoot is the /proc this command walks. A package variable, the
 // test seam for a fake /proc tree (the daemon's equivalent is
 // procFSForDaemon); it is never read from the environment.
@@ -178,6 +183,26 @@ func procDescendants(root int) []procNode {
 	return out
 }
 
+// usableProjectDir reports whether dir can be a folder the here card or a
+// window match pins: an existing directory, not under a pseudo-filesystem, and
+// not the user's home directory itself (home is never a project).
+func usableProjectDir(dir string) bool {
+	if dir == "" || !filepath.IsAbs(dir) {
+		return false
+	}
+	dir = filepath.Clean(dir)
+	for _, root := range hereIgnoredRoots {
+		if dir == root || strings.HasPrefix(dir, root+"/") {
+			return false
+		}
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" && dir == filepath.Clean(home) {
+		return false
+	}
+	fi, err := os.Stat(dir)
+	return err == nil && fi.IsDir()
+}
+
 func isTmuxClient(comm string) bool {
 	return strings.HasPrefix(comm, tmuxClientCommPrefix) && strings.HasSuffix(comm, tmuxClientCommSuffix)
 }
@@ -203,7 +228,7 @@ func folderOfWindowPID(pid int) (string, bool) {
 			continue
 		}
 		out, err := runCommand(tmuxBin, "display-message", "-c", tty, "-p", "#{pane_current_path}")
-		if p := strings.TrimSpace(string(out)); err == nil && p != "" {
+		if p := strings.TrimSpace(string(out)); err == nil && usableProjectDir(p) {
 			return p, true
 		}
 	}
@@ -211,7 +236,7 @@ func folderOfWindowPID(pid int) (string, bool) {
 	for len(desc) > 0 {
 		best := newestDeepest(desc)
 		cwd, err := os.Readlink(procPath(desc[best].pid, "cwd")) //nolint:gosec // path built from an int pid
-		if err == nil && cwd != "" {
+		if err == nil && usableProjectDir(cwd) {
 			return cwd, true
 		}
 		desc = append(desc[:best], desc[best+1:]...)
