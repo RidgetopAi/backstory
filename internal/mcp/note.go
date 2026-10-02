@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/store"
@@ -30,6 +32,31 @@ type NoteParams struct {
 	// record is a JSON-RPC error naming "links"; nothing is inserted.
 	Links   []string `json:"links,omitempty"`
 	Expires string   `json:"expires,omitempty"` // RFC 3339
+	// Next is a handoff's single next step: one line, at most MaxNextChars
+	// characters, kind=handoff only (task e1a0a683, decision 63ce9687).
+	Next string `json:"next,omitempty"`
+}
+
+// MaxNextChars is the longest `next` a handoff may carry, in characters
+// (runes). The note tool refuses a longer one and writes nothing.
+const MaxNextChars = 200
+
+// validateNext reports the rule a note's `next` breaks, or "" when it is
+// acceptable. An absent next is always acceptable.
+func validateNext(kind store.RecordKind, next string) string {
+	if next == "" {
+		return ""
+	}
+	if kind != store.KindHandoff {
+		return fmt.Sprintf(`"next" is only allowed on kind=handoff, not kind=%s`, kind)
+	}
+	if strings.ContainsAny(next, "\r\n") {
+		return `"next" must be a single line: it may not contain a newline`
+	}
+	if n := utf8.RuneCountInString(next); n > MaxNextChars {
+		return fmt.Sprintf(`"next" must be at most %d characters, got %d`, MaxNextChars, n)
+	}
+	return ""
 }
 
 // NoteResult is note's return value.
@@ -106,6 +133,10 @@ func handleNote(st *store.Store, git project.Git, identity store.Identity, sessi
 		return errResponse("invalid-params", `missing required field "text"`)
 	}
 
+	if msg := validateNext(kind, p.Next); msg != "" {
+		return errResponse("invalid-params", msg)
+	}
+
 	var expiresAt *time.Time
 	if p.Expires != "" {
 		t, err := time.Parse(time.RFC3339, p.Expires)
@@ -165,6 +196,7 @@ func handleNote(st *store.Store, git project.Git, identity store.Identity, sessi
 		Evidence:   p.Evidence,
 		ExpiresAt:  expiresAt,
 		GitHead:    gitHead,
+		Next:       p.Next,
 	}, edges)
 	if err != nil {
 		var capErr *store.CapError

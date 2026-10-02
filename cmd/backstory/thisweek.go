@@ -82,6 +82,8 @@ type projectSummaryJSON struct {
 	HandoffID        string `json:"handoff_id,omitempty"`
 	HandoffFirstLine string `json:"handoff_first_line,omitempty"`
 	HandoffStale     bool   `json:"handoff_stale,omitempty"`
+	HandoffNext      string `json:"handoff_next"`
+	LastAgent        string `json:"last_agent"`
 }
 
 // whereLeftOffRowJSON is one row: Project is set for a standalone project
@@ -170,6 +172,8 @@ func projectSummary(p week.ProjectSummary) projectSummaryJSON {
 		HandoffID:        p.HandoffID,
 		HandoffFirstLine: p.HandoffFirstLine,
 		HandoffStale:     p.HandoffStale,
+		HandoffNext:      p.HandoffNext,
+		LastAgent:        p.LastAgent,
 	}
 }
 

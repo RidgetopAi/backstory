@@ -116,7 +116,9 @@ note({ kind: decision | outcome | handoff | note | claim,  text })
   required fields; Mandrel's `decision_record` needed five including two enums, and that is
   why.
 - **Optional:** `about[]`, `supersedes`, `evidence[]` (timeline event ids), `links`,
-  `expires` (claims).
+  `expires` (claims), `next` (handoff only: the single next step — one line, at most 200
+  characters; on any other kind, with a newline, or over 200 characters the note is refused
+  with an error naming the rule and nothing is written).
 - **Inferred by the daemon:** session, agent, project, time, window. `project` is the
   session's own key, with one exception: a non-handoff note (decision, outcome, note,
   claim) from a session whose key is a `workspace:` key is filed under the git repo that
@@ -214,7 +216,7 @@ Tesla §1.9 counts eight lines: the `description:` line plus the seven body line
 4. when you choose between alternatives, `note decision` in one line — no ceremony.
 5. claim "done" only with `note outcome` pointing at a `timeline` event id; a claim without
    evidence is recorded as a claim.
-6. end with `note handoff`: what is true now, what is next, what not to do — set
+6. end with `note handoff`: what is true now, what is next, what not to do. Put the single next step in the handoff's optional `next` (one line, at most 200 characters; handoff only) so the panel can show it. Set
    `supersedes` to the Resume slot's id when it showed one; whenever any record replaces or
    corrects an earlier one, set `supersedes` to its id (or `confirm supersede`).
 7. inferred records are hints; declared records are claims; the timeline is fact.

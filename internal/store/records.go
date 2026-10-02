@@ -69,6 +69,9 @@ type InsertRecordParams struct {
 	// GitHead is the full sha of HEAD in the writing session's repo at write
 	// time, or "" (stored NULL) when there is none to stamp.
 	GitHead string
+	// Next is a handoff's optional one-line next step ("" stored NULL). The
+	// store does not judge it; the note tool enforces the one-line cap.
+	Next string
 }
 
 // Record is a row read back from records.
@@ -97,6 +100,8 @@ type Record struct {
 	EventCursor int64
 	// GitHead is the repo HEAD sha stamped at write, "" when NULL.
 	GitHead string
+	// Next is the handoff's stored one-line next step, "" when NULL.
+	Next string
 }
 
 // InsertRecord appends a ledger record with no edges. It is a convenience
@@ -159,10 +164,10 @@ func (s *Store) InsertRecordWithEdges(p InsertRecordParams, edges []EdgeSpec) (s
 	defer func() { _ = tx.Rollback() }() // no-op once Commit has run
 
 	if _, err := tx.Exec(`INSERT INTO records
-		(id, ts, kind, tier, text, about, session_id, project_key, evidence, outcome, promoter, expires_at, event_cursor, git_head)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(id), 0) FROM timeline_events), ?)`,
+		(id, ts, kind, tier, text, about, session_id, project_key, evidence, outcome, promoter, expires_at, event_cursor, git_head, next)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(id), 0) FROM timeline_events), ?, ?)`,
 		id, tsToNanos(time.Now()), string(p.Kind), string(tier), Redact(p.Text), about,
-		nullable(p.SessionID), nullable(p.ProjectKey), evidence, outcome, nullable(p.Promoter), nullableTS(p.ExpiresAt), nullable(p.GitHead)); err != nil {
+		nullable(p.SessionID), nullable(p.ProjectKey), evidence, outcome, nullable(p.Promoter), nullableTS(p.ExpiresAt), nullable(p.GitHead), nullable(Redact(p.Next))); err != nil {
 		return "", fmt.Errorf("store: insert record: %w", err)
 	}
 
@@ -208,13 +213,13 @@ func (s *Store) GetRecord(id string) (Record, error) {
 		ts                              int64
 		kind, tier, text, about, evid   string
 		sessionID, projectKey, promoter sql.NullString
-		outcome, gitHead                sql.NullString
+		outcome, gitHead, next          sql.NullString
 		expiresAt, tombstonedAt         sql.NullInt64
 	)
 	err := s.db.QueryRow(`SELECT id, ts, kind, tier, text, about, session_id, project_key,
-		evidence, outcome, promoter, expires_at, tombstoned_at, event_cursor, git_head FROM records WHERE id = ?`, id).
+		evidence, outcome, promoter, expires_at, tombstoned_at, event_cursor, git_head, next FROM records WHERE id = ?`, id).
 		Scan(&r.ID, &ts, &kind, &tier, &text, &about, &sessionID, &projectKey,
-			&evid, &outcome, &promoter, &expiresAt, &tombstonedAt, &r.EventCursor, &gitHead)
+			&evid, &outcome, &promoter, &expiresAt, &tombstonedAt, &r.EventCursor, &gitHead, &next)
 	if err != nil {
 		return Record{}, fmt.Errorf("store: get record %s: %w", id, err)
 	}
@@ -237,6 +242,7 @@ func (s *Store) GetRecord(id string) (Record, error) {
 	}
 	r.Promoter = promoter.String
 	r.GitHead = gitHead.String
+	r.Next = next.String
 	if expiresAt.Valid {
 		t := tsFromNanos(expiresAt.Int64)
 		r.ExpiresAt = &t
@@ -390,7 +396,7 @@ func tombstoneRecordTx(tx *sql.Tx, id string) error {
 		rowid, text); err != nil {
 		return fmt.Errorf("store: tombstone record %s: scrub fts: %w", id, err)
 	}
-	if _, err := tx.Exec(`UPDATE records SET tombstoned_at = ?, text = '' WHERE id = ?`,
+	if _, err := tx.Exec(`UPDATE records SET tombstoned_at = ?, text = '', next = NULL WHERE id = ?`,
 		tsToNanos(time.Now()), id); err != nil {
 		return fmt.Errorf("store: tombstone record %s: %w", id, err)
 	}

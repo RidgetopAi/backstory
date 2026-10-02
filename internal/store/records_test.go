@@ -464,3 +464,25 @@ func mustInsertDraft(t *testing.T, s *Store, projectKey string, tier Tier, promo
 		t.Fatalf("insert draft fixture: %v", err)
 	}
 }
+
+func TestRecordNextPersistsAndTombstoneClearsIt(t *testing.T) {
+	st := mustOpen(t, filepath.Join(t.TempDir(), "backstory.db"))
+	id, err := st.InsertRecord(InsertRecordParams{Identity: Identity{Kind: IdentityAgent, Actor: "a"}, Kind: KindHandoff, Text: "h", Next: "Wire the bar widget"})
+	if err != nil {
+		t.Fatalf("InsertRecord: %v", err)
+	}
+	rec, err := st.GetRecord(id)
+	if err != nil || rec.Next != "Wire the bar widget" {
+		t.Fatalf("GetRecord next = %q, %v", rec.Next, err)
+	}
+	if _, err := st.DB().Exec(`UPDATE records SET next = 'x' WHERE id = ?`, id); err == nil {
+		t.Error("UPDATE of next succeeded, want the append-only trigger to refuse it")
+	}
+	if err := st.TombstoneRecord(id, Identity{Kind: IdentityHuman, Actor: "human"}); err != nil {
+		t.Fatalf("TombstoneRecord: %v", err)
+	}
+	rec, _ = st.GetRecord(id)
+	if rec.Next != "" || rec.Text != "" {
+		t.Errorf("after tombstone text=%q next=%q, want both scrubbed", rec.Text, rec.Next)
+	}
+}
