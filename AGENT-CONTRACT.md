@@ -48,6 +48,18 @@ harness ── spawns ──▶ `backstory mcp` (stdio shim)
   declared `actor` label.
 - "User" is the uid: the daemon is `systemd --user` and the store is under that user's
   data dir. Multi-user is not designed into v1.
+- **Harness-reported location (installed in-process plugin only).** One harness process can
+  serve many chats (Hermes Desktop runs a single `hermes serve` for all of them), so its
+  /proc cwd cannot name a chat's project. The Hermes plugin therefore sends a `location` —
+  the chat's working folder — on its own `block` and `post_tool_use` requests. The daemon
+  uses it to select the session's project (same project-key function as /proc cwd) only when
+  the peer passes the harness ancestry check, the folder exists and is owned by the peer's
+  uid; otherwise it is ignored and the /proc cwd stands. The session row's cwd records the
+  folder used; tier still comes from identity. A `location`, `cwd` or `project` argument on
+  a model tool call (note, recall, ...) is never read: location comes from the harness, never
+  from the model. A chat's later location-less calls follow the folder its plugin last
+  reported for that harness session id. `backstory install hermes` rewrites the plugin, so
+  reinstalling picks this up.
 - Identity is an observation in the timeline tier — the same epistemics Q1/Q2 chose. The
   provenance tiers are only as trustworthy as the attribution under them.
 

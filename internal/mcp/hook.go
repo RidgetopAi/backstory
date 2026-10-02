@@ -30,7 +30,8 @@ const bashToolName = "Bash"
 
 // PostToolUseParams is post_tool_use's argument shape. It carries only what
 // cmd/backstory/hook.go already extracted from the tool's own tool_input and
-// tool_response — never a cwd, project, or session field: this connection's
+// tool_response — never a cwd, project, or session field (a plugin's own "location" is read
+// from the request's first line by applyLocation, not here): this connection's
 // sessionID (bound at connect time to the caller's SO_PEERCRED + /proc
 // identity, AGENT-CONTRACT.md §Observed identity) is the only thing that
 // ever decides which project an event lands in, exactly like note and block.

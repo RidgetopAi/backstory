@@ -77,6 +77,19 @@ var errCaptureOff = errors.New("mcp: capture is off, no session started")
 // rather than resolved here so this package never has to know how the flag
 // file's path is derived.
 func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs ident.ProcFS, git project.Git, logger *log.Logger, sessions *SessionRegistry, captureOff func() (bool, error), workspaces []string) {
+	// The first request line decides the connection's identity: a plugin's
+	// harness-reported location (location.go) selects the project; every
+	// other case is the observed /proc identity, exactly as before. The
+	// scanner is created here so that line is consumed by the same loop.
+	sc := bufio.NewScanner(conn)
+	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
+	var first []byte
+	hasFirst := sc.Scan()
+	if hasFirst {
+		first = append([]byte(nil), sc.Bytes()...)
+		id = applyLocation(id, first, sessions, git, workspaces)
+	}
+
 	end := liveSessionEnder(st, git, logger, captureOff)
 	start := func() (string, error) {
 		if off, err := captureOff(); err != nil {
@@ -97,10 +110,8 @@ func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs i
 
 	identity := storeIdentity(id, sessionID)
 
-	sc := bufio.NewScanner(conn)
-	sc.Buffer(make([]byte, 0, 64*1024), 1<<20)
-	for sc.Scan() {
-		resp := dispatchDaemonRequest(sc.Bytes(), st, procfs, identity, sessionID, id, git, captureOff, workspaces)
+	for line, more := first, hasFirst; more; {
+		resp := dispatchDaemonRequest(line, st, procfs, identity, sessionID, id, git, captureOff, workspaces)
 		b, err := json.Marshal(resp)
 		if err != nil {
 			logf(logger, "mcp: marshal daemon response: %v", err)
@@ -108,6 +119,9 @@ func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs i
 		}
 		if _, err := conn.Write(append(b, '\n')); err != nil {
 			return
+		}
+		if more = sc.Scan(); more {
+			line = sc.Bytes()
 		}
 	}
 }

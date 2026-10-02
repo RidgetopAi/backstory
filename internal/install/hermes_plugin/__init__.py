@@ -4,8 +4,12 @@
 Talks to the Backstory daemon over its unix socket with the same line-JSON
 protocol `backstory mcp` and `backstory hook` use: one request line
 ({"session","method","params"}), one response line ({"result"} or {"error"}).
-Identity is never sent — the daemon derives project and tier from the
-connection itself.
+Identity is never sent — the daemon derives tier from the connection
+itself. The one thing the plugin does report is its chat's working folder
+(`location`, on its own block and post_tool_use calls only): Hermes Desktop
+runs one process for every chat, so the daemon's /proc cwd alone cannot say
+which project a chat belongs to. The daemon validates it; a model's tool
+arguments are never forwarded as one.
 """
 import json
 import os
@@ -29,6 +33,7 @@ OUTPUT_CAP_CHARS = 65536
 
 METHOD_BLOCK = "block"
 METHOD_POST_TOOL_USE = "post_tool_use"
+LOCATION_PARAM = "location"
 
 # Hermes tool name -> the tool name Backstory's capture knows (Bash gets a
 # tool.result outcome event; file tools get a path).
@@ -38,6 +43,25 @@ PATH_ARG_KEYS = ("path", "file_path")
 # The five frozen v0 tools, generated from the daemon's own definitions at
 # install time. Hermes tool schemas are {name, description, parameters}.
 TOOL_SCHEMAS = json.loads(r'''__BACKSTORY_TOOLS_JSON__''')
+
+
+def chat_location():
+    """The chat's logical working folder, computed per call so a chat whose
+    folder changes mid-chat moves with it. Hermes resolves it in
+    agent.runtime_cwd.resolve_agent_cwd(); an older Hermes without that
+    module (or a resolver that fails) falls back to the process cwd."""
+    try:
+        from agent.runtime_cwd import resolve_agent_cwd
+
+        folder = resolve_agent_cwd()
+        if folder:
+            return str(folder)
+    except Exception:  # ImportError on older Hermes; never break the agent
+        pass
+    try:
+        return os.getcwd()
+    except OSError:
+        return ""
 
 
 class BackstoryError(Exception):
@@ -158,7 +182,7 @@ class BackstoryProvider(MemoryProvider):
     def _warm_block(self):
         if self._block is None:
             try:
-                result = call_daemon(METHOD_BLOCK, None, self._session_id)
+                result = call_daemon(METHOD_BLOCK, {LOCATION_PARAM: chat_location()}, self._session_id)
             except BackstoryError:
                 return ""
             self._block = (result or {}).get("block", "")
@@ -175,7 +199,7 @@ class BackstoryProvider(MemoryProvider):
         if keys is None:
             return json.dumps({"error": "unknown tool " + str(tool_name)})
         # Forward only the schema's own fields: never a caller-declared
-        # tier, session or project (AGENT-CONTRACT.md never-list).
+        # tier, session, project or location (AGENT-CONTRACT.md never-list).
         params = {k: v for k, v in (args or {}).items() if k in keys}
         try:
             result = call_daemon(tool_name, params, self._session_id)
@@ -234,6 +258,9 @@ class BackstoryProvider(MemoryProvider):
             if self._worker is None or not self._worker.is_alive():
                 self._worker = threading.Thread(target=self._drain, name="backstory-sync", daemon=True)
                 self._worker.start()
+        location = chat_location()
+        if location:
+            params = dict(params, **{LOCATION_PARAM: location})
         self._queue.put((params, session))
 
     def _drain(self):

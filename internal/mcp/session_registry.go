@@ -15,6 +15,17 @@ type harnessKey struct {
 	Harness    string
 	HarnessPID int
 	StartTicks uint64
+	// Project is empty for the harness's /proc-cwd session, and the located
+	// project key for a session selected by a harness-reported folder: one
+	// harness process serving many chats holds one session per project.
+	Project string
+}
+
+// locationKey identifies one chat of one harness process: the harness
+// process plus the session id its plugin declares.
+type locationKey struct {
+	Harness    harnessKey
+	HarnessSID string
 }
 
 // ReasonHarnessExited is the store.EndSession exit_kind SessionRegistry's
@@ -35,11 +46,15 @@ const ReasonHarnessExited = "harness-exited"
 type SessionRegistry struct {
 	mu       sync.Mutex
 	sessions map[harnessKey]string
+	// locations remembers the folder a plugin last reported per chat, so
+	// that chat's later location-less calls (model tool calls) file under
+	// the same project.
+	locations map[locationKey]string
 }
 
 // NewSessionRegistry returns an empty registry.
 func NewSessionRegistry() *SessionRegistry {
-	return &SessionRegistry{sessions: map[harnessKey]string{}}
+	return &SessionRegistry{sessions: map[harnessKey]string{}, locations: map[locationKey]string{}}
 }
 
 // SessionFor returns the live store session id for id's harness process,
@@ -76,7 +91,10 @@ func (r *SessionRegistry) SessionFor(id ident.Identity, procfs ident.ProcFS, end
 		return start()
 	}
 
-	key := harnessKey{Harness: id.Harness, HarnessPID: id.HarnessPID, StartTicks: id.HarnessStartTicks}
+	key := baseKey(id)
+	if id.Located {
+		key.Project = id.ProjectKey
+	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -109,6 +127,12 @@ func (r *SessionRegistry) sweep(procfs ident.ProcFS, end func(sessionID, reason 
 			delete(r.sessions, key)
 		}
 	}
+	for key := range r.locations {
+		st, err := procfs.Status(key.Harness.HarnessPID)
+		if err != nil || st.StartTicks != key.Harness.StartTicks {
+			delete(r.locations, key)
+		}
+	}
 	r.mu.Unlock()
 
 	if end == nil {
@@ -117,4 +141,29 @@ func (r *SessionRegistry) sweep(procfs ident.ProcFS, end func(sessionID, reason 
 	for _, sid := range stale {
 		end(sid, ReasonHarnessExited)
 	}
+}
+
+func baseKey(id ident.Identity) harnessKey {
+	return harnessKey{Harness: id.Harness, HarnessPID: id.HarnessPID, StartTicks: id.HarnessStartTicks}
+}
+
+// rememberLocation records folder as the chat's current working folder. A
+// request with no declared session id has no chat to remember it for.
+func (r *SessionRegistry) rememberLocation(id ident.Identity, declaredSession, folder string) {
+	if declaredSession == "" {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.locations[locationKey{Harness: baseKey(id), HarnessSID: declaredSession}] = folder
+}
+
+func (r *SessionRegistry) recallLocation(id ident.Identity, declaredSession string) (string, bool) {
+	if declaredSession == "" {
+		return "", false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	folder, ok := r.locations[locationKey{Harness: baseKey(id), HarnessSID: declaredSession}]
+	return folder, ok
 }

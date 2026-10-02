@@ -55,6 +55,10 @@ type Identity struct {
 	CWD               string
 	ProjectKey        string
 	Declared          map[string]string
+	// Located is true when CWD/ProjectKey came from a folder the harness's
+	// own installed plugin reported (and the daemon validated), not from the
+	// harness's /proc cwd. The daemon sets it; the Resolver never does.
+	Located bool
 	// Reason names why CWD/ProjectKey are empty despite a harness being
 	// found, e.g. "cwd unreadable: permission denied" — the case a
 	// mount-sandboxed systemd --user unit's implicit user namespace
