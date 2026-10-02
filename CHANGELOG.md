@@ -10,6 +10,15 @@ done-when holds on a box we do not own: a machine that is not Brian's. See
 
 ## [Unreleased]
 
+### Changed
+
+- Panel redesign (task fc1f340d, decision 63ce9687): the panel is now "Backstory" with a HERE
+  card for the project you are in, a Continue that focuses the project's open window or launches
+  Omarchy's default agent (and says when that differs from the agent last used), 7-day session
+  strips on Recent rows, a one-line week summary in place of The Week, keyboard navigation
+  (j/k, Enter, t, m, r, Esc), and a bar widget showing the project name with an attention dot
+  (left toggle, right Continue, middle refresh).
+
 Phases 0–4 of `PLAN.md`, shipped to `main` (run `backstory --help` for the
 full command list):
 

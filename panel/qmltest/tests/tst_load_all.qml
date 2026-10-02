@@ -20,14 +20,16 @@ TestCase {
 
   readonly property var panelFiles: [
     "AttentionSection.qml",
+    "ContinueAction.qml",
     "BarWidget.qml",
     "GroupEditor.qml",
     "GroupProjectRow.qml",
+    "HereCard.qml",
+    "LabelButton.qml",
     "MemoryButton.qml",
     "MemoryView.qml",
     "Panel.qml",
     "ProjectRow.qml",
-    "WeekSection.qml",
     "WhereLeftOffSection.qml"
   ]
 

@@ -16,6 +16,10 @@
 //     focus".
 //   - `omarchy agent prompt <text>`: the documented cross-agent handoff
 //     launcher (AGENT-CONTRACT.md "Resume in <agent>").
+//   - `omarchy-default-agent` / `omarchy agent --pick`: read the user's
+//     Omarchy default agent, and let them choose one when it is unset.
+//   - `hyprctl dispatch ...`: focus an already-open window the way
+//     omarchy-launch-or-focus does (Continue when `window` is set).
 //   - `omarchy-shell shell toggle backstory.this-week {}`: the bar widget's
 //     click (round 4 desk defect A). MEASURED ON BRIAN'S DESK: BarWidget
 //     used to flip a shared PanelState singleton directly, but the host
@@ -27,7 +31,7 @@
 //     toggle() the host may also call directly.
 
 function thisWeekCommand() {
-  return ["backstory", "this-week", "--json"]
+  return ["backstory", "this-week", "--json", "--here", "auto"]
 }
 
 function barToggleCommand() {
@@ -108,4 +112,32 @@ function terminalLaunchCommand(cwd) {
 // running.
 function agentPromptCommand(handoffText) {
   return ["omarchy", "agent", "prompt", handoffText]
+}
+
+// defaultAgentCommand prints the user's Omarchy default agent id
+// (claude/codex/pi/...), or nothing when none is set.
+function defaultAgentCommand() {
+  return ["omarchy-default-agent"]
+}
+
+// agentPickCommand lets the user choose their default agent.
+function agentPickCommand() {
+  return ["omarchy", "agent", "--pick"]
+}
+
+// isWindowAddress: a Hyprland window address, and nothing else — the value
+// reaches a hyprctl dispatch string, so anything but 0x<hex> is refused.
+function isWindowAddress(addr) {
+  return typeof addr === "string" && /^0x[0-9a-fA-F]+$/.test(addr)
+}
+
+// focusWindowCommand is what omarchy-launch-or-focus runs; the fallback is
+// for a Hyprland without the hl.dsp Lua dispatcher. The address is checked
+// by isWindowAddress before either is built.
+function focusWindowCommand(addr) {
+  return ["hyprctl", "dispatch", 'hl.dsp.focus({ window = "address:' + addr + '" })']
+}
+
+function focusWindowFallbackCommand(addr) {
+  return ["hyprctl", "dispatch", "focuswindow", "address:" + addr]
 }

@@ -1,0 +1,18 @@
+{
+  "here": {"project_key": "foo-key", "display_name": "projects/foo", "cwd": "/home/brian/projects/foo", "source": "focused"},
+  "attention": [
+    {"kind": "uncommitted-at-session-end", "project_key": "bar-key", "reason": "session ended with 2 uncommitted change(s) on branch main", "evidence_ids": ["4"]}
+  ],
+  "where_left_off": [
+    {"project": {"project_key": "foo-key", "display_name": "projects/foo", "cwd": "/home/brian/projects/foo", "last_activity": "@NOW", "handoff_id": "handoff-0042", "handoff_first_line": "Wire the bar", "handoff_next": "Wire the bar", "last_agent": "claude", "window": ""}},
+    {"project": {"project_key": "bar-key", "display_name": "bar", "cwd": "/home/brian/bar", "last_activity": "@NOW", "handoff_next": "", "last_agent": "codex", "window": ""}},
+    {"project": {"project_key": "workspace:/home/brian/projects", "display_name": "projects/notes", "cwd": "/home/brian/projects/notes", "last_activity": "@NOW", "handoff_next": "", "last_agent": "claude", "window": ""}}
+  ],
+  "week": [
+    {"day": "@D6", "project_key": "foo-key", "display_name": "projects/foo", "sessions": 13, "files_touched": 5, "records_written": 2},
+    {"day": "@D4", "project_key": "foo-key", "display_name": "projects/foo", "sessions": 3, "files_touched": 1, "records_written": 0},
+    {"day": "@D2", "project_key": "foo-key", "display_name": "projects/foo", "sessions": 2, "files_touched": 0, "records_written": 1},
+    {"day": "@D0", "project_key": "foo-key", "display_name": "projects/foo", "sessions": 1, "files_touched": 2, "records_written": 0},
+    {"day": "@D1", "project_key": "bar-key", "display_name": "bar", "sessions": 4, "files_touched": 3, "records_written": 1}
+  ]
+}

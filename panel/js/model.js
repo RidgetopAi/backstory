@@ -22,6 +22,20 @@ function topAttention(data) { return data.attention || [] }
 function topWhereLeftOff(data) { return data.where_left_off || [] }
 function topWeek(data) { return data.week || [] }
 
+// here (PANEL-CONTRACT.md "`here` and `window`"): only present with
+// `--here`; null when absent so callers branch on one value.
+function topHere(data) { return data.here || null }
+function hereProjectKey(h) { return h.project_key }
+function hereDisplayName(h) { return h.display_name }
+function hereCwd(h) { return h.cwd }
+function hereSource(h) { return h.source }
+
+// bareSummary: a summary for a project with no where-you-left-off row (the
+// `here` folder has no activity yet): no handoff, no window.
+function bareSummary(projectKey, displayName, cwd) {
+  return { project_key: projectKey, display_name: displayName, cwd: cwd }
+}
+
 // Attention — AttentionItem (PANEL-CONTRACT.md "Attention").
 function attentionKind(item) { return item.kind }
 function attentionProjectKey(item) { return item.project_key }
@@ -47,6 +61,11 @@ function summaryLastActivity(p) { return p.last_activity }
 function summaryHandoffId(p) { return p.handoff_id }
 function summaryHandoffFirstLine(p) { return p.handoff_first_line }
 function summaryHandoffStale(p) { return p.handoff_stale }
+function summaryHandoffNext(p) { return p.handoff_next }
+function summaryLastAgent(p) { return p.last_agent }
+// window: Hyprland address of an open window for the project; only with
+// `--here auto`, "" when none.
+function summaryWindow(p) { return p.window }
 
 // The week — DayProjectStats (PANEL-CONTRACT.md "The week").
 function dayDay(d) { return d.day }

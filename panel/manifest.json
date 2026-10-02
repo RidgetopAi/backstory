@@ -1,15 +1,15 @@
 {
   "schemaVersion": 1,
   "id": "backstory.this-week",
-  "name": "This Week",
+  "name": "Backstory",
   "version": "1.0.0",
   "author": "Backstory",
-  "description": "Attention, Where you left off, and The week, read from `backstory this-week --json`",
+  "description": "Where you are, what needs you, and recent projects, read from `backstory this-week --json --here auto`",
   "kinds": ["panel", "bar-widget"],
   "entryPoints": { "panel": "Panel.qml", "barWidget": "BarWidget.qml" },
   "barWidget": {
-    "displayName": "This Week",
-    "description": "Attention, Where you left off, and The week",
+    "displayName": "Backstory",
+    "description": "The project you are in, with Continue, and an attention dot",
     "category": "productivity",
     "allowMultiple": false,
     "defaultSection": "right"
