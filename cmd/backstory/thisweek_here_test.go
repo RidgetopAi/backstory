@@ -320,3 +320,50 @@ func TestHereAutoWindowAddresses(t *testing.T) {
 		t.Fatalf("third project window = %q (present %v), want \"\"", w, ok)
 	}
 }
+
+func TestHereAutoSkipsPseudoFoldersAndHome(t *testing.T) {
+	t.Run("browser with /proc descendant and HOME falls back to recent", func(t *testing.T) {
+		e := newHereEnv(t)
+		e.fakeHyprctl(t, `{"address":"0xc","class":"google-chrome","pid":500}`, `[]`)
+		e.addProc(t, 500, 1, "chrome", e.home, "")
+		e.addProc(t, 501, 500, "chrome", e.home, "")
+		e.addProc(t, 502, 501, "chrome", "/proc/25001/fdinfo", "")
+		m := mustRun(t, e, "--here", "auto")
+		h := hereOf(t, m)
+		if h["source"] != "recent" || h["project_key"] != recentKey(t, m) || strings.Contains(fmt.Sprint(h), "/proc") {
+			t.Fatalf("here = %v", h)
+		}
+	})
+	t.Run("only HOME descendant is recent", func(t *testing.T) {
+		e := newHereEnv(t)
+		e.fakeHyprctl(t, `{"address":"0xc","pid":500}`, `[]`)
+		e.addProc(t, 500, 1, "chrome", e.foo, "")
+		e.addProc(t, 501, 500, "chrome", e.home, "")
+		if h := hereOf(t, mustRun(t, e, "--here", "auto")); h["source"] != "recent" {
+			t.Fatalf("here = %v", h)
+		}
+	})
+	t.Run("terminal in project with deeper /proc child resolves to project", func(t *testing.T) {
+		e := newHereEnv(t)
+		e.fakeHyprctl(t, `{"address":"0xc","pid":500}`, `[]`)
+		e.addProc(t, 500, 1, "ghostty", e.home, "")
+		e.addProc(t, 501, 500, "bash", e.foo, "")
+		e.addProc(t, 502, 501, "child", "/proc/9/fdinfo", "")
+		h := hereOf(t, mustRun(t, e, "--here", "auto"))
+		if h["project_key"] != e.fooKey || h["source"] != "focused" {
+			t.Fatalf("here = %v", h)
+		}
+	})
+	t.Run("browser window gets no project window address", func(t *testing.T) {
+		e := newHereEnv(t)
+		e.fakeHyprctl(t, `{"address":"0xc","pid":500}`,
+			`[{"address":"0xbrowser","class":"google-chrome","pid":500,"focusHistoryID":0}]`)
+		e.addProc(t, 500, 1, "chrome", e.home, "")
+		e.addProc(t, 501, 500, "chrome", e.home, "")
+		e.addProc(t, 502, 501, "chrome", "/proc/25001/fdinfo", "")
+		_, raw := e.run(t, "--here", "auto")
+		if strings.Contains(raw, "0xbrowser") {
+			t.Fatalf("browser address leaked into output: %s", raw)
+		}
+	})
+}
