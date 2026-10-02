@@ -69,3 +69,32 @@ func TestHermesPytestCatchesAlwaysAvailable(t *testing.T) {
 		t.Fatalf("mutated is_available()==True passed pytest:\n%s", out)
 	}
 }
+
+// The suite must catch a plugin that forwards a model-supplied location
+// argument on a tool call.
+func TestHermesPytestCatchesForwardedModelLocation(t *testing.T) {
+	out, err := runHermesPytest(t, func(src string) string {
+		const line = "params = {k: v for k, v in (args or {}).items() if k in keys}"
+		if !containsStr(src, line) {
+			t.Fatal("params filter not found to mutate")
+		}
+		return replaceOnce(src, line, "params = {k: v for k, v in (args or {}).items() if k in keys or k == \"location\"}")
+	})
+	if err == nil {
+		t.Fatalf("mutated plugin forwarding a model location passed pytest:\n%s", out)
+	}
+}
+
+// The suite must catch a plugin that stops reporting its chat folder.
+func TestHermesPytestCatchesMissingLocation(t *testing.T) {
+	out, err := runHermesPytest(t, func(src string) string {
+		const line = "{LOCATION_PARAM: chat_location()}"
+		if !containsStr(src, line) {
+			t.Fatal("block location param not found to mutate")
+		}
+		return replaceOnce(src, line, "None")
+	})
+	if err == nil {
+		t.Fatalf("mutated plugin without a block location passed pytest:\n%s", out)
+	}
+}

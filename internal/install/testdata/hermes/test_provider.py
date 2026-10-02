@@ -222,3 +222,64 @@ def test_sync_turn_never_raises_without_daemon(plugin, sock_path):
     assert p.flush()
     p.on_session_end([])
     p.shutdown()
+
+
+def _stub_runtime_cwd(monkeypatch, fn):
+    pkg = sys.modules.get("agent") or types.ModuleType("agent")
+    mod = types.ModuleType("agent.runtime_cwd")
+    mod.resolve_agent_cwd = fn
+    monkeypatch.setitem(sys.modules, "agent", pkg)
+    monkeypatch.setitem(sys.modules, "agent.runtime_cwd", mod)
+
+
+def _sync_one_tool_event(p):
+    msgs = [
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "c1", "function": {"name": "write_file", "arguments": json.dumps({"path": "/x/y.go"})}},
+        ]},
+        {"role": "tool", "tool_call_id": "c1", "content": "wrote"},
+    ]
+    p.sync_turn("u", "a", messages=msgs)
+    assert p.flush()
+
+
+def test_block_and_post_tool_use_carry_resolved_chat_location(plugin, daemon, monkeypatch):
+    folder = ["/work/wobble-party"]
+    _stub_runtime_cwd(monkeypatch, lambda: folder[0])
+    p = make_provider(plugin, "sess-loc")
+    p.system_prompt_block()
+    _sync_one_tool_event(p)
+    folder[0] = "/work/other"  # the chat moves mid-chat: computed per call
+    msgs = [
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "c2", "function": {"name": "write_file", "arguments": json.dumps({"path": "/x/z.go"})}},
+        ]},
+        {"role": "tool", "tool_call_id": "c2", "content": "wrote"},
+    ]
+    p.sync_turn("u", "a", messages=msgs)
+    assert p.flush()
+    block = [r for r in daemon.requests if r["method"] == "block"][0]
+    assert block["params"] == {"location": "/work/wobble-party"}
+    events = [r for r in daemon.requests if r["method"] == "post_tool_use"]
+    assert [e["params"]["location"] for e in events] == ["/work/wobble-party", "/work/other"]
+
+
+def test_location_falls_back_to_getcwd_without_runtime_cwd_module(plugin, daemon, monkeypatch):
+    monkeypatch.setitem(sys.modules, "agent.runtime_cwd", None)  # import raises ImportError
+    p = make_provider(plugin)
+    p.system_prompt_block()
+    _sync_one_tool_event(p)
+    for r in daemon.requests:
+        assert r["params"]["location"] == os.getcwd()
+
+
+def test_handle_tool_call_never_carries_or_forwards_location(plugin, daemon, monkeypatch):
+    _stub_runtime_cwd(monkeypatch, lambda: "/work/wobble-party")
+    daemon.replies["note"] = {"result": {"id": "rec-1"}}
+    p = make_provider(plugin)
+    p.handle_tool_call("note", {"kind": "note", "text": "hi", "location": "/etc", "cwd": "/etc", "project": "/etc"})
+    p.handle_tool_call("recall", {"query": "q", "location": "/etc", "cwd": "/etc"})
+    calls = [r for r in daemon.requests if r["method"] in ("note", "recall")]
+    assert len(calls) == 2
+    for r in calls:
+        assert not ({"location", "cwd", "project"} & set(r["params"]))
