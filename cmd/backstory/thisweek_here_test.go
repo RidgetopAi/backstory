@@ -22,7 +22,8 @@ type hereEnv struct {
 
 func gitIn(t *testing.T, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", append([]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...)
+	cmd := exec.Command("git", append( //nolint:gosec // fixed binary, test-controlled args
+		[]string{"-C", dir, "-c", "user.name=t", "-c", "user.email=t@t"}, args...)...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		t.Fatalf("git %v: %v\n%s", args, err, out)
@@ -234,12 +235,18 @@ func TestHereAutoTmuxClientUsesPanePath(t *testing.T) {
 
 func recentKey(t *testing.T, m map[string]any) string {
 	t.Helper()
-	rows := m["where_left_off"].([]any)
-	r := rows[0].(map[string]any)
-	if p, ok := r["project"].(map[string]any); ok {
-		return p["project_key"].(string)
+	rows, _ := m["where_left_off"].([]any)
+	if len(rows) == 0 {
+		t.Fatal("no where_left_off rows")
 	}
-	return r["children"].([]any)[0].(map[string]any)["project_key"].(string)
+	r, _ := rows[0].(map[string]any)
+	p, ok := r["project"].(map[string]any)
+	if !ok {
+		kids, _ := r["children"].([]any)
+		p, _ = kids[0].(map[string]any)
+	}
+	key, _ := p["project_key"].(string)
+	return key
 }
 
 func TestHereAutoFallsBackToRecent(t *testing.T) {
@@ -287,21 +294,23 @@ func TestHereAutoWindowAddresses(t *testing.T) {
 	e.addProc(t, 404, 1, "firefox", e.foo, "")
 	m := mustRun(t, e, "--here", "auto")
 	got := map[string]string{}
-	for _, r := range m["where_left_off"].([]any) {
-		row := r.(map[string]any)
+	rows, _ := m["where_left_off"].([]any)
+	for _, r := range rows {
+		row, _ := r.(map[string]any)
 		var ps []any
 		if p, ok := row["project"]; ok {
 			ps = []any{p}
 		} else {
-			ps = row["children"].([]any)
+			ps, _ = row["children"].([]any)
 		}
 		for _, p := range ps {
-			pm := p.(map[string]any)
+			pm, _ := p.(map[string]any)
 			w, ok := pm["window"].(string)
 			if !ok {
 				t.Fatalf("project %v has no window string", pm["project_key"])
 			}
-			got[pm["project_key"].(string)] = w
+			pk, _ := pm["project_key"].(string)
+			got[pk] = w
 		}
 	}
 	if got[e.fooKey] != "0xf2" || got[e.barKey] != "0xba" {
