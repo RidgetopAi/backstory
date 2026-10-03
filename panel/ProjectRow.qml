@@ -29,6 +29,8 @@ Item {
     return root.workspaceRow ? n + " \u00b7 workspace notes" : n
   }
   readonly property color nameColor: root.workspaceRow ? Qt.darker(Color.foreground, 1.3) : Color.foreground
+  readonly property string recentLabel: summary
+    ? Format.recentActionLabel(Model.summaryLastActivity(summary), root.nowMs, !!Model.summaryWindow(summary)) : ""
   readonly property var stripDays: Format.stripDays(root.nowMs)
   readonly property var stripCounts: {
     var out = []
@@ -67,7 +69,7 @@ Item {
   Column {
     id: column
     anchors.left: parent.left
-    anchors.right: continueButton.left
+    anchors.right: root.recentLabel !== "" ? labelContinue.left : continueButton.left
     anchors.leftMargin: root.indented ? Style.space(20) : Style.spacing.rowPaddingX
     anchors.rightMargin: Style.spacing.rowPaddingX
     anchors.verticalCenter: parent.verticalCenter
@@ -149,8 +151,19 @@ Item {
     onClicked: root.openMemory(Model.summaryProjectKey(root.summary), Model.summaryDisplayName(root.summary), Model.summaryCwd(root.summary) || "")
   }
 
+  LabelButton {
+    id: labelContinue
+    objectName: "recentActionButton"
+    visible: root.recentLabel !== ""
+    anchors.right: memoryButton.left
+    anchors.verticalCenter: parent.verticalCenter
+    label: root.recentLabel
+    onClicked: root.continueRequested()
+  }
+
   PanelActionButton {
     id: continueButton
+    visible: root.recentLabel === ""
     anchors.right: memoryButton.left
     anchors.verticalCenter: parent.verticalCenter
     iconText: Glyphs.resume()

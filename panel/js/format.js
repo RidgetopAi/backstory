@@ -17,6 +17,10 @@ var AGENT_NAMES = {
 
 var WORKSPACE_KEY_PREFIX = "workspace:"
 var STRIP_DAYS = 7
+
+// RECENT_ACTIVE_MINUTES: a Recent row whose last activity is at most this
+// old shows a labelled Continue/Switch button instead of the bare glyph.
+var RECENT_ACTIVE_MINUTES = 15
 var DAY_MS = 24 * 60 * 60 * 1000
 
 function isKnownAgent(id) {
@@ -58,6 +62,17 @@ function relativeTime(iso, nowMs) {
 
 // stripDays: the last STRIP_DAYS UTC calendar days, oldest first, ending
 // with the day of nowMs (the this-week window's own day rule).
+// recentActionLabel: the text of a Recent row's labelled action button —
+// "Switch" when the project has an open window, else "Continue" — or "" when
+// the row's last activity is older than RECENT_ACTIVE_MINUTES (or unparseable),
+// meaning the row keeps only the glyph button.
+function recentActionLabel(iso, nowMs, hasWindow) {
+  var t = Date.parse(iso)
+  if (isNaN(t)) return ""
+  if (nowMs - t > RECENT_ACTIVE_MINUTES * 60 * 1000) return ""
+  return hasWindow ? "Switch" : "Continue"
+}
+
 function stripDays(nowMs) {
   var out = []
   for (var i = STRIP_DAYS - 1; i >= 0; i--) {

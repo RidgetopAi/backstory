@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Io
 import "testutil.js" as TestUtil
 import "../../js/launchers.js" as Launchers
+import "../../js/format.js" as Format
 
 // The redesigned panel (task fc1f340d): HERE card, Continue
 // (focus-or-launch, naming the agent), 7-day strips, summary line,
@@ -236,6 +237,68 @@ TestCase {
     var title = TestUtil.findFirst(panel.testContentItem, function (n) { return n.objectName === "hereTitle" })
     verify(title !== null, "here card title missing")
     compare(title.text, "foo")
+  }
+
+  // Recent rows: a row active within RECENT_ACTIVE_MINUTES shows a labelled
+  // button ("Switch" with a window, else "Continue"); older rows only the glyph.
+  function minutesAgo(m) { return new Date(Date.now() - m * 60000).toISOString() }
+
+  function recentButtons() {
+    return TestUtil.findAll(panel.testContentItem, function (n) { return n.objectName === "recentActionButton" && n.visible })
+  }
+
+  function test_recent_row_with_window_shows_switch() {
+    open(payload(function (d) {
+      d.where_left_off[0].project.last_activity = minutesAgo(5)
+      d.where_left_off[0].project.window = "0x55aa"
+      d.where_left_off[1].project.last_activity = minutesAgo(300)
+      d.where_left_off[2].project.last_activity = minutesAgo(300)
+    }))
+    var b = recentButtons()
+    compare(b.length, 1)
+    compare(b[0].label, "Switch")
+    verify(hasText("Switch"))
+  }
+
+  function test_recent_row_without_window_shows_continue() {
+    open(payload(function (d) {
+      d.where_left_off[0].project.last_activity = minutesAgo(5)
+      d.where_left_off[1].project.last_activity = minutesAgo(300)
+      d.where_left_off[2].project.last_activity = minutesAgo(300)
+    }))
+    var b = recentButtons()
+    compare(b.length, 1)
+    compare(b[0].label, "Continue")
+  }
+
+  function test_old_row_shows_only_the_glyph_button() {
+    open(payload(function (d) {
+      d.where_left_off.forEach(function (r) { r.project.last_activity = minutesAgo(30) })
+      d.where_left_off[0].project.window = "0x55aa"
+    }))
+    compare(recentButtons().length, 0)
+    verify(!hasText("Switch"))
+    verify(!hasText("Continue"), "labelled Continue shown for a 30m-old row")
+  }
+
+  function test_threshold_is_a_named_constant() {
+    compare(Format.RECENT_ACTIVE_MINUTES, 15)
+    compare(Format.recentActionLabel(minutesAgo(14), Date.now(), false), "Continue")
+    compare(Format.recentActionLabel(minutesAgo(16), Date.now(), false), "")
+  }
+
+  function test_switch_button_continues_with_window_and_tmux_target() {
+    open(payload(function (d) {
+      d.where_left_off[0].project.last_activity = minutesAgo(5)
+      d.where_left_off[0].project.window = "0x55aa"
+      d.where_left_off[0].project.tmux = "Work:1.2"
+    }))
+    clickText("Switch")
+    compare(hyprRuns().length, 1)
+    compare(runs(["tmux", "select-window"]).length, 1)
+    compare(runs(["tmux", "select-pane"]).length, 1)
+    compare(agentRuns().length, 0)
+    compare(runs(["xdg-terminal-exec", "--"]).length, 0)
   }
 
   // ---- (5) keyboard ----
