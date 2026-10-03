@@ -31,6 +31,7 @@ commands:
   records    list what Backstory saved for a project, with status and tier, read-only
   group      set/clear/list project groups (human-only; "group set|clear|list")
   export     write a project's markdown mirror for another tool to read
+  tools      print the agent tools' names and descriptions ("tools --json")
   this-week  print Attention, Where you left off, and The week, read-only
 `
 
@@ -78,6 +79,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runGroup(args[1:], stdout, stderr)
 	case "export":
 		return runExport(args[1:], stdout, stderr)
+	case "tools":
+		return runTools(args[1:], stdout, stderr)
 	case "this-week":
 		return runThisWeek(args[1:], stdout, stderr)
 	default:
