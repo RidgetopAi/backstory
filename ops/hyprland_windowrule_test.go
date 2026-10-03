@@ -44,4 +44,11 @@ func TestHyprlandWindowruleMatchesPanelClass(t *testing.T) {
 	if !regexp.MustCompile(`o\.window\(|hl\.window_rule\(`).MatchString(lua) {
 		t.Error("lua must call o.window or hl.window_rule")
 	}
+	// Task ddbbe8b7: helpers is not a resolvable module on Omarchy (it defines
+	// the global `o`), so a require( call makes hyprland.lua error. Comments
+	// are stripped so the install note may mention require.
+	code := regexp.MustCompile(`(?m)--.*$`).ReplaceAllString(lua, "")
+	if regexp.MustCompile(`\brequire\s*[("']`).MatchString(code) {
+		t.Error("lua must not call require( — use the global o")
+	}
 }
