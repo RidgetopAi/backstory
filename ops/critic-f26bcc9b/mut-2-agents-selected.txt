@@ -1,0 +1,13 @@
+== mutation: detection also selects agents
+--- FAIL: TestBareInstallDetectsOnlyPresentHarnesses (0.00s)
+        install_detect_test.go:85: agents mentioned in bare output:
+        install_detect_test.go:85: agents mentioned in bare output:
+--- FAIL: TestBareInstallNothingDetectedWritesNothingAndFails (0.00s)
+    install_detect_test.go:114: exit 0, want non-zero (stdout "claude: skipped — /tmp/TestBareInstallNothingDetectedWritesNothingAndFails861199427/001/.claude or /tmp/TestBareInstallNothingDetectedWritesNothingAndFails861199427/001/.claude.json not found\ncodex: skipped — /tmp/TestBareInstallNothingDetectedWritesNothingAndFails861199427/001/.codex not found\nhermes: skipped — /tmp/TestBareInstallNothingDetectedWritesNothingAndFails861199427/001/.hermes not found\npi: skipped — /tmp/TestBareInstallNothingDetectedWritesNothingAndFails861199427/001/.pi/agent not found\nagents: installed\nshell command capture is separate: run `backstory install bash` to add it\n")
+--- FAIL: TestExplicitNamesBypassDetectionAndBareCheckRemoveUseDetectedSet (0.00s)
+    install_detect_test.go:139: bare --check exit 1:
+    install_detect_test.go:142: bare --check output unexpected:
+    install_detect_test.go:162: bare install selected agents
+FAIL
+FAIL	github.com/RidgetopAi/backstory/cmd/backstory	0.013s
+FAIL

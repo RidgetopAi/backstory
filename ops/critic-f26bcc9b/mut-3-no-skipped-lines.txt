@@ -1,0 +1,11 @@
+== mutation: skipped-harness lines deleted
+--- FAIL: TestBareInstallDetectsOnlyPresentHarnesses (0.00s)
+        install_detect_test.go:81: stdout missing "hermes: skipped — /tmp/TestBareInstallDetectsOnlyPresentHarnessesHERMES_HOME=3804783279/001/.hermes not found":
+        install_detect_test.go:81: stdout missing "pi: skipped — /tmp/TestBareInstallDetectsOnlyPresentHarnessesHERMES_HOME=3804783279/001/.pi/agent not found":
+        install_detect_test.go:81: stdout missing "pi: skipped — /tmp/TestBareInstallDetectsOnlyPresentHarnessesHERMES_HOME=set371494620/001/.pi/agent not found":
+        install_detect_test.go:81: stdout missing "hermes: skipped — /tmp/TestBareInstallDetectsOnlyPresentHarnessesHERMES_HOME=set371494620/002/nohermes not found":
+--- FAIL: TestExplicitNamesBypassDetectionAndBareCheckRemoveUseDetectedSet (0.00s)
+    install_detect_test.go:145: bare --check should report skipped codex:
+FAIL
+FAIL	github.com/RidgetopAi/backstory/cmd/backstory	0.010s
+FAIL
