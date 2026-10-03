@@ -13,11 +13,13 @@ import (
 const installUsage = `usage: backstory install [harness...] [--check] [--remove] [--no-verify]
 
 Registers (or, with --remove, unregisters) Backstory's integration for one
-or more harnesses under $HOME. With no harness named, installs Claude Code
-(the default adapter; decision 3e14db82's others — codex, hermes and pi —
-are available; agents is the generic fallback; pi installs an extension
-under ~/.pi/agent; hermes installs a memory-provider plugin under
-$HERMES_HOME).
+or more harnesses under $HOME. With no harness named, acts on every harness
+detected under $HOME (filesystem only): claude = ~/.claude or ~/.claude.json,
+codex = ~/.codex, hermes = $HERMES_HOME else ~/.hermes, pi = ~/.pi/agent.
+Each harness skipped is reported with the path not found. Naming harnesses
+explicitly skips detection; agents (the generic AGENTS.md fallback) is only
+ever installed by name. pi installs an extension under ~/.pi/agent; hermes
+installs a memory-provider plugin under $HERMES_HOME.
 
 Valid harness names: claude, codex, hermes, pi, agents
 
@@ -36,13 +38,6 @@ usage: backstory install bash [--check] [--remove]
   --remove     remove exactly the marked block, leaving the rest of
                ~/.bashrc untouched
 `
-
-// defaultHarnesses is what `backstory install` with no harness names
-// installs. It is today's pre-adapter-seam behaviour (Claude only),
-// preserved until the rest of decision 3e14db82's adapters land, at which
-// point the punch's CLI spec calls for this becoming "every harness
-// detected on the machine" instead.
-var defaultHarnesses = []string{install.HarnessClaude}
 
 // runInstall is the `backstory install` subcommand. Harness names are the
 // leading non-flag arguments (in any position relative to the flags, since
@@ -78,13 +73,14 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	harnesses := harnessArgs
-	if len(harnesses) == 0 {
-		harnesses = defaultHarnesses
+	home, err := os.UserHomeDir()
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "backstory install:", err)
+		return 1
 	}
 
-	adapters := make([]install.Adapter, 0, len(harnesses))
-	for _, h := range harnesses {
+	var adapters []install.Adapter
+	for _, h := range harnessArgs {
 		a, ok := install.AdapterByName(h)
 		if !ok {
 			_, _ = fmt.Fprintf(stderr, "backstory install: unknown harness %q; valid harnesses: %s\n", h, strings.Join(install.HarnessNames(), ", "))
@@ -92,22 +88,39 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 		}
 		adapters = append(adapters, a)
 	}
-
-	home, err := os.UserHomeDir()
-	if err != nil {
-		_, _ = fmt.Fprintln(stderr, "backstory install:", err)
-		return 1
+	detected := len(harnessArgs) == 0
+	if detected {
+		var skipped []install.Detection
+		for _, d := range install.DetectHarnesses(home) {
+			if d.Detected {
+				adapters = append(adapters, d.Adapter)
+			} else {
+				skipped = append(skipped, d)
+			}
+		}
+		for _, d := range skipped {
+			_, _ = fmt.Fprintf(stdout, "%s: skipped — %s not found\n", d.Adapter.Name(), d.NotFound())
+		}
+		if len(adapters) == 0 {
+			_, _ = fmt.Fprintf(stderr, "backstory install: no harness detected under %s; nothing written. Name one explicitly; valid harnesses: %s\n", home, strings.Join(install.HarnessNames(), ", "))
+			return 1
+		}
 	}
 	opts := install.Options{Verify: !*noVerify}
 
+	var rc int
 	switch {
 	case *check:
-		return runInstallCheck(adapters, home, opts, stdout, stderr)
+		rc = runInstallCheck(adapters, home, opts, stdout, stderr)
 	case *remove:
-		return runInstallRemove(adapters, home, opts, stderr)
+		rc = runInstallRemove(adapters, home, opts, stdout, stderr)
 	default:
-		return runInstallInstall(adapters, home, opts, stderr)
+		rc = runInstallInstall(adapters, home, opts, stdout, stderr)
 	}
+	if detected && rc == 0 && !*check && !*remove {
+		_, _ = fmt.Fprintln(stdout, "shell command capture is separate: run `backstory install bash` to add it")
+	}
+	return rc
 }
 
 func runInstallCheck(adapters []install.Adapter, home string, opts install.Options, stdout, stderr io.Writer) int {
@@ -131,22 +144,24 @@ func runInstallCheck(adapters []install.Adapter, home string, opts install.Optio
 	return 0
 }
 
-func runInstallRemove(adapters []install.Adapter, home string, opts install.Options, stderr io.Writer) int {
+func runInstallRemove(adapters []install.Adapter, home string, opts install.Options, stdout, stderr io.Writer) int {
 	for _, a := range adapters {
 		if err := a.Remove(home, opts); err != nil {
 			_, _ = fmt.Fprintln(stderr, "backstory install --remove:", err)
 			return 1
 		}
+		_, _ = fmt.Fprintf(stdout, "%s: removed\n", a.Name())
 	}
 	return 0
 }
 
-func runInstallInstall(adapters []install.Adapter, home string, opts install.Options, stderr io.Writer) int {
+func runInstallInstall(adapters []install.Adapter, home string, opts install.Options, stdout, stderr io.Writer) int {
 	for _, a := range adapters {
 		if err := a.Install(home, opts); err != nil {
 			_, _ = fmt.Fprintln(stderr, "backstory install:", err)
 			return 1
 		}
+		_, _ = fmt.Fprintf(stdout, "%s: installed\n", a.Name())
 	}
 	return 0
 }

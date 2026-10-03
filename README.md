@@ -18,19 +18,34 @@ install -Dm755 bin/backstory ~/.local/bin/backstory
 install -Dm644 ops/backstory.service ~/.config/systemd/user/backstory.service
 systemctl --user daemon-reload
 systemctl --user enable --now backstory
-backstory install claude
+backstory install
+backstory install bash
 ```
 
 `make build` writes `bin/backstory`; `make check` (fmt + vet + lint + race tests + the
-Quickshell panel's QML suite) is the gate CI runs on every push. `backstory install claude`
-wires the Claude Code integration (MCP config, SessionStart hook, skill file) under `$HOME`;
-run it with `--check` to see what's present, `--remove` to undo it.
+Quickshell panel's QML suite) is the gate CI runs on every push.
+
+Bare `backstory install` detects the agent harnesses on the machine (Claude Code: `~/.claude`
+or `~/.claude.json`; Codex: `~/.codex`; Hermes: `$HERMES_HOME`, else `~/.hermes`; Pi:
+`~/.pi/agent`) and sets up each one, reporting any it skipped and why. It exits non-zero and
+writes nothing if none is found. Name harnesses to skip detection:
+`backstory install claude codex hermes pi` (`agents` is the generic AGENTS.md fallback and is
+only installed by name). `--check` shows what's present and `--remove` undoes it, both on the
+detected set unless harnesses are named. `backstory install bash` adds shell command capture
+to `~/.bashrc`.
 
 ## What works today
 
 - **Claude Code**: `backstory install claude` gets a warm SessionStart block on every session
   start, and the `note`, `recall`, `timeline` (plus `confirm`, `status`) MCP tools with no
   header, id, or config line beyond the installer's.
+- **Codex**: `backstory install codex` registers the MCP server and SessionStart/PostToolUse
+  hooks under `~/.codex` and adds an `AGENTS.md` stub.
+- **Hermes**: `backstory install hermes` installs a memory-provider plugin under `$HERMES_HOME`
+  (default `~/.hermes`).
+- **Pi**: `backstory install pi` installs an extension under `~/.pi/agent`.
+- **Shell capture**: `backstory install bash` wires bash's preexec/precmd command capture into
+  `~/.bashrc`.
 - **Backfill**: `backstory backfill claude` imports existing Claude transcripts so the first
   recall isn't empty.
 - **This Week**: `backstory this-week` on the CLI, and the same view in the Omarchy Quickshell
@@ -58,9 +73,7 @@ run it with `--check` to see what's present, `--remove` to undo it.
 
 ## Coming for v1 (decision `3e14db82`)
 
-- Shell command capture (not yet wired).
-- Codex, Hermes, Pi and local-model harness support (Claude Code is the only harness on `main`
-  today).
+- Local-model harness support.
 
 ## Where the store lives
 
