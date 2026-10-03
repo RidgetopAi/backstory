@@ -8,18 +8,18 @@ import (
 )
 
 // TestHyprlandWindowruleMatchesPanelClass pins task 93f7c6fd's clause 2: the
-// shipped windowrule floats, sizes and places the window by the exact class
-// Panel.qml's windowClass sets.
+// shipped windowrule floats, sizes and places the window by the exact title
+// Panel.qml's windowTitle sets.
 func TestHyprlandWindowruleMatchesPanelClass(t *testing.T) {
 	qml, err := os.ReadFile("../panel/Panel.qml")
 	if err != nil {
 		t.Fatalf("read Panel.qml: %v", err)
 	}
-	m := regexp.MustCompile(`readonly property string windowClass: "([^"]+)"`).FindSubmatch(qml)
+	m := regexp.MustCompile(`readonly property string windowTitle: "([^"]+)"`).FindSubmatch(qml)
 	if m == nil {
-		t.Fatal("Panel.qml declares no windowClass")
+		t.Fatal("Panel.qml declares no windowTitle")
 	}
-	class := string(m[1])
+	title := string(m[1])
 
 	conf, err := os.ReadFile("hyprland/backstory.conf")
 	if err != nil {
@@ -31,8 +31,8 @@ func TestHyprlandWindowruleMatchesPanelClass(t *testing.T) {
 		if strings.HasPrefix(line, "#") || !strings.HasPrefix(line, "windowrule") {
 			continue
 		}
-		if !strings.Contains(line, "match:class ^("+regexp.QuoteMeta(class)+")$") {
-			t.Errorf("rule does not match class %q: %s", class, line)
+		if !strings.Contains(line, "match:title ^("+regexp.QuoteMeta(title)+")$") {
+			t.Errorf("rule does not match title %q: %s", title, line)
 		}
 		float = float || strings.Contains(line, "float on")
 		size = size || strings.Contains(line, "size ")

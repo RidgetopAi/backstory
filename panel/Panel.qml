@@ -128,10 +128,10 @@ Item {
   readonly property real testImplicitWidth: panel.implicitWidth
   readonly property real testImplicitHeight: panel.implicitHeight
 
-  // Stable window class/title the Hyprland windowrule in
-  // ops/hyprland/backstory.conf matches (panel_windowrule_test.go and
+  // Stable window title (Quickshell sets no per-window app_id; Hyprland matches the title) the Hyprland windowrule in
+  // ops/hyprland/backstory.conf matches (hyprland_windowrule_test.go and
   // tst_panel_window.qml pin the two together).
-  readonly property string windowClass: "backstory"
+  readonly property string windowTitle: "backstory"
 
   function refresh() {
     root.nowMs = Date.now()
@@ -224,10 +224,10 @@ Item {
   // A regular xdg toplevel (NOT a wlr-layer-shell PanelWindow): Hyprland
   // manages toplevels, so Omarchy's own move/resize binds (SUPER+drag,
   // resize keys) work on it. ops/hyprland/backstory.conf floats it by
-  // windowClass at a default size/position.
+  // windowTitle at a default size/position.
   FloatingWindow {
     id: panel
-    title: root.windowClass
+    title: root.windowTitle
     visible: root.opened
     color: "transparent"
     implicitWidth: card.width

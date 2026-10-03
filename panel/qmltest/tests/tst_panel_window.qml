@@ -20,7 +20,7 @@ TestCase {
     Loader { source: Qt.resolvedUrl("../../Panel.qml") }
   }
 
-  function test_top_level_is_floating_window_with_class() {
+  function test_top_level_is_floating_window_with_title() {
     ProcessController.reset()
     Quickshell.reset()
     var loader = panelComponent.createObject(testCase)
@@ -29,7 +29,7 @@ TestCase {
     var desc = String(w)
     verify(desc.indexOf("FloatingWindow") === 0, "top-level window is " + desc)
     verify(desc.indexOf("PanelWindow") < 0, "layer-shell PanelWindow used: " + desc)
-    compare(loader.item.windowClass, "backstory")
+    compare(loader.item.windowTitle, "backstory")
     compare(w.title, "backstory")
     loader.destroy()
   }
