@@ -41,6 +41,17 @@ Item {
   readonly property string summaryText: Format.summaryLine(Derive.weekTotals(root.weekDays))
   property real nowMs: Date.now()
 
+  // Zoom: the card fills the window and content renders at
+  // (window width / baseWidth) x userZoom. userZoom is the Ctrl+= / Ctrl+- /
+  // Ctrl+0 factor, clamped to [minUserZoom, maxUserZoom].
+  readonly property real baseWidth: Style.space(380)
+  readonly property real baseHeight: Style.space(640)
+  readonly property real minUserZoom: 0.75
+  readonly property real maxUserZoom: 2.5
+  readonly property real zoomStep: 0.1
+  property real userZoom: 1.0
+  readonly property real zoom: panel.width / root.baseWidth * root.userZoom
+
   // Which group rows are expanded, keyed by group name. Collapsed by
   // default — a group is a human-made summary already; a click reveals it.
   property var expandedGroups: ({})
@@ -98,8 +109,20 @@ Item {
   // The key handler behind Keys.onPressed on the card; returns whether it
   // consumed the key. Esc closes everywhere; the row keys act only on the
   // main body, never while the group editor or Memory view is showing.
-  function handleKey(key) {
+  function setUserZoom(value) {
+    var clamped = Math.max(root.minUserZoom, Math.min(root.maxUserZoom, value))
+    root.userZoom = Math.round(clamped * 100) / 100
+  }
+
+  function handleKey(key, modifiers) {
     if (key === Qt.Key_Escape) { root.close(); return true }
+    if (modifiers !== undefined && (modifiers & Qt.ControlModifier)) {
+      switch (key) {
+      case Qt.Key_Equal: case Qt.Key_Plus: root.setUserZoom(root.userZoom + root.zoomStep); return true
+      case Qt.Key_Minus: root.setUserZoom(root.userZoom - root.zoomStep); return true
+      case Qt.Key_0: root.setUserZoom(1.0); return true
+      }
+    }
     if (root.groupEditorOpen || root.memoryOpen) return false
     var s = root.selectedSummary
     switch (key) {
@@ -230,13 +253,13 @@ Item {
     title: root.windowTitle
     visible: root.opened
     color: "transparent"
-    implicitWidth: card.width
-    implicitHeight: card.height
+    implicitWidth: root.baseWidth
+    implicitHeight: Math.min(root.baseHeight, (contentColumn.implicitHeight + Style.spacing.panelPadding * 2) * root.zoom)
 
     BorderSurface {
       id: card
-      width: Style.space(380)
-      height: Math.min(Style.space(640), contentColumn.implicitHeight + Style.spacing.panelPadding * 2)
+      width: panel.width
+      height: panel.height
       color: Util.alpha(Color.popups.background, 0.98)
       borderSpec: Border.surfaceSpec("popups", "border", Color.popups.border, Math.max(1, Style.space(2)))
       radius: Style.cornerRadius
@@ -245,7 +268,17 @@ Item {
       // the panel's own subtree; a child that accepts a key (a text field)
       // keeps it.
       focus: root.opened
-      Keys.onPressed: (event) => { event.accepted = root.handleKey(event.key) }
+      Keys.onPressed: (event) => { event.accepted = root.handleKey(event.key, event.modifiers) }
+
+      // Everything scales as one: the host is laid out at card size / zoom
+      // and scaled up by zoom, so text, rows and spacing grow together and
+      // the extra height scrolls in the Flickable.
+      Item {
+        id: zoomHost
+        width: card.width / root.zoom
+        height: card.height / root.zoom
+        scale: root.zoom
+        transformOrigin: Item.TopLeft
 
       Flickable {
         id: scroller
@@ -386,6 +419,7 @@ Item {
             onChanged: root.refresh()
           }
         }
+      }
       }
     }
   }
