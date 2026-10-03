@@ -3,13 +3,12 @@ package ops
 import (
 	"os"
 	"regexp"
-	"strings"
 	"testing"
 )
 
-// TestHyprlandWindowruleMatchesPanelClass pins task 93f7c6fd's clause 2: the
-// shipped windowrule floats, sizes and places the window by the exact title
-// Panel.qml's windowTitle sets.
+// TestHyprlandWindowruleMatchesPanelClass pins tasks 93f7c6fd/2606210b: the
+// shipped Lua windowrule floats and sizes the window, matching class
+// org.quickshell AND the exact title Panel.qml's windowTitle sets.
 func TestHyprlandWindowruleMatchesPanelClass(t *testing.T) {
 	qml, err := os.ReadFile("../panel/Panel.qml")
 	if err != nil {
@@ -21,23 +20,28 @@ func TestHyprlandWindowruleMatchesPanelClass(t *testing.T) {
 	}
 	title := string(m[1])
 
-	conf, err := os.ReadFile("hyprland/backstory.conf")
+	if _, err := os.Stat("hyprland/backstory.conf"); err == nil {
+		t.Error("backstory.conf must not exist (Omarchy uses Lua config)")
+	}
+	raw, err := os.ReadFile("hyprland/backstory.lua")
 	if err != nil {
-		t.Fatalf("read backstory.conf: %v", err)
+		t.Fatalf("read backstory.lua: %v", err)
 	}
-	var float, size bool
-	for _, line := range strings.Split(string(conf), "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "#") || !strings.HasPrefix(line, "windowrule") {
-			continue
-		}
-		if !strings.Contains(line, "match:title ^("+regexp.QuoteMeta(title)+")$") {
-			t.Errorf("rule does not match title %q: %s", title, line)
-		}
-		float = float || strings.Contains(line, "float on")
-		size = size || strings.Contains(line, "size ")
+	lua := string(raw)
+
+	if !regexp.MustCompile(`title\s*=\s*"\^\(` + regexp.QuoteMeta(title) + `\)\$"`).MatchString(lua) {
+		t.Errorf("lua title pattern does not match Panel.qml windowTitle %q", title)
 	}
-	if !float || !size {
-		t.Errorf("rules must float and size the window (float=%v size=%v)", float, size)
+	if !regexp.MustCompile(`class\s*=\s*"\^\(org\\\\\.quickshell\)\$"`).MatchString(lua) {
+		t.Error("lua must match class ^(org\\\\.quickshell)$")
+	}
+	if !regexp.MustCompile(`float\s*=\s*true`).MatchString(lua) {
+		t.Error("lua must set float = true")
+	}
+	if !regexp.MustCompile(`size\s*=\s*\{\s*\d+\s*,\s*\d+\s*\}`).MatchString(lua) {
+		t.Error("lua must set a size")
+	}
+	if !regexp.MustCompile(`o\.window\(|hl\.window_rule\(`).MatchString(lua) {
+		t.Error("lua must call o.window or hl.window_rule")
 	}
 }

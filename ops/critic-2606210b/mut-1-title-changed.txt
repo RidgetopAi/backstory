@@ -1,0 +1,6 @@
+== mutation: title changed to other
+--- FAIL: TestHyprlandWindowruleMatchesPanelClass (0.00s)
+    hyprland_windowrule_test.go:33: lua title pattern does not match Panel.qml windowTitle "backstory"
+FAIL
+FAIL	github.com/RidgetopAi/backstory/ops	0.003s
+FAIL

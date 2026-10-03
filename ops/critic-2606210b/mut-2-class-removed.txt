@@ -1,0 +1,6 @@
+== mutation: class match removed
+--- FAIL: TestHyprlandWindowruleMatchesPanelClass (0.00s)
+    hyprland_windowrule_test.go:36: lua must match class ^(org\\.quickshell)$
+FAIL
+FAIL	github.com/RidgetopAi/backstory/ops	0.004s
+FAIL

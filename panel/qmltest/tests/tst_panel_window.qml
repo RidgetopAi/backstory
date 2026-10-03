@@ -5,7 +5,7 @@ import Quickshell.Io
 
 // Task 93f7c6fd: the panel's top-level window is a regular FloatingWindow
 // (Hyprland-managed, so move/resize binds work), never a layer-shell
-// PanelWindow, and carries the stable class ops/hyprland/backstory.conf
+// PanelWindow, and carries the stable class ops/hyprland/backstory.lua
 // matches.
 TestCase {
   id: testCase

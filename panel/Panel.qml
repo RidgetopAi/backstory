@@ -129,7 +129,7 @@ Item {
   readonly property real testImplicitHeight: panel.implicitHeight
 
   // Stable window title (Quickshell sets no per-window app_id; Hyprland matches the title) the Hyprland windowrule in
-  // ops/hyprland/backstory.conf matches (hyprland_windowrule_test.go and
+  // ops/hyprland/backstory.lua matches (hyprland_windowrule_test.go and
   // tst_panel_window.qml pin the two together).
   readonly property string windowTitle: "backstory"
 
@@ -223,7 +223,7 @@ Item {
 
   // A regular xdg toplevel (NOT a wlr-layer-shell PanelWindow): Hyprland
   // manages toplevels, so Omarchy's own move/resize binds (SUPER+drag,
-  // resize keys) work on it. ops/hyprland/backstory.conf floats it by
+  // resize keys) work on it. ops/hyprland/backstory.lua floats it by
   // windowTitle at a default size/position.
   FloatingWindow {
     id: panel
