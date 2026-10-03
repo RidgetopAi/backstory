@@ -8,12 +8,15 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/RidgetopAi/backstory/internal/skill"
 )
 
 // Pi item names, for --check output.
 const (
 	ItemPiExtension = "pi-extension"
 	ItemPiAgentsMD  = "pi-agents-md-stub"
+	ItemPiSkill     = "pi-skill"
 )
 
 // PiExtensionMarker is the line every generated extension carries, so
@@ -21,8 +24,9 @@ const (
 const PiExtensionMarker = "// Backstory's Pi extension, written by `backstory install pi`"
 
 // PiStubLine is the one-line stub added to ~/.pi/agent/AGENTS.md. Pi gets the
-// warm block by injection (the extension), so the stub only names the tools.
-const PiStubLine = "Backstory: a warm block is injected at session start; for more, call the `recall`, `note`, `timeline`, `confirm` and `status` tools."
+// warm block by injection (the extension), so the stub names the tools and
+// points at the backstory skill, as the Claude stub does.
+const PiStubLine = "Backstory: a warm block is injected at session start; for more, call the `recall`, `note`, `timeline`, `confirm` and `status` tools; see the `backstory` skill, `~/.pi/agent/skills/backstory/SKILL.md`."
 
 var piStubBlock = StubMarkerBegin + "\n" + PiStubLine + "\n" + StubMarkerEnd + "\n"
 
@@ -41,20 +45,21 @@ type PiPaths struct {
 	ExtensionDir string // ~/.pi/agent/extensions/backstory
 	ExtensionTS  string // .../index.ts
 	AgentsMD     string // ~/.pi/agent/AGENTS.md
+	SkillPath    string // ~/.pi/agent/skills/backstory/SKILL.md
 }
 
 // DefaultPiPaths returns Pi's user-level surfaces under home.
 func DefaultPiPaths(home string) PiPaths {
 	agent := filepath.Join(home, ".pi", "agent")
 	dir := filepath.Join(agent, "extensions", "backstory")
-	return PiPaths{ExtensionDir: dir, ExtensionTS: filepath.Join(dir, "index.ts"), AgentsMD: filepath.Join(agent, "AGENTS.md")}
+	return PiPaths{ExtensionDir: dir, ExtensionTS: filepath.Join(dir, "index.ts"), AgentsMD: filepath.Join(agent, "AGENTS.md"), SkillPath: filepath.Join(agent, "skills", "backstory", "SKILL.md")}
 }
 
 type piAdapter struct{}
 
 func (piAdapter) Name() string { return HarnessPi }
 
-func (piAdapter) Install(home string, _ Options) error {
+func (piAdapter) Install(home string, opts Options) error {
 	p := DefaultPiPaths(home)
 	status, err := piExtensionStatus(p.ExtensionTS)
 	if err != nil {
@@ -71,6 +76,9 @@ func (piAdapter) Install(home string, _ Options) error {
 			return fmt.Errorf("%s: %w", ItemPiExtension, err)
 		}
 	}
+	if _, err := skill.Install(p.SkillPath, opts.Prefix); err != nil {
+		return fmt.Errorf("%s: %w", ItemPiSkill, err)
+	}
 	if err := installStubBlock(p.AgentsMD, piStubBlock); err != nil {
 		return fmt.Errorf("%s: %w", ItemPiAgentsMD, err)
 	}
@@ -80,8 +88,17 @@ func (piAdapter) Install(home string, _ Options) error {
 // Remove deletes the extension (and its directory, and any parent directory
 // install created, once empty) and the AGENTS.md stub, restoring pre-install
 // bytes. A foreign index.ts is left alone.
-func (piAdapter) Remove(home string, _ Options) error {
+func (piAdapter) Remove(home string, opts Options) error {
 	p := DefaultPiPaths(home)
+	if err := skill.Remove(p.SkillPath, opts.Prefix); err != nil {
+		return fmt.Errorf("%s: %w", ItemPiSkill, err)
+	}
+	// Prune the skill directories install created, stopping at the first one in use.
+	for d := filepath.Dir(p.SkillPath); d != filepath.Dir(p.ExtensionDir); d = filepath.Dir(d) {
+		if os.Remove(d) != nil {
+			break
+		}
+	}
 	status, err := piExtensionStatus(p.ExtensionTS)
 	if err != nil {
 		return err
@@ -111,7 +128,7 @@ func (piAdapter) Remove(home string, _ Options) error {
 	return nil
 }
 
-func (piAdapter) Check(home string, _ Options) ([]Item, error) {
+func (piAdapter) Check(home string, opts Options) ([]Item, error) {
 	p := DefaultPiPaths(home)
 	ext, err := piExtensionStatus(p.ExtensionTS)
 	if err != nil {
@@ -121,7 +138,7 @@ func (piAdapter) Check(home string, _ Options) ([]Item, error) {
 	if data, err := os.ReadFile(p.AgentsMD); err == nil && strings.Contains(string(data), piStubBlock) { //nolint:gosec // path derived from $HOME
 		stub = StatusPresent
 	}
-	return []Item{{Name: ItemPiExtension, Status: ext}, {Name: ItemPiAgentsMD, Status: stub}}, nil
+	return []Item{{Name: ItemPiExtension, Status: ext}, {Name: ItemPiAgentsMD, Status: stub}, {Name: ItemPiSkill, Status: ItemStatus(skill.CheckStatus(p.SkillPath, opts.Prefix))}}, nil
 }
 
 // piExtensionStatus: present when the file equals the embedded source,

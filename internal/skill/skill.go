@@ -14,8 +14,9 @@ import (
 	"path/filepath"
 )
 
-// Embedded is the skill file's content, byte-for-byte the eight lines of
-// AGENT-CONTRACT.md §The skill (skill_test.go proves it against that file).
+// Embedded is the skill file's content: an Agent Skills YAML frontmatter
+// block (name, description) followed by lines 2-8 of AGENT-CONTRACT.md §The
+// skill byte-for-byte (skill_test.go proves both).
 //
 //go:embed SKILL.md
 var Embedded []byte
@@ -46,6 +47,7 @@ var PastEmbeddedSHA256 = []string{
 	"c6003812bf66a715cbdee95c5c41a959803219926bd30f9271411a18f8368822", // 47c25fb
 	"0f626aa1b0172683d985881cf9d93e424f7aa7c57f23f54875c8af90cb157abd", // f0616db
 	"1d1016ae20d05095fd16712e2fa7be5c8a14b5f2c96685e55288de740ffa8a35", // e887d71
+	"6d39ea0375361d25aa77430aabb8cf25910818c3f82465c2ff4fa550084acaed", // 462e93f
 }
 
 // backupSuffixPrefix is appended to the skill path, followed by the first

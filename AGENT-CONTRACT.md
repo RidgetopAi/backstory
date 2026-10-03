@@ -218,6 +218,8 @@ the agent to call `recall` once.
 
 One file, harness-neutral, symlinked by the same loop Omarchy uses for its own skills.
 Tesla §1.9 counts eight lines: the `description:` line plus the seven body lines.
+In the file, line 1 is the YAML frontmatter block (`name: backstory` and the
+`description:`) that Agent Skills loaders (Claude Code, Pi) require; lines 2-8 follow verbatim.
 
 1. `description:` claims the intents — "what was I doing", "resume", "why did we",
    "backstory", "history", "last session".

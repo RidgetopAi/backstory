@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -88,12 +89,15 @@ func TestEmbeddedSkillMatchesAgentContract(t *testing.T) {
 		t.Fatalf("parsed %d lines from AGENT-CONTRACT.md §The skill, want 8: %#v", len(want), want)
 	}
 
-	got := strings.Split(strings.TrimRight(string(skill.Embedded), "\n"), "\n")
+	_, rules := splitFrontmatter(t, skill.Embedded)
+	got := append([]string{want[0]}, strings.Split(strings.TrimRight(rules, "\n"), "\n")...)
 	if len(got) != 8 {
-		t.Fatalf("skill.Embedded has %d lines, want 8: %#v", len(got), got)
+		t.Fatalf("skill.Embedded has %d rule lines after the frontmatter, want 7: %#v", len(got)-1, got[1:])
 	}
 
-	for i := range want {
+	// Line 1 of the contract is the intents line; the file carries it as the
+	// frontmatter description (checked by TestEmbeddedSkillHasFrontmatter).
+	for i := 1; i < len(want); i++ {
 		if got[i] != want[i] {
 			t.Errorf("skill.Embedded line %d = %q, want %q", i+1, got[i], want[i])
 		}
@@ -268,5 +272,65 @@ func TestUnknownSkillStaysForeignAndUntouched(t *testing.T) {
 	}
 	if backups, _ := filepath.Glob(dest + ".bak-*"); len(backups) != 0 {
 		t.Errorf("unexpected backup %v", backups)
+	}
+}
+
+var skillNameRe = regexp.MustCompile(`^[a-z0-9-]{1,64}$`)
+
+// splitFrontmatter returns the lines between the leading "---" fences and
+// the remainder of the file.
+func splitFrontmatter(t *testing.T, data []byte) (front []string, rest string) {
+	t.Helper()
+	s := string(data)
+	if !strings.HasPrefix(s, "---\n") {
+		t.Fatalf("SKILL.md does not begin with a --- frontmatter block: %.40q", s)
+	}
+	block, rest, ok := strings.Cut(s[len("---\n"):], "\n---\n")
+	if !ok {
+		t.Fatal("SKILL.md frontmatter has no closing --- fence")
+	}
+	return strings.Split(block, "\n"), rest
+}
+
+// Agent Skills (and so Pi and Claude Code) skip a SKILL.md without a leading
+// YAML block carrying a valid name and a non-empty description of <=1024 chars.
+func TestEmbeddedSkillHasFrontmatter(t *testing.T) {
+	front, _ := splitFrontmatter(t, skill.Embedded)
+	meta := map[string]string{}
+	for _, l := range front {
+		k, v, ok := strings.Cut(l, ": ")
+		if !ok {
+			t.Fatalf("frontmatter line is not `key: value`: %q", l)
+		}
+		if strings.HasPrefix(v, `"`) {
+			u, err := strconv.Unquote(v)
+			if err != nil {
+				t.Fatalf("frontmatter %s is not a valid double-quoted YAML string: %v", k, err)
+			}
+			v = u
+		}
+		meta[k] = v
+	}
+	if len(meta) != 2 {
+		t.Errorf("frontmatter keys = %v, want exactly name and description", meta)
+	}
+	if meta["name"] != "backstory" || !skillNameRe.MatchString(meta["name"]) {
+		t.Errorf("name = %q, want backstory matching %s", meta["name"], skillNameRe)
+	}
+	if n := len(meta["description"]); n == 0 || n > 1024 {
+		t.Errorf("description length = %d, want 1..1024", n)
+	}
+}
+
+// The rule lines that followed the old prose header survive byte-for-byte.
+func TestEmbeddedSkillKeepsRuleLinesVerbatim(t *testing.T) {
+	before := pastSkills[len(pastSkills)-1] // 462e93f: the version before the frontmatter
+	_, wantRules, ok := strings.Cut(before.body, "\n")
+	if !ok {
+		t.Fatal("462e93f test data has no first line")
+	}
+	_, rules := splitFrontmatter(t, skill.Embedded)
+	if rules != wantRules {
+		t.Errorf("rule lines differ from the 462e93f version:\n got %q\nwant %q", rules, wantRules)
 	}
 }
