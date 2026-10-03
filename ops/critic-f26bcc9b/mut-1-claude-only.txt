@@ -1,0 +1,9 @@
+== mutation: detection replaced by claude-only
+--- FAIL: TestBareInstallDetectsOnlyPresentHarnesses (0.00s)
+        install_detect_test.go:68: codex not installed
+        install_detect_test.go:68: codex not installed
+--- FAIL: TestBareInstallDetectsHermesHomeOutsideHome (0.00s)
+    install_detect_test.go:100: exit 1, stderr "backstory install: no harness detected under /tmp/TestBareInstallDetectsHermesHomeOutsideHome2438454890/001; nothing written. Name one explicitly; valid harnesses: claude, codex, hermes, pi, agents\n"
+FAIL
+FAIL	github.com/RidgetopAi/backstory/cmd/backstory	0.013s
+FAIL
