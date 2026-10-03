@@ -3,6 +3,8 @@ package skill_test
 import (
 	"bufio"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -184,5 +186,87 @@ func TestEmbeddedSkillInstructsSupersedeOnReplacement(t *testing.T) {
 		if !strings.Contains(s, want) {
 			t.Errorf("embedded skill missing %q", want)
 		}
+	}
+}
+
+func hashHex(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+
+func TestPastEmbeddedSHA256CoversEveryPriorVersion(t *testing.T) {
+	have := map[string]bool{}
+	for _, h := range skill.PastEmbeddedSHA256 {
+		have[h] = true
+	}
+	for _, p := range pastSkills {
+		if hashHex([]byte(p.body)) != p.sha256 {
+			t.Fatalf("test data for %s does not match its recorded hash", p.commit)
+		}
+		if !have[p.sha256] {
+			t.Errorf("PastEmbeddedSHA256 lacks the %s version (%s)", p.commit, p.sha256)
+		}
+	}
+	if have[hashHex(skill.Embedded)] {
+		t.Error("PastEmbeddedSHA256 contains the current embedded hash")
+	}
+}
+
+func TestOutdatedSkillIsReportedAndReplacedWithBackup(t *testing.T) {
+	for _, p := range pastSkills {
+		t.Run(p.commit, func(t *testing.T) {
+			dest := filepath.Join(t.TempDir(), "skills", "backstory", "SKILL.md")
+			if err := os.MkdirAll(filepath.Dir(dest), 0o750); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(dest, []byte(p.body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			prefix := t.TempDir()
+			if got := skill.CheckStatus(dest, prefix); got != skill.StatusOutdated {
+				t.Fatalf("CheckStatus = %q, want outdated", got)
+			}
+			changed, err := skill.Install(dest, prefix)
+			if err != nil || !changed {
+				t.Fatalf("Install = %v, %v; want changed", changed, err)
+			}
+			got, _ := os.ReadFile(dest) //nolint:gosec // test temp path
+			if !bytes.Equal(got, skill.Embedded) {
+				t.Error("dest is not the current embedded copy after Install")
+			}
+			backups, _ := filepath.Glob(dest + ".bak-*")
+			if len(backups) != 1 {
+				t.Fatalf("want exactly one backup beside dest, got %v", backups)
+			}
+			old, _ := os.ReadFile(backups[0]) //nolint:gosec // test temp path
+			if string(old) != p.body {
+				t.Error("backup does not hold the old bytes")
+			}
+			if got := skill.CheckStatus(dest, prefix); got != skill.StatusPresent {
+				t.Errorf("CheckStatus after Install = %q, want present", got)
+			}
+		})
+	}
+}
+
+func TestUnknownSkillStaysForeignAndUntouched(t *testing.T) {
+	dest := filepath.Join(t.TempDir(), "SKILL.md")
+	body := []byte("someone else's skill\n")
+	if err := os.WriteFile(dest, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prefix := t.TempDir()
+	if got := skill.CheckStatus(dest, prefix); got != skill.StatusForeign {
+		t.Fatalf("CheckStatus = %q, want foreign-conflict", got)
+	}
+	if changed, err := skill.Install(dest, prefix); err != nil || changed {
+		t.Fatalf("Install = %v, %v; want unchanged", changed, err)
+	}
+	got, _ := os.ReadFile(dest) //nolint:gosec // test temp path
+	if !bytes.Equal(got, body) {
+		t.Error("foreign file was modified")
+	}
+	if backups, _ := filepath.Glob(dest + ".bak-*"); len(backups) != 0 {
+		t.Errorf("unexpected backup %v", backups)
 	}
 }

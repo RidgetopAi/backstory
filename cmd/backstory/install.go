@@ -23,7 +23,7 @@ installs a memory-provider plugin under $HERMES_HOME.
 
 Valid harness names: claude, codex, hermes, pi, agents
 
-  --check      report each item's status (present/absent/foreign-conflict)
+  --check      report each item's status (present/absent/outdated/foreign-conflict)
                and exit non-zero unless every item is present; writes nothing
   --remove     reverse a prior install, leaving foreign entries untouched
   --no-verify  skip running the installed hook to confirm it fires

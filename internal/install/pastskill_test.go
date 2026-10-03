@@ -1,0 +1,4 @@
+package install_test
+
+// bc94d31Skill is SKILL.md as first embedded (commit bc94d31), verbatim.
+var bc94d31Skill = "`description:` claims the intents — \"what was I doing\", \"resume\", \"why did we\", \"backstory\", \"history\", \"last session\".\nif a SessionStart block is present, do not re-fetch; else call `recall` for this project once.\nbefore changing a file whose recall shows a declared decision, read it.\nwhen you choose between alternatives, `note decision` in one line — no ceremony.\nclaim \"done\" only with `note outcome` pointing at a `timeline` event id; a claim without evidence is recorded as a claim.\nend with `note handoff`: what is true now, what is next, what not to do.\ninferred records are hints; declared records are claims; the timeline is fact.\nnever put a secret in a note.\n"

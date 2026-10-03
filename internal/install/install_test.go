@@ -317,3 +317,40 @@ func TestMalformedSettingsJSONRefusesAndLeavesFilesUntouched(t *testing.T) {
 		t.Errorf("settings.json sha256 changed: before %x, after %x", beforeSettings, afterSettings)
 	}
 }
+
+// mustGitSkill returns the bc94d31 SKILL.md (the first embedded version),
+// the exact file found on Brian's desk, inlined as test data.
+func mustGitSkill(t *testing.T) string {
+	t.Helper()
+	return bc94d31Skill
+}
+
+func TestOutdatedSkillFlowsThroughCheckAndInstall(t *testing.T) {
+	old := mustGitSkill(t)
+	home := t.TempDir()
+	paths := install.DefaultPaths(home)
+	opts := install.Options{Prefix: t.TempDir()}
+	mustWriteFile(t, paths.SkillPath, old)
+
+	items, err := install.Check(paths, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := statusMap(t, items)[install.ItemSkill]; got != install.StatusOutdated {
+		t.Fatalf("skill status = %s, want outdated", got)
+	}
+	if err := install.Install(paths, opts); err != nil {
+		t.Fatal(err)
+	}
+	backups, _ := filepath.Glob(paths.SkillPath + ".bak-*")
+	if len(backups) != 1 {
+		t.Fatalf("want one backup, got %v", backups)
+	}
+	if b, _ := os.ReadFile(backups[0]); string(b) != old { //nolint:gosec // test temp path
+		t.Error("backup lacks old bytes")
+	}
+	items, _ = install.Check(paths, opts)
+	if got := statusMap(t, items)[install.ItemSkill]; got != install.StatusPresent {
+		t.Fatalf("skill status after install = %s, want present", got)
+	}
+}
