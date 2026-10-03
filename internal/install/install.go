@@ -29,14 +29,17 @@ const (
 	ItemClaudeMDStub     = "claude-md-stub"
 )
 
-// ItemStatus is a --check item's reported state: present, absent, or
-// foreign-conflict (something else already occupies the slot we'd write).
+// ItemStatus is a --check item's reported state: present, absent, outdated
+// (Backstory's own older file, which install replaces), or foreign-conflict
+// (something else already occupies the slot we'd write).
 type ItemStatus string
 
 const (
 	StatusPresent ItemStatus = "present"
 	StatusAbsent  ItemStatus = "absent"
 	StatusForeign ItemStatus = "foreign-conflict"
+	// StatusOutdated is the skill file matching a past embedded version.
+	StatusOutdated ItemStatus = "outdated"
 )
 
 // MCPServerName is the mcpServers key this installer owns exclusively
