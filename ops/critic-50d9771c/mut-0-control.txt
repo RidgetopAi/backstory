@@ -1,0 +1,4 @@
+== control (unmutated): GREEN
+ok  	github.com/RidgetopAi/backstory/cmd/backstory	1.288s
+ok  	github.com/RidgetopAi/backstory/panel	2.709s
+Totals: 90 passed, 0 failed, 0 skipped, 0 blacklisted, 4872ms
