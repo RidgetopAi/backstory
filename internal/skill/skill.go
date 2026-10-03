@@ -141,7 +141,7 @@ func backupAndClear(dest string) error {
 	}
 	sum := sha256.Sum256(data)
 	backup := dest + backupSuffixPrefix + hex.EncodeToString(sum[:])[:backupHashLen]
-	if err := os.WriteFile(backup, data, 0o600); err != nil {
+	if err := os.WriteFile(backup, data, 0o600); err != nil { //nolint:gosec // backup path derives from the caller-chosen skill path
 		return err
 	}
 	return os.Remove(dest)
