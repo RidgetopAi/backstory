@@ -5,3 +5,4 @@ PanelWindowAnchors 1.0 PanelWindowAnchors.qml
 PanelWindowMargins 1.0 PanelWindowMargins.qml
 PanelWindow 1.0 PanelWindow.qml
 IpcHandler 1.0 IpcHandler.qml
+FloatingWindow 1.0 FloatingWindow.qml
