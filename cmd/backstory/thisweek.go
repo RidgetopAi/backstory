@@ -60,7 +60,7 @@ func runThisWeek(args []string, stdout, stderr io.Writer) int {
 
 	if *jsonOut {
 		var here *hereJSON
-		var windows map[string]string
+		var windows map[string]windowRef
 		if *hereFlag != "" {
 			r := hereResolver{git: project.RealGit{}, workspaces: workspaceDirs, result: result,
 				displayName: func(key, dir string) string {
@@ -79,7 +79,7 @@ func runThisWeek(args []string, stdout, stderr io.Writer) int {
 			if *hereFlag == hereAuto {
 				windows = r.windowsByProject()
 				if windows == nil {
-					windows = map[string]string{}
+					windows = map[string]windowRef{}
 				}
 			}
 		}
@@ -111,6 +111,8 @@ type projectSummaryJSON struct {
 	LastAgent        string `json:"last_agent"`
 	// Window is set (possibly "") only under --here auto.
 	Window *string `json:"window,omitempty"`
+	// Tmux is set (possibly "") exactly when Window is.
+	Tmux *string `json:"tmux,omitempty"`
 }
 
 // whereLeftOffRowJSON is one row: Project is set for a standalone project
@@ -147,7 +149,7 @@ type thisWeekOutputJSON struct {
 
 // windows is nil unless --here auto was given (then every summary carries
 // a window, "" when none).
-func printThisWeekJSON(stdout io.Writer, result week.Result, here *hereJSON, windows map[string]string) int {
+func printThisWeekJSON(stdout io.Writer, result week.Result, here *hereJSON, windows map[string]windowRef) int {
 	out := thisWeekOutputJSON{
 		Attention:    []attentionItemJSON{},
 		WhereLeftOff: []whereLeftOffRowJSON{},
@@ -158,7 +160,8 @@ func printThisWeekJSON(stdout io.Writer, result week.Result, here *hereJSON, win
 		s := projectSummary(p)
 		if windows != nil {
 			w := windows[p.ProjectKey]
-			s.Window = &w
+			s.Window = &w.Address
+			s.Tmux = &w.Tmux
 		}
 		return s
 	}

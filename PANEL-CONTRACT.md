@@ -54,6 +54,17 @@ or failing `hyprctl`/`tmux`, or a focused window with no descendant (a browser),
 With `--here auto` every `ProjectSummary` (standalone or group child) also carries `window`:
 the Hyprland address of an open window (`hyprctl clients -j`) whose folder, resolved by the
 same rule, maps to that project; `""` when none; with several, the lowest `focusHistoryID`.
+The rule looks at every pane of every window of each attached tmux client's session
+(`tmux list-panes -s`), not only the active pane, so a project open in a background tmux window
+still gets its terminal's address.
+
+`tmux` (string, present exactly when `window` is, i.e. only with `--here auto`): the tmux
+target `session:window.pane` (numeric window and pane indexes, e.g. `Work:1.0`) of the pane
+holding the project inside that `window`; with several panes of one project in the window, the
+active pane of the active window, else the first. `""` when there is no `window`, the window
+has no tmux client, or the session name is not a safe argv element (`[A-Za-z0-9_-]`). A panel
+validates it before use and, with a valid one, focuses the window then runs
+`tmux select-window -t <session:window>` and `tmux select-pane -t <target>`.
 
 ## Attention — `AttentionItem`
 

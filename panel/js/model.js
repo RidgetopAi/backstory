@@ -66,6 +66,9 @@ function summaryLastAgent(p) { return p.last_agent }
 // window: Hyprland address of an open window for the project; only with
 // `--here auto`, "" when none.
 function summaryWindow(p) { return p.window }
+// tmux: tmux target session:window.pane of the project's pane inside that
+// window; present exactly when `window` is, "" when none.
+function summaryTmux(p) { return p.tmux }
 
 // The week — DayProjectStats (PANEL-CONTRACT.md "The week").
 function dayDay(d) { return d.day }
