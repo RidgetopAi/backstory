@@ -1,0 +1,6 @@
+== mut1: resolution reads only the active pane
+--- FAIL: TestHereAutoTmuxWindowsInNonActivePanes (0.10s)
+    thisweek_here_test.go:484: windows = map[/tmp/TestHereAutoTmuxWindowsInNonActivePanes3331274291/001/projects/bar/.git:0xaa /tmp/TestHereAutoTmuxWindowsInNonActivePanes3331274291/001/projects/foo/.git: /tmp/TestHereAutoTmuxWindowsInNonActivePanes3331274291/001/projects/qux/.git:], want foo and bar on 0xaa
+FAIL
+FAIL	github.com/RidgetopAi/backstory/cmd/backstory	1.265s
+FAIL

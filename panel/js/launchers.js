@@ -20,6 +20,8 @@
 //     Omarchy default agent, and let them choose one when it is unset.
 //   - `hyprctl dispatch ...`: focus an already-open window the way
 //     omarchy-launch-or-focus does (Continue when `window` is set).
+//   - `tmux select-window` / `select-pane`: after that focus, jump to the
+//     tmux window holding the project (Continue when `tmux` is set).
 //   - `omarchy-shell shell toggle backstory.this-week {}`: the bar widget's
 //     click (round 4 desk defect A). MEASURED ON BRIAN'S DESK: BarWidget
 //     used to flip a shared PanelState singleton directly, but the host
@@ -140,4 +142,36 @@ function focusWindowCommand(addr) {
 
 function focusWindowFallbackCommand(addr) {
   return ["hyprctl", "dispatch", "focuswindow", "address:" + addr]
+}
+
+// isTmuxTarget: a tmux target as PANEL-CONTRACT.md §here defines it —
+// session:window.pane with numeric indexes — and nothing else; it reaches a
+// tmux argv, so a ';' (tmux's command separator), a space or a leading '-'
+// is refused.
+function isTmuxTarget(target) {
+  return typeof target === "string" && /^[A-Za-z0-9_][A-Za-z0-9_-]*:[0-9]+\.[0-9]+$/.test(target)
+}
+
+// tmuxSelectWindowCommand / tmuxSelectPaneCommand jump a tmux client to the
+// window / pane of a validated target. select-window takes session:window,
+// so the pane suffix is dropped for it.
+function tmuxSelectWindowCommand(target) {
+  return ["tmux", "select-window", "-t", target.slice(0, target.lastIndexOf("."))]
+}
+
+function tmuxSelectPaneCommand(target) {
+  return ["tmux", "select-pane", "-t", target]
+}
+
+// continueFocusPlan is what Continue runs for a project already open: the
+// hyprctl focus argv for `window` plus, when `tmux` is a valid target, the
+// tmux select argvs (in order). null when `window` is not an address — the
+// caller then launches the agent instead. It never builds a terminal launch.
+function continueFocusPlan(window, tmux) {
+  if (!isWindowAddress(window)) return null
+  return {
+    focus: focusWindowCommand(window),
+    focusFallback: focusWindowFallbackCommand(window),
+    tmuxCommands: isTmuxTarget(tmux) ? [tmuxSelectWindowCommand(tmux), tmuxSelectPaneCommand(tmux)] : []
+  }
 }

@@ -166,12 +166,12 @@ func TestFocusAndAgentCommandShapes(t *testing.T) {
 // parsed object directly.
 func TestNewFieldsAreReadOnlyThroughModelJS(t *testing.T) {
 	fields := loadModelFields(t)
-	for _, f := range []string{"here", "window", "handoff_next", "last_agent", "display_name", "cwd", "source"} {
+	for _, f := range []string{"here", "window", "handoff_next", "last_agent", "tmux", "display_name", "cwd", "source"} {
 		if !fields[f] {
 			t.Errorf("js/model.js has no accessor reading %q", f)
 		}
 	}
-	direct := regexp.MustCompile(`\.(handoff_next|last_agent|window|here)\b`)
+	direct := regexp.MustCompile(`\.(handoff_next|last_agent|window|tmux|here)\b`)
 	for _, pattern := range []string{"*.qml", "js/*.js"} {
 		files, err := filepath.Glob(pattern)
 		if err != nil {
@@ -193,3 +193,55 @@ func TestNewFieldsAreReadOnlyThroughModelJS(t *testing.T) {
 		}
 	}
 }
+
+// TestContinueFocusPlan: Continue on a summary with a window and a tmux
+// target builds the hyprctl focus argv and the tmux select argvs, and never a
+// new-terminal argv; a malformed target is rejected and builds no tmux argv.
+func TestContinueFocusPlan(t *testing.T) {
+	type plan struct {
+		Focus         []string   `json:"focus"`
+		FocusFallback []string   `json:"focusFallback"`
+		Tmux          [][]string `json:"tmuxCommands"`
+	}
+	eval := func(expr string) *plan {
+		raw := evalJS(t, expr, launchersJSPath)
+		if string(raw) == "null" {
+			return nil
+		}
+		var p plan
+		if err := json.Unmarshal(raw, &p); err != nil {
+			t.Fatalf("%s: %v (%s)", expr, err, raw)
+		}
+		return &p
+	}
+	argvs := func(p *plan) [][]string { return append([][]string{p.Focus, p.FocusFallback}, p.Tmux...) }
+
+	p := eval(`continueFocusPlan("0x55aa", "Work:1.2")`)
+	if p == nil {
+		t.Fatal("no plan for a valid window")
+	}
+	if strings.Join(p.Focus, "\x00") != strings.Join(focusArgv, "\x00") {
+		t.Errorf("focus = %q", p.Focus)
+	}
+	want := [][]string{{"tmux", "select-window", "-t", "Work:1"}, {"tmux", "select-pane", "-t", "Work:1.2"}}
+	if len(p.Tmux) != 2 || strings.Join(p.Tmux[0], " ") != strings.Join(want[0], " ") || strings.Join(p.Tmux[1], " ") != strings.Join(want[1], " ") {
+		t.Errorf("tmux argvs = %q, want %q", p.Tmux, want)
+	}
+	for _, a := range argvs(p) {
+		if a[0] == "xdg-terminal-exec" {
+			t.Errorf("plan builds a new-terminal argv: %q", a)
+		}
+	}
+
+	for _, target := range []string{"Work:1.0;kill-server", "Work 1:1.0", "Work:1.0 ", "-t:1.0", "Work:1", "Work:x.0", "", "Work:1.0\n"} {
+		p := eval(`continueFocusPlan("0x55aa", ` + jsStringLiteral(target) + `)`)
+		if p == nil || len(p.Tmux) != 0 {
+			t.Errorf("target %q: plan %+v, want focus only and no tmux argv", target, p)
+		}
+	}
+	if p := eval(`continueFocusPlan("", "Work:1.0")`); p != nil {
+		t.Errorf("no window must give no plan (agent launch), got %+v", p)
+	}
+}
+
+var focusArgv = []string{"hyprctl", "dispatch", `hl.dsp.focus({ window = "address:0x55aa" })`}

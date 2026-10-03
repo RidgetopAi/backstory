@@ -429,3 +429,79 @@ func TestHereAutoSkipsPseudoFoldersAndHome(t *testing.T) {
 		}
 	})
 }
+
+// projectFields collects field (a ProjectSummary key) by project key.
+func projectFields(t *testing.T, m map[string]any, field string) map[string]string {
+	t.Helper()
+	got := map[string]string{}
+	rows, _ := m["where_left_off"].([]any)
+	for _, r := range rows {
+		row, _ := r.(map[string]any)
+		var ps []any
+		if p, ok := row["project"]; ok {
+			ps = []any{p}
+		} else {
+			ps, _ = row["children"].([]any)
+		}
+		for _, p := range ps {
+			pm, _ := p.(map[string]any)
+			v, ok := pm[field].(string)
+			if !ok {
+				t.Fatalf("project %v has no %s string", pm["project_key"], field)
+			}
+			pk, _ := pm["project_key"].(string)
+			got[pk] = v
+		}
+	}
+	return got
+}
+
+// One terminal window hosts tmux session Work: window 1 (inactive) in foo,
+// window 2 (active) in bar. Both get that window's address, each with its own
+// tmux target; a project outside any window keeps "" and no target.
+func TestHereAutoTmuxWindowsInNonActivePanes(t *testing.T) {
+	e := newHereEnv(t)
+	e.fakeHyprctl(t, `{"address":"0xaa","pid":500}`, `[{"address":"0xaa","class":"ghostty","pid":500,"focusHistoryID":0}]`)
+	e.addProc(t, 500, 1, "ghostty", e.home, "")
+	e.addProc(t, 501, 500, "tmux: client", e.home, "/dev/pts/0")
+	writeScript(t, filepath.Join(e.fakeBin, "tmux"), `
+if [ "$1" = display-message ] && [ "$2" = -c ] && [ "$3" = /dev/pts/0 ]; then
+  case "$5" in
+    '#{session_name}') echo Work;;
+    '#{pane_current_path}') echo `+e.bar+`;;
+    *) exit 1;;
+  esac
+elif [ "$1" = list-panes ] && [ "$2" = -s ] && [ "$3" = -t ] && [ "$4" = =Work ]; then
+  printf 'Work\t1\t0\t0\t1\t%s\n' `+e.foo+`
+  printf 'Work\t2\t3\t1\t1\t%s\n' `+e.bar+`
+else
+  exit 1
+fi`)
+	m := mustRun(t, e, "--here", "auto")
+	win := projectFields(t, m, "window")
+	tm := projectFields(t, m, "tmux")
+	if win[e.fooKey] != "0xaa" || win[e.barKey] != "0xaa" {
+		t.Fatalf("windows = %v, want foo and bar on 0xaa", win)
+	}
+	if tm[e.fooKey] != "Work:1.0" || tm[e.barKey] != "Work:2.3" {
+		t.Fatalf("tmux targets = %v, want foo Work:1.0 and bar Work:2.3", tm)
+	}
+	if win[e.quxKey] != "" || tm[e.quxKey] != "" {
+		t.Fatalf("unmatched project window %q tmux %q, want both empty", win[e.quxKey], tm[e.quxKey])
+	}
+}
+
+// A window with no tmux client carries its address and no tmux target.
+func TestHereAutoPlainWindowHasNoTmuxTarget(t *testing.T) {
+	e := newHereEnv(t)
+	e.fakeHyprctl(t, `{"address":"0xaa","pid":600}`, `[{"address":"0xaa","class":"ghostty","pid":600,"focusHistoryID":0}]`)
+	e.addProc(t, 600, 1, "ghostty", e.home, "")
+	e.addProc(t, 601, 600, "bash", e.foo, "")
+	m := mustRun(t, e, "--here", "auto")
+	if w := projectFields(t, m, "window")[e.fooKey]; w != "0xaa" {
+		t.Fatalf("window = %q", w)
+	}
+	if tm := projectFields(t, m, "tmux")[e.fooKey]; tm != "" {
+		t.Fatalf("tmux = %q, want empty", tm)
+	}
+}

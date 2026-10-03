@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -321,26 +322,121 @@ func (r hereResolver) resolveHere(arg string) (*hereJSON, error) {
 	return &hereJSON{Source: hereSourceRecent}, nil
 }
 
-// windowsByProject maps project key → the address of its most recently
-// focused open window; empty when hyprctl is unavailable.
-func (r hereResolver) windowsByProject() map[string]string {
+// tmuxPaneSep separates the fields of the tmux list-panes format below; a
+// tab cannot appear in a session name or index, and a path with a tab is
+// rejected by field-count.
+const tmuxPaneSep = "\t"
+
+// tmuxPaneFormat is what `tmux list-panes -s` is asked for: session, window
+// index, pane index, whether the window / pane is the active one, and path.
+const tmuxPaneFormat = "#{session_name}\t#{window_index}\t#{pane_index}\t#{window_active}\t#{pane_active}\t#{pane_current_path}"
+
+// windowRef is where a project is open: a Hyprland window address plus, when
+// the project lives in a tmux pane, the tmux target (session:window.pane).
+type windowRef struct {
+	Address string
+	Tmux    string
+}
+
+// windowFolder is one folder found inside a Hyprland window.
+type windowFolder struct {
+	Dir  string
+	Tmux string // "" unless the folder is a tmux pane
+	// Active marks the active pane of the active window; it wins a tie
+	// between several panes of one project.
+	Active bool
+}
+
+// tmuxTargetRe is the shape of a tmux target this command emits and the panel
+// accepts: session:window.pane with numeric indexes. Session names are
+// restricted to characters that are inert in an argv element and in tmux's
+// own target grammar (tmux itself rewrites '.' and ':' in session names).
+var tmuxTargetRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]*:[0-9]+\.[0-9]+$`)
+
+// tmuxSessionPanes lists every pane of the session the client on tty is
+// attached to (`list-panes -s`), active pane of the active window first.
+func tmuxSessionPanes(tty string) []windowFolder {
+	out, err := runCommand(tmuxBin, "display-message", "-c", tty, "-p", "#{session_name}")
+	session := strings.TrimSpace(string(out))
+	if err != nil || session == "" {
+		return nil
+	}
+	out, err = runCommand(tmuxBin, "list-panes", "-s", "-t", "="+session, "-F", tmuxPaneFormat)
+	if err != nil {
+		return nil
+	}
+	var panes []windowFolder
+	for _, line := range strings.Split(string(out), "\n") {
+		f := strings.Split(strings.TrimRight(line, "\r"), tmuxPaneSep)
+		if len(f) != 6 || !usableProjectDir(f[5]) {
+			continue
+		}
+		wf := windowFolder{Dir: f[5], Active: f[3] == "1" && f[4] == "1"}
+		if target := f[0] + ":" + f[1] + "." + f[2]; tmuxTargetRe.MatchString(target) {
+			wf.Tmux = target
+		}
+		panes = append(panes, wf)
+	}
+	return panes
+}
+
+// foldersOfWindowPID lists every folder a window's terminal holds: all panes
+// of each attached tmux client's session, else (no tmux) the folder
+// folderOfWindowPID resolves.
+func foldersOfWindowPID(pid int) []windowFolder {
+	if pid <= 0 {
+		return nil
+	}
+	var out []windowFolder
+	for _, d := range procDescendants(pid) {
+		if !isTmuxClient(d.comm) {
+			continue
+		}
+		tty, err := os.Readlink(procPath(d.pid, "fd/0")) //nolint:gosec // path built from an int pid
+		if err != nil {
+			continue
+		}
+		out = append(out, tmuxSessionPanes(tty)...)
+	}
+	if len(out) > 0 {
+		return out
+	}
+	if dir, ok := folderOfWindowPID(pid); ok {
+		return []windowFolder{{Dir: dir, Active: true}}
+	}
+	return nil
+}
+
+// windowsByProject maps project key → its most recently focused open window
+// (lowest focusHistoryID) and, inside that window, the tmux pane holding the
+// project (the active one when several); empty when hyprctl is unavailable.
+func (r hereResolver) windowsByProject() map[string]windowRef {
 	clients, err := hyprClients()
 	if err != nil {
 		return nil
 	}
-	out := map[string]string{}
+	out := map[string]windowRef{}
 	best := map[string]int{}
 	for _, c := range clients {
-		dir, ok := folderOfWindowPID(c.PID)
-		if !ok || c.Address == "" {
+		if c.Address == "" {
 			continue
 		}
-		key := r.key(dir)
-		if prev, seen := best[key]; seen && prev <= c.FocusHistoryID {
-			continue
+		// Within this window: key → chosen folder (active pane wins, else first).
+		inWindow := map[string]windowFolder{}
+		for _, f := range foldersOfWindowPID(c.PID) {
+			key := r.key(f.Dir)
+			if prev, seen := inWindow[key]; seen && (prev.Active || !f.Active) {
+				continue
+			}
+			inWindow[key] = f
 		}
-		best[key] = c.FocusHistoryID
-		out[key] = c.Address
+		for key, f := range inWindow {
+			if prev, seen := best[key]; seen && prev <= c.FocusHistoryID {
+				continue
+			}
+			best[key] = c.FocusHistoryID
+			out[key] = windowRef{Address: c.Address, Tmux: f.Tmux}
+		}
 	}
 	return out
 }
