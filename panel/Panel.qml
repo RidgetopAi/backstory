@@ -28,6 +28,7 @@ Item {
   property bool loading: false
   property bool groupEditorOpen: false
   property bool memoryOpen: false
+  property bool helpOpen: false
   property string memoryProjectKey: ""
   property string memoryDisplayName: ""
   property string memoryLocation: ""
@@ -74,7 +75,7 @@ Item {
   property int selectedIndex: 0
   readonly property var selectedSummary: root.selectedIndex >= 0 && root.selectedIndex < root.navRows.length ? root.navRows[root.selectedIndex] : null
   readonly property string selectedId: root.selectedSummary ? rowId(root.selectedSummary) : ""
-  readonly property string footerHint: "j/k move \u00b7 Enter continue \u00b7 t terminal \u00b7 m memory \u00b7 r refresh \u00b7 Esc close"
+  readonly property string footerHint: "j/k move \u00b7 Enter continue \u00b7 t terminal \u00b7 m memory \u00b7 ? help \u00b7 r refresh \u00b7 Esc close"
 
   function rowId(summary) {
     return Model.summaryProjectKey(summary) + "\n" + Model.summaryCwd(summary)
@@ -124,6 +125,10 @@ Item {
       }
     }
     if (root.groupEditorOpen || root.memoryOpen) return false
+    if (root.helpOpen) {
+      if (key === Qt.Key_Question) { root.helpOpen = false; return true }
+      return false
+    }
     var s = root.selectedSummary
     switch (key) {
     case Qt.Key_J: case Qt.Key_Down: root.moveSelection(1); return true
@@ -131,6 +136,7 @@ Item {
     case Qt.Key_Return: case Qt.Key_Enter: root.continueOn(s); return true
     case Qt.Key_T: if (s) root.openTerminal(Model.summaryCwd(s)); return true
     case Qt.Key_M: if (s) root.summaryMemory(s); return true
+    case Qt.Key_Question: root.helpOpen = true; return true
     case Qt.Key_R: root.refresh(); return true
     }
     return false
@@ -180,6 +186,7 @@ Item {
     root.opened = false
     root.groupEditorOpen = false
     root.memoryOpen = false
+    root.helpOpen = false
   }
 
   function openMemory(projectKey, displayName, cwd) {
@@ -302,7 +309,7 @@ Item {
 
           Column {
             id: body
-            visible: !root.groupEditorOpen && !root.memoryOpen
+            visible: !root.groupEditorOpen && !root.memoryOpen && !root.helpOpen
             width: parent.width
             spacing: Style.spacing.panelGap
 
@@ -406,6 +413,12 @@ Item {
             width: parent.width
             onCloseRequested: root.groupEditorOpen = false
             onChanged: root.refresh()
+          }
+
+          HelpView {
+            visible: root.helpOpen
+            width: parent.width
+            onCloseRequested: root.helpOpen = false
           }
 
           MemoryView {

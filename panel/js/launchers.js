@@ -44,6 +44,12 @@ function groupListCommand() {
   return ["backstory", "group", "list", "--json"]
 }
 
+// toolsCommand lists the agent tools (name + description) straight from the
+// Go ToolsV0() the MCP server serves, so the help pane carries no copy.
+function toolsCommand() {
+  return ["backstory", "tools", "--json"]
+}
+
 function groupSetCommand(groupName, projectKey) {
   return ["backstory", "group", "set", groupName, projectKey]
 }
