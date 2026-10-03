@@ -456,3 +456,76 @@ func TestImportCapsOversizedToolOutput(t *testing.T) {
 		t.Errorf("excerpt lacks head/tail: %.30q", content)
 	}
 }
+
+func TestParseTimestampNumericEpoch(t *testing.T) {
+	want := time.UnixMilli(1790904086742).UTC()
+	for in, w := range map[string]time.Time{
+		"1.7909040867422266e+09": want,
+		"1790904086":             time.Unix(1790904086, 0).UTC(),
+		"1790904086.742":         want,
+	} {
+		got, err := parseTimestamp(in)
+		if err != nil {
+			t.Fatalf("parseTimestamp(%q): %v", in, err)
+		}
+		if !got.Equal(w) || got.Location() != time.UTC {
+			t.Errorf("parseTimestamp(%q) = %v, want %v", in, got, w)
+		}
+	}
+	got, err := parseTimestamp("2026-10-01 21:21:26.5")
+	if err != nil || !got.Equal(time.Date(2026, 10, 1, 21, 21, 26, 500000000, time.UTC)) {
+		t.Errorf("layout case = %v, %v", got, err)
+	}
+	for _, bad := range []string{"garbage", "", "NaN", "Inf"} {
+		if _, err := parseTimestamp(bad); err == nil {
+			t.Errorf("parseTimestamp(%q) succeeded, want error", bad)
+		}
+	}
+}
+
+func TestImportRealEpochStartedAtSkipsOnlyGarbageRow(t *testing.T) {
+	st := mustOpenStore(t)
+	dbPath := filepath.Join(t.TempDir(), "state.db")
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range []string{
+		`CREATE TABLE sessions (id TEXT PRIMARY KEY, source TEXT, parent_session_id TEXT,
+			started_at REAL NOT NULL, ended_at REAL, cwd TEXT, git_branch TEXT, git_repo_root TEXT)`,
+		`CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL,
+			role TEXT NOT NULL, content TEXT, tool_call_id TEXT, tool_calls TEXT,
+			tool_name TEXT, timestamp REAL NOT NULL, finish_reason TEXT,
+			active INTEGER NOT NULL DEFAULT 1, compacted INTEGER NOT NULL DEFAULT 0)`,
+		`INSERT INTO sessions (id, started_at, ended_at, cwd) VALUES ('s-real', 1790904086.7422266, 1790904186.5, '/tmp/a')`,
+		`INSERT INTO sessions (id, started_at, cwd) VALUES ('s-int', 1790904000, '/tmp/b')`,
+		`INSERT INTO sessions (id, started_at, cwd) VALUES ('s-garbage', 'garbage', '/tmp/c')`,
+		`INSERT INTO messages (session_id, role, content, timestamp) VALUES ('s-real', 'user', 'hello', 1790904087.25)`,
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("fixture: %v", err)
+		}
+	}
+	_ = db.Close()
+
+	var warnings []string
+	res, err := Import(st, Options{Path: dbPath, Git: fakeGit{}, Workspaces: []string{},
+		Warn: func(m string) { warnings = append(warnings, m) }})
+	if err != nil {
+		t.Fatalf("Import aborted: %v", err)
+	}
+	if res.SessionsCreated != 2 {
+		t.Errorf("SessionsCreated = %d, want 2", res.SessionsCreated)
+	}
+	if len(warnings) != 1 || !strings.Contains(warnings[0], "s-garbage") {
+		t.Errorf("warnings = %q, want exactly one naming s-garbage", warnings)
+	}
+	for _, id := range []string{"s-real", "s-int"} {
+		if _, ok, err := st.SessionByHarnessSessionID(id); err != nil || !ok {
+			t.Errorf("session %s not imported (ok=%v err=%v)", id, ok, err)
+		}
+	}
+	if _, ok, _ := st.SessionByHarnessSessionID("s-garbage"); ok {
+		t.Error("garbage session was imported")
+	}
+}

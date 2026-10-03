@@ -15,9 +15,12 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
+	"math"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 	"unicode/utf8"
 
@@ -88,6 +91,10 @@ type Options struct {
 	// checked against before falling back to a repo/path key (decision
 	// bcc9fa54). Nil uses project.DefaultWorkspaceDirs().
 	Workspaces []string
+	// Warn receives one message per session row skipped because its
+	// started_at/ended_at cannot be parsed. Nil logs via the standard
+	// logger. A bad row never aborts the import.
+	Warn func(msg string)
 }
 
 // Result is Import's one-line summary: `backstory backfill hermes` prints
@@ -165,7 +172,12 @@ func Import(st *store.Store, opts Options) (Result, error) {
 	}
 	defer func() { _ = db.Close() }()
 
-	sessions, err := readSessions(db)
+	warn := opts.Warn
+	if warn == nil {
+		warn = func(msg string) { log.Print(msg) }
+	}
+
+	sessions, err := readSessions(db, warn)
 	if err != nil {
 		return Result{}, fmt.Errorf("backfill/hermes: read sessions: %w", err)
 	}
@@ -214,7 +226,10 @@ type hermesSession struct {
 	GitRepoRoot     string
 }
 
-func readSessions(db *sql.DB) ([]hermesSession, error) {
+// readSessions loads every session row. A row whose started_at or ended_at
+// cannot be parsed is skipped with one warning naming its id; it never
+// aborts the rest of the import.
+func readSessions(db *sql.DB, warn func(string)) ([]hermesSession, error) {
 	rows, err := db.Query(`SELECT id, parent_session_id, started_at, ended_at, cwd, git_branch, git_repo_root
 		FROM sessions ORDER BY started_at ASC`)
 	if err != nil {
@@ -239,13 +254,15 @@ func readSessions(db *sql.DB) ([]hermesSession, error) {
 		hs.GitRepoRoot = repoRoot.String
 		ts, err := parseTimestamp(startedAt)
 		if err != nil {
-			return nil, fmt.Errorf("session %s started_at: %w", hs.ID, err)
+			warn(fmt.Sprintf("backfill hermes: skipping session %s: started_at: %v", hs.ID, err))
+			continue
 		}
 		hs.StartedAt = ts
 		if endedAt.Valid && endedAt.String != "" {
 			t, err := parseTimestamp(endedAt.String)
 			if err != nil {
-				return nil, fmt.Errorf("session %s ended_at: %w", hs.ID, err)
+				warn(fmt.Sprintf("backfill hermes: skipping session %s: ended_at: %v", hs.ID, err))
+				continue
 			}
 			hs.EndedAt = &t
 		}
@@ -321,7 +338,17 @@ var timestampLayouts = []string{
 	time.RFC3339,
 }
 
+// parseTimestamp accepts the layouts above and numeric epoch seconds
+// (integer, fractional or scientific notation: Hermes stores REAL columns,
+// which the sql scan renders like "1.7909040867422266e+09") as UTC,
+// rounded to the millisecond.
 func parseTimestamp(s string) (time.Time, error) {
+	if f, err := strconv.ParseFloat(s, 64); err == nil && !math.IsNaN(f) && !math.IsInf(f, 0) {
+		ms := math.Round(f * 1000)
+		if math.Abs(ms) < math.MaxInt64/2 {
+			return time.UnixMilli(int64(ms)).UTC(), nil
+		}
+	}
 	for _, layout := range timestampLayouts {
 		if t, err := time.Parse(layout, s); err == nil {
 			return t, nil
