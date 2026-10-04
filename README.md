@@ -11,16 +11,55 @@ License: MIT.
 
 ## Install from source
 
+Prerequisites: [Omarchy](https://omarchy.org), Go (at least the version in `go.mod`), `git`
+and `make`.
+
 ```
 git clone https://github.com/RidgetopAi/backstory && cd backstory
+git checkout <tag>
+make install
+```
+
+`make install` builds the binary and installs it to `~/.local/bin/backstory`, installs and
+starts the `systemd --user` unit, installs the panel plugin into
+`~/.config/omarchy/plugins/backstory.this-week` (restarting the Omarchy shell if your session
+is unlocked; if it is locked it tells you to run `omarchy restart shell`), installs the
+Hyprland file `~/.config/hypr/backstory.lua`, then runs `backstory install` and prints
+`backstory version`. It never edits your `hyprland.lua`: add the line it prints,
+`require("hypr.backstory")`, yourself. It refuses to overwrite a plugin directory that isn't a
+Backstory panel. `make uninstall` reverses it and leaves your memory store alone.
+
+To open the panel, press `SUPER + SHIFT + B` (set in `~/.config/hypr/backstory.lua`) or click
+the bar glyph (see `panel/README.md`). Then `backstory install --check` shows which harnesses
+are set up; `backstory install bash` adds shell command capture to `~/.bashrc`.
+
+To do it by hand instead of `make install`:
+
+```
 make build
 install -Dm755 bin/backstory ~/.local/bin/backstory
 install -Dm644 ops/backstory.service ~/.config/systemd/user/backstory.service
 systemctl --user daemon-reload
 systemctl --user enable --now backstory
+cp -r panel ~/.config/omarchy/plugins/backstory.this-week
+install -Dm644 ops/hyprland/backstory.lua ~/.config/hypr/backstory.lua
+omarchy restart shell
 backstory install
 backstory install bash
 ```
+
+## Updating
+
+```
+git fetch --tags
+git checkout <new tag>
+make install
+backstory version
+```
+
+`make install` keeps the previous binary as `~/.local/bin/backstory.prev`, restarts the
+running daemon, and backs up the previous panel beside itself. `backstory version` should
+print the new tag.
 
 `make build` writes `bin/backstory`; `make check` (fmt + vet + lint + race tests + the
 Quickshell panel's QML suite) is the gate CI runs on every push.
