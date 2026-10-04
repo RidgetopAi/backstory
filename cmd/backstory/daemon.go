@@ -21,6 +21,7 @@ import (
 	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/socket"
 	"github.com/RidgetopAi/backstory/internal/store"
+	omausage "github.com/RidgetopAi/backstory/internal/usage"
 )
 
 // procFSForDaemon is defined per build tag: daemon_procfs_release.go
@@ -52,6 +53,23 @@ func applyFirstLineDeadlineOverride(srv *socket.Server) error {
 	}
 	srv.FirstLineDeadline = d
 	return nil
+}
+
+// usageIntervalEnvVar overrides how often the daemon rewrites its Omarchy
+// usage record (a time.Duration string); unset means omausage.DefaultInterval.
+const usageIntervalEnvVar = "BACKSTORY_USAGE_INTERVAL"
+
+// usageInterval reads usageIntervalEnvVar, defaulting when unset.
+func usageInterval() (time.Duration, error) {
+	raw := os.Getenv(usageIntervalEnvVar)
+	if raw == "" {
+		return omausage.DefaultInterval, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d <= 0 {
+		return 0, fmt.Errorf("parse %s=%q: want a positive duration", usageIntervalEnvVar, raw)
+	}
+	return d, nil
 }
 
 // runDaemon opens the store, listens on the daemon socket, logs the
@@ -121,10 +139,23 @@ func runDaemon(_ []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
+	usageIval, err := usageInterval()
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "backstory daemon:", err)
+		return 1
+	}
+
 	logger.Printf("listening on %s (store %s)", sockPath, dbPath)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
+
+	go omausage.Run(ctx, omausage.Config{
+		Store:      st,
+		Interval:   usageIval,
+		CaptureOff: captureOff,
+		Logger:     logger,
+	})
 
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.Serve() }()
