@@ -83,11 +83,10 @@ Item {
         pickProcess.running = true
         return
       }
-      launch = Launchers.agentPromptCommand(prompt)
     }
     root.pendingHandoffId = id
     agentProcess.workingDirectory = cwd
-    agentProcess.command = launch
+    agentProcess.command = launch || Launchers.agentPromptCommand(prompt)
     agentProcess.running = true
   }
 
