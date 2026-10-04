@@ -25,12 +25,14 @@ import (
 	"strings"
 
 	"github.com/RidgetopAi/backstory/internal/mcp"
+	"github.com/RidgetopAi/backstory/internal/skill"
 )
 
 // Hermes item names, for --check output.
 const (
 	ItemHermesPlugin         = "memory-plugin"
 	ItemHermesMemoryProvider = "memory-provider"
+	ItemHermesSkill          = "hermes-skill"
 )
 
 // HermesProviderName is the value memory.provider takes.
@@ -63,6 +65,7 @@ var hermesPluginPy string
 type HermesPaths struct {
 	ConfigYAML string
 	PluginDir  string
+	SkillPath  string // $HERMES_HOME/skills/backstory/SKILL.md
 }
 
 // DefaultHermesPaths resolves $HERMES_HOME, else home/.hermes.
@@ -79,6 +82,7 @@ func HermesPathsIn(hermesHome string) HermesPaths {
 	return HermesPaths{
 		ConfigYAML: filepath.Join(hermesHome, "config.yaml"),
 		PluginDir:  filepath.Join(hermesHome, "plugins", HermesProviderName),
+		SkillPath:  filepath.Join(hermesHome, "skills", HermesProviderName, "SKILL.md"),
 	}
 }
 
@@ -124,7 +128,12 @@ func (hermesAdapter) Check(home string, opts Options) ([]Item, error) {
 // foreign plugin file or a foreign memory.provider is reported as an
 // ErrForeignConflict naming the item and left untouched; the other item is
 // still installed.
-func InstallHermes(paths HermesPaths, _ Options) error {
+// The skill follows the claude/pi semantics: a foreign SKILL.md is left
+// untouched (--check reports it), an outdated one is replaced after a backup.
+func InstallHermes(paths HermesPaths, opts Options) error {
+	if _, err := skill.Install(paths.SkillPath, opts.Prefix); err != nil {
+		return fmt.Errorf("%s: %w", ItemHermesSkill, err)
+	}
 	var conflicts []string
 	if err := installHermesPlugin(paths.PluginDir); err != nil {
 		if !isForeign(err) {
@@ -155,7 +164,17 @@ func foreignDetail(err error) string {
 }
 
 // RemoveHermes reverses InstallHermes, restoring pre-install config bytes.
-func RemoveHermes(paths HermesPaths, _ Options) error {
+func RemoveHermes(paths HermesPaths, opts Options) error {
+	if err := skill.Remove(paths.SkillPath, opts.Prefix); err != nil {
+		return fmt.Errorf("%s: %w", ItemHermesSkill, err)
+	}
+	// Prune the skill directories install created, stopping at the first one in use.
+	skillsDir := filepath.Dir(filepath.Dir(paths.SkillPath))
+	for d := filepath.Dir(paths.SkillPath); d != filepath.Dir(skillsDir); d = filepath.Dir(d) {
+		if os.Remove(d) != nil {
+			break
+		}
+	}
 	if err := removeHermesPlugin(paths.PluginDir); err != nil {
 		return fmt.Errorf("%s: %w", ItemHermesPlugin, err)
 	}
@@ -165,11 +184,12 @@ func RemoveHermes(paths HermesPaths, _ Options) error {
 	return nil
 }
 
-// CheckHermes reports both items without writing.
-func CheckHermes(paths HermesPaths, _ Options) ([]Item, error) {
+// CheckHermes reports all three items without writing.
+func CheckHermes(paths HermesPaths, opts Options) ([]Item, error) {
 	return []Item{
 		{Name: ItemHermesPlugin, Status: hermesPluginStatus(paths.PluginDir)},
 		{Name: ItemHermesMemoryProvider, Status: hermesConfigStatus(paths.ConfigYAML)},
+		{Name: ItemHermesSkill, Status: ItemStatus(skill.CheckStatus(paths.SkillPath, opts.Prefix))},
 	}, nil
 }
 

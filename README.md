@@ -41,7 +41,7 @@ to `~/.bashrc`.
   header, id, or config line beyond the installer's.
 - **Codex**: `backstory install codex` registers the MCP server and SessionStart/PostToolUse
   hooks under `~/.codex` and adds an `AGENTS.md` stub.
-- **Hermes**: `backstory install hermes` installs a memory-provider plugin under `$HERMES_HOME`
+- **Hermes**: `backstory install hermes` installs a memory-provider plugin and the backstory skill under `$HERMES_HOME`
   (default `~/.hermes`).
 - **Pi**: `backstory install pi` installs an extension under `~/.pi/agent`.
 - **Shell capture**: `backstory install bash` wires bash's preexec/precmd command capture into
