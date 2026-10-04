@@ -44,6 +44,9 @@ to `~/.bashrc`.
 - **Hermes**: `backstory install hermes` installs a memory-provider plugin and the backstory skill under `$HERMES_HOME`
   (default `~/.hermes`).
 - **Pi**: `backstory install pi` installs an extension under `~/.pi/agent`.
+- **Local models**: Pi with any local OpenAI-compatible provider (e.g. ollama, a llama.cpp server) is
+  captured and recalled like a hosted one; Codex transcripts with a custom `model_provider` import
+  identically.
 - **Shell capture**: `backstory install bash` wires bash's preexec/precmd command capture into
   `~/.bashrc`.
 - **Backfill**: `backstory backfill claude` imports existing Claude transcripts so the first
@@ -102,10 +105,6 @@ rm -r ~/.local/share/backstory
 ```
 
 (With `XDG_DATA_HOME` set, the store is `$XDG_DATA_HOME/backstory` instead.)
-
-## Coming for v1 (decision `3e14db82`)
-
-- Local-model harness support.
 
 ## Where the store lives
 

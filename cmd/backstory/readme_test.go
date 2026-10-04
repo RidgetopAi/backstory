@@ -41,10 +41,13 @@ func TestReadmeIsCurrentWithHarnesses(t *testing.T) {
 		}
 	}
 
-	coming := readmeSection(t, readme, "Coming for v1")
-	for _, n := range []string{"codex", "hermes", "pi"} {
-		if regexp.MustCompile(`(?i)\b` + n + `\b`).MatchString(coming) {
-			t.Errorf("Coming for v1 still lists %q", n)
+	// Local models are a supported claim, not a promise (task cf9e7543).
+	if strings.Contains(readme, "Coming for v1") {
+		t.Error("README.md still has a \"Coming for v1\" section")
+	}
+	for _, want := range []string{"Local models", "local OpenAI-compatible provider", "model_provider"} {
+		if !strings.Contains(works, strings.ToLower(want)) {
+			t.Errorf("What works today lacks %q", want)
 		}
 	}
 
