@@ -8,3 +8,8 @@ bin/
 # Punch-lane scratch: workers' own proof/mutation notes never belong in the repo
 /proof/
 /mut-*.txt
+critic-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]/
+mut-[0-9]*-*.txt
+make-check.txt
+!testdata/**/make-check.txt
+!testdata/**/mut-*.txt

@@ -1,7 +1,0 @@
-== mut3: threshold check inverted
-FAIL!  : qmltestrunner::PanelRedesign::test_old_row_shows_only_the_glyph_button() Compared values are not the same
-FAIL!  : qmltestrunner::PanelRedesign::test_recent_row_with_window_shows_switch() Compared values are not the same
-FAIL!  : qmltestrunner::PanelRedesign::test_recent_row_without_window_shows_continue() Compared values are not the same
-FAIL!  : qmltestrunner::PanelRedesign::test_switch_button_continues_with_window_and_tmux_target() 'no visible text "Switch" in ["Backstory","","","foo","here","Claude Code · 5m ago · 19 sessions this week","Next: Wire the bar","Continue in Claude Code","Terminal","Memory","NEEDS YOU","","session ended with 2 uncommitted change(s) on branch main","RECENT","","foo","5m ago","Wire the bar","","","","bar","just now","","","","notes · workspace notes","just now","","","This week: 2 projects · 23 sessions · 11 files · 4 notes","j/k move · Enter continue · t terminal · m memory · r refresh · Esc close"]' returned FALSE. ()
-FAIL!  : qmltestrunner::PanelRedesign::test_threshold_is_a_named_constant() Compared values are not the same
-Totals: 85 passed, 5 failed, 0 skipped, 0 blacklisted, 4667ms

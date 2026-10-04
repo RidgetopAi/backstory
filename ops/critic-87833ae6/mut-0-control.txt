@@ -1,2 +1,0 @@
-== control (unmutated)
-ok  	github.com/RidgetopAi/backstory/ops	4.967s

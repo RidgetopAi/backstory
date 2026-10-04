@@ -5,7 +5,7 @@ GO      ?= go
 
 QMLTESTRUNNER ?= qmltestrunner
 
-.PHONY: install uninstall build fmt-check vet lint test integration panel-qml-test check release-check clean
+.PHONY: install uninstall build fmt-check vet lint test integration panel-qml-test check hygiene-check release-check clean
 
 build:
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-s -w -X $(MODULE)/internal/version.Version=$(VERSION)" -o $(BIN) ./cmd/backstory
@@ -62,7 +62,11 @@ panel-qml-test:
 	QT_QPA_PLATFORM=offscreen QML_XHR_ALLOW_FILE_READ=1 QT_FATAL_WARNINGS=1 \
 		$(QMLTESTRUNNER) -import panel/qmltest/stubs -input panel/qmltest/tests
 
-check: fmt-check vet lint test panel-qml-test
+# hygiene-check fails if build-loop critic/mutation evidence is tracked.
+hygiene-check:
+	./ops/hygiene-check.sh
+
+check: hygiene-check fmt-check vet lint test panel-qml-test
 
 # release-check validates a version is ready to tag: semver, a CHANGELOG.md
 # section, and a matching ops/aur/PKGBUILD pkgver. It builds nothing and
