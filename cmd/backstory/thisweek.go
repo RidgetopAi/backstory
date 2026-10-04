@@ -109,10 +109,22 @@ type projectSummaryJSON struct {
 	HandoffStale     bool   `json:"handoff_stale,omitempty"`
 	HandoffNext      string `json:"handoff_next"`
 	LastAgent        string `json:"last_agent"`
+	// Agents is every known harness active in the window, newest first;
+	// LastAgent is Agents[0].Agent. Never null.
+	Agents []agentSummaryJSON `json:"agents"`
+	// HandoffAgent is the agent of the session that wrote the handoff.
+	HandoffAgent string `json:"handoff_agent"`
 	// Window is set (possibly "") only under --here auto.
 	Window *string `json:"window,omitempty"`
 	// Tmux is set (possibly "") exactly when Window is.
 	Tmux *string `json:"tmux,omitempty"`
+}
+
+// agentSummaryJSON is one agent's footprint within a row's window.
+type agentSummaryJSON struct {
+	Agent        string `json:"agent"`
+	LastActivity string `json:"last_activity"`
+	SessionCount int    `json:"session_count"`
 }
 
 // whereLeftOffRowJSON is one row: Project is set for a standalone project
@@ -206,7 +218,13 @@ func printThisWeekJSON(stdout io.Writer, result week.Result, here *hereJSON, win
 }
 
 func projectSummary(p week.ProjectSummary) projectSummaryJSON {
+	agents := make([]agentSummaryJSON, len(p.Agents))
+	for i, a := range p.Agents {
+		agents[i] = agentSummaryJSON{Agent: a.Agent, LastActivity: formatTSOrEmpty(a.LastActivity), SessionCount: a.SessionCount}
+	}
 	return projectSummaryJSON{
+		Agents:           agents,
+		HandoffAgent:     p.HandoffAgent,
 		ProjectKey:       p.ProjectKey,
 		DisplayName:      p.DisplayName,
 		CWD:              p.CWD,

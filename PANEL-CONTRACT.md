@@ -127,7 +127,9 @@ standalone row; `project` is present only on a standalone row. A panel branches 
 | `handoff_first_line`  | string  | only if the project has a handoff record | The first line of that handoff's text. |
 | `handoff_stale`       | bool    | only `true` (omitted, meaning `false`, otherwise) | Mirrors whether a `possibly-stale-handoff` Attention item exists for this project — the same `store.HandoffFreshness` call feeds both, so they can never disagree. |
 | `handoff_next`        | string  | yes (`""` when there is no handoff) | The handoff's stored `next` when set; otherwise its first line with leading boilerplate stripped (a leading ★, the word HANDOFF, a leading ISO date with optional time/Z, and the separators `-` `—` `.` `:` between them). |
-| `last_agent`          | string  | yes (`""` when unknown) | The agent of the project's most recently started session. |
+| `last_agent`          | string  | yes (`""` when unknown) | `agents[0].agent`: the known-harness agent with the newest activity in the window, so it always matches `last_activity`. |
+| `agents`              | array   | yes (never null) | Per-agent footprint in the window, newest `last_activity` first: `{agent, last_activity, session_count}`. Only known harnesses (`ident.KnownHarnesses`); zero-length `unknown` socket callers never appear. |
+| `handoff_agent`       | string  | yes (`""` when unknown) | The agent of the session that wrote the row's handoff. |
 
 ## The week — `DayProjectStats`
 

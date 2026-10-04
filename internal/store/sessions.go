@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/RidgetopAi/backstory/internal/ident"
 )
 
 // SessionOrigin is sessions.origin.
@@ -271,25 +273,102 @@ func (s *Store) EndSession(id string, endedAt time.Time, exitKind string) error 
 	return nil
 }
 
-// NewestSessionAgent returns the agent of the most recently started session
-// among ids, "" when ids is empty or names no session.
-func (s *Store) NewestSessionAgent(ids []string) (string, error) {
+// AgentActivity is one known harness's footprint across a set of sessions:
+// its newest activity instant and how many of its sessions were active in
+// the window.
+type AgentActivity struct {
+	Agent        string
+	LastActivity time.Time
+	SessionCount int
+}
+
+// ProjectSessionIDs returns the id of every session whose project_key is
+// projectKey.
+func (s *Store) ProjectSessionIDs(projectKey string) ([]string, error) {
+	rows, err := s.db.Query(`SELECT id FROM sessions WHERE project_key = ?`, projectKey)
+	if err != nil {
+		return nil, fmt.Errorf("store: session ids for project %s: %w", projectKey, err)
+	}
+	return scanIDs(rows)
+}
+
+// AgentActivityForSessions groups ids by agent, newest last_activity first
+// (agent name breaks exact ties). A session's activity is its start, its
+// timeline events, and its records, bounded above by asOf (the same rule as
+// sessionLastActivity); a session counts only when that is at or after
+// since. Sessions whose agent is not in ident.KnownHarnesses (zero-length
+// 'unknown' socket callers) are excluded.
+func (s *Store) AgentActivityForSessions(ids []string, since, asOf time.Time) ([]AgentActivity, error) {
 	if len(ids) == 0 {
+		return nil, nil
+	}
+	idPH := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+	agentPH := strings.TrimSuffix(strings.Repeat("?,", len(ident.KnownHarnesses)), ",")
+	//nolint:gosec // only "?" placeholders are concatenated; every value is bound
+	query := `
+		WITH act AS (
+			SELECT id AS sid, agent, started_at AS ts FROM sessions
+				WHERE id IN (` + idPH + `) AND agent IN (` + agentPH + `)
+			UNION ALL
+			SELECT e.session_id, s.agent, e.ts FROM timeline_events e
+				JOIN sessions s ON s.id = e.session_id
+				WHERE e.session_id IN (` + idPH + `) AND s.agent IN (` + agentPH + `)
+			UNION ALL
+			SELECT r.session_id, s.agent, r.ts FROM records r
+				JOIN sessions s ON s.id = r.session_id
+				WHERE r.session_id IN (` + idPH + `) AND s.agent IN (` + agentPH + `)
+		), per AS (
+			SELECT sid, agent, MAX(ts) AS m FROM act WHERE ts <= ? GROUP BY sid, agent
+		)
+		SELECT agent, MAX(m), COUNT(*) FROM per WHERE m >= ?
+		GROUP BY agent ORDER BY MAX(m) DESC, agent ASC`
+	idArgs := make([]any, len(ids))
+	for i, id := range ids {
+		idArgs[i] = id
+	}
+	agentArgs := make([]any, len(ident.KnownHarnesses))
+	for i, a := range ident.KnownHarnesses {
+		agentArgs[i] = a
+	}
+	var full []any
+	for i := 0; i < 3; i++ {
+		full = append(full, idArgs...)
+		full = append(full, agentArgs...)
+	}
+	full = append(full, tsToNanos(asOf), tsToNanos(since))
+	rows, err := s.db.Query(query, full...)
+	if err != nil {
+		return nil, fmt.Errorf("store: agent activity: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var out []AgentActivity
+	for rows.Next() {
+		var (
+			a  AgentActivity
+			ts int64
+		)
+		if err := rows.Scan(&a.Agent, &ts, &a.SessionCount); err != nil {
+			return nil, fmt.Errorf("store: agent activity: %w", err)
+		}
+		a.LastActivity = tsFromNanos(ts)
+		out = append(out, a)
+	}
+	return out, rows.Err()
+}
+
+// SessionAgent returns the agent of session id, "" when id is empty or
+// names no session.
+func (s *Store) SessionAgent(id string) (string, error) {
+	if id == "" {
 		return "", nil
 	}
-	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
-	args := make([]any, len(ids))
-	for i, id := range ids {
-		args[i] = id
-	}
 	var agent string
-	err := s.db.QueryRow(`SELECT agent FROM sessions WHERE id IN (`+placeholders+`)
-		ORDER BY started_at DESC, rowid DESC LIMIT 1`, args...).Scan(&agent)
+	err := s.db.QueryRow(`SELECT agent FROM sessions WHERE id = ?`, id).Scan(&agent)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
 	if err != nil {
-		return "", fmt.Errorf("store: newest session agent: %w", err)
+		return "", fmt.Errorf("store: session agent %s: %w", id, err)
 	}
 	return agent, nil
 }

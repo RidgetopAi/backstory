@@ -4,9 +4,9 @@
     {"kind": "uncommitted-at-session-end", "project_key": "bar-key", "reason": "session ended with 2 uncommitted change(s) on branch main", "evidence_ids": ["4"]}
   ],
   "where_left_off": [
-    {"project": {"project_key": "foo-key", "display_name": "projects/foo", "cwd": "/home/brian/projects/foo", "last_activity": "@NOW", "handoff_id": "handoff-0042", "handoff_first_line": "Wire the bar", "handoff_next": "Wire the bar", "last_agent": "claude", "window": "", "tmux": ""}},
-    {"project": {"project_key": "bar-key", "display_name": "bar", "cwd": "/home/brian/bar", "last_activity": "@NOW", "handoff_next": "", "last_agent": "codex", "window": ""}},
-    {"project": {"project_key": "workspace:/home/brian/projects", "display_name": "projects/notes", "cwd": "/home/brian/projects/notes", "last_activity": "@NOW", "handoff_next": "", "last_agent": "claude", "window": ""}}
+    {"project": {"project_key": "foo-key", "display_name": "projects/foo", "cwd": "/home/brian/projects/foo", "last_activity": "@NOW", "handoff_id": "handoff-0042", "handoff_first_line": "Wire the bar", "handoff_next": "Wire the bar", "last_agent": "claude", "agents": [{"agent": "claude", "last_activity": "@NOW", "session_count": 1}], "handoff_agent": "", "window": "", "tmux": ""}},
+    {"project": {"project_key": "bar-key", "display_name": "bar", "cwd": "/home/brian/bar", "last_activity": "@NOW", "handoff_next": "", "last_agent": "codex", "agents": [{"agent": "codex", "last_activity": "@NOW", "session_count": 1}], "handoff_agent": "", "window": ""}},
+    {"project": {"project_key": "workspace:/home/brian/projects", "display_name": "projects/notes", "cwd": "/home/brian/projects/notes", "last_activity": "@NOW", "handoff_next": "", "last_agent": "claude", "agents": [{"agent": "claude", "last_activity": "@NOW", "session_count": 1}], "handoff_agent": "", "window": ""}}
   ],
   "week": [
     {"day": "@D6", "project_key": "foo-key", "display_name": "projects/foo", "sessions": 13, "files_touched": 5, "records_written": 2},
