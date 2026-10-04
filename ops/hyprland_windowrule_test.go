@@ -9,7 +9,7 @@ import (
 )
 
 // panelBind is the panel toggle (Brian's call 2026-10-04): CTRL+SHIFT+B,
-// because SUPER+SHIFT+B is Omarchy's stock Browser bind.
+// because the old Super-based bind is Omarchy's stock Browser bind.
 const panelBind = "CTRL + SHIFT + B"
 
 func TestHyprlandBindsPanelToggleToCtrlShiftB(t *testing.T) {
@@ -28,10 +28,11 @@ func TestHyprlandBindsPanelToggleToCtrlShiftB(t *testing.T) {
 // match itself.
 func TestNoTrackedFileStillNamesOldBind(t *testing.T) {
 	old := regexp.MustCompile(`(?i)super\s*\+\s*shift\s*\+\s*b\b`)
-	out, err := exec.Command("git", "ls-files", "-z").Output()
+	out, err := gitLsFilesAtRoot()
 	if err != nil {
 		t.Fatalf("git ls-files: %v", err)
 	}
+	scanned := 0
 	for _, rel := range strings.Split(strings.TrimRight(string(out), "\x00"), "\x00") {
 		if rel == "CHANGELOG.md" || rel == "" {
 			continue
@@ -40,10 +41,21 @@ func TestNoTrackedFileStillNamesOldBind(t *testing.T) {
 		if err != nil {
 			continue // deleted in the working tree, or a directory entry
 		}
+		scanned++
 		if loc := old.FindIndex(b); loc != nil {
 			t.Errorf("%s still names the old bind %q", rel, b[loc[0]:loc[1]])
 		}
 	}
+	if scanned < 10 {
+		t.Fatalf("scanned only %d tracked files; the guard is not reading the repo", scanned)
+	}
+}
+
+// gitLsFilesAtRoot lists tracked files relative to the repo root (the test
+// runs in ops/, so --full-name plus a "../" prefix addresses them correctly).
+func gitLsFilesAtRoot() ([]byte, error) {
+	cmd := exec.Command("git", "ls-files", "-z", "--full-name", "--", "..")
+	return cmd.Output()
 }
 
 // TestHyprlandWindowruleMatchesPanelClass pins tasks 93f7c6fd/2606210b: the
