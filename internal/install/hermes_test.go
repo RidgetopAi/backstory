@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/RidgetopAi/backstory/internal/skill"
 )
 
 func containsStr(s, sub string) bool { return strings.Contains(s, sub) }
@@ -244,5 +246,98 @@ func TestHermesAdapterRegistered(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(home, "hh", "plugins", "backstory", "plugin.yaml")); err != nil {
 		t.Error(err)
+	}
+}
+
+func hermesSkillStatus(t *testing.T, a hermesAdapter, home string, opts Options) ItemStatus {
+	t.Helper()
+	items, err := a.Check(home, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, it := range items {
+		if it.Name == ItemHermesSkill {
+			return it.Status
+		}
+	}
+	t.Fatal("Check reported no hermes-skill item")
+	return ""
+}
+
+func TestHermesInstallWritesSkillAndReportsPresent(t *testing.T) {
+	t.Setenv(HermesHomeEnv, "")
+	home := t.TempDir()
+	opts := Options{Prefix: t.TempDir()}
+	a := hermesAdapter{}
+	if err := a.Install(home, opts); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(filepath.Join(home, ".hermes", "skills", "backstory", "SKILL.md")) //nolint:gosec // test temp dir
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(skill.Embedded) {
+		t.Error("hermes skill differs from the embedded skill")
+	}
+	if s := hermesSkillStatus(t, a, home, opts); s != StatusPresent {
+		t.Errorf("hermes-skill = %s, want present", s)
+	}
+}
+
+func TestHermesSkillHonoursHermesHome(t *testing.T) {
+	hh := t.TempDir()
+	t.Setenv(HermesHomeEnv, hh)
+	home := t.TempDir()
+	if err := (hermesAdapter{}).Install(home, Options{Prefix: t.TempDir()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(hh, "skills", "backstory", "SKILL.md")); err != nil {
+		t.Errorf("skill not under HERMES_HOME: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".hermes", "skills")); !os.IsNotExist(err) {
+		t.Errorf("skill leaked to the HOME default: %v", err)
+	}
+}
+
+func TestHermesForeignSkillUntouchedAndRemoveKeepsIt(t *testing.T) {
+	t.Setenv(HermesHomeEnv, "")
+	home := t.TempDir()
+	opts := Options{Prefix: t.TempDir()}
+	a := hermesAdapter{}
+	dest := DefaultHermesPaths(home).SkillPath
+	if err := os.MkdirAll(filepath.Dir(dest), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, dest, "someone else's skill\n")
+	if err := a.Install(home, opts); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(dest); string(b) != "someone else's skill\n" { //nolint:gosec // test temp dir
+		t.Errorf("foreign skill modified: %q", b)
+	}
+	if s := hermesSkillStatus(t, a, home, opts); s != StatusForeign {
+		t.Errorf("hermes-skill = %s, want foreign-conflict", s)
+	}
+	if err := a.Remove(home, opts); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(dest); string(b) != "someone else's skill\n" { //nolint:gosec // test temp dir
+		t.Errorf("remove touched the foreign skill: %q", b)
+	}
+}
+
+func TestHermesRemoveDeletesOwnSkill(t *testing.T) {
+	t.Setenv(HermesHomeEnv, "")
+	home := t.TempDir()
+	opts := Options{Prefix: t.TempDir()}
+	a := hermesAdapter{}
+	if err := a.Install(home, opts); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Remove(home, opts); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(DefaultHermesPaths(home).SkillPath); !os.IsNotExist(err) {
+		t.Errorf("own skill not removed: %v", err)
 	}
 }

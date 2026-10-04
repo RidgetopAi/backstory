@@ -19,7 +19,7 @@ codex = ~/.codex, hermes = $HERMES_HOME else ~/.hermes, pi = ~/.pi/agent.
 Each harness skipped is reported with the path not found. Naming harnesses
 explicitly skips detection; agents (the generic AGENTS.md fallback) is only
 ever installed by name. pi installs an extension under ~/.pi/agent; hermes
-installs a memory-provider plugin under $HERMES_HOME.
+installs a memory-provider plugin and the backstory skill under $HERMES_HOME.
 
 Valid harness names: claude, codex, hermes, pi, agents
 
