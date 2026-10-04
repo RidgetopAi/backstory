@@ -18,12 +18,16 @@ Item {
   property bool indented: false
   property bool selected: false
   property var week: []
+  property bool expanded: false
   property real nowMs: Date.now()
 
+  readonly property var agents: summary ? Model.summaryAgents(summary) : []
   readonly property string projectKey: summary ? (Model.summaryProjectKey(summary) || "") : ""
   readonly property bool workspaceRow: Format.isWorkspaceKey(root.projectKey)
   readonly property bool stale: summary ? !!Model.summaryHandoffStale(summary) : false
   readonly property string next: summary ? (Model.summaryHandoffNext(summary) || "") : ""
+  readonly property string handoffAgent: summary ? Model.summaryHandoffAgent(summary) : ""
+  readonly property string nextText: root.handoffAgent !== "" ? Format.nextPrefix(root.handoffAgent) + root.next : root.next
   readonly property string nameText: {
     var n = summary ? Model.shortName(Model.summaryDisplayName(summary)) : ""
     return root.workspaceRow ? n + " \u00b7 workspace notes" : n
@@ -44,6 +48,7 @@ Item {
   // a terminal at the session's cwd"); the buttons are Continue and Memory.
   signal openTerminal(string cwd)
   signal continueRequested()
+  signal toggleExpanded()
   signal openMemory(string projectKey, string displayName, string cwd)
 
   implicitHeight: column.implicitHeight + Style.spacing.rowGap
@@ -109,6 +114,14 @@ Item {
       }
     }
 
+    AgentChips {
+      objectName: "agentChips"
+      agents: root.agents
+      expanded: root.expanded
+      nowMs: root.nowMs
+      onToggled: root.toggleExpanded()
+    }
+
     Row {
       spacing: Style.space(2)
 
@@ -131,7 +144,7 @@ Item {
     Text {
       visible: root.next !== ""
       textFormat: Text.PlainText
-      text: root.next
+      text: root.nextText
       font.family: Style.font.family
       font.pixelSize: Style.font.caption
       color: Qt.darker(Color.foreground, 1.3)

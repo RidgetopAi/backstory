@@ -63,6 +63,14 @@ function summaryHandoffFirstLine(p) { return p.handoff_first_line }
 function summaryHandoffStale(p) { return p.handoff_stale }
 function summaryHandoffNext(p) { return p.handoff_next }
 function summaryLastAgent(p) { return p.last_agent }
+// agents: the per-agent footprint, newest first ({agent, last_activity,
+// session_count}); handoff_agent: the agent that wrote the row's handoff,
+// "" when unknown.
+function summaryAgents(p) { return p.agents || [] }
+function summaryHandoffAgent(p) { return p.handoff_agent || "" }
+function agentId(a) { return a.agent }
+function agentLastActivity(a) { return a.last_activity }
+function agentSessionCount(a) { return a.session_count }
 // window: Hyprland address of an open window for the project; only with
 // `--here auto`, "" when none.
 function summaryWindow(p) { return p.window }
