@@ -90,7 +90,7 @@ func TestRenderResumeFiltersHomeByRepoAndNamesLabelAtWorkspaceRoot(t *testing.T)
 		}
 	})
 
-	t.Run("at the workspace root resumes H2, the home's newest, and names its label", func(t *testing.T) {
+	t.Run("at the workspace root serves no project-written handoff, only a pointer", func(t *testing.T) {
 		out, err := block.Render(block.Params{
 			Store: s, ProcFS: fakeProcFS{}, ProjectKey: home, SessionID: "caller-session",
 			CWD: workspaceDir, Git: git, WorkspaceDirs: workspaces, Now: time.Now(),
@@ -98,11 +98,11 @@ func TestRenderResumeFiltersHomeByRepoAndNamesLabelAtWorkspaceRoot(t *testing.T)
 		if err != nil {
 			t.Fatalf("Render: %v", err)
 		}
-		if !strings.Contains(out, "Resume: (id "+h2+")") {
-			t.Fatalf("Render(workspace root) = %q, want it to contain Resume: (id %s) (H2, the newest)", out, h2)
+		if strings.Contains(out, "Resume: (id") || strings.Contains(out, "shipped the") {
+			t.Fatalf("Render(workspace root) = %q, must carry no handoff body", out)
 		}
-		if !strings.Contains(out, "projects/vidflow") {
-			t.Fatalf("Render(workspace root) = %q, want it to name the label projects/vidflow", out)
+		if !strings.Contains(out, "projects/vidflow (id "+h2+")") || !strings.Contains(out, "projects/omarcade (id "+h1+")") {
+			t.Fatalf("Render(workspace root) = %q, want pointer naming both projects and ids", out)
 		}
 	})
 }
