@@ -88,6 +88,11 @@ func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs i
 	if hasFirst {
 		first = append([]byte(nil), sc.Bytes()...)
 		id = applyLocation(id, first, sessions, git, workspaces)
+	} else {
+		// A connection that closes before its first request line (a plugin's
+		// is_available() liveness probe) mints no session: a probe stays
+		// free instead of leaving an empty-harness-sid live session behind.
+		return
 	}
 
 	end := liveSessionEnder(st, git, logger, captureOff)
