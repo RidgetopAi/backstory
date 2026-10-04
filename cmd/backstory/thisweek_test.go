@@ -412,3 +412,59 @@ func TestThisWeekEmptyStoreJSON(t *testing.T) {
 		t.Fatalf("empty-store --json output = %q, want %q", stdout, want)
 	}
 }
+
+// task 3a5f9a02: handoff_agent is the agent of the session that wrote the
+// row's handoff, empty when the row has no handoff.
+func TestThisWeekJSONHandoffAgent(t *testing.T) {
+	dataDir := t.TempDir()
+	st, err := store.Open(filepath.Join(dataDir, "backstory", "backstory.db"), nil, nil)
+	if err != nil {
+		t.Fatalf("store.Open: %v", err)
+	}
+	for _, c := range []struct{ key, agent string }{{"ha-with-handoff", "pi"}, {"ha-no-handoff", "claude"}} {
+		dir := "/home/brian/" + c.key
+		if err := st.UpsertProject(store.Project{Key: c.key, Toplevel: dir, FirstSeen: date(5, 9, 0)}); err != nil {
+			t.Fatalf("UpsertProject: %v", err)
+		}
+		sid, err := st.StartSession(store.StartSessionParams{
+			ID: "sess-" + c.key, Agent: c.agent, CWD: dir, ProjectKey: c.key, StartedAt: date(5, 9, 0), Origin: store.OriginLive,
+		})
+		if err != nil {
+			t.Fatalf("StartSession: %v", err)
+		}
+		mustAppendEvent(t, st, store.Event{TS: date(5, 9, 5), Kind: "tool.use", SessionID: sid, Source: "shell", Payload: `{"name":"Edit","path":"main.go"}`})
+		if c.key == "ha-with-handoff" {
+			mustInsertThisWeekRecord(t, st, fixtureRecord{
+				ID: "handoff-ha", ProjectKey: c.key, SessionID: sid, TS: date(5, 9, 10),
+				Kind: store.KindHandoff, Tier: store.TierAgentDeclared, Text: "Resume: x", About: []string{"main.go"},
+			})
+		}
+	}
+	if err := st.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	stdout, stderr, code := runThisWeekCLI(t, dataDir, "--json")
+	if code != 0 {
+		t.Fatalf("exit code = %d (stderr: %s)", code, stderr)
+	}
+	var parsed thisWeekOutputJSON
+	if err := json.Unmarshal([]byte(stdout), &parsed); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	got := map[string]projectSummaryJSON{}
+	for _, row := range parsed.WhereLeftOff {
+		if row.Project != nil {
+			got[row.Project.ProjectKey] = *row.Project
+		}
+	}
+	if g := got["ha-with-handoff"]; g.HandoffAgent != "pi" || g.LastAgent != "pi" || len(g.Agents) != 1 {
+		t.Errorf("with-handoff row = %+v, want handoff_agent pi", g)
+	}
+	if g, ok := got["ha-no-handoff"]; !ok || g.HandoffAgent != "" || g.LastAgent != "claude" {
+		t.Errorf("no-handoff row = %+v, want empty handoff_agent", g)
+	}
+	if !strings.Contains(stdout, `"handoff_agent":""`) {
+		t.Errorf("handoff_agent not emitted as empty string: %s", stdout)
+	}
+}

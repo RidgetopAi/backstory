@@ -116,10 +116,31 @@ type ProjectSummary struct {
 	// LastAgent is the agent of the project's most recently started session,
 	// "" when unknown.
 	LastAgent string
+	// Agents is every known harness active in the window for this row,
+	// newest last_activity first; LastAgent is Agents[0].Agent.
+	Agents []AgentSummary
+	// HandoffAgent is the agent of the session that wrote the handoff, ""
+	// when unknown.
+	HandoffAgent string
 	// HandoffStale mirrors whether an AttentionPossiblyStaleHandoff item
 	// exists for this project's handoff — the same store.HandoffFreshness
 	// call feeds both, so the two can never disagree.
 	HandoffStale bool
+}
+
+// AgentSummary is one agent's footprint in a row's window.
+type AgentSummary struct {
+	Agent        string
+	LastActivity time.Time
+	SessionCount int
+}
+
+func agentSummaries(as []store.AgentActivity) []AgentSummary {
+	out := make([]AgentSummary, len(as))
+	for i, a := range as {
+		out[i] = AgentSummary{Agent: a.Agent, LastActivity: a.LastActivity, SessionCount: a.SessionCount}
+	}
+	return out
 }
 
 // WhereLeftOffRow is one row: either a single project (Group == "") or a
@@ -256,7 +277,7 @@ func Build(p Params) (Result, error) {
 			coveredLabels[loc.Label] = true
 
 			key := project.Key(loc.Dir, p.Git, workspaces)
-			summary, items, err := buildHomeLabelProject(p.Store, home, loc, key, p.Git, workspaces)
+			summary, items, err := buildHomeLabelProject(p.Store, home, since, now, loc, key, p.Git, workspaces)
 			if err != nil {
 				return Result{}, err
 			}
@@ -379,7 +400,19 @@ func buildProject(st *store.Store, projectKey string, since, now time.Time, git 
 		return ProjectSummary{}, nil, fmt.Errorf("week: latest session for %s: %w", projectKey, err)
 	} else if hasSess {
 		summary.CWD = sess.CWD
-		summary.LastAgent = sess.Agent
+	}
+
+	ids, err := st.ProjectSessionIDs(projectKey)
+	if err != nil {
+		return ProjectSummary{}, nil, fmt.Errorf("week: sessions for %s: %w", projectKey, err)
+	}
+	acts, err := st.AgentActivityForSessions(ids, since, now)
+	if err != nil {
+		return ProjectSummary{}, nil, fmt.Errorf("week: agents for %s: %w", projectKey, err)
+	}
+	summary.Agents = agentSummaries(acts)
+	if len(acts) > 0 {
+		summary.LastAgent = acts[0].Agent
 	}
 
 	if last, ok, err := st.LastActivity(projectKey, now); err != nil {
@@ -396,6 +429,11 @@ func buildProject(st *store.Store, projectKey string, since, now time.Time, git 
 	}
 	if hasHandoff {
 		summary.HandoffID = handoff.ID
+		agent, err := st.SessionAgent(handoff.SessionID)
+		if err != nil {
+			return ProjectSummary{}, nil, err
+		}
+		summary.HandoffAgent = agent
 		summary.HandoffFirstLine = firstLine(handoff.Text)
 		summary.HandoffNext = handoffNext(handoff)
 
@@ -617,7 +655,7 @@ func buildWeekGrid(st *store.Store, keys []string, since, now time.Time, workspa
 // by a home session's file paths never carries one of its own (class
 // members deferred: documented in this task's commit, not silently
 // dropped).
-func buildHomeLabelProject(st *store.Store, home string, loc store.ActiveWorkLocation, key string, git project.Git, workspaces []string) (ProjectSummary, []AttentionItem, error) {
+func buildHomeLabelProject(st *store.Store, home string, since, now time.Time, loc store.ActiveWorkLocation, key string, git project.Git, workspaces []string) (ProjectSummary, []AttentionItem, error) {
 	summary := ProjectSummary{
 		ProjectKey:   key,
 		DisplayName:  loc.Label,
@@ -625,11 +663,14 @@ func buildHomeLabelProject(st *store.Store, home string, loc store.ActiveWorkLoc
 		LastActivity: loc.LastActivity,
 	}
 
-	agent, err := st.NewestSessionAgent(loc.SessionIDs)
+	acts, err := st.AgentActivityForSessions(loc.SessionIDs, since, now)
 	if err != nil {
-		return ProjectSummary{}, nil, fmt.Errorf("week: last agent for label %s: %w", loc.Label, err)
+		return ProjectSummary{}, nil, fmt.Errorf("week: agents for label %s: %w", loc.Label, err)
 	}
-	summary.LastAgent = agent
+	summary.Agents = agentSummaries(acts)
+	if len(acts) > 0 {
+		summary.LastAgent = acts[0].Agent
+	}
 
 	var attention []AttentionItem
 	handoff, hasHandoff, err := st.HandoffForLabel(home, loc.Label, git, workspaces)
@@ -638,6 +679,11 @@ func buildHomeLabelProject(st *store.Store, home string, loc store.ActiveWorkLoc
 	}
 	if hasHandoff {
 		summary.HandoffID = handoff.ID
+		agent, err := st.SessionAgent(handoff.SessionID)
+		if err != nil {
+			return ProjectSummary{}, nil, err
+		}
+		summary.HandoffAgent = agent
 		summary.HandoffFirstLine = firstLine(handoff.Text)
 		summary.HandoffNext = handoffNext(handoff)
 

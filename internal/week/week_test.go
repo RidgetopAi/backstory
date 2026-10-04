@@ -767,3 +767,117 @@ func TestExcludedLocationsRemainReadableInStore(t *testing.T) {
 		t.Errorf("records for tombstoned dir = %d (err %v), want 1", len(recs), err)
 	}
 }
+
+// --- task 3a5f9a02: per-folder agents[] ---
+
+func startAgentSession(t *testing.T, st *store.Store, id, agent, key, cwd string, startedAt time.Time) string {
+	t.Helper()
+	upsertProject(t, st, key, cwd)
+	sid, err := st.StartSession(store.StartSessionParams{
+		ID: id, Agent: agent, CWD: cwd, ProjectKey: key, StartedAt: startedAt, Origin: store.OriginLive,
+	})
+	if err != nil {
+		t.Fatalf("StartSession(%s): %v", id, err)
+	}
+	return sid
+}
+
+func rowByKey(t *testing.T, res Result, key string) ProjectSummary {
+	t.Helper()
+	for _, row := range res.WhereLeftOff {
+		if row.Group == "" && row.Project.ProjectKey == key {
+			return row.Project
+		}
+		for _, c := range row.Children {
+			if c.ProjectKey == key {
+				return c
+			}
+		}
+	}
+	t.Fatalf("no where_left_off row for %s: %+v", key, res.WhereLeftOff)
+	return ProjectSummary{}
+}
+
+// A folder with claude (oldest), pi and hermes (newest) sessions lists them
+// newest first with per-agent last_activity and session_count; zero-length
+// 'unknown' sessions newer than all of them appear nowhere and never become
+// last_agent.
+func TestBuildAgentsNewestFirstKnownHarnessesOnly(t *testing.T) {
+	st := openTestStore(t)
+	const key, cwd = "proj-agents", "/home/brian/proj-agents"
+	type sess struct {
+		id, agent string
+		at        time.Duration
+	}
+	for _, s := range []sess{
+		{"claude-old", "claude", -5 * time.Hour},
+		{"claude-mid", "claude", -4 * time.Hour},
+		{"pi-1", "pi", -3 * time.Hour},
+		{"hermes-1", "hermes", -2 * time.Hour},
+	} {
+		sid := startAgentSession(t, st, s.id, s.agent, key, cwd, fixtureNow.Add(s.at))
+		appendEvent(t, st, store.Event{TS: fixtureNow.Add(s.at + time.Minute), Kind: "tool.use", SessionID: sid, Source: "shell", Payload: `{"name":"Read","path":"a.txt"}`})
+	}
+	for i := 0; i < 3; i++ { // zero-length, newer than everything
+		startAgentSession(t, st, fmt.Sprintf("unknown-%d", i), "unknown", key, cwd, fixtureNow.Add(-time.Duration(i+1)*time.Minute))
+	}
+
+	res, err := Build(Params{Store: st, Now: fixtureNow})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	row := rowByKey(t, res, key)
+	want := []AgentSummary{
+		{Agent: "hermes", LastActivity: fixtureNow.Add(-2*time.Hour + time.Minute), SessionCount: 1},
+		{Agent: "pi", LastActivity: fixtureNow.Add(-3*time.Hour + time.Minute), SessionCount: 1},
+		{Agent: "claude", LastActivity: fixtureNow.Add(-4*time.Hour + time.Minute), SessionCount: 2},
+	}
+	if len(row.Agents) != len(want) {
+		t.Fatalf("agents = %+v, want %+v", row.Agents, want)
+	}
+	for i, w := range want {
+		g := row.Agents[i]
+		if g.Agent != w.Agent || !g.LastActivity.Equal(w.LastActivity) || g.SessionCount != w.SessionCount {
+			t.Errorf("agents[%d] = %+v, want %+v", i, g, w)
+		}
+	}
+	if row.LastAgent != "hermes" {
+		t.Errorf("LastAgent = %q, want hermes", row.LastAgent)
+	}
+}
+
+// Tie-break regression: the workspace row's newest session is hermes with a
+// pi session 7 minutes older; last_agent follows last_activity.
+func TestBuildWorkspaceRowLastAgentMatchesLastActivity(t *testing.T) {
+	d := newDesk(t)
+	wsKey := "workspace:" + d.workspace
+	main := filepath.Join(d.workspace, "vidflow", "main.go")
+	newest := fixtureNow.Add(-20 * time.Minute)
+	for _, s := range []struct {
+		id, agent string
+		at        time.Time
+	}{
+		{"pi-ws", "pi", newest.Add(-7 * time.Minute)},
+		{"hermes-ws", "hermes", newest},
+	} {
+		sid := startAgentSession(t, d.st, s.id, s.agent, wsKey, d.workspace, s.at)
+		appendEvent(t, d.st, store.Event{TS: s.at, Kind: "tool.use", SessionID: sid, Source: "shell", Payload: fmt.Sprintf(`{"name":"Write","path":%q}`, main)})
+	}
+	res := d.build(t, d.rules)
+	var row *ProjectSummary
+	for _, r := range res.WhereLeftOff {
+		if r.Group == "" && strings.HasPrefix(r.Project.ProjectKey, "workspace:") {
+			p := r.Project
+			row = &p
+		}
+	}
+	if row == nil {
+		t.Fatalf("no workspace row: %+v", res.WhereLeftOff)
+	}
+	if row.LastAgent != "hermes" {
+		t.Errorf("LastAgent = %q, want hermes (agents %+v)", row.LastAgent, row.Agents)
+	}
+	if len(row.Agents) == 0 || !row.Agents[0].LastActivity.Equal(row.LastActivity) {
+		t.Errorf("agents[0] = %+v, row last_activity = %v", row.Agents, row.LastActivity)
+	}
+}
