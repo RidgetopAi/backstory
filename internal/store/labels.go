@@ -117,6 +117,10 @@ type ActiveWorkLocation struct {
 	Dir          string
 	LastActivity time.Time
 	SessionIDs   []string
+	// AgentSessionIDs is every session attributed to the label, including
+	// those keep rejected: agents[] counts them all (decision 7026e48e),
+	// while SessionIDs/LastActivity and row inclusion use only kept ones.
+	AgentSessionIDs []string
 }
 
 // ActiveHomeLabels returns every work-location label (sessionLabels) with
@@ -132,15 +136,15 @@ func (s *Store) ActiveHomeLabels(home string, since, asOf time.Time, git project
 	}
 
 	byLabel := map[string]*ActiveWorkLocation{}
+	keptLabel := map[string]bool{}
 	for _, sess := range sessions {
+		kept := true
 		if keep != nil {
 			ok, err := keep(sess)
 			if err != nil {
 				return nil, fmt.Errorf("store: active home labels for %s: %w", home, err)
 			}
-			if !ok {
-				continue
-			}
+			kept = ok
 		}
 		last, ok, err := s.sessionLastActivity(sess, asOf)
 		if err != nil {
@@ -159,6 +163,11 @@ func (s *Store) ActiveHomeLabels(home string, since, asOf time.Time, git project
 				loc = &ActiveWorkLocation{Label: label, Dir: dir}
 				byLabel[label] = loc
 			}
+			loc.AgentSessionIDs = append(loc.AgentSessionIDs, sess.ID)
+			if !kept {
+				continue
+			}
+			keptLabel[label] = true
 			loc.SessionIDs = append(loc.SessionIDs, sess.ID)
 			if last.After(loc.LastActivity) {
 				loc.LastActivity = last
@@ -167,8 +176,12 @@ func (s *Store) ActiveHomeLabels(home string, since, asOf time.Time, git project
 	}
 
 	out := make([]ActiveWorkLocation, 0, len(byLabel))
-	for _, loc := range byLabel {
+	for label, loc := range byLabel {
+		if !keptLabel[label] {
+			continue
+		}
 		sort.Strings(loc.SessionIDs)
+		sort.Strings(loc.AgentSessionIDs)
 		out = append(out, *loc)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Label < out[j].Label })
