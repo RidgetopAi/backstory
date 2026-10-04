@@ -5,10 +5,19 @@ GO      ?= go
 
 QMLTESTRUNNER ?= qmltestrunner
 
-.PHONY: build fmt-check vet lint test integration panel-qml-test check release-check clean
+.PHONY: install uninstall build fmt-check vet lint test integration panel-qml-test check release-check clean
 
 build:
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-s -w -X $(MODULE)/internal/version.Version=$(VERSION)" -o $(BIN) ./cmd/backstory
+
+# install: binary -> ~/.local/bin, user unit, hypr keybind file, Omarchy panel
+# plugin; first install and upgrade alike (ops/install.sh). HOME and
+# XDG_CONFIG_HOME pick the target; uninstall leaves the memory store alone.
+install: build
+	./ops/install.sh install $(BIN)
+
+uninstall:
+	./ops/install.sh uninstall
 
 fmt-check:
 	@out="$$(gofmt -l .)"; if [ -n "$$out" ]; then echo "gofmt: files need formatting:"; echo "$$out"; exit 1; fi
