@@ -52,7 +52,7 @@ func seed(t *testing.T) (*store.Store, time.Time) {
 
 func readRecord(t *testing.T, path string) Record {
 	t.Helper()
-	b, err := os.ReadFile(path)
+	b, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestWriteOnceFixtureXDGStateHome(t *testing.T) {
 		t.Fatal(err)
 	}
 	path := filepath.Join(state, "omarchy", "agents", "usage", "backstory.json")
-	b, err := os.ReadFile(path)
+	b, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +147,7 @@ func TestWriteModeAndFailureLeavesPreviousIntact(t *testing.T) {
 	if fi.Mode().Perm() != 0o600 {
 		t.Errorf("mode = %v, want 0600", fi.Mode().Perm())
 	}
-	before, _ := os.ReadFile(path)
+	before, _ := os.ReadFile(filepath.Clean(path))
 
 	orig := writeTempData
 	writeTempData = func(f *os.File, data []byte) error {
@@ -158,7 +158,7 @@ func TestWriteModeAndFailureLeavesPreviousIntact(t *testing.T) {
 	if err := WriteOnce(Config{Store: st}); err == nil {
 		t.Fatal("want write error")
 	}
-	after, _ := os.ReadFile(path)
+	after, _ := os.ReadFile(filepath.Clean(path))
 	if string(before) != string(after) {
 		t.Error("previous content changed after failed write")
 	}
