@@ -397,7 +397,22 @@ func importSession(st *store.Store, db *sql.DB, git project.Git, workspaces []st
 		active = append(active, m)
 	}
 
+	// attachedLive: this Hermes session is still being captured live (origin
+	// 'live', same harness session id) — attach to it instead of minting a
+	// second, backfilled session for the same run, exactly like the Claude
+	// and Pi importers. The live session already carries its own
+	// session.start, and its end-of-life belongs to the daemon alone.
+	attachedLive := false
 	if !exists {
+		if live, ok, err := st.LiveSessionByHarnessSessionID(hs.ID); err != nil {
+			return err
+		} else if ok {
+			sessionID = live.ID
+			attachedLive = true
+		}
+	}
+
+	if !exists && !attachedLive {
 		sessionID, err = createSession(st, git, workspaces, hs, parentSessionID)
 		if err != nil {
 			return err
@@ -426,7 +441,13 @@ func importSession(st *store.Store, db *sql.DB, git project.Git, workspaces []st
 		lastMsgID = msgs[len(msgs)-1].ID
 	}
 
-	if !ended && hs.EndedAt != nil {
+	// Re-check origin every run: a cursor attached to a live session must
+	// never end it either, and a session the daemon ended is already ended.
+	origin, err := st.SessionOrigin(sessionID)
+	if err != nil {
+		return err
+	}
+	if !ended && hs.EndedAt != nil && origin != store.OriginLive {
 		endPayload, _ := json.Marshal(payload.SessionEnd{Reason: "eof"})
 		if _, err := st.AppendEvent(store.Event{
 			TS:        *hs.EndedAt,
