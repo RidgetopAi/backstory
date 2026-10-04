@@ -318,3 +318,46 @@ func (s *Store) HandoffLabel(h Record, git project.Git, workspaces []string) (st
 func LabelAndDir(path string, git project.Git, workspaces []string) (label, dir string) {
 	return labelAndDir(path, git, workspaces)
 }
+
+// RootHandoffs is the workspace-root RESUME lookup (decision 7a2556b6,
+// narrowing f3fa04c7's read side). Handoffs are stored under the home key
+// whichever session wrote them, so the root must not serve the newest one
+// blindly: it would resume another project's work. Scanning home's handoffs
+// newest-first (capped at maxHandoffScanForLabel), it returns:
+//   - own: the newest handoff whose WRITING session's own project_key is
+//     home itself (written at the root, or from a non-git direct child that
+//     shares the root's key); found reports whether one exists.
+//   - others: one entry per other project key that has a live handoff, in
+//     newest-first order, each carrying that project's latest handoff.
+//
+// Handoffs with no session, or whose session row is gone, belong to nobody
+// and are skipped.
+func (s *Store) RootHandoffs(home string) (own Record, found bool, others []Record, err error) {
+	handoffs, err := s.RecordsForProject(home, KindHandoff, maxHandoffScanForLabel)
+	if err != nil {
+		return Record{}, false, nil, fmt.Errorf("store: root handoffs in %s: %w", home, err)
+	}
+	home = s.canonicalizeProjectKey(home)
+	seen := map[string]bool{}
+	for _, h := range handoffs {
+		if h.SessionID == "" {
+			continue
+		}
+		sess, err := s.getSession(h.SessionID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			return Record{}, false, nil, fmt.Errorf("store: root handoffs in %s: %w", home, err)
+		}
+		if sess.ProjectKey == home {
+			return h, true, nil, nil
+		}
+		if sess.ProjectKey == "" || seen[sess.ProjectKey] {
+			continue
+		}
+		seen[sess.ProjectKey] = true
+		others = append(others, h)
+	}
+	return Record{}, false, others, nil
+}

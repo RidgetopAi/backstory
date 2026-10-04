@@ -95,7 +95,7 @@ func Render(p Params) (string, error) {
 		p.Now = time.Now()
 	}
 
-	handoff, hasHandoff, resumeLabel, err := resolveResumeHandoff(p.Store, p.ProjectKey, p.CWD, p.Git, p.WorkspaceDirs)
+	handoff, hasHandoff, resumeLabel, pointer, err := resolveResumeHandoff(p.Store, p.ProjectKey, p.CWD, p.Git, p.WorkspaceDirs)
 	if err != nil {
 		return "", fmt.Errorf("block: resolve resume handoff: %w", err)
 	}
@@ -132,6 +132,9 @@ func Render(p Params) (string, error) {
 	}
 
 	slot1 := resumeSlot(handoff, hasHandoff, staleReasons, resumeLabel)
+	if !hasHandoff {
+		slot1 = pointer
+	}
 	slot2 := deltaSlot(deltaEvents)
 	slot3 := coordinationSlot(liveSessions, allEvents, p.SessionID, p.ProcFS)
 	slot4 := attentionSlot(draftCount, contradictionCount, len(staleReasons) > 0)
@@ -173,23 +176,30 @@ func resumeSlot(rec store.Record, ok bool, staleReasons []store.FreshnessReason,
 	return line
 }
 
-// resolveResumeHandoff is decision f3fa04c7's RESUME rule: inside a repo
-// under a workspace, the newest non-tombstoned handoff in the home whose
-// session's labels include that repo (no label shown — the caller is
-// already inside it); at the workspace root itself, the newest handoff in
-// the home, WITH its own session's label on the Resume line; with no
-// workspace involved at all (cwd empty, or outside every configured
+// maxPointerProjects caps how many projects the workspace-root pointer line
+// names before it collapses the rest into "+N more".
+const maxPointerProjects = 3
+
+// resolveResumeHandoff is decision f3fa04c7's RESUME rule, read side
+// narrowed by decision 7a2556b6: inside a repo under a workspace, the
+// newest non-tombstoned handoff in the home whose session's labels include
+// that repo (no label shown — the caller is already inside it); at the
+// workspace root itself, the newest handoff WRITTEN FROM the root (its
+// session's own project_key is the home), with its session's label on the
+// Resume line — and when none exists, no handoff body but a one-line
+// pointer (returned as the string) naming the projects that have one; with
+// no workspace involved at all (cwd empty, or outside every configured
 // workspace), the pre-f3fa04c7 behavior — the newest handoff for
 // projectKey, unchanged, no label.
-func resolveResumeHandoff(st *store.Store, projectKey, cwd string, git project.Git, workspaces []string) (store.Record, bool, string, error) {
+func resolveResumeHandoff(st *store.Store, projectKey, cwd string, git project.Git, workspaces []string) (store.Record, bool, string, string, error) {
 	if cwd == "" {
 		h, ok, err := st.LatestRecord(projectKey, store.KindHandoff)
-		return h, ok, "", err
+		return h, ok, "", "", err
 	}
 	home, ok := project.WorkspaceHome(cwd, workspaces)
 	if !ok {
 		h, ok, err := st.LatestRecord(projectKey, store.KindHandoff)
-		return h, ok, "", err
+		return h, ok, "", "", err
 	}
 
 	if home != projectKey {
@@ -198,20 +208,52 @@ func resolveResumeHandoff(st *store.Store, projectKey, cwd string, git project.G
 		// repo.
 		label := project.Label(cwd, git, workspaces)
 		h, found, err := st.HandoffForLabel(home, label, git, workspaces)
-		return h, found, "", err
+		return h, found, "", "", err
 	}
 
-	// At the workspace root itself: the newest handoff in the home, with
-	// its own session's label shown.
-	h, found, err := st.LatestRecord(home, store.KindHandoff)
-	if err != nil || !found {
-		return h, found, "", err
+	// At the workspace root itself: only handoffs written from the root.
+	h, found, others, err := st.RootHandoffs(home)
+	if err != nil {
+		return store.Record{}, false, "", "", fmt.Errorf("block: root handoffs: %w", err)
+	}
+	if !found {
+		pointer, err := projectPointerLine(st, others, git, workspaces)
+		return store.Record{}, false, "", pointer, err
 	}
 	label, err := st.HandoffLabel(h, git, workspaces)
 	if err != nil {
-		return store.Record{}, false, "", fmt.Errorf("block: resume handoff label: %w", err)
+		return store.Record{}, false, "", "", fmt.Errorf("block: resume handoff label: %w", err)
 	}
-	return h, true, label, nil
+	return h, true, label, "", nil
+}
+
+// projectPointerLine renders the one-line stand-in for a root resume with no
+// root-written handoff: each project (by label) with its latest handoff id,
+// capped at maxPointerProjects then "+N more". Empty when there are none.
+func projectPointerLine(st *store.Store, others []store.Record, git project.Git, workspaces []string) (string, error) {
+	if len(others) == 0 {
+		return "", nil
+	}
+	shown := others
+	if len(shown) > maxPointerProjects {
+		shown = shown[:maxPointerProjects]
+	}
+	parts := make([]string, 0, len(shown))
+	for _, h := range shown {
+		label, err := st.HandoffLabel(h, git, workspaces)
+		if err != nil {
+			return "", fmt.Errorf("block: pointer handoff label: %w", err)
+		}
+		if label == "" {
+			label = "(unlabelled)"
+		}
+		parts = append(parts, label+" (id "+h.ID+")")
+	}
+	line := "Handoffs exist in projects under this workspace (none written here): " + strings.Join(parts, "; ")
+	if extra := len(others) - len(shown); extra > 0 {
+		line += fmt.Sprintf("; +%d more", extra)
+	}
+	return line, nil
 }
 
 // staleMarker renders the Resume slot's possibly-stale marker (decision
