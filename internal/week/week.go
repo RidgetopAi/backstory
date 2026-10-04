@@ -663,7 +663,7 @@ func buildHomeLabelProject(st *store.Store, home string, since, now time.Time, l
 		LastActivity: loc.LastActivity,
 	}
 
-	acts, err := st.AgentActivityForSessions(loc.SessionIDs, since, now)
+	acts, err := st.AgentActivityForSessions(loc.AgentSessionIDs, since, now)
 	if err != nil {
 		return ProjectSummary{}, nil, fmt.Errorf("week: agents for label %s: %w", loc.Label, err)
 	}

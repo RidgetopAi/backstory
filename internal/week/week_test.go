@@ -881,3 +881,88 @@ func TestBuildWorkspaceRowLastAgentMatchesLastActivity(t *testing.T) {
 		t.Errorf("agents[0] = %+v, row last_activity = %v", row.Agents, row.LastActivity)
 	}
 }
+
+// --- task b104bf31: workspace agents[] counts every known-harness session ---
+
+func wsRows(res Result) []ProjectSummary {
+	var out []ProjectSummary
+	for _, r := range res.WhereLeftOff {
+		if r.Group == "" && strings.HasPrefix(r.Project.ProjectKey, "workspace:") {
+			out = append(out, r.Project)
+		}
+	}
+	return out
+}
+
+// A pi session with tool work and a newer hermes session with only
+// session.start/end, both keyed to the workspace: the row lists both agents
+// and last_agent is hermes.
+func TestBuildWorkspaceAgentsIncludeNoToolSessions(t *testing.T) {
+	d := newDesk(t)
+	wsKey := "workspace:" + d.workspace
+	at := fixtureNow.Add(-3 * time.Hour)
+	pi := startAgentSession(t, d.st, "pi-ws-work", "pi", wsKey, d.workspace, at)
+	appendEvent(t, d.st, store.Event{TS: at, Kind: "tool.use", SessionID: pi, Source: "shell", Payload: fmt.Sprintf(`{"name":"Write","path":%q}`, filepath.Join(d.workspace, "notes.md"))})
+	hAt := fixtureNow.Add(-10 * time.Minute)
+	h := startAgentSession(t, d.st, "hermes-ws-chat", "hermes", wsKey, d.workspace, hAt)
+	appendEvent(t, d.st, store.Event{TS: hAt, Kind: "session.start", SessionID: h, Source: "shell", Payload: `{}`})
+	appendEvent(t, d.st, store.Event{TS: hAt.Add(time.Minute), Kind: "session.end", SessionID: h, Source: "shell", Payload: `{}`})
+
+	rows := wsRows(d.build(t, d.rules))
+	if len(rows) != 1 {
+		t.Fatalf("workspace rows = %+v, want 1", rows)
+	}
+	row := rows[0]
+	if len(row.Agents) != 2 || row.Agents[0].Agent != "hermes" || row.Agents[1].Agent != "pi" {
+		t.Errorf("agents = %+v, want [hermes pi]", row.Agents)
+	}
+	if row.LastAgent != "hermes" {
+		t.Errorf("LastAgent = %q, want hermes", row.LastAgent)
+	}
+}
+
+// One rule for both row types: a no-tool hermes session counts once on a
+// repo row and once on a workspace row.
+func TestBuildHermesNoToolSessionCountSameForRepoAndWorkspaceRows(t *testing.T) {
+	d := newDesk(t)
+	wsKey := "workspace:" + d.workspace
+	pi := startAgentSession(t, d.st, "pi-ws-work", "pi", wsKey, d.workspace, fixtureNow.Add(-3*time.Hour))
+	appendEvent(t, d.st, store.Event{TS: fixtureNow.Add(-3 * time.Hour), Kind: "tool.use", SessionID: pi, Source: "shell", Payload: fmt.Sprintf(`{"name":"Write","path":%q}`, filepath.Join(d.workspace, "notes.md"))})
+	startAgentSession(t, d.st, "hermes-ws-chat", "hermes", wsKey, d.workspace, fixtureNow.Add(-20*time.Minute))
+	startAgentSession(t, d.st, "hermes-repo-chat", "hermes", d.repo, d.repo, fixtureNow.Add(-10*time.Minute))
+
+	res := d.build(t, d.rules)
+	count := func(agents []AgentSummary) int {
+		for _, a := range agents {
+			if a.Agent == "hermes" {
+				return a.SessionCount
+			}
+		}
+		return 0
+	}
+	rows := wsRows(res)
+	if len(rows) != 1 {
+		t.Fatalf("workspace rows = %+v, want 1", rows)
+	}
+	repoRow := rowByKey(t, res, d.repo)
+	if w, r := count(rows[0].Agents), count(repoRow.Agents); w != 1 || r != 1 {
+		t.Errorf("hermes session_count workspace=%d repo=%d, want 1 and 1", w, r)
+	}
+}
+
+// Row inclusion is unchanged: a label whose only sessions did no real work
+// produces no row.
+func TestBuildWorkspaceLabelWithOnlyNoWorkSessionsHasNoRow(t *testing.T) {
+	d := newDesk(t)
+	wsKey := "workspace:" + d.workspace
+	cwd := filepath.Join(d.workspace, "idle-folder")
+	h := startAgentSession(t, d.st, "hermes-idle", "hermes", wsKey, cwd, fixtureNow.Add(-10*time.Minute))
+	appendEvent(t, d.st, store.Event{TS: fixtureNow.Add(-9 * time.Minute), Kind: "session.end", SessionID: h, Source: "shell", Payload: `{}`})
+
+	res := d.build(t, d.rules)
+	for _, r := range res.WhereLeftOff {
+		if r.Project.DisplayName == "idle-folder" || strings.Contains(r.Project.CWD, "idle-folder") {
+			t.Errorf("unexpected row for no-work label: %+v", r.Project)
+		}
+	}
+}
