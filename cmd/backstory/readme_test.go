@@ -160,3 +160,39 @@ func TestReadmeUninstallCommandsExist(t *testing.T) {
 		t.Error("bashrc path constant changed; README must be revisited")
 	}
 }
+
+// TestReadmeInstallAndUpdateCommands pins task 87833ae6: the Install from
+// source and Updating sections name make install, and every `backstory
+// <subcommand>` they run exists in the CLI's dispatch table.
+func TestReadmeInstallAndUpdateCommands(t *testing.T) {
+	b, err := os.ReadFile("../../README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	readme := string(b)
+	inst := readmeSection(t, readme, "Install from source")
+	for _, want := range []string{"git clone", "git checkout <tag>", "make install", "Prerequisites", "open the panel"} {
+		if !strings.Contains(inst, want) {
+			t.Errorf("Install section lacks %q", want)
+		}
+	}
+	upd := readmeSection(t, readme, "Updating")
+	for _, want := range []string{"git fetch --tags", "git checkout <new tag>", "make install", "backstory version"} {
+		if !strings.Contains(upd, want) {
+			t.Errorf("Updating section lacks %q", want)
+		}
+	}
+	cmdRe := regexp.MustCompile("(?m)^backstory (\\S+)")
+	for _, sec := range []string{inst, upd} {
+		for _, m := range cmdRe.FindAllStringSubmatch(sec, -1) {
+			var out, errb strings.Builder
+			run([]string{m[1], "--help"}, strings.NewReader(""), &out, &errb)
+			if strings.Contains(errb.String(), "unknown command") {
+				t.Errorf("README names `backstory %s`, which main.go does not dispatch", m[1])
+			}
+		}
+	}
+	if !regexp.MustCompile("(?m)^make install$").MatchString(inst) {
+		t.Error("Install section lacks a bare `make install` line")
+	}
+}
