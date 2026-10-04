@@ -369,7 +369,7 @@ func (s *Store) TombstoneRecord(id string, identity Identity) error {
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("store: tombstone record %s: %w", id, err)
 	}
-	return nil
+	return s.checkpointTruncate()
 }
 
 // tombstoneRecordTx is TombstoneRecord's body inside the caller's
@@ -391,6 +391,12 @@ func tombstoneRecordTx(tx *sql.Tx, id string) error {
 	}
 	if tombstonedAt.Valid {
 		return nil
+	}
+	// FTS5 secure-delete (SQLite >= 3.42; modernc v1.59 bundles newer) makes
+	// the 'delete' below zero the doc's terms in the index segments instead
+	// of leaving them until a merge. The option persists in records_fts_config.
+	if _, err := tx.Exec(`INSERT INTO records_fts(records_fts, rank) VALUES('secure-delete', 1)`); err != nil {
+		return fmt.Errorf("store: tombstone record %s: enable fts secure-delete: %w", id, err)
 	}
 	if _, err := tx.Exec(`INSERT INTO records_fts(records_fts, rowid, text) VALUES('delete', ?, ?)`,
 		rowid, text); err != nil {

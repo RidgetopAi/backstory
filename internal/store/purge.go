@@ -243,6 +243,9 @@ func (s *Store) PurgeSessions(sc PurgeScope, identity Identity) (PurgeCounts, er
 	if err := tx.Commit(); err != nil {
 		return PurgeCounts{}, fmt.Errorf("store: purge: %w", err)
 	}
+	if err := s.checkpointTruncate(); err != nil {
+		return PurgeCounts{}, err
+	}
 	return PurgeCounts{Sessions: len(ids), Events: n, Records: len(recIDs)}, nil
 }
 

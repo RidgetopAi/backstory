@@ -98,6 +98,9 @@ func dsn(path string) string {
 	q.Add("_pragma", "journal_mode(WAL)")
 	q.Add("_pragma", "foreign_keys(ON)")
 	q.Add("_pragma", "busy_timeout(5000)")
+	// secure_delete zeroes freed cells and pages, so a deleted/purged row's
+	// text does not linger in the file (DELETE FORGETS, decision 02c511b3).
+	q.Add("_pragma", "secure_delete(ON)")
 	q.Add("_txlock", "immediate")
 	return "file:" + path + "?" + q.Encode()
 }
@@ -122,6 +125,18 @@ func (s *Store) Version() (int, error) {
 func (s *Store) Close() error {
 	if err := s.db.Close(); err != nil {
 		return fmt.Errorf("store: close: %w", err)
+	}
+	return nil
+}
+
+// checkpointTruncate folds the WAL into the main file and truncates it, so
+// the WAL does not keep pre-delete page images after a human delete or
+// purge. Best-effort on contention: a concurrent reader can hold the
+// checkpoint short (SQLite reports it in the result row, not as an error),
+// and the delete itself has already committed.
+func (s *Store) checkpointTruncate() error {
+	if _, err := s.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`); err != nil {
+		return fmt.Errorf("store: wal checkpoint: %w", err)
 	}
 	return nil
 }
