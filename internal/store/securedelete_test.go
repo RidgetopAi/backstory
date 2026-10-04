@@ -14,7 +14,7 @@ func rawMarkerCount(t *testing.T, dbPath, marker string) int {
 	t.Helper()
 	n := 0
 	for _, p := range []string{dbPath, dbPath + "-wal"} {
-		b, err := os.ReadFile(p)
+		b, err := os.ReadFile(p) //nolint:gosec // test reads its own temp-dir DB
 		if os.IsNotExist(err) {
 			continue
 		}
