@@ -68,3 +68,16 @@ func TestHygieneCheckPassesOnCleanTree(t *testing.T) {
 		t.Fatalf("clean tree should exit 0, got %v\n%s", err, out)
 	}
 }
+
+// TestMakeCheckRunsHygieneCheck locks the wiring: `make check` must invoke
+// the hygiene script, so unwiring the guard fails the suite.
+func TestMakeCheckRunsHygieneCheck(t *testing.T) {
+	cmd := exec.Command("make", "-n", "-C", "..", "check") //nolint:gosec // fixed literals
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("make -n check: %v\n%s", err, out)
+	}
+	if !strings.Contains(string(out), "ops/hygiene-check.sh") {
+		t.Fatalf("make check does not run ops/hygiene-check.sh:\n%s", out)
+	}
+}
