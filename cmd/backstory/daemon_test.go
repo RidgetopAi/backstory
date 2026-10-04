@@ -148,12 +148,24 @@ func TestDaemonStartsAcceptsConnectionExitsOnSIGTERM(t *testing.T) {
 	sockPath := filepath.Join(runtimeDir, "backstory", "sock")
 	waitForFile(t, sockPath, 2*time.Second)
 
-	sockInfo, err := os.Stat(sockPath)
-	if err != nil {
-		t.Fatalf("stat socket: %v", err)
+	// The socket file appears at bind time (umask mode) and is chmodded to
+	// 0600 immediately after; the parent dir is 0700 so nothing is exposed
+	// in between. Poll for the final mode instead of racing the chmod.
+	var gotMode os.FileMode
+	modeDeadline := time.Now().Add(2 * time.Second)
+	for {
+		sockInfo, err := os.Stat(sockPath)
+		if err != nil {
+			t.Fatalf("stat socket: %v", err)
+		}
+		gotMode = sockInfo.Mode().Perm()
+		if gotMode == 0o600 || time.Now().After(modeDeadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	if got := sockInfo.Mode().Perm(); got != 0o600 {
-		t.Errorf("socket mode = %04o, want 0600", got)
+	if gotMode != 0o600 {
+		t.Errorf("socket mode = %04o, want 0600", gotMode)
 	}
 
 	conn, err := net.Dial("unix", sockPath)
