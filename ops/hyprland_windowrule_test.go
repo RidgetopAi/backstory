@@ -2,9 +2,49 @@ package ops
 
 import (
 	"os"
+	"os/exec"
 	"regexp"
+	"strings"
 	"testing"
 )
+
+// panelBind is the panel toggle (Brian's call 2026-10-04): CTRL+SHIFT+B,
+// because SUPER+SHIFT+B is Omarchy's stock Browser bind.
+const panelBind = "CTRL + SHIFT + B"
+
+func TestHyprlandBindsPanelToggleToCtrlShiftB(t *testing.T) {
+	raw, err := os.ReadFile("hyprland/backstory.lua")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `local BACKSTORY_BIND = "` + panelBind + `"`
+	if !strings.Contains(string(raw), want) {
+		t.Errorf("hyprland/backstory.lua lacks %s", want)
+	}
+}
+
+// No tracked file but the CHANGELOG (history) may still pair the old Omarchy
+// Browser bind with Backstory. The pattern is assembled so this file does not
+// match itself.
+func TestNoTrackedFileStillNamesOldBind(t *testing.T) {
+	old := regexp.MustCompile(`(?i)super\s*\+\s*shift\s*\+\s*b\b`)
+	out, err := exec.Command("git", "ls-files", "-z").Output()
+	if err != nil {
+		t.Fatalf("git ls-files: %v", err)
+	}
+	for _, rel := range strings.Split(strings.TrimRight(string(out), "\x00"), "\x00") {
+		if rel == "CHANGELOG.md" || rel == "" {
+			continue
+		}
+		b, err := os.ReadFile("../" + rel) //nolint:gosec // tracked path in this repo
+		if err != nil {
+			continue // deleted in the working tree, or a directory entry
+		}
+		if loc := old.FindIndex(b); loc != nil {
+			t.Errorf("%s still names the old bind %q", rel, b[loc[0]:loc[1]])
+		}
+	}
+}
 
 // TestHyprlandWindowruleMatchesPanelClass pins tasks 93f7c6fd/2606210b: the
 // shipped Lua windowrule floats and sizes the window, matching class

@@ -5,7 +5,7 @@ GO      ?= go
 
 QMLTESTRUNNER ?= qmltestrunner
 
-.PHONY: install uninstall build fmt-check vet lint test integration panel-qml-test check hygiene-check release-check clean
+.PHONY: check-go install uninstall build fmt-check vet lint test integration panel-qml-test check hygiene-check release-check clean
 
 build:
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags "-s -w -X $(MODULE)/internal/version.Version=$(VERSION)" -o $(BIN) ./cmd/backstory
@@ -13,8 +13,12 @@ build:
 # install: binary -> ~/.local/bin, user unit, hypr keybind file, Omarchy panel
 # plugin; first install and upgrade alike (ops/install.sh). HOME and
 # XDG_CONFIG_HOME pick the target; uninstall leaves the memory store alone.
-install: build
+install: check-go build
 	./ops/install.sh install $(BIN)
+
+# check-go fails before anything is built when Go is missing or older than go.mod's.
+check-go:
+	./ops/install.sh check-go $(GO)
 
 uninstall:
 	./ops/install.sh uninstall

@@ -113,7 +113,7 @@ func (s *Server) callTimeline(args json.RawMessage) (json.RawMessage, *RPCError)
 // connection, re-dials once, and retries the same request once before
 // surfacing an error (task 40008eea).
 func (s *Server) callDaemon(method string, params json.RawMessage) (json.RawMessage, *RPCError) {
-	req := DaemonRequest{Method: method, Params: params}
+	req := DaemonRequest{Method: method, Params: params, NoSession: s.noSession && noSessionMethods[method]}
 	b, err := json.Marshal(req)
 	if err != nil {
 		return nil, &RPCError{Code: CodeInternal, Message: err.Error()}

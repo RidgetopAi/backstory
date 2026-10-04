@@ -5,6 +5,7 @@
 # user's hyprland.lua — it installs ops/hyprland/backstory.lua beside it and
 # prints the one line to add.
 #
+#   install.sh check-go  [GO]        (fail early when Go is older than go.mod's)
 #   install.sh install   BUILT_BINARY   (a built backstory binary)
 #   install.sh uninstall
 set -eu
@@ -26,6 +27,72 @@ HYPR_LINE='require("hypr.backstory")'
 LOCK_PROC="${BACKSTORY_LOCK_PROC:-hyprlock}"
 
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
+
+# Daemon health check after install: poll `backstory status` until it answers,
+# each attempt bounded by HEALTH_ATTEMPT_TIMEOUT, the whole wait by
+# HEALTH_TIMEOUT (seconds).
+HEALTH_TIMEOUT="${BACKSTORY_HEALTH_TIMEOUT:-10}"
+HEALTH_ATTEMPT_TIMEOUT="${BACKSTORY_HEALTH_ATTEMPT_TIMEOUT:-2}"
+
+# The installer's own backstory calls must not mint a session or project for
+# the build directory (the daemon honours this for `status`).
+BACKSTORY_NO_SESSION=1
+export BACKSTORY_NO_SESSION
+
+# The panel keybind, as users are told about it.
+PANEL_BIND="CTRL+SHIFT+B"
+
+# Go version go.mod needs, e.g. 1.27.
+required_go() {
+	sed -n 's/^go[[:space:]][[:space:]]*\([0-9][0-9.]*\).*/\1/p' "$SRC/go.mod" | head -n1
+}
+
+do_check_go() {
+	gobin="${1:-go}"
+	need="$(required_go)"
+	have=""
+	if command -v "$gobin" >/dev/null 2>&1; then
+		have="$("$gobin" version 2>/dev/null | sed -n 's/.*go version go\([0-9][0-9.]*\).*/\1/p' | head -n1)"
+	fi
+	if [ -n "$have" ] && [ "$(printf '%s\n%s\n' "$need" "$have" | sort -V | head -n1)" = "$need" ]; then
+		return 0
+	fi
+	if [ -z "$have" ]; then
+		echo "backstory: Go $need or newer is required to build, but no working '$gobin' was found." >&2
+	else
+		echo "backstory: Go $need or newer is required to build, but '$gobin' is go$have." >&2
+	fi
+	echo "Fix: mise use -g go@$need   (mise ships with Omarchy), then re-run make install." >&2
+	return 1
+}
+
+# hyprland_loads_backstory: the user's hyprland.lua already has our require
+# line, uncommented. Read only.
+hyprland_loads_backstory() {
+	[ -f "$HYPR_DIR/hyprland.lua" ] &&
+		grep -Eq "^[[:space:]]*require[[:space:]]*\([[:space:]]*[\"']hypr\.backstory[\"'][[:space:]]*\)" "$HYPR_DIR/hyprland.lua"
+}
+
+# wait_for_daemon: the unit is active and `backstory status` answers within
+# HEALTH_TIMEOUT. Prints the failure line itself.
+wait_for_daemon() {
+	waited=0
+	reason="$APP.service is not active"
+	while :; do
+		if systemctl --user is-active --quiet "$APP"; then
+			if out="$(timeout "$HEALTH_ATTEMPT_TIMEOUT" "$BIN" status 2>&1)"; then
+				return 0
+			fi
+			reason="\`backstory status\` did not answer: $(printf '%s' "$out" | head -n1)"
+		fi
+		[ "$waited" -ge "$HEALTH_TIMEOUT" ] && break
+		sleep 1
+		waited=$((waited + 1))
+	done
+	echo "backstory: the daemon ($APP.service) is not healthy after ${HEALTH_TIMEOUT}s: $reason" >&2
+	echo "backstory: see \`systemctl --user status $APP\` and \`journalctl --user -u $APP\`" >&2
+	return 1
+}
 
 is_backstory_panel() {
 	[ -f "$1/manifest.json" ] && grep -q "\"id\": *\"$PLUGIN_ID\"" "$1/manifest.json"
@@ -69,8 +136,12 @@ do_install() {
 	# Hyprland: the file only; the user's hyprland.lua is theirs.
 	install -Dm644 "$SRC/ops/hyprland/backstory.lua" "$HYPR_FILE"
 	echo "installed $HYPR_FILE"
-	echo "To open the panel on its keybind, add this line to your hyprland.lua:"
-	echo "    $HYPR_LINE"
+	if hyprland_loads_backstory; then
+		echo "keybind already loaded from hyprland.lua"
+	else
+		echo "To open the panel on its keybind, add this line to your hyprland.lua:"
+		echo "    $HYPR_LINE"
+	fi
 
 	# Panel plugin.
 	mkdir -p "$PLUGINS_DIR"
@@ -94,7 +165,10 @@ do_install() {
 	# Harness integrations (upgrades its own outdated files). It exits
 	# non-zero when no harness is detected, which is not an install failure.
 	"$BIN" install || echo "backstory: no agent harness set up (see 'backstory install --help'); continuing"
-	"$BIN" version
+
+	wait_for_daemon || exit 1
+	echo "backstory $("$BIN" version) installed"
+	echo "next: open the panel with $PANEL_BIND; agents get memory on their next session."
 }
 
 do_uninstall() {
@@ -117,7 +191,8 @@ do_uninstall() {
 }
 
 case "${1:-}" in
+check-go) do_check_go "${2:-go}" ;;
 install) do_install "${2:-}" ;;
 uninstall) do_uninstall ;;
-*) echo "usage: install.sh install BINARY | uninstall" >&2; exit 2 ;;
+*) echo "usage: install.sh check-go [GO] | install BINARY | uninstall" >&2; exit 2 ;;
 esac
