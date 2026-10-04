@@ -182,7 +182,7 @@ func TestReadmeInstallAndUpdateCommands(t *testing.T) {
 			t.Errorf("Updating section lacks %q", want)
 		}
 	}
-	cmdRe := regexp.MustCompile("(?m)^backstory (\\S+)")
+	cmdRe := regexp.MustCompile(`(?m)^backstory (\S+)`)
 	for _, sec := range []string{inst, upd} {
 		for _, m := range cmdRe.FindAllStringSubmatch(sec, -1) {
 			var out, errb strings.Builder

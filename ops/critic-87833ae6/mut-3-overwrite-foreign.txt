@@ -1,0 +1,25 @@
+== mut-3-overwrite-foreign
+--- FAIL: TestMakeInstallRefusesForeignPanel (0.54s)
+    install_test.go:292: install over a foreign panel dir succeeded:
+        make: Entering directory '/home/ra-builder/builds/87833ae6'
+        CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -X github.com/RidgetopAi/backstory/internal/version.Version=461b4b7-dirty" -o /tmp/TestMakeInstallRefusesForeignPanel2823692145/001/build/backstory ./cmd/backstory
+        ./ops/install.sh install /tmp/TestMakeInstallRefusesForeignPanel2823692145/001/build/backstory
+        installed /tmp/TestMakeInstallRefusesForeignPanel2823692145/001/home/.local/bin/backstory
+        enabled and started backstory.service
+        installed /tmp/TestMakeInstallRefusesForeignPanel2823692145/001/home/.config/hypr/backstory.lua
+        To open the panel on its keybind, add this line to your hyprland.lua:
+            require("hypr.backstory")
+        previous panel backed up to /tmp/TestMakeInstallRefusesForeignPanel2823692145/001/home/.config/omarchy/plugins/.backstory.this-week.prev
+        installed /tmp/TestMakeInstallRefusesForeignPanel2823692145/001/home/.config/omarchy/plugins/backstory.this-week
+        restarted the Omarchy shell
+        claude: skipped — /tmp/TestMakeInstallRefusesForeignPanel2823692145/001/home/.claude or /tmp/TestMakeInstallRefusesForeignPanel2823692145/001/home/.claude.json not found
+        codex: skipped — /tmp/TestMakeInstallRefusesForeignPanel2823692145/001/home/.codex not found
+        hermes: skipped — /tmp/TestMakeInstallRefusesForeignPanel2823692145/001/home/.hermes not found
+        pi: skipped — /tmp/TestMakeInstallRefusesForeignPanel2823692145/001/home/.pi/agent not found
+        backstory install: no harness detected under /tmp/TestMakeInstallRefusesForeignPanel2823692145/001/home; nothing written. Name one explicitly; valid harnesses: claude, codex, hermes, pi, agents
+        backstory: no agent harness set up (see 'backstory install --help'); continuing
+        461b4b7-dirty
+        make: Leaving directory '/home/ra-builder/builds/87833ae6'
+FAIL
+FAIL	github.com/RidgetopAi/backstory/ops	4.500s
+FAIL

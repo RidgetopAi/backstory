@@ -34,7 +34,7 @@ func newInstallFixture(t *testing.T) *installFixture {
 	}
 	f.cfg = filepath.Join(f.home, ".config")
 	for _, d := range []string{f.home, f.fakes} {
-		if err := os.MkdirAll(d, 0o755); err != nil {
+		if err := os.MkdirAll(d, 0o755); err != nil { //nolint:gosec // fixture path under t.TempDir
 			t.Fatal(err)
 		}
 	}
@@ -48,7 +48,7 @@ exit 0`)
 
 func (f *installFixture) fake(name, body string) {
 	f.t.Helper()
-	if err := os.WriteFile(filepath.Join(f.fakes, name), []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(f.fakes, name), []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil { //nolint:gosec // fixture path under t.TempDir
 		f.t.Fatal(err)
 	}
 }
@@ -57,7 +57,7 @@ func (f *installFixture) flag(name string, on bool) {
 	f.t.Helper()
 	p := filepath.Join(filepath.Dir(f.log), name)
 	if on {
-		if err := os.WriteFile(p, nil, 0o644); err != nil {
+		if err := os.WriteFile(p, nil, 0o644); err != nil { //nolint:gosec // fixture path under t.TempDir
 			f.t.Fatal(err)
 		}
 	} else {
@@ -67,7 +67,7 @@ func (f *installFixture) flag(name string, on bool) {
 
 func goEnv(t *testing.T, key string) string {
 	t.Helper()
-	out, err := exec.Command("go", "env", key).Output()
+	out, err := exec.Command("go", "env", key).Output() //nolint:gosec // fixture path under t.TempDir
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func goEnv(t *testing.T, key string) string {
 // combined output and the exit error.
 func (f *installFixture) make(target string) (string, error) {
 	f.t.Helper()
-	cmd := exec.Command("make", "-C", "..", target, "BIN="+f.binOut)
+	cmd := exec.Command("make", "-C", "..", target, "BIN="+f.binOut) //nolint:gosec // fixture path under t.TempDir
 	cmd.Env = append(os.Environ(),
 		"HOME="+f.home,
 		"XDG_CONFIG_HOME="+f.cfg,
@@ -136,7 +136,7 @@ func treeMap(t *testing.T, dir string) map[string]string {
 			m[rel+"/"] = ""
 			return nil
 		}
-		b, err := os.ReadFile(p)
+		b, err := os.ReadFile(p) //nolint:gosec // fixture path under t.TempDir
 		if err != nil {
 			return err
 		}
@@ -228,7 +228,7 @@ func TestMakeInstallUpgrade(t *testing.T) {
 
 	// A distinguishable previous panel, still a Backstory panel.
 	stale := filepath.Join(f.panelDir(), "stale-from-old-version.qml")
-	if err := os.WriteFile(stale, []byte("old"), 0o644); err != nil {
+	if err := os.WriteFile(stale, []byte("old"), 0o644); err != nil { //nolint:gosec // fixture path under t.TempDir
 		t.Fatal(err)
 	}
 	f.flag("active", true)
@@ -276,13 +276,13 @@ func TestMakeInstallShellRestartHonoursLock(t *testing.T) {
 
 func TestMakeInstallRefusesForeignPanel(t *testing.T) {
 	f := newInstallFixture(t)
-	if err := os.MkdirAll(f.panelDir(), 0o755); err != nil {
+	if err := os.MkdirAll(f.panelDir(), 0o755); err != nil { //nolint:gosec // fixture path under t.TempDir
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(f.panelDir(), "manifest.json"), []byte(`{"id": "someone.else"}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(f.panelDir(), "manifest.json"), []byte(`{"id": "someone.else"}`), 0o644); err != nil { //nolint:gosec // fixture path under t.TempDir
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(f.panelDir(), "mine.txt"), []byte("keep"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(f.panelDir(), "mine.txt"), []byte("keep"), 0o644); err != nil { //nolint:gosec // fixture path under t.TempDir
 		t.Fatal(err)
 	}
 	before := treeMap(t, f.panelDir())
@@ -309,15 +309,15 @@ func TestMakeInstallRefusesForeignPanel(t *testing.T) {
 func TestMakeInstallLeavesHyprlandLuaAlone(t *testing.T) {
 	f := newInstallFixture(t)
 	hl := f.path(".config", "hypr", "hyprland.lua")
-	if err := os.MkdirAll(filepath.Dir(hl), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(hl), 0o755); err != nil { //nolint:gosec // fixture path under t.TempDir
 		t.Fatal(err)
 	}
 	orig := []byte("-- my config\nrequire(\"hypr.other\")\n")
-	if err := os.WriteFile(hl, orig, 0o644); err != nil {
+	if err := os.WriteFile(hl, orig, 0o644); err != nil { //nolint:gosec // fixture path under t.TempDir
 		t.Fatal(err)
 	}
 	out := f.mustMake("install")
-	got, _ := os.ReadFile(hl)
+	got, _ := os.ReadFile(hl) //nolint:gosec // fixture path under t.TempDir
 	if !bytes.Equal(got, orig) {
 		t.Errorf("hyprland.lua was modified:\n%s", got)
 	}
@@ -360,7 +360,7 @@ func TestMakeUninstall(t *testing.T) {
 			t.Errorf("service-manager log lacks %q:\n%s", w, calls)
 		}
 	}
-	if b, err := os.ReadFile(db); err != nil || string(b) != "memory" {
+	if b, err := os.ReadFile(db); err != nil || string(b) != "memory" { //nolint:gosec // fixture path under t.TempDir
 		t.Errorf("store was touched: %v", err)
 	}
 }
