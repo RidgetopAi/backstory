@@ -63,7 +63,7 @@ The marketplace plugin (rung 1 of the ladder) depends on the package. The listed
 
 v1's agent surface is frozen at the five calls the MCP shim exposes: `recall`, `note`,
 `timeline`, `confirm`, `status` (Phase 2's five frozen v0 tools). Shell command capture and
-additional harnesses (Codex, Hermes, Pi, local-model) are still coming for v1. Two things are
+the Codex, Hermes and Pi harnesses have landed; local-model is still coming for v1. Two things are
 explicitly **after v1**, not required to tag:
 
 - Copilot and OpenClaw harness integration.

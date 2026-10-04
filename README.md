@@ -71,6 +71,38 @@ to `~/.bashrc`.
   daemon round trip required; `backstory export` writes a per-project markdown mirror for
   another tool's memory file (Claude auto-memory, Hermes `MEMORY.md`, OpenClaw imports).
 
+## Uninstall
+
+Undo each integration first, while the binary is still on disk:
+
+```
+backstory install claude --remove
+backstory install codex --remove
+backstory install hermes --remove
+backstory install pi --remove
+backstory install bash --remove
+```
+
+Then stop the daemon and remove its unit, the panel plugin, and the binary:
+
+```
+systemctl --user disable --now backstory
+rm ~/.config/systemd/user/backstory.service
+systemctl --user daemon-reload
+rm -r ~/.config/omarchy/plugins/backstory.this-week
+rm ~/.local/bin/backstory
+```
+
+Last, and only if you want it gone, the store. **This deletes all Backstory memory — every
+ledger, note and captured event — and it cannot be undone.** Skip it to keep your memory for
+a later reinstall.
+
+```
+rm -r ~/.local/share/backstory
+```
+
+(With `XDG_DATA_HOME` set, the store is `$XDG_DATA_HOME/backstory` instead.)
+
 ## Coming for v1 (decision `3e14db82`)
 
 - Local-model harness support.
