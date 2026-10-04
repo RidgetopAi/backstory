@@ -1,6 +1,7 @@
 // Codex adapter (decision 3e14db82): `backstory install codex` registers the
 // MCP server in ~/.codex/config.toml, the SessionStart and PostToolUse hooks
-// in ~/.codex/hooks.json, and a one-line stub in ~/.codex/AGENTS.md.
+// in ~/.codex/hooks.json, a one-line stub in ~/.codex/AGENTS.md, and the Backstory skill in
+// ~/.codex/skills/backstory/SKILL.md.
 //
 // config.toml is hand-written (comments, trust tables, other servers), so it
 // is never parsed and re-serialized: the backstory table is appended as a
@@ -14,12 +15,15 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+
+	"github.com/RidgetopAi/backstory/internal/skill"
 )
 
 // Codex item names, for --check output.
 const (
 	ItemCodexMCPServer = "mcp-server"
 	ItemCodexAgentsMD  = "agents-md-stub"
+	ItemCodexSkill     = "codex-skill"
 )
 
 // Codex hook commands. Payload handling is `backstory hook … --harness
@@ -42,7 +46,7 @@ const (
 	codexTOMLBody        = "[mcp_servers.backstory]\ncommand = \"backstory\"\nargs = [\"mcp\"]\n"
 
 	// CodexStubLine is the one-line AGENTS.md stub.
-	CodexStubLine = "Backstory: if no SessionStart block is present, call the `backstory` MCP tool's `recall`."
+	CodexStubLine = "Backstory: if no SessionStart block is present, call the `backstory` MCP tool's `recall`; see the `backstory` skill, `~/.codex/skills/backstory/SKILL.md`."
 )
 
 var codexStubBlock = StubMarkerBegin + "\n" + CodexStubLine + "\n" + StubMarkerEnd + "\n"
@@ -63,6 +67,7 @@ type CodexPaths struct {
 	ConfigTOML string
 	HooksJSON  string
 	AgentsMD   string
+	SkillPath  string // ~/.codex/skills/backstory/SKILL.md
 }
 
 // DefaultCodexPaths returns Codex's user-level surfaces under home.
@@ -72,6 +77,7 @@ func DefaultCodexPaths(home string) CodexPaths {
 		ConfigTOML: filepath.Join(dir, "config.toml"),
 		HooksJSON:  filepath.Join(dir, "hooks.json"),
 		AgentsMD:   filepath.Join(dir, "AGENTS.md"),
+		SkillPath:  filepath.Join(dir, "skills", "backstory", "SKILL.md"),
 	}
 }
 
@@ -123,6 +129,9 @@ func InstallCodex(paths CodexPaths, opts Options) error {
 			return fmt.Errorf("%s: %w", ItemSessionStartHook, err)
 		}
 	}
+	if _, err := skill.Install(paths.SkillPath, opts.Prefix); err != nil {
+		return fmt.Errorf("%s: %w", ItemCodexSkill, err)
+	}
 	if err := installStubBlock(paths.AgentsMD, codexStubBlock); err != nil {
 		return fmt.Errorf("%s: %w", ItemCodexAgentsMD, err)
 	}
@@ -147,6 +156,16 @@ func RemoveCodex(paths CodexPaths, opts Options) error {
 			return fmt.Errorf("%s: %w", ItemSessionStartHook, err)
 		}
 	}
+	if err := skill.Remove(paths.SkillPath, opts.Prefix); err != nil {
+		return fmt.Errorf("%s: %w", ItemCodexSkill, err)
+	}
+	// Prune the skill directories install created, stopping at the first one in use.
+	skillsDir := filepath.Dir(filepath.Dir(paths.SkillPath))
+	for d := filepath.Dir(paths.SkillPath); d != filepath.Dir(skillsDir); d = filepath.Dir(d) {
+		if os.Remove(d) != nil {
+			break
+		}
+	}
 	if err := removeStub(paths.AgentsMD); err != nil {
 		return fmt.Errorf("%s: %w", ItemCodexAgentsMD, err)
 	}
@@ -167,6 +186,7 @@ func CheckCodex(paths CodexPaths, opts Options) ([]Item, error) {
 		{Name: ItemSessionStartHook, Status: hookEntryStatus(hooksRoot, "SessionStart", codexHookEntry(CodexHookCommandSessionStart, opts.timeoutSeconds()))},
 		{Name: ItemPostToolUseHook, Status: hookEntryStatus(hooksRoot, "PostToolUse", codexHookEntry(CodexHookCommandPostToolUse, opts.timeoutSeconds()))},
 		{Name: ItemCodexAgentsMD, Status: stubBlockStatus(paths.AgentsMD, codexStubBlock)},
+		{Name: ItemCodexSkill, Status: ItemStatus(skill.CheckStatus(paths.SkillPath, opts.Prefix))},
 	}, nil
 }
 
