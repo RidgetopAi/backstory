@@ -2,7 +2,7 @@
 .import "model.js" as Model
 
 // format.js: pure display helpers (names, relative time, the 7-day strip,
-// the agent notice). It reads no JSON field and names no command — those
+// agent chips). It reads no JSON field and names no command — those
 // stay in model.js and launchers.js.
 
 var AGENT_NAMES = {
@@ -36,12 +36,20 @@ function continueLabel(defaultAgent) {
   return defaultAgent ? "Continue in " + agentName(defaultAgent) : "Choose default agent"
 }
 
-// agentNotice: the one line telling the user Continue goes somewhere other
-// than where they last worked. "" when the agents match, the last agent is
-// unknown/empty, or there is no default.
-function agentNotice(lastAgent, defaultAgent) {
-  if (!lastAgent || !defaultAgent || !isKnownAgent(lastAgent) || lastAgent === defaultAgent) return ""
-  return "Last worked in " + agentName(lastAgent) + " · Continue opens " + agentName(defaultAgent) + " (your Omarchy default)"
+// MAX_AGENT_CHIPS: agent chips shown on one row before the rest collapse
+// into a "+N" chip.
+var MAX_AGENT_CHIPS = 3
+
+// chipAgents: the agents[] entries drawn as chips (the first
+// MAX_AGENT_CHIPS, newest first) and how many are folded into "+N".
+function chipAgents(agents) {
+  var all = agents || []
+  return { shown: all.slice(0, MAX_AGENT_CHIPS), extra: Math.max(0, all.length - MAX_AGENT_CHIPS) }
+}
+
+// nextPrefix: the handoff line's label, naming the agent that wrote it.
+function nextPrefix(handoffAgent) {
+  return handoffAgent ? "Next (" + agentName(handoffAgent) + "): " : "Next: "
 }
 
 function isWorkspaceKey(projectKey) {

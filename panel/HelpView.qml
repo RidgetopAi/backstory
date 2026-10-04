@@ -123,8 +123,10 @@ Item {
 
     HelpHeading { text: "HOW TO USE" }
     HelpText {
-      text: "The top card is the project you are in. Continue resumes it in your agent; t opens a "
-        + "terminal there. Enter continues the selected row, r refreshes."
+      text: "The top card is the project you are in. Each row's chips are the agents used there, "
+        + "newest first. Continue resumes the newest one; \u2192 (or a click on the chips) expands one "
+        + "sub-row per agent, \u2190 folds them, and Enter on a sub-row opens that agent in the folder. "
+        + "Enter on a row continues it, t opens a terminal there, r refreshes."
     }
 
     HelpHeading { text: "GROUPS" }

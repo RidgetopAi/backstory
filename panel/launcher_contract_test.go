@@ -245,3 +245,92 @@ func TestContinueFocusPlan(t *testing.T) {
 }
 
 var focusArgv = []string{"hyprctl", "dispatch", `hl.dsp.focus({ window = "address:0x55aa" })`}
+
+// launchTableBinaries is the contract for js/launchers.js's LAUNCH_TABLE
+// (task 4f4fd91c, decision 7026e48e): exactly these harness keys, each
+// launching that harness's own binary as argv[0].
+var launchTableBinaries = map[string]string{
+	"claude": "claude",
+	"codex":  "codex",
+	"hermes": "hermes",
+	"pi":     "pi",
+}
+
+// checkLaunchTable is the assertion itself, shared with the critic-mutation
+// test below.
+func checkLaunchTable(table map[string]struct {
+	Argv   []string `json:"argv"`
+	Prompt string   `json:"prompt"`
+}) error {
+	if len(table) != len(launchTableBinaries) {
+		return fmt.Errorf("launch table has %d keys, want exactly %d (claude, codex, hermes, pi)", len(table), len(launchTableBinaries))
+	}
+	for key, bin := range launchTableBinaries {
+		entry, ok := table[key]
+		if !ok {
+			return fmt.Errorf("launch table has no %q entry", key)
+		}
+		if len(entry.Argv) == 0 || entry.Argv[0] != bin {
+			return fmt.Errorf("launch table %q argv[0] = %v, want %q", key, entry.Argv, bin)
+		}
+	}
+	return nil
+}
+
+func loadLaunchTable(t *testing.T) map[string]struct {
+	Argv   []string `json:"argv"`
+	Prompt string   `json:"prompt"`
+} {
+	t.Helper()
+	raw := evalJS(t, "LAUNCH_TABLE", launchersJSPath)
+	var table map[string]struct {
+		Argv   []string `json:"argv"`
+		Prompt string   `json:"prompt"`
+	}
+	if err := json.Unmarshal(raw, &table); err != nil {
+		t.Fatalf("decode LAUNCH_TABLE %s: %v", raw, err)
+	}
+	return table
+}
+
+func TestLaunchTableKeysAndBinaries(t *testing.T) {
+	if err := checkLaunchTable(loadLaunchTable(t)); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestLaunchTableFlagsMirrorOmarchyAgent pins the flags the task spec says
+// mirror omarchy-agent's own launch lines, and that the hermes prompt rides
+// --query=.
+func TestLaunchTableFlagsMirrorOmarchyAgent(t *testing.T) {
+	table := loadLaunchTable(t)
+	want := map[string]string{
+		"claude": "claude --permission-mode auto",
+		"codex":  "codex --approve-for-me",
+		"hermes": "hermes chat --yolo --tui",
+		"pi":     "pi",
+	}
+	for key, argv := range want {
+		if got := strings.Join(table[key].Argv, " "); got != argv {
+			t.Errorf("%s argv = %q, want %q", key, got, argv)
+		}
+	}
+	if table["hermes"].Prompt != "--query=" {
+		t.Errorf("hermes prompt = %q, want --query=", table["hermes"].Prompt)
+	}
+}
+
+// TestLaunchTableCatchesWrongBinary proves the contract is not vacuous.
+func TestLaunchTableCatchesWrongBinary(t *testing.T) {
+	table := loadLaunchTable(t)
+	entry := table["pi"]
+	entry.Argv = []string{"omarchy", "agent", "prompt"}
+	table["pi"] = entry
+	if checkLaunchTable(table) == nil {
+		t.Fatal("checkLaunchTable accepted pi launching omarchy")
+	}
+	delete(table, "codex")
+	if checkLaunchTable(table) == nil {
+		t.Fatal("checkLaunchTable accepted a table missing codex")
+	}
+}

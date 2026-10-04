@@ -122,6 +122,41 @@ function agentPromptCommand(handoffText) {
   return ["omarchy", "agent", "prompt", handoffText]
 }
 
+// LAUNCH_TABLE: per-harness argv for launching THAT agent (a row's agent
+// chip / sub-row), keyed by agents[].agent. Each entry mirrors the launch
+// line omarchy-agent uses for the same harness; `prompt` says how the
+// opening prompt joins it: "" = a trailing positional argument, otherwise
+// the flag prefix glued to the prompt (hermes: `--query=<prompt>`).
+//
+// TEMPORARY: this table exists only until omarchy-agent gains an --agent
+// flag, at which point every launch goes back through it (decision
+// 7026e48e). An agent absent from the table falls back to
+// agentPromptCommand (Omarchy's default agent).
+var LAUNCH_TABLE = {
+  claude: { argv: ["claude", "--permission-mode", "auto"], prompt: "" },
+  codex: { argv: ["codex", "--approve-for-me"], prompt: "" },
+  hermes: { argv: ["hermes", "chat", "--yolo", "--tui"], prompt: "--query=" },
+  pi: { argv: ["pi"], prompt: "" }
+}
+
+function hasLauncher(agent) {
+  return Object.prototype.hasOwnProperty.call(LAUNCH_TABLE, agent)
+}
+
+// agentLaunchCommand opens a terminal at cwd running the table's argv for
+// `agent` with the handoff prompt; null when the agent is not in the table.
+// Like terminalLaunchCommand, cwd and the argv are passed as sh's own
+// positional arguments (`cd "$1" && shift && exec "$@"`), never interpolated
+// into the script string.
+function agentLaunchCommand(agent, cwd, prompt) {
+  if (!hasLauncher(agent)) return null
+  var entry = LAUNCH_TABLE[agent]
+  var argv = entry.argv.slice()
+  argv.push(entry.prompt === "" ? prompt : entry.prompt + prompt)
+  var script = 'cd "$1" && shift && exec "$@"'
+  return ["xdg-terminal-exec", "--", "sh", "-c", script, "sh", cwd].concat(argv)
+}
+
 // defaultAgentCommand prints the user's Omarchy default agent id
 // (claude/codex/pi/...), or nothing when none is set.
 function defaultAgentCommand() {

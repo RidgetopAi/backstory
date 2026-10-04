@@ -7,7 +7,7 @@ import "js/format.js" as Format
 
 // The HERE card: the project the user is in (the focused terminal's, or
 // the most recent), in the accent colour, with the facts line, the agent
-// notice, the Next line and the three actions.
+// chips, the Next line and the three actions.
 Rectangle {
   id: root
 
@@ -16,15 +16,18 @@ Rectangle {
   property string defaultAgent: ""
   property string continueLabel: ""
   property var week: []
+  property bool expanded: false
   property real nowMs: Date.now()
 
   signal continueRequested()
+  signal toggleExpanded()
   signal terminalRequested()
   signal memoryRequested()
 
   readonly property string lastAgent: root.summary ? (Model.summaryLastAgent(root.summary) || "") : ""
   readonly property string next: root.summary ? (Model.summaryHandoffNext(root.summary) || "") : ""
-  readonly property string notice: Format.agentNotice(root.lastAgent, root.defaultAgent)
+  readonly property var agents: root.summary ? Model.summaryAgents(root.summary) : []
+  readonly property string handoffAgent: root.summary ? Model.summaryHandoffAgent(root.summary) : ""
   readonly property string facts: {
     var parts = []
     if (root.lastAgent) parts.push(Format.agentName(root.lastAgent))
@@ -90,22 +93,19 @@ Rectangle {
       elide: Text.ElideRight
     }
 
-    Text {
-      visible: root.notice !== ""
-      width: parent.width
-      textFormat: Text.PlainText
-      text: root.notice
-      font.family: Style.font.family
-      font.pixelSize: Style.font.caption
-      color: Color.accent
-      wrapMode: Text.WordWrap
+    AgentChips {
+      objectName: "hereAgentChips"
+      agents: root.agents
+      expanded: root.expanded
+      nowMs: root.nowMs
+      onToggled: root.toggleExpanded()
     }
 
     Text {
       visible: root.next !== ""
       width: parent.width
       textFormat: Text.PlainText
-      text: "Next: " + root.next
+      text: Format.nextPrefix(root.handoffAgent) + root.next
       font.family: Style.font.family
       font.pixelSize: Style.font.body
       color: Color.popups.text

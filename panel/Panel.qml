@@ -57,25 +57,43 @@ Item {
   // default — a group is a human-made summary already; a click reveals it.
   property var expandedGroups: ({})
 
-  // Keyboard navigation runs over the project rows as drawn: standalone
-  // rows, and a group's children only while it is expanded.
+  // Which folder rows show their per-agent sub-rows, keyed by rowId (row
+  // key plus cwd). Collapsed by default.
+  property var expandedRows: ({})
+
+  // Keyboard navigation runs over the rows as drawn: standalone rows, a
+  // group's children only while it is expanded, and an expanded folder
+  // row's per-agent sub-rows right after it. Each entry is
+  // {summary, agent}; agent is "" for a folder row.
   readonly property var navRows: {
     var out = []
+    function add(summary) {
+      out.push({ summary: summary, agent: "" })
+      if (root.expandedRows[root.rowId(summary)]) {
+        var agents = Model.summaryAgents(summary)
+        for (var j = 0; j < agents.length; j++) out.push({ summary: summary, agent: Model.agentId(agents[j]) })
+      }
+    }
     for (var i = 0; i < root.whereLeftOffRows.length; i++) {
       var row = root.whereLeftOffRows[i]
       var g = Model.rowGroup(row)
       if (g !== undefined && g !== "") {
-        if (root.expandedGroups[g]) out = out.concat(Model.rowChildren(row))
+        if (root.expandedGroups[g]) {
+          var kids = Model.rowChildren(row)
+          for (var k = 0; k < kids.length; k++) add(kids[k])
+        }
       } else if (Model.rowProject(row)) {
-        out.push(Model.rowProject(row))
+        add(Model.rowProject(row))
       }
     }
     return out
   }
   property int selectedIndex: 0
-  readonly property var selectedSummary: root.selectedIndex >= 0 && root.selectedIndex < root.navRows.length ? root.navRows[root.selectedIndex] : null
+  readonly property var selectedEntry: root.selectedIndex >= 0 && root.selectedIndex < root.navRows.length ? root.navRows[root.selectedIndex] : null
+  readonly property var selectedSummary: root.selectedEntry ? root.selectedEntry.summary : null
+  readonly property string selectedAgent: root.selectedEntry ? root.selectedEntry.agent : ""
   readonly property string selectedId: root.selectedSummary ? rowId(root.selectedSummary) : ""
-  readonly property string footerHint: "j/k move \u00b7 Enter continue \u00b7 t terminal \u00b7 m memory \u00b7 ? help \u00b7 r refresh \u00b7 Esc close"
+  readonly property string footerHint: "j/k move \u00b7 \u2192 agents \u00b7 \u2190 fold \u00b7 Enter continue \u00b7 t terminal \u00b7 m memory \u00b7 ? help \u00b7 r refresh \u00b7 Esc close"
 
   function rowId(summary) {
     return Model.summaryProjectKey(summary) + "\n" + Model.summaryCwd(summary)
@@ -86,7 +104,7 @@ Item {
     var idx = 0
     if (root.hereProject) {
       for (var i = 0; i < root.navRows.length; i++) {
-        if (rowId(root.navRows[i]) === rowId(root.hereProject)) { idx = i; break }
+        if (root.navRows[i].agent === "" && rowId(root.navRows[i].summary) === rowId(root.hereProject)) { idx = i; break }
       }
     }
     root.selectedIndex = idx
@@ -96,6 +114,29 @@ Item {
     var next = Object.assign({}, root.expandedGroups)
     next[group] = !next[group]
     root.expandedGroups = next
+  }
+
+  // Expands / collapses a folder row's agent sub-rows. Collapsing while a
+  // sub-row is selected moves the selection back onto the folder row.
+  function setRowExpanded(summary, expanded) {
+    var id = root.rowId(summary)
+    if (!!root.expandedRows[id] === expanded) return
+    if (expanded && Model.summaryAgents(summary).length === 0) return
+    var next = Object.assign({}, root.expandedRows)
+    if (expanded) next[id] = true
+    else delete next[id]
+    if (!expanded && root.selectedAgent !== "" && root.selectedId === id) root.selectedIndex -= root.agentIndexOf(summary, root.selectedAgent) + 1
+    root.expandedRows = next
+  }
+
+  function toggleRow(summary) {
+    root.setRowExpanded(summary, !root.expandedRows[root.rowId(summary)])
+  }
+
+  function agentIndexOf(summary, agent) {
+    var agents = Model.summaryAgents(summary)
+    for (var i = 0; i < agents.length; i++) if (Model.agentId(agents[i]) === agent) return i
+    return 0
   }
 
   function moveSelection(delta) {
@@ -133,7 +174,9 @@ Item {
     switch (key) {
     case Qt.Key_J: case Qt.Key_Down: root.moveSelection(1); return true
     case Qt.Key_K: case Qt.Key_Up: root.moveSelection(-1); return true
-    case Qt.Key_Return: case Qt.Key_Enter: root.continueOn(s); return true
+    case Qt.Key_Right: if (s) root.setRowExpanded(s, true); return true
+    case Qt.Key_Left: if (s) root.setRowExpanded(s, false); return true
+    case Qt.Key_Return: case Qt.Key_Enter: root.continueOn(s, root.selectedAgent); return true
     case Qt.Key_T: if (s) root.openTerminal(Model.summaryCwd(s)); return true
     case Qt.Key_M: if (s) root.summaryMemory(s); return true
     case Qt.Key_Question: root.helpOpen = true; return true
@@ -142,8 +185,9 @@ Item {
     return false
   }
 
-  function continueOn(summary) {
-    continueAction.continueOn(summary)
+  // agent: a sub-row's chosen agent id, "" / absent for a folder row.
+  function continueOn(summary, agent) {
+    continueAction.continueOn(summary, agent || "")
   }
 
   // Test-only handles onto the FloatingWindow's own `id: panel` (harmless on
@@ -349,7 +393,9 @@ Item {
               summary: root.hereProject
               hereName: root.hereName
               defaultAgent: continueAction.defaultAgent
-              continueLabel: continueAction.label
+              continueLabel: continueAction.labelFor(root.hereProject)
+              expanded: root.hereProject !== null && !!root.expandedRows[root.rowId(root.hereProject)]
+              onToggleExpanded: if (root.hereProject) root.toggleRow(root.hereProject)
               week: root.weekDays
               nowMs: root.nowMs
               onContinueRequested: root.continueOn(root.hereProject)
@@ -379,6 +425,11 @@ Item {
                 week: root.weekDays
                 expandedGroups: root.expandedGroups
                 selectedId: root.selectedId
+                selectedAgent: root.selectedAgent
+                expandedRows: root.expandedRows
+                nowMs: root.nowMs
+                onToggleRow: (summary) => root.toggleRow(summary)
+                onLaunchRequested: (summary, agent) => root.continueOn(summary, agent)
                 width: parent.width
                 onToggleGroup: (group) => root.toggleGroup(group)
                 onOpenTerminal: (cwd) => root.openTerminal(cwd)

@@ -105,8 +105,11 @@ TestCase {
     mouseClick(widget, widget.width / 2, widget.height / 2, Qt.RightButton)
     compare(Quickshell.execDetachedCalls.length, 0)
     var run = ProcessController.lastRun()
-    compare(JSON.stringify(run.command.slice(0, 3)), JSON.stringify(["omarchy", "agent", "prompt"]))
-    verify(run.command[3].indexOf("handoff-0042") >= 0 && run.command[3].indexOf("Wire the bar") >= 0)
+    // foo's agents[0] is claude: launched from the launch table, not omarchy.
+    compare(JSON.stringify(run.command.slice(0, 3)), JSON.stringify(["xdg-terminal-exec", "--", "sh"]))
+    compare(JSON.stringify(run.command.slice(7, 10)), JSON.stringify(Launchers.LAUNCH_TABLE.claude.argv))
+    var prompt = run.command[run.command.length - 1]
+    verify(prompt.indexOf("handoff-0042") >= 0 && prompt.indexOf("Wire the bar") >= 0)
     compare(run.workingDirectory, "/home/brian/projects/foo")
   }
 

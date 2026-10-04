@@ -26,6 +26,19 @@ Column {
 
   signal toggleGroup(string group)
 
+  // Which folder rows show their per-agent sub-rows, keyed by row key plus
+  // cwd (Panel.rowId); selectedAgent is the keyboard-selected sub-row's agent.
+  property var expandedRows: ({})
+  property string selectedAgent: ""
+  property real nowMs: Date.now()
+
+  signal toggleRow(var summary)
+  signal launchRequested(var summary, string agent)
+
+  function rowKey(summary) {
+    return Model.summaryProjectKey(summary) + "\n" + Model.summaryCwd(summary)
+  }
+
   width: parent ? parent.width : Style.space(360)
   spacing: 0
 
@@ -86,16 +99,35 @@ Column {
 
         Repeater {
           model: rowDelegate.isGroup ? Model.rowChildren(rowDelegate.modelData) : []
-          delegate: ProjectRow {
+          delegate: Column {
+            id: childDelegate
             required property var modelData
+            readonly property string key: root.rowKey(modelData)
             width: root.width
-            summary: modelData
-            indented: true
-            onOpenTerminal: (cwd) => root.openTerminal(cwd)
-            week: root.week
-            selected: root.selectedId === Model.summaryProjectKey(modelData) + "\n" + Model.summaryCwd(modelData)
-            onContinueRequested: root.continueRequested(modelData)
-            onOpenMemory: (projectKey, displayName, cwd) => root.openMemory(projectKey, displayName, cwd)
+            spacing: 0
+
+            ProjectRow {
+              width: root.width
+              summary: childDelegate.modelData
+              indented: true
+              onOpenTerminal: (cwd) => root.openTerminal(cwd)
+              week: root.week
+              nowMs: root.nowMs
+              expanded: !!root.expandedRows[childDelegate.key]
+              selected: root.selectedId === childDelegate.key && root.selectedAgent === ""
+              onContinueRequested: root.continueRequested(childDelegate.modelData)
+              onToggleExpanded: root.toggleRow(childDelegate.modelData)
+              onOpenMemory: (projectKey, displayName, cwd) => root.openMemory(projectKey, displayName, cwd)
+            }
+
+            AgentSubRows {
+              visible: !!root.expandedRows[childDelegate.key]
+              width: root.width
+              summary: childDelegate.modelData
+              nowMs: root.nowMs
+              selectedAgent: root.selectedId === childDelegate.key ? root.selectedAgent : ""
+              onLaunchRequested: (agent) => root.launchRequested(childDelegate.modelData, agent)
+            }
           }
         }
       }
@@ -107,9 +139,21 @@ Column {
         summary: rowDelegate.isGroup ? null : Model.rowProject(rowDelegate.modelData)
         onOpenTerminal: (cwd) => root.openTerminal(cwd)
         week: root.week
-        selected: !rowDelegate.isGroup && root.selectedId === Model.summaryProjectKey(summary) + "\n" + Model.summaryCwd(summary)
+        nowMs: root.nowMs
+        expanded: !rowDelegate.isGroup && !!root.expandedRows[root.rowKey(summary)]
+        selected: !rowDelegate.isGroup && root.selectedId === root.rowKey(summary) && root.selectedAgent === ""
         onContinueRequested: root.continueRequested(summary)
+        onToggleExpanded: root.toggleRow(summary)
         onOpenMemory: (projectKey, displayName, cwd) => root.openMemory(projectKey, displayName, cwd)
+      }
+
+      AgentSubRows {
+        visible: !rowDelegate.isGroup && !!root.expandedRows[root.rowKey(summary)]
+        width: root.width
+        summary: rowDelegate.isGroup ? null : Model.rowProject(rowDelegate.modelData)
+        nowMs: root.nowMs
+        selectedAgent: !rowDelegate.isGroup && root.selectedId === root.rowKey(summary) ? root.selectedAgent : ""
+        onLaunchRequested: (agent) => root.launchRequested(summary, agent)
       }
     }
   }

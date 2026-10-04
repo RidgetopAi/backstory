@@ -96,6 +96,7 @@ TestCase {
   }
 
   function agentRuns() { return runs(["omarchy", "agent"]) }
+  function termRuns() { return runs(["xdg-terminal-exec", "--"]).filter(function (r) { return r.command[2] === "sh" && r.command[4] !== undefined && r.command[4].indexOf("exec \"$@\"") >= 0 }) }
   function hyprRuns() { return runs(["hyprctl", "dispatch"]) }
 
   // ---- (1) the here card ----
@@ -134,12 +135,14 @@ TestCase {
     open(payload())
     clickText("Continue in Claude Code")
     compare(hyprRuns().length, 0)
-    var a = agentRuns()
+    // foo's agents[0] is claude: the launch table, never omarchy agent prompt.
+    compare(agentRuns().length, 0)
+    var a = termRuns()
     compare(a.length, 1)
-    compare(a[0].command.length, 4)
-    compare(JSON.stringify(a[0].command.slice(0, 3)), JSON.stringify(["omarchy", "agent", "prompt"]))
-    verify(a[0].command[3].indexOf("handoff-0042") >= 0, a[0].command[3])
-    verify(a[0].command[3].indexOf("Wire the bar") >= 0, a[0].command[3])
+    var prompt = a[0].command[a[0].command.length - 1]
+    compare(JSON.stringify(a[0].command.slice(7, 10)), JSON.stringify(Launchers.LAUNCH_TABLE.claude.argv))
+    verify(prompt.indexOf("handoff-0042") >= 0, prompt)
+    verify(prompt.indexOf("Wire the bar") >= 0, prompt)
     compare(a[0].workingDirectory, "/home/brian/projects/foo")
   }
 
@@ -147,7 +150,7 @@ TestCase {
     open(payload(function (d) { d.where_left_off[0].project.window = "0x1; rm" }))
     clickText("Continue in Claude Code")
     compare(hyprRuns().length, 0)
-    compare(agentRuns().length, 1)
+    compare(termRuns().length, 1)
   }
 
   function test_focus_falls_back_to_focuswindow_when_dispatch_fails() {
@@ -159,25 +162,17 @@ TestCase {
     compare(JSON.stringify(h[1].command), JSON.stringify(["hyprctl", "dispatch", "focuswindow", "address:0x55aa"]))
   }
 
-  // ---- (3) the agent notice and the unset default ----
-  function test_agent_notice_when_last_agent_differs_from_default() {
+  // ---- (3) the old agent notice is gone; the unset default offers the picker ----
+  function test_no_continue_opens_notice_when_last_agent_differs_from_default() {
     open(payload(function (d) { d.where_left_off[0].project.last_agent = "codex" }))
-    var line = textContaining("Continue opens")
-    verify(line.indexOf("Codex") >= 0 && line.indexOf("Claude Code") >= 0, "notice: " + line)
-  }
-
-  function test_no_notice_when_same_agent() {
-    open(payload())
-    compare(textContaining("Continue opens"), "")
-  }
-
-  function test_no_notice_when_last_agent_empty() {
-    open(payload(function (d) { d.where_left_off[0].project.last_agent = "" }))
     compare(textContaining("Continue opens"), "")
   }
 
   function test_unset_default_offers_picker() {
-    open(payload(), "")
+    open(payload(function (d) {
+      d.where_left_off[0].project.last_agent = ""
+      d.where_left_off[0].project.agents = []
+    }), "")
     verify(hasText("Choose default agent"))
     compare(textContaining("Continue opens"), "")
     clickText("Choose default agent")
@@ -314,10 +309,11 @@ TestCase {
     compare(panel.selectedIndex, 1)
     // row 2 is bar (cwd /home/brian/bar), codex, no handoff
     press(Qt.Key_Return)
-    var a = agentRuns()
+    var a = termRuns()
     compare(a.length, 1)
     compare(a[0].workingDirectory, "/home/brian/bar")
-    verify(a[0].command[3].indexOf("bar") >= 0)
+    compare(JSON.stringify(a[0].command.slice(7, 9)), JSON.stringify(Launchers.LAUNCH_TABLE.codex.argv))
+    verify(a[0].command[a[0].command.length - 1].indexOf("bar") >= 0)
 
     press(Qt.Key_T)
     var last = Quickshell.lastCall()
