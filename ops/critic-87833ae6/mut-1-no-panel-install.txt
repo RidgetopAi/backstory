@@ -1,8 +1,0 @@
-== mut-1-no-panel-install
---- FAIL: TestMakeInstallFirstInstall (0.58s)
-    install_test.go:199: lstat /tmp/TestMakeInstallFirstInstall2825385542/001/home/.config/omarchy/plugins/backstory.this-week: no such file or directory
---- FAIL: TestMakeInstallUpgrade (0.56s)
-    install_test.go:232: open /tmp/TestMakeInstallUpgrade2939873752/001/home/.config/omarchy/plugins/backstory.this-week/stale-from-old-version.qml: no such file or directory
-FAIL
-FAIL	github.com/RidgetopAi/backstory/ops	4.336s
-FAIL

@@ -1,8 +1,0 @@
-== mut2: Continue drops the tmux select argv
---- FAIL: TestContinueFocusPlan (0.45s)
-    launcher_contract_test.go:228: tmux argvs = [], want [["tmux" "select-window" "-t" "Work:1"] ["tmux" "select-pane" "-t" "Work:1.2"]]
-FAIL
-FAIL	github.com/RidgetopAi/backstory/panel	2.745s
-FAIL
-FAIL!  : qmltestrunner::PanelRedesign::test_switch_button_continues_with_window_and_tmux_target() Compared values are not the same
-Totals: 89 passed, 1 failed, 0 skipped, 0 blacklisted, 4802ms
