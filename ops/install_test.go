@@ -329,7 +329,7 @@ func TestInstallerReportsVersionAndNext(t *testing.T) {
 	}
 	var last string
 	for _, l := range strings.Split(strings.TrimSpace(out), "\n") {
-		if !strings.HasPrefix(l, "make:") { // make's own directory banner
+		if !strings.HasPrefix(l, "make:") && !strings.HasPrefix(l, "make[") { // make's own directory banner
 			last = l
 		}
 	}
