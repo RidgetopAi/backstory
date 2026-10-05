@@ -414,3 +414,40 @@ func TestTestXDGEnvOverridesInheritedRuntimeDir(t *testing.T) {
 		t.Errorf("XDG_RUNTIME_DIR = %q, want %q", got, want)
 	}
 }
+
+// A real agent's session-start (BACKSTORY_NO_SESSION unset) still mints a
+// session for its cwd: the installer's flag never leaks into agent sessions.
+func TestHookSessionStartWithoutNoSessionFlagMintsSession(t *testing.T) {
+	bin := buildBackstory(t)
+	dbPath, _, env := startTestDaemon(t, bin, noHarnessAncestry...)
+	var clean []string
+	for _, e := range env {
+		if !strings.HasPrefix(e, noSessionEnv+"=") {
+			clean = append(clean, e)
+		}
+	}
+	_, stderr, exitCode := runHookSubprocess(t, bin, clean, map[string]any{"session_id": "real-agent-1", "hook_event_name": "SessionStart"})
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d (stderr: %s)", exitCode, stderr)
+	}
+	s := mustOpenTestStore(t, dbPath)
+	if row := querySessionByHarnessSessionID(t, s, "real-agent-1"); row.HarnessSessionID != "real-agent-1" {
+		t.Errorf("no session minted for a session-start without the flag: %+v", row)
+	}
+}
+
+// With BACKSTORY_NO_SESSION set the hook still gets its block but mints
+// nothing.
+func TestHookSessionStartWithNoSessionFlagMintsNothing(t *testing.T) {
+	bin := buildBackstory(t)
+	dbPath, _, env := startTestDaemon(t, bin, noHarnessAncestry...)
+	stdout, stderr, exitCode := runHookSubprocess(t, bin, append(env, noSessionEnv+"=1"), map[string]any{"session_id": "installer-1", "hook_event_name": "SessionStart"})
+	if exitCode != 0 || strings.TrimSpace(stdout) == "" {
+		t.Fatalf("exit=%d stdout=%q stderr=%s: want an answered block", exitCode, stdout, stderr)
+	}
+	s := mustOpenTestStore(t, dbPath)
+	var n int
+	if err := s.DB().QueryRow(`SELECT count(*) FROM sessions WHERE harness_session_id = ?`, "installer-1").Scan(&n); err != nil || n != 0 {
+		t.Errorf("sessions for the flagged hook = %d (err %v), want 0", n, err)
+	}
+}

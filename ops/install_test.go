@@ -220,6 +220,7 @@ func mustNotExist(t *testing.T, p string) {
 func TestMakeInstallFirstInstall(t *testing.T) {
 	f := newInstallFixture(t)
 	out := f.mustMake("install")
+	t.Log(out)
 
 	if fi, err := os.Stat(f.path(".local", "bin", "backstory")); err != nil || fi.Mode()&0o111 == 0 {
 		t.Errorf("binary not installed executable: %v", err)
@@ -277,6 +278,7 @@ func TestInstallerSaysKeybindAlreadyLoaded(t *testing.T) {
 	f := newInstallFixture(t)
 	hl, orig := f.writeHyprland("-- my config\nrequire(\"hypr.other\")\nrequire(\"hypr.backstory\")\n")
 	out := f.mustMake("install")
+	t.Log(out)
 	if !strings.Contains(out, "keybind already loaded from hyprland.lua") {
 		t.Errorf("output does not say the keybind is already loaded:\n%s", out)
 	}
@@ -297,6 +299,7 @@ func TestInstallerPrintsAddLineWhenMissingOrCommentedOut(t *testing.T) {
 			f := newInstallFixture(t)
 			hl, orig := f.writeHyprland(content)
 			out := f.mustMake("install")
+			t.Log(out)
 			if !strings.Contains(out, addLineMessage) || !strings.Contains(out, `    require("hypr.backstory")`) {
 				t.Errorf("add-this-line message missing:\n%s", out)
 			}
@@ -313,6 +316,7 @@ func TestInstallerPrintsAddLineWhenMissingOrCommentedOut(t *testing.T) {
 func TestInstallerReportsVersionAndNext(t *testing.T) {
 	f := newInstallFixture(t)
 	out := f.mustMake("install")
+	t.Log(out)
 	m := regexp.MustCompile(`(?m)^backstory (\S+) installed$`).FindStringSubmatch(out)
 	if m == nil {
 		t.Fatalf("no \"backstory <version> installed\" line:\n%s", out)
@@ -390,7 +394,19 @@ func TestInstallerFailsWhenNoDaemonRuns(t *testing.T) {
 // `backstory status` from the same dir (the control) does record one.
 func TestInstallerRecordsNoProjectForBuildDir(t *testing.T) {
 	f := newInstallFixture(t)
-	f.mustMake("install")
+	// A Claude harness is present (the normal tester case), so `backstory
+	// install` runs its hook verification against the daemon.
+	if err := os.MkdirAll(f.path(".claude"), 0o755); err != nil { //nolint:gosec // fixture path under t.TempDir
+		t.Fatal(err)
+	}
+	// ~/.local/bin is on a real tester's PATH, so the hook command
+	// (`backstory hook session-start`) resolves to the installed binary and
+	// really dials the daemon.
+	f.extra = append(f.extra, "PATH="+f.fakes+string(os.PathListSeparator)+f.path(".local", "bin")+string(os.PathListSeparator)+os.Getenv("PATH"))
+	out := f.mustMake("install")
+	if strings.Contains(out, "hook verification failed") || !strings.Contains(out, "claude") {
+		t.Fatalf("hook verification did not run and pass:\n%s", out)
+	}
 	clone, err := filepath.Abs("..")
 	if err != nil {
 		t.Fatal(err)
@@ -526,6 +542,7 @@ func TestMakeInstallShellRestartHonoursLock(t *testing.T) {
 	f := newInstallFixture(t)
 	f.flag("locked", false)
 	out := f.mustMake("install")
+	t.Log(out)
 	if !strings.Contains(f.calls(), "omarchy-restart-shell") {
 		t.Errorf("unlocked session: shell restart not invoked:\n%s", f.calls())
 	}
@@ -585,6 +602,7 @@ func TestMakeInstallLeavesHyprlandLuaAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := f.mustMake("install")
+	t.Log(out)
 	got, _ := os.ReadFile(hl) //nolint:gosec // fixture path under t.TempDir
 	if !bytes.Equal(got, orig) {
 		t.Errorf("hyprland.lua was modified:\n%s", got)

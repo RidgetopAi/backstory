@@ -179,6 +179,13 @@ func callDaemon(harnessSessionID, method string, params any) (mcp.DaemonResponse
 	defer func() { _ = conn.Close() }()
 
 	req := mcp.DaemonRequest{Session: harnessSessionID, Method: method}
+	// The installer's hook verification sets BACKSTORY_NO_SESSION so it gets
+	// an answer without minting a session or project for the build dir. The
+	// daemon only honours it on read-only methods; a real agent's hook never
+	// has the variable set.
+	if os.Getenv(noSessionEnv) != "" {
+		req.NoSession = true
+	}
 	if params != nil {
 		p, err := json.Marshal(params)
 		if err != nil {

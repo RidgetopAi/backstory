@@ -145,6 +145,7 @@ func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs i
 // Named config, not a literal check inside ServeDaemonConn.
 var noSessionMethods = map[string]bool{
 	daemonMethodStatus: true,
+	DaemonMethodBlock:  true,
 }
 
 // declinesSession reports whether a connection's first request line asks for
