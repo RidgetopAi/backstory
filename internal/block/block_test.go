@@ -561,3 +561,41 @@ func assertAbsent(t *testing.T, out string, label string) {
 		t.Errorf("output unexpectedly contains %q; got:\n%s", label, out)
 	}
 }
+
+// task b4829f9a: the Resume line names the harness that wrote the handoff
+// when it differs from the reader, after the fixed "(id ...)" part; an
+// unknown author or the same harness renders exactly as before.
+func TestRenderResumeLineNamesTheWritingHarness(t *testing.T) {
+	render := func(t *testing.T, authorAgent, reader string) (string, string) {
+		s := newTestStore(t)
+		mustUpsertProject(t, s, testProjectKey)
+		author := mustStartSession(t, s, authorAgent, "/proj", 100)
+		h := mustInsertHandoff(t, s, author, "fixed the thing")
+		out, err := block.Render(block.Params{
+			Store: s, ProcFS: fakeProcFS{}, ProjectKey: testProjectKey, SessionID: author, Harness: reader,
+		})
+		if err != nil {
+			t.Fatalf("Render: %v", err)
+		}
+		return out, h.ID
+	}
+
+	out, id := render(t, "claude", "codex")
+	want := "Resume: (id " + id + ") written by claude: fixed the thing"
+	if !strings.Contains(out, want) {
+		t.Fatalf("want line %q; got:\n%s", want, out)
+	}
+
+	out, id = render(t, "", "codex")
+	if want := "Resume: (id " + id + ") fixed the thing"; !strings.Contains(out, want) {
+		t.Fatalf("unknown author: want byte-identical %q; got:\n%s", want, out)
+	}
+	if strings.Contains(out, "written by") {
+		t.Fatalf("unknown author must not print an author; got:\n%s", out)
+	}
+
+	out, id = render(t, "claude", "claude")
+	if want := "Resume: (id " + id + ") fixed the thing"; !strings.Contains(out, want) {
+		t.Fatalf("same harness: want unchanged %q; got:\n%s", want, out)
+	}
+}

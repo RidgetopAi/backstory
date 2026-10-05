@@ -131,7 +131,14 @@ func Render(p Params) (string, error) {
 		}
 	}
 
-	slot1 := resumeSlot(handoff, hasHandoff, staleReasons, resumeLabel)
+	author := ""
+	if hasHandoff {
+		author, err = p.Store.SessionAgent(handoff.SessionID)
+		if err != nil {
+			return "", fmt.Errorf("block: resume handoff author: %w", err)
+		}
+	}
+	slot1 := resumeSlot(handoff, hasHandoff, staleReasons, resumeLabel, handoffAuthorClause(author, p.Harness))
 	if !hasHandoff {
 		slot1 = pointer
 	}
@@ -159,11 +166,11 @@ func Render(p Params) (string, error) {
 // spelled out in prose (task 56317fe7 — measured on Brian's desktop: a
 // handoff's text named its predecessor in prose because the block carried
 // no id at all, so the chain never linked).
-func resumeSlot(rec store.Record, ok bool, staleReasons []store.FreshnessReason, label string) string {
+func resumeSlot(rec store.Record, ok bool, staleReasons []store.FreshnessReason, label, authorClause string) string {
 	if !ok {
 		return ""
 	}
-	line := "Resume: (id " + rec.ID + ") " + rec.Text
+	line := "Resume: (id " + rec.ID + ") " + authorClause + rec.Text
 	if m := modeLine.FindStringSubmatch(rec.Text); m != nil {
 		line += "\nMODE: " + m[1]
 	}
@@ -174,6 +181,20 @@ func resumeSlot(rec store.Record, ok bool, staleReasons []store.FreshnessReason,
 		line += "\n" + marker
 	}
 	return line
+}
+
+// handoffAuthorClause names the harness that wrote the Resume handoff, so a
+// different harness reading it does not claim the work as its own (task
+// b4829f9a: Codex said "we fixed" about a handoff Claude wrote). It follows
+// the fixed "(id ...)" part, never altering it. The clause is empty — the
+// line renders exactly as before — when the author is unknown (only the
+// record's observed session agent is used, never guessed) or is the reading
+// harness itself, for whom "we" is accurate.
+func handoffAuthorClause(author, reader string) string {
+	if author == "" || author == reader {
+		return ""
+	}
+	return "written by " + author + ": "
 }
 
 // maxPointerProjects caps how many projects the workspace-root pointer line
