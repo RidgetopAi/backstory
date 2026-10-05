@@ -136,10 +136,7 @@ TestCase {
     })
   }
 
-  Component {
-    id: chipsComponent
-    AgentChips {}
-  }
+  property var chipsComponent: Qt.createComponent(Qt.resolvedUrl("../../AgentChips.qml"))
 
   function test_chips_fold_into_more_when_they_do_not_fit() {
     var agents = ["pi", "codex", "claude"].map(function (id, i) { return agentEntry(id, 10 * (i + 1)) })
@@ -162,8 +159,12 @@ TestCase {
   }
 
   // ---- (1) chips ----
+  // An old last_activity keeps the labelled action button off the row, so the
+  // chips have the room the MAX_AGENT_CHIPS cap alone decides.
+  function stale(p) { p.last_activity = new Date(Date.now() - 300 * 60000).toISOString() }
+
   function test_chips_render_newest_first_with_display_names() {
-    open(withAgents(["hermes", "pi", "claude"]))
+    open(withAgents(["hermes", "pi", "claude"], stale))
     compare(JSON.stringify(names(fooRow(), "agentChipName")), JSON.stringify(["Hermes", "Pi", "Claude Code"]))
     var more = TestUtil.findAll(fooRow(), function (n) { return n.objectName === "agentChipMoreText" })
     compare(more.length, 0)
@@ -172,9 +173,9 @@ TestCase {
   function test_more_chip_when_agents_exceed_the_cap() {
     var ids = ["hermes", "pi", "claude", "codex", "opencode"]
     compare(Format.MAX_AGENT_CHIPS, 3)
-    open(withAgents(ids))
-    compare(JSON.stringify(names(fooRow(), "agentChipName")), JSON.stringify(["Hermes", "Pi", "Claude Code"]))
-    compare(JSON.stringify(names(fooRow(), "agentChipMoreText")), JSON.stringify(["+2"]))
+    var strip = createTemporaryObject(chipsComponent, testCase, { agents: ids.map(function (id, i) { return agentEntry(id, 10 * (i + 1)) }) })
+    compare(JSON.stringify(names(strip, "agentChipName")), JSON.stringify(["Hermes", "Pi", "Claude Code"]))
+    compare(JSON.stringify(names(strip, "agentChipMoreText")), JSON.stringify(["+2"]))
   }
 
   function test_here_card_shows_chips_too() {
