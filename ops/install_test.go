@@ -650,3 +650,24 @@ func TestMakeUninstall(t *testing.T) {
 		t.Errorf("store was touched: %v", err)
 	}
 }
+
+// TestRepoShipsBackstoryIgnoreAndReadmeDocumentsIt: a fresh clone must never be
+// captured by shell capture, so the marker is tracked at the repo root and the
+// README documents it.
+func TestRepoShipsBackstoryIgnoreAndReadmeDocumentsIt(t *testing.T) {
+	root := ".."
+	if _, err := os.Stat(filepath.Join(root, ".backstory-ignore")); err != nil {
+		t.Fatalf("repo root .backstory-ignore: %v", err)
+	}
+	out, err := exec.Command("git", "-C", root, "ls-files", "--error-unmatch", ".backstory-ignore").CombinedOutput()
+	if err != nil {
+		t.Fatalf(".backstory-ignore is not tracked in git: %v\n%s", err, out)
+	}
+	readme, err := os.ReadFile(filepath.Join(root, "README.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(readme), ".backstory-ignore") {
+		t.Error("README.md does not mention .backstory-ignore")
+	}
+}
