@@ -470,6 +470,7 @@ func TestShellEmitProjectComesFromResolverNotCwdFlag(t *testing.T) {
 		"--cwd", fakeProjectDir,
 		"--exit", "0",
 		"--duration-ms", "1")
+	cmd.Dir = t.TempDir() // not the repo checkout, which carries a .backstory-ignore
 	cmd.Env = env
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("backstory shell emit: %v\n%s", err, out)
@@ -501,3 +502,65 @@ func TestShellEmitProjectComesFromResolverNotCwdFlag(t *testing.T) {
 // guards against an accidental unused-import if this file's other tests are
 // ever trimmed.
 var _ = mcp.ShellEmitParams{Cmd: "x"}
+
+// TestShellEmitHonoursBackstoryIgnoreMarker: an emit whose cwd is below a
+// directory holding .backstory-ignore exits 0 and records nothing (no session,
+// project or event); the same emit from an unmarked sibling records as usual.
+func TestShellEmitHonoursBackstoryIgnoreMarker(t *testing.T) {
+	bin := buildBackstory(t)
+	root := t.TempDir()
+	marked := filepath.Join(root, "marked")
+	sub := filepath.Join(marked, "a", "b")
+	sibling := filepath.Join(root, "sibling")
+	for _, d := range []string{sub, sibling} {
+		if err := os.MkdirAll(d, 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(marked, ".backstory-ignore"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	keyCol := map[string]string{"projects": "key", "sessions": "project_key"}
+	emit := func(dir string, env []string) {
+		t.Helper()
+		cmd := exec.Command(bin, "shell", "emit", "--cmd", "echo hi", "--cwd", dir, "--exit", "0", "--duration-ms", "1") //nolint:gosec // bin is the binary this test just built
+		cmd.Dir = dir
+		cmd.Env = env
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("backstory shell emit in %s: %v\n%s", dir, err, out)
+		}
+	}
+	count := func(s *store.Store, table, key string) int {
+		t.Helper()
+		var n int
+		if err := s.DB().QueryRow("SELECT COUNT(*) FROM "+table+" WHERE "+keyCol[table]+" = ?", key).Scan(&n); err != nil {
+			t.Fatalf("count %s: %v", table, err)
+		}
+		return n
+	}
+
+	// Marked subdirectory: nothing recorded. The identity the daemon would
+	// have used is the marked dir, so a leak shows up under its key.
+	dbPath, _, env := startTestDaemon(t, bin, shellAncestry(sub)...)
+	emit(sub, env)
+	time.Sleep(300 * time.Millisecond)
+	s := mustOpenTestStore(t, dbPath)
+	markedKey := project.Key(sub, project.RealGit{}, nil)
+	for _, table := range []string{"projects", "sessions"} {
+		if n := count(s, table, markedKey); n != 0 {
+			t.Errorf("%s rows after ignored emit = %d, want 0", table, n)
+		}
+	}
+	if evs := queryShellCommandEvents(t, s, project.Key(sub, project.RealGit{}, nil)); len(evs) != 0 {
+		t.Errorf("ignored emit recorded events: %#v", evs)
+	}
+
+	// Unmarked sibling records exactly as before.
+	dbPath2, _, env2 := startTestDaemon(t, bin, shellAncestry(sibling)...)
+	emit(sibling, env2)
+	s2 := mustOpenTestStore(t, dbPath2)
+	if evs := waitForShellCommandEventCount(t, s2, project.Key(sibling, project.RealGit{}, nil), 1, 2*time.Second); len(evs) != 1 {
+		t.Errorf("sibling emit events = %d, want 1", len(evs))
+	}
+}

@@ -91,7 +91,8 @@ to `~/.bashrc`.
   captured and recalled like a hosted one; Codex transcripts with a custom `model_provider` import
   identically.
 - **Shell capture**: `backstory install bash` wires bash's preexec/precmd command capture into
-  `~/.bashrc`.
+  `~/.bashrc`. To keep a folder (and everything under it) out of shell capture, put an empty
+  `.backstory-ignore` file in it; this repo ships one so a fresh clone is never captured.
 - **Backfill**: `backstory backfill claude` imports existing Claude transcripts so the first
   recall isn't empty.
 - **This Week**: `backstory this-week` on the CLI, and the same view in the Omarchy Quickshell

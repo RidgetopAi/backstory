@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 
 	"github.com/RidgetopAi/backstory/internal/mcp"
 )
@@ -70,6 +72,13 @@ func runShellEmit(args []string, stderr io.Writer) int {
 		return 2
 	}
 
+	// A .backstory-ignore marker in the process cwd (what the daemon resolves
+	// identity from) or the shell's reported cwd, or any ancestor, keeps this
+	// emit out of the store entirely: checked before any daemon dial.
+	if wd, err := os.Getwd(); (err == nil && ignoredByMarker(wd)) || (*cwd != "" && ignoredByMarker(*cwd)) {
+		return 0
+	}
+
 	params := mcp.ShellEmitParams{Cmd: *cmd, CWD: *cwd, Exit: *exit, DurationMS: *durationMS}
 	// callDaemon (cmd/backstory/hook.go) is the same dial-one-line-close
 	// helper `backstory hook` uses: a harness declaring a "session" join key
@@ -80,6 +89,26 @@ func runShellEmit(args []string, stderr io.Writer) int {
 		return 0
 	}
 	return 0
+}
+
+// shellIgnoreMarker is the file name that keeps a folder tree out of shell
+// capture. Scope is shell capture only; hooks and backfill ignore it.
+const shellIgnoreMarker = ".backstory-ignore"
+
+// ignoredByMarker reports whether dir, or any ancestor up to the filesystem
+// root, contains a shellIgnoreMarker file.
+func ignoredByMarker(dir string) bool {
+	dir = filepath.Clean(dir)
+	for {
+		if _, err := os.Stat(filepath.Join(dir, shellIgnoreMarker)); err == nil {
+			return true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return false
+		}
+		dir = parent
+	}
 }
 
 // bashInitSnippet is `backstory shell init bash`'s printed output, evaled
