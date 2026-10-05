@@ -95,6 +95,15 @@ func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs i
 		return
 	}
 
+	if declinesSession(first) {
+		identity := storeIdentity(id, "")
+		resp := dispatchDaemonRequest(first, st, procfs, identity, "", id, git, captureOff, workspaces)
+		if b, err := json.Marshal(resp); err == nil {
+			_, _ = conn.Write(append(b, '\n'))
+		}
+		return
+	}
+
 	end := liveSessionEnder(st, git, logger, captureOff)
 	start := func() (string, error) {
 		if off, err := captureOff(); err != nil {
@@ -129,6 +138,24 @@ func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs i
 			line = sc.Bytes()
 		}
 	}
+}
+
+// noSessionMethods are the daemon methods whose request may set no_session:
+// read-only ones only, so the flag can never suppress a write's provenance.
+// Named config, not a literal check inside ServeDaemonConn.
+var noSessionMethods = map[string]bool{
+	daemonMethodStatus: true,
+	DaemonMethodBlock:  true,
+}
+
+// declinesSession reports whether a connection's first request line asks for
+// no session (the installer's health probe) on a method that allows it.
+func declinesSession(line []byte) bool {
+	var req DaemonRequest
+	if json.Unmarshal(line, &req) != nil {
+		return false
+	}
+	return req.NoSession && noSessionMethods[req.Method]
 }
 
 // liveSessionEnder returns the one callback every live-session end goes

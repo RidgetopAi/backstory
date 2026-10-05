@@ -11,8 +11,10 @@ License: MIT.
 
 ## Install from source
 
-Prerequisites: [Omarchy](https://omarchy.org), Go (at least the version in `go.mod`), `git`
-and `make`.
+Prerequisites: [Omarchy](https://omarchy.org), Go 1.27 or newer (the version in `go.mod`),
+`git` and `make`. Stock Omarchy does not ship that Go; one line fixes it (mise ships with
+Omarchy): `mise use -g go@1.27`. `make install` checks this first and stops before building
+if Go is missing or older.
 
 ```
 git clone https://github.com/RidgetopAi/backstory && cd backstory
@@ -25,11 +27,13 @@ starts the `systemd --user` unit, installs the panel plugin into
 `~/.config/omarchy/plugins/backstory.this-week` (restarting the Omarchy shell if your session
 is unlocked; if it is locked it tells you to run `omarchy restart shell`), installs the
 Hyprland file `~/.config/hypr/backstory.lua`, then runs `backstory install` and prints
-`backstory version`. It never edits your `hyprland.lua`: add the line it prints,
-`require("hypr.backstory")`, yourself. It refuses to overwrite a plugin directory that isn't a
+`backstory version`, and checks the daemon answers (it prints `backstory <version> installed`
+and a `next:` line, or a failure line naming the daemon and exits non-zero). It never edits
+your `hyprland.lua`: if `require("hypr.backstory")` isn't already in it, the installer prints
+the line for you to add, otherwise it says the keybind is already loaded. It refuses to overwrite a plugin directory that isn't a
 Backstory panel. `make uninstall` reverses it and leaves your memory store alone.
 
-To open the panel, press `SUPER + SHIFT + B` (set in `~/.config/hypr/backstory.lua`) or click
+To open the panel, press `CTRL + SHIFT + B` (set in `~/.config/hypr/backstory.lua`) or click
 the bar glyph (see `panel/README.md`). Then `backstory install --check` shows which harnesses
 are set up; `backstory install bash` adds shell command capture to `~/.bashrc`.
 

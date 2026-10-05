@@ -27,6 +27,7 @@ func TestBackstoryServiceHasRequiredDirectivesNoSandbox(t *testing.T) {
 	required := []string{
 		"ExecStart=%h/.local/bin/backstory daemon",
 		"Restart=on-failure",
+		"RestartSec=2s",
 		"RuntimeDirectory=backstory",
 		"Environment=BACKSTORY_CLAUDE_ROOT=%h/.claude/projects",
 		"NoNewPrivileges=yes",

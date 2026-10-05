@@ -12,6 +12,11 @@ type DaemonRequest struct {
 	Actor   string          `json:"actor,omitempty"`
 	Method  string          `json:"method"`
 	Params  json.RawMessage `json:"params,omitempty"`
+	// NoSession asks the daemon not to mint a session (or project row) for
+	// this connection. It is honoured only on the read-only status method
+	// (NoSessionMethods); the installer sets it so its own health probe
+	// does not record the build directory as the user's first memory.
+	NoSession bool `json:"no_session,omitempty"`
 }
 
 // DaemonError is a daemon-side method failure. Code is a short machine-

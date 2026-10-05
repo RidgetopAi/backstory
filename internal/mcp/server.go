@@ -65,6 +65,14 @@ type Server struct {
 	dial         Dialer
 	daemonConn   net.Conn
 	daemonReader *bufio.Reader
+	noSession    bool
+}
+
+// WithoutSession makes the shim's status calls ask the daemon not to mint a
+// session for the connection (see DaemonRequest.NoSession).
+func (s *Server) WithoutSession() *Server {
+	s.noSession = true
+	return s
 }
 
 // NewServer builds a shim that forwards note/status calls to the daemon
