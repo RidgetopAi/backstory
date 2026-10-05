@@ -302,8 +302,14 @@ Item {
   FloatingWindow {
     id: panel
     title: root.windowTitle
-    visible: root.opened
     color: "transparent"
+    // Re-applies on every opened change, and survives a direct write to
+    // panel.visible (which would sever a plain `visible: root.opened` binding).
+    Binding { target: panel; property: "visible"; value: root.opened }
+    // The window can be hidden by the host/compositor, not only by close():
+    // opened follows, so the next toggle() opens instead of "closing" a
+    // window that is already gone.
+    onVisibleChanged: if (!panel.visible && root.opened) root.close()
     implicitWidth: root.baseWidth
     implicitHeight: Math.min(root.baseHeight, (contentColumn.implicitHeight + Style.spacing.panelPadding * 2) * root.zoom)
 

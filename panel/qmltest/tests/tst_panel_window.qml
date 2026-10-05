@@ -33,4 +33,45 @@ TestCase {
     compare(w.title, "backstory")
     loader.destroy()
   }
+
+  function makePanel() {
+    ProcessController.reset()
+    Quickshell.reset()
+    var loader = panelComponent.createObject(testCase)
+    tryCompare(loader, "status", Loader.Ready, 2000)
+    return loader
+  }
+
+  // Task d6360806: a window hidden by the host/compositor (not close())
+  // must not leave `opened` stuck true.
+  function test_toggle_opens_after_host_hides_window() {
+    var loader = makePanel()
+    var p = loader.item
+    p.open("{}")
+    compare(p.testWindow.visible, true)
+    p.testWindow.visible = false
+    compare(p.opened, false)
+    p.toggle()
+    compare(p.opened, true)
+    compare(p.testWindow.visible, true)
+    loader.destroy()
+  }
+
+  function test_toggle_and_escape_unchanged() {
+    var loader = makePanel()
+    var p = loader.item
+    p.open("{}")
+    p.toggle()
+    compare(p.opened, false)
+    compare(p.testWindow.visible, false)
+    p.toggle()
+    compare(p.opened, true)
+    p.handleKey(Qt.Key_Escape, 0)
+    compare(p.opened, false)
+    compare(p.testWindow.visible, false)
+    p.toggle()
+    compare(p.opened, true)
+    compare(p.testWindow.visible, true)
+    loader.destroy()
+  }
 }
