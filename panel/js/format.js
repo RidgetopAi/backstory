@@ -47,6 +47,23 @@ function chipAgents(agents) {
   return { shown: all.slice(0, MAX_AGENT_CHIPS), extra: Math.max(0, all.length - MAX_AGENT_CHIPS) }
 }
 
+// fitChipCount: how many of the candidate chips (widths, in order) fit in
+// `avail` after `lead` (the chevron) while leaving room for the "+N" chip
+// (`moreWidth`) whenever any of the `total` agents stay folded. The first chip
+// always counts, even if it alone overflows.
+function fitChipCount(widths, total, avail, lead, moreWidth, spacing) {
+  var used = lead
+  var n = 0
+  for (var i = 0; i < widths.length; i++) {
+    var need = used + spacing + widths[i]
+    var reserve = (i + 1 < total) ? spacing + moreWidth : 0
+    if (n >= 1 && need + reserve > avail) break
+    used = need
+    n++
+  }
+  return n
+}
+
 // nextPrefix: the handoff line's label, naming the agent that wrote it.
 function nextPrefix(handoffAgent) {
   return handoffAgent ? "Next (" + agentName(handoffAgent) + "): " : "Next: "
