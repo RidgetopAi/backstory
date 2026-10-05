@@ -162,11 +162,13 @@ do_install() {
 		echo "restarted the Omarchy shell"
 	fi
 
+	# The hook verification below needs a live daemon: wait for it first.
+	wait_for_daemon || exit 1
+
 	# Harness integrations (upgrades its own outdated files). It exits
 	# non-zero when no harness is detected, which is not an install failure.
 	"$BIN" install || echo "backstory: no agent harness set up (see 'backstory install --help'); continuing"
 
-	wait_for_daemon || exit 1
 	echo "backstory $("$BIN" version) installed"
 	echo "next: open the panel with $PANEL_BIND; agents get memory on their next session."
 }
