@@ -64,18 +64,19 @@ type purgeQuerier interface {
 	QueryRow(query string, args ...any) *sql.Row
 }
 
-// purgeSelection resolves the scope to session ids and the WHERE clause (with
+// purgeSelection resolves the scope to session ids (skipping sessions already
+// tombstoned by an earlier purge, so a re-check reports nothing left) and the WHERE clause (with
 // args) matching the events to delete.
 func (s *Store) purgeSelection(q purgeQuerier, sc PurgeScope) (ids []string, evWhere string, evArgs []any, err error) {
 	var rows *sql.Rows
 	switch {
 	case sc.SessionID != "" && sc.ProjectKey == "":
-		rows, err = q.Query(`SELECT id FROM sessions WHERE id = ?`, sc.SessionID)
+		rows, err = q.Query(`SELECT id FROM sessions WHERE id = ? AND purged_at IS NULL`, sc.SessionID)
 	case sc.ProjectKey != "" && sc.SessionID == "":
-		query := `SELECT id FROM sessions WHERE project_key = ?`
+		query := `SELECT id FROM sessions WHERE project_key = ? AND purged_at IS NULL`
 		args := []any{s.canonicalizeProjectKey(sc.ProjectKey)}
 		if sc.Location != nil {
-			query, args = `SELECT id FROM sessions WHERE 1 = 1`, nil
+			query, args = `SELECT id FROM sessions WHERE purged_at IS NULL`, nil
 		}
 		if !sc.Since.IsZero() {
 			query += ` AND started_at >= ?`
