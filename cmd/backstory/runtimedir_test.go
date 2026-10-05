@@ -44,7 +44,7 @@ func TestRuntimePathsWithoutXDGRuntimeDir(t *testing.T) {
 				if err := os.Mkdir(uidDir, 0o700); err != nil {
 					t.Fatal(err)
 				}
-				defer os.Remove(uidDir)
+				t.Cleanup(func() { _ = os.Remove(uidDir) })
 				check(filepath.Join(uidDir, "backstory", c.leaf))
 			})
 			t.Run("uid dir absent", func(t *testing.T) {
@@ -59,7 +59,7 @@ func TestRuntimePathsWithoutXDGRuntimeDir(t *testing.T) {
 				if err := os.Mkdir(uidDir, 0o700); err != nil {
 					t.Fatal(err)
 				}
-				defer os.Remove(uidDir)
+				t.Cleanup(func() { _ = os.Remove(uidDir) })
 				check(filepath.Join(xdg, "backstory", c.leaf))
 			})
 		})
