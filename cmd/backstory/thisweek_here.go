@@ -37,6 +37,9 @@ const (
 	// ("tmux: client").
 	tmuxClientCommPrefix = "tmux:"
 	tmuxClientCommSuffix = "client"
+	// tmuxValueFlags are the tmux global options that take a value (-c shell,
+	// -f file, -L name, -S path, -T features).
+	tmuxValueFlags = "cfLST"
 )
 
 // hereIgnoredRoots are kernel pseudo-filesystems: a process whose cwd lies
@@ -204,6 +207,56 @@ func usableProjectDir(dir string) bool {
 	return err == nil && fi.IsDir()
 }
 
+// tmuxServerArgs reads the tmux client's own argv from <proc>/<pid>/cmdline
+// and returns the flag that selects its server: "-S <path>" or "-L <name>"
+// (tmux lets -S override -L, so only one is returned). nil means the default
+// server: no flag, or an unreadable cmdline. Parsing stops at the tmux command
+// word; flags may be clustered ("-2L name") or attached ("-Lname").
+func tmuxServerArgs(pid int) []string {
+	b, err := os.ReadFile(procPath(pid, "cmdline")) //nolint:gosec // path built from an int pid
+	if err != nil {
+		return nil
+	}
+	argv := strings.Split(strings.TrimRight(string(b), "\x00"), "\x00")
+	var name, sock string
+	for i := 1; i < len(argv); i++ {
+		a := argv[i]
+		if len(a) < 2 || a[0] != '-' {
+			break
+		}
+	flags:
+		for j := 1; j < len(a); j++ {
+			if !strings.ContainsRune(tmuxValueFlags, rune(a[j])) {
+				continue
+			}
+			val := a[j+1:]
+			if val == "" && i+1 < len(argv) {
+				i++
+				val = argv[i]
+			}
+			switch a[j] {
+			case 'L':
+				name = val
+			case 'S':
+				sock = val
+			}
+			break flags
+		}
+	}
+	switch {
+	case sock != "":
+		return []string{"-S", sock}
+	case name != "":
+		return []string{"-L", name}
+	}
+	return nil
+}
+
+// tmuxCommand runs a tmux subcommand against the server a client uses.
+func tmuxCommand(server []string, args ...string) ([]byte, error) {
+	return runCommand(tmuxBin, append(append([]string{}, server...), args...)...)
+}
+
 func isTmuxClient(comm string) bool {
 	return strings.HasPrefix(comm, tmuxClientCommPrefix) && strings.HasSuffix(comm, tmuxClientCommSuffix)
 }
@@ -228,7 +281,7 @@ func folderOfWindowPID(pid int) (string, bool) {
 		if err != nil {
 			continue
 		}
-		out, err := runCommand(tmuxBin, "display-message", "-c", tty, "-p", "#{pane_current_path}")
+		out, err := tmuxCommand(tmuxServerArgs(d.pid), "display-message", "-c", tty, "-p", "#{pane_current_path}")
 		if p := strings.TrimSpace(string(out)); err == nil && usableProjectDir(p) {
 			return p, true
 		}
@@ -355,13 +408,13 @@ var tmuxTargetRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]*:[0-9]+\.[0-9]
 
 // tmuxSessionPanes lists every pane of the session the client on tty is
 // attached to (`list-panes -s`), active pane of the active window first.
-func tmuxSessionPanes(tty string) []windowFolder {
-	out, err := runCommand(tmuxBin, "display-message", "-c", tty, "-p", "#{session_name}")
+func tmuxSessionPanes(tty string, server []string) []windowFolder {
+	out, err := tmuxCommand(server, "display-message", "-c", tty, "-p", "#{session_name}")
 	session := strings.TrimSpace(string(out))
 	if err != nil || session == "" {
 		return nil
 	}
-	out, err = runCommand(tmuxBin, "list-panes", "-s", "-t", "="+session, "-F", tmuxPaneFormat)
+	out, err = tmuxCommand(server, "list-panes", "-s", "-t", "="+session, "-F", tmuxPaneFormat)
 	if err != nil {
 		return nil
 	}
@@ -396,7 +449,7 @@ func foldersOfWindowPID(pid int) []windowFolder {
 		if err != nil {
 			continue
 		}
-		out = append(out, tmuxSessionPanes(tty)...)
+		out = append(out, tmuxSessionPanes(tty, tmuxServerArgs(d.pid))...)
 	}
 	if len(out) > 0 {
 		return out

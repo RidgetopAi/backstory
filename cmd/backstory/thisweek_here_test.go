@@ -233,6 +233,59 @@ func TestHereAutoTmuxClientUsesPanePath(t *testing.T) {
 	}
 }
 
+// setCmdline writes a fake /proc/<pid>/cmdline (NUL-separated argv).
+func (e *hereEnv) setCmdline(t *testing.T, pid int, argv ...string) {
+	t.Helper()
+	body := strings.Join(argv, "\x00") + "\x00"
+	if err := os.WriteFile(filepath.Join(e.proc, fmt.Sprint(pid), "cmdline"), []byte(body), 0o644); err != nil { //nolint:gosec // test fixture
+		t.Fatal(err)
+	}
+}
+
+// A tmux client started with -L / -S must have its display-message query sent
+// to that same server; a client with neither gets exactly the default argv.
+func TestHereAutoTmuxClientServerFlag(t *testing.T) {
+	cases := []struct {
+		name    string
+		argv    []string
+		wantPre string // argv prefix the recording tmux must see before display-message
+	}{
+		{"L", []string{"tmux", "-L", "shoot", "attach"}, "-L shoot "},
+		{"L attached", []string{"tmux", "-Lshoot", "attach"}, "-L shoot "},
+		{"L clustered", []string{"tmux", "-2L", "shoot", "attach"}, "-L shoot "},
+		{"S", []string{"tmux", "-S", "/tmp/sock/x", "attach"}, "-S /tmp/sock/x "},
+		{"S wins over L", []string{"tmux", "-L", "a", "-S", "/tmp/sock/x", "attach"}, "-S /tmp/sock/x "},
+		{"none", []string{"tmux", "attach", "-L", "notaflag"}, ""},
+		{"no cmdline", nil, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newHereEnv(t)
+			e.fakeHyprctl(t, `{"address":"0xa","pid":200}`, `[]`)
+			e.addProc(t, 200, 1, "ghostty", e.home, "")
+			e.addProc(t, 201, 200, "tmux: client", e.home, "/dev/pts/7")
+			if tc.argv != nil {
+				e.setCmdline(t, 201, tc.argv...)
+			}
+			rec := filepath.Join(t.TempDir(), "argv")
+			writeScript(t, filepath.Join(e.fakeBin, "tmux"),
+				`echo "$*" > `+rec+`; echo `+e.foo)
+			h := hereOf(t, mustRun(t, e, "--here", "auto"))
+			if h["project_key"] != e.fooKey {
+				t.Fatalf("here = %v", h)
+			}
+			got, err := os.ReadFile(rec)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := tc.wantPre + "display-message -c /dev/pts/7 -p #{pane_current_path}\n"
+			if string(got) != want {
+				t.Fatalf("tmux argv = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 func recentKey(t *testing.T, m map[string]any) string {
 	t.Helper()
 	rows, _ := m["where_left_off"].([]any)
