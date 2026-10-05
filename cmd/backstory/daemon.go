@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -255,8 +256,34 @@ func runPiBackfillOnce(st *store.Store, logger *log.Logger) {
 
 // socketPath is $XDG_RUNTIME_DIR/backstory/sock, falling back to
 // ~/.local/state/backstory/sock when XDG_RUNTIME_DIR is unset.
-func socketPath() (string, error) {
+// runtimeRoot is the parent of the per-user runtime dirs (<root>/<uid>) that
+// systemd creates. A package-level variable so tests can point it at a temp
+// dir.
+var runtimeRoot = "/run/user"
+
+// runtimeDir resolves the directory holding the daemon socket and capture-off
+// flag: $XDG_RUNTIME_DIR when set; otherwise <runtimeRoot>/<uid> if it exists
+// as a directory owned by the current uid (Codex launches MCP servers with a
+// scrubbed environment lacking XDG_RUNTIME_DIR, yet the systemd --user daemon
+// listens there); otherwise "" so callers use the ~/.local/state fallback.
+func runtimeDir() string {
 	if dir := os.Getenv("XDG_RUNTIME_DIR"); dir != "" {
+		return dir
+	}
+	uid := os.Getuid()
+	dir := filepath.Join(runtimeRoot, strconv.Itoa(uid))
+	fi, err := os.Stat(dir)
+	if err != nil || !fi.IsDir() {
+		return ""
+	}
+	if st, ok := fi.Sys().(*syscall.Stat_t); !ok || int(st.Uid) != uid {
+		return ""
+	}
+	return dir
+}
+
+func socketPath() (string, error) {
+	if dir := runtimeDir(); dir != "" {
 		return filepath.Join(dir, "backstory", "sock"), nil
 	}
 	home, err := os.UserHomeDir()
@@ -277,7 +304,7 @@ func socketPath() (string, error) {
 // paths (task fd620482, SCHEMA.md invariant 8) via the captureOff callback
 // runDaemon passes to mcp.ServeDaemonConn below.
 func captureOffPath() (string, error) {
-	if dir := os.Getenv("XDG_RUNTIME_DIR"); dir != "" {
+	if dir := runtimeDir(); dir != "" {
 		return filepath.Join(dir, "backstory", "capture-off"), nil
 	}
 	home, err := os.UserHomeDir()
