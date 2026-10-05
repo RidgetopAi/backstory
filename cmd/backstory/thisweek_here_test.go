@@ -274,7 +274,7 @@ func TestHereAutoTmuxClientServerFlag(t *testing.T) {
 			if h["project_key"] != e.fooKey {
 				t.Fatalf("here = %v", h)
 			}
-			got, err := os.ReadFile(rec)
+			got, err := os.ReadFile(rec) //nolint:gosec // test-owned temp path
 			if err != nil {
 				t.Fatal(err)
 			}
