@@ -203,9 +203,10 @@ func TestPurgeDryRunPrintsExactCountsAndChangesNothing(t *testing.T) {
 	if n := countRows(t, dbPath, `SELECT COUNT(*) FROM timeline_events`); n != 3 {
 		t.Errorf("remaining events = %d, want 3 (session a)", n)
 	}
-	// Without a window, session-less events are never selected.
+	// Without a window, session-less events are never selected; sessions b and
+	// c are already purged, so only session a is left to count.
 	stdout, _, _ = execPurge(t, bin, env, "--project", purgeProject, "--dry-run")
-	if got, want := strings.TrimSpace(stdout), "would purge 3 sessions, 3 events, 1 records"; got != want {
+	if got, want := strings.TrimSpace(stdout), "would purge 1 sessions, 3 events, 1 records"; got != want {
 		t.Errorf("windowless dry-run = %q, want %q", got, want)
 	}
 }
