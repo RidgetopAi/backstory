@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -964,5 +965,74 @@ func TestBuildWorkspaceLabelWithOnlyNoWorkSessionsHasNoRow(t *testing.T) {
 		if r.Project.DisplayName == "idle-folder" || strings.Contains(r.Project.CWD, "idle-folder") {
 			t.Errorf("unexpected row for no-work label: %+v", r.Project)
 		}
+	}
+}
+
+// --- Attention kind (b): only the latest observable git_state counts ---
+
+func uncommittedItems(t *testing.T, st *store.Store) []AttentionItem {
+	t.Helper()
+	res, err := Build(Params{Store: st, Now: fixtureNow})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	var out []AttentionItem
+	for _, it := range res.Attention {
+		if it.Kind == AttentionUncommittedAtSessionEnd {
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
+func appendGitState(t *testing.T, st *store.Store, sid, payload string) int64 {
+	t.Helper()
+	appendEvent(t, st, store.Event{TS: fixtureNow.Add(-24 * time.Hour), Kind: "tool.use", SessionID: sid, Source: "shell", Payload: `{"name":"Read","path":"main.go"}`})
+	return appendEvent(t, st, store.Event{TS: fixtureNow.Add(-24 * time.Hour), Kind: "session.git_state", SessionID: sid, Source: "daemon", Payload: payload})
+}
+
+func TestUncommittedDedupsToLatestEventPerProject(t *testing.T) {
+	st := openTestStore(t)
+	upsertProject(t, st, "proj-dedup", "/home/brian/dedup")
+	var last int64
+	for i, n := range []int{1, 2, 3} {
+		sid := startSession(t, st, fmt.Sprintf("sess-dedup-%d", i), "proj-dedup", "/home/brian/dedup", fixtureNow.Add(-2*time.Hour))
+		last = appendGitState(t, st, sid, fmt.Sprintf(`{"branch":"main","uncommitted_count":%d}`, n))
+	}
+	items := uncommittedItems(t, st)
+	if len(items) != 1 {
+		t.Fatalf("items = %+v, want exactly 1", items)
+	}
+	if want := strconv.FormatInt(last, 10); len(items[0].EvidenceIDs) != 1 || items[0].EvidenceIDs[0] != want {
+		t.Fatalf("EvidenceIDs = %v, want [%s]", items[0].EvidenceIDs, want)
+	}
+	if !strings.Contains(items[0].Reason, "3 uncommitted") {
+		t.Fatalf("Reason = %q, want latest count 3", items[0].Reason)
+	}
+}
+
+func TestUncommittedClearedByLaterCleanEvent(t *testing.T) {
+	st := openTestStore(t)
+	upsertProject(t, st, "proj-clean", "/home/brian/clean")
+	sid := startSession(t, st, "sess-clean", "proj-clean", "/home/brian/clean", fixtureNow.Add(-2*time.Hour))
+	appendGitState(t, st, sid, `{"branch":"main","uncommitted_count":4}`)
+	appendGitState(t, st, sid, `{"branch":"main","uncommitted_count":0}`)
+	if items := uncommittedItems(t, st); len(items) != 0 {
+		t.Fatalf("items = %+v, want none after clean session", items)
+	}
+}
+
+func TestUncommittedSurvivesLaterCouldNotObserveEvent(t *testing.T) {
+	st := openTestStore(t)
+	upsertProject(t, st, "proj-cno-later", "/home/brian/cno-later")
+	sid := startSession(t, st, "sess-cno-later", "proj-cno-later", "/home/brian/cno-later", fixtureNow.Add(-2*time.Hour))
+	dirty := appendGitState(t, st, sid, `{"branch":"main","uncommitted_count":2}`)
+	appendGitState(t, st, sid, `{"could_not_observe":true}`)
+	items := uncommittedItems(t, st)
+	if len(items) != 1 {
+		t.Fatalf("items = %+v, want 1", items)
+	}
+	if want := strconv.FormatInt(dirty, 10); items[0].EvidenceIDs[0] != want {
+		t.Fatalf("EvidenceIDs = %v, want [%s]", items[0].EvidenceIDs, want)
 	}
 }

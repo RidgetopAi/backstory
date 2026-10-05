@@ -515,24 +515,34 @@ func uncommittedSessionEndItems(st *store.Store, projectKey string, since time.T
 	if err != nil {
 		return nil, fmt.Errorf("week: session git-state events for %s: %w", projectKey, err)
 	}
-	var out []AttentionItem
-	for _, e := range events {
+	// Only the LATEST observable event counts: events arrive oldest-first, so
+	// the last one that is not could-not-observe is the project's current
+	// state. An earlier dirty event is superseded by a later clean one, and a
+	// later could-not-observe event carries no evidence either way.
+	var latest *store.TimelineEvent
+	var latestGS payload.SessionGitState
+	for i := range events {
+		e := events[i]
 		var gs payload.SessionGitState
 		if err := json.Unmarshal([]byte(e.Payload), &gs); err != nil {
 			return nil, fmt.Errorf("week: parse session.git_state payload (event %d): %w", e.ID, err)
 		}
-		if gs.CouldNotObserve || gs.UncommittedCount == nil || *gs.UncommittedCount <= 0 {
+		if gs.CouldNotObserve || gs.UncommittedCount == nil {
 			continue
 		}
-		reason := fmt.Sprintf("session ended with %d uncommitted change(s)", *gs.UncommittedCount)
-		if gs.Branch != "" {
-			reason += " on branch " + gs.Branch
+		latest, latestGS = &events[i], gs
+	}
+	var out []AttentionItem
+	if latest != nil && *latestGS.UncommittedCount > 0 {
+		reason := fmt.Sprintf("session ended with %d uncommitted change(s)", *latestGS.UncommittedCount)
+		if latestGS.Branch != "" {
+			reason += " on branch " + latestGS.Branch
 		}
 		out = append(out, AttentionItem{
 			Kind:        AttentionUncommittedAtSessionEnd,
 			ProjectKey:  projectKey,
 			Reason:      reason,
-			EvidenceIDs: []string{strconv.FormatInt(e.ID, 10)},
+			EvidenceIDs: []string{strconv.FormatInt(latest.ID, 10)},
 		})
 	}
 	return out, nil
