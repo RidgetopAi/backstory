@@ -118,6 +118,49 @@ TestCase {
     return ProcessController.runs.filter(function (r) { return r.command[0] === "omarchy" && r.command[1] === "agent" })
   }
 
+  // ---- chips never run under the row's action button (task 36fac381) ----
+  function chipsFor(root, objectName) {
+    return TestUtil.findAll(root, function (n) { return n.objectName === objectName && n.visible })
+  }
+
+  function test_chips_stop_left_of_the_recent_action_button() {
+    open(withAgents(["pi", "codex", "claude"], function (p) { p.last_activity = new Date(Date.now() - 5 * 60000).toISOString() }))
+    var row = fooRow()
+    var button = TestUtil.findFirst(row, function (n) { return n.objectName === "recentActionButton" && n.visible })
+    verify(button !== null, "recent action button not visible")
+    var chips = chipsFor(row, "agentChip")
+    verify(chips.length >= 1)
+    chips.forEach(function (c) {
+      var right = c.mapToItem(row, c.width, 0).x
+      verify(right <= button.x + 0.5, "chip right edge " + right + " is under the button at " + button.x)
+    })
+  }
+
+  Component {
+    id: chipsComponent
+    AgentChips {}
+  }
+
+  function test_chips_fold_into_more_when_they_do_not_fit() {
+    var agents = ["pi", "codex", "claude"].map(function (id, i) { return agentEntry(id, 10 * (i + 1)) })
+    var wide = createTemporaryObject(chipsComponent, testCase, { agents: agents })
+    verify(wide !== null)
+    compare(chipsFor(wide, "agentChip").length, 3)
+    compare(chipsFor(wide, "agentChipMore").length, 0)
+    var full = wide.implicitWidth
+    var narrow = createTemporaryObject(chipsComponent, testCase, { agents: agents, availableWidth: full - 10 })
+    var shown = chipsFor(narrow, "agentChip")
+    verify(shown.length >= 1 && shown.length < 3, "shown " + shown.length)
+    compare(shown[0].agentText, "Pi")
+    var more = chipsFor(narrow, "agentChipMoreText")
+    compare(more.length, 1)
+    compare(more[0].text, "+" + (3 - shown.length))
+    verify(narrow.width <= full - 10 + 0.5, "strip wider than its bound")
+    var tiny = createTemporaryObject(chipsComponent, testCase, { agents: agents, availableWidth: 1 })
+    compare(chipsFor(tiny, "agentChip").length, 1)
+    compare(chipsFor(tiny, "agentChipMoreText")[0].text, "+2")
+  }
+
   // ---- (1) chips ----
   function test_chips_render_newest_first_with_display_names() {
     open(withAgents(["hermes", "pi", "claude"]))

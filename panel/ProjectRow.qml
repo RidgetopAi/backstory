@@ -116,6 +116,7 @@ Item {
 
     AgentChips {
       objectName: "agentChips"
+      availableWidth: column.width
       agents: root.agents
       expanded: root.expanded
       nowMs: root.nowMs
