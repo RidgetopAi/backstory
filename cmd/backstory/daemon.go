@@ -198,7 +198,7 @@ func logIdentity(logger *log.Logger, id ident.Identity) {
 // and never stops the daemon — a fresh install with no ~/.claude yet must
 // still come up clean.
 func runClaudeBackfillOnce(st *store.Store, logger *log.Logger) {
-	res, err := claude.Import(st, claude.Options{})
+	res, err := claude.Import(st, claude.Options{CaptureOff: captureOff})
 	if err != nil {
 		logger.Printf("backfill claude: %v", err)
 		return
@@ -214,7 +214,7 @@ func runClaudeBackfillOnce(st *store.Store, logger *log.Logger) {
 // other failure is logged and never stops the daemon — a machine with no
 // Codex CLI installed must still come up clean.
 func runCodexBackfillOnce(st *store.Store, logger *log.Logger) {
-	res, err := codex.Import(st, codex.Options{})
+	res, err := codex.Import(st, codex.Options{CaptureOff: captureOff})
 	if err != nil {
 		logger.Printf("backfill codex: %v", err)
 		return
@@ -230,7 +230,7 @@ func runCodexBackfillOnce(st *store.Store, logger *log.Logger) {
 // other failure is logged and never stops the daemon — a machine with no
 // Hermes Agent installed must still come up clean.
 func runHermesBackfillOnce(st *store.Store, logger *log.Logger) {
-	res, err := hermes.Import(st, hermes.Options{})
+	res, err := hermes.Import(st, hermes.Options{CaptureOff: captureOff})
 	if err != nil {
 		logger.Printf("backfill hermes: %v", err)
 		return
@@ -246,7 +246,7 @@ func runHermesBackfillOnce(st *store.Store, logger *log.Logger) {
 // check to make here — a machine with no Pi installed comes up exactly as
 // clean as one with no Claude Code installed.
 func runPiBackfillOnce(st *store.Store, logger *log.Logger) {
-	res, err := pi.Import(st, pi.Options{})
+	res, err := pi.Import(st, pi.Options{CaptureOff: captureOff})
 	if err != nil {
 		logger.Printf("backfill pi: %v", err)
 		return

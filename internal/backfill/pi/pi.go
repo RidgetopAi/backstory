@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/RidgetopAi/backstory/internal/backfill/capture"
 	"github.com/RidgetopAi/backstory/internal/payload"
 	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/store"
@@ -77,6 +78,10 @@ type Options struct {
 	// checked against before falling back to a repo/path key (decision
 	// bcc9fa54). Nil uses project.DefaultWorkspaceDirs().
 	Workspaces []string
+	// CaptureOff reports whether capture is paused (SCHEMA.md invariant 8).
+	// While it is, Import imports nothing; a session that started inside a
+	// recorded pause window is never imported. Nil means no flag to consult.
+	CaptureOff capture.OffFunc
 }
 
 // Result is Import's one-line summary: `backstory backfill pi` prints it.
@@ -101,6 +106,11 @@ func (r Result) String() string {
 // error — a machine with no ~/.pi installed must not fail the daemon's
 // on-start run.
 func Import(st *store.Store, opts Options) (Result, error) {
+	if paused, err := capture.Off(opts.CaptureOff); err != nil {
+		return Result{}, err
+	} else if paused {
+		return Result{}, nil
+	}
 	root := opts.Root
 	if root == "" {
 		r, err := DefaultRoot()
@@ -218,6 +228,13 @@ func importFile(st *store.Store, git project.Git, workspaces []string, path stri
 		default:
 			stats.skipped++
 		}
+	}
+
+	// Started during a capture pause: never imported (invariant 8).
+	if paused, err := capture.StartedInPause(st, root.Timestamp); err != nil {
+		return fileStats{}, err
+	} else if paused {
+		return fileStats{}, nil
 	}
 
 	// A run captured live already minted a session for this exact

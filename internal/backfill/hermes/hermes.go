@@ -24,6 +24,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/RidgetopAi/backstory/internal/backfill/capture"
 	"github.com/RidgetopAi/backstory/internal/payload"
 	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/store"
@@ -95,6 +96,10 @@ type Options struct {
 	// started_at/ended_at cannot be parsed. Nil logs via the standard
 	// logger. A bad row never aborts the import.
 	Warn func(msg string)
+	// CaptureOff reports whether capture is paused (SCHEMA.md invariant 8).
+	// While it is, Import imports nothing; a session that started inside a
+	// recorded pause window is never imported. Nil means no flag to consult.
+	CaptureOff capture.OffFunc
 }
 
 // Result is Import's one-line summary: `backstory backfill hermes` prints
@@ -145,6 +150,11 @@ func Import(st *store.Store, opts Options) (Result, error) {
 			return Result{}, err
 		}
 		path = p
+	}
+	if paused, err := capture.Off(opts.CaptureOff); err != nil {
+		return Result{}, err
+	} else if paused {
+		return Result{}, nil
 	}
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
@@ -404,6 +414,12 @@ func importSession(st *store.Store, db *sql.DB, git project.Git, workspaces []st
 	// session.start, and its end-of-life belongs to the daemon alone.
 	attachedLive := false
 	if !exists {
+		// Started during a capture pause: never imported (invariant 8).
+		if paused, err := capture.StartedInPause(st, hs.StartedAt); err != nil {
+			return err
+		} else if paused {
+			return nil
+		}
 		if live, ok, err := st.LiveSessionByHarnessSessionID(hs.ID); err != nil {
 			return err
 		} else if ok {
