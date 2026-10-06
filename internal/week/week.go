@@ -513,6 +513,12 @@ func uncommittedSessionEndItems(st *store.Store, projectKey string, since time.T
 	if err != nil {
 		return nil, fmt.Errorf("week: session git-state events for %s: %w", projectKey, err)
 	}
+	// Per-command shell sessions older daemons left on disk each carry a
+	// git_state of their own; a shell is not an agent session ending.
+	shellSessions, err := st.ShellSessionIDs()
+	if err != nil {
+		return nil, fmt.Errorf("week: shell sessions for %s: %w", projectKey, err)
+	}
 	// Only the LATEST observable event counts: events arrive oldest-first, so
 	// the last one that is not could-not-observe is the project's current
 	// state. An earlier dirty event is superseded by a later clean one, and a
@@ -521,6 +527,9 @@ func uncommittedSessionEndItems(st *store.Store, projectKey string, since time.T
 	var latestGS payload.SessionGitState
 	for i := range events {
 		e := events[i]
+		if shellSessions[e.SessionID] {
+			continue
+		}
 		var gs payload.SessionGitState
 		if err := json.Unmarshal([]byte(e.Payload), &gs); err != nil {
 			return nil, fmt.Errorf("week: parse session.git_state payload (event %d): %w", e.ID, err)
