@@ -107,7 +107,7 @@ func runRecords(args []string, stdout, stderr io.Writer) int {
 		}
 		rows = append(rows, recordRowJSON{
 			ID:           rec.ID,
-			TS:           rec.TS.UTC().Format(time.RFC3339),
+			TS:           store.FormatTS(rec.TS, time.RFC3339),
 			Kind:         string(rec.Kind),
 			Tier:         string(rec.Tier),
 			Status:       status,

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/RidgetopAi/backstory/internal/store"
 )
 
 // render is Build's text form: one heading per non-empty section, in
@@ -86,8 +88,5 @@ func renderWeek(days []DayProjectStats) string {
 }
 
 func formatTS(t time.Time) string {
-	if t.IsZero() {
-		return "unknown"
-	}
-	return t.UTC().Format(time.RFC3339)
+	return store.FormatTS(t, time.RFC3339)
 }

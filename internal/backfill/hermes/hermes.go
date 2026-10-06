@@ -407,6 +407,48 @@ func importSession(st *store.Store, db *sql.DB, git project.Git, workspaces []st
 		active = append(active, m)
 	}
 
+	// A message with no usable timestamp takes the last observed one (the
+	// session's own start before the first valid message); never a zero time.
+	if !capture.ValidTS(hs.StartedAt) {
+		for _, m := range active {
+			if capture.ValidTS(m.Timestamp) {
+				hs.StartedAt = m.Timestamp
+				break
+			}
+		}
+		if !capture.ValidTS(hs.StartedAt) && !exists {
+			// No usable time anywhere: nothing to anchor a new session on.
+			return nil
+		}
+	}
+	prev := hs.StartedAt
+	for i := range active {
+		if capture.ValidTS(active[i].Timestamp) {
+			prev = active[i].Timestamp
+		} else if capture.ValidTS(prev) {
+			active[i].Timestamp = prev
+		}
+	}
+	// Anything still untimed (an existing session whose start is itself
+	// unusable and which has no earlier valid message in this batch) is
+	// dropped rather than written with an invented time.
+	timed := active[:0]
+	for _, m := range active {
+		if capture.ValidTS(m.Timestamp) {
+			timed = append(timed, m)
+		}
+	}
+	active = timed
+	endedAt := hs.EndedAt
+	if endedAt != nil && !capture.ValidTS(*endedAt) {
+		// ended_at present but unusable: end at the session's last observed
+		// event time, or leave the end out entirely when there is none.
+		endedAt = nil
+		if capture.ValidTS(prev) {
+			endedAt = &prev
+		}
+	}
+
 	// attachedLive: this Hermes session is still being captured live (origin
 	// 'live', same harness session id) — attach to it instead of minting a
 	// second, backfilled session for the same run, exactly like the Claude
@@ -463,10 +505,10 @@ func importSession(st *store.Store, db *sql.DB, git project.Git, workspaces []st
 	if err != nil {
 		return err
 	}
-	if !ended && hs.EndedAt != nil && origin != store.OriginLive {
+	if !ended && endedAt != nil && origin != store.OriginLive {
 		endPayload, _ := json.Marshal(payload.SessionEnd{Reason: "eof"})
 		if _, err := st.AppendEvent(store.Event{
-			TS:        *hs.EndedAt,
+			TS:        *endedAt,
 			Kind:      EventSessionEnd,
 			SessionID: sessionID,
 			Source:    EventSource,
@@ -476,7 +518,7 @@ func importSession(st *store.Store, db *sql.DB, git project.Git, workspaces []st
 		}
 		res.EventsCreated++
 
-		if err := st.EndSession(sessionID, *hs.EndedAt, "backfill"); err != nil {
+		if err := st.EndSession(sessionID, *endedAt, "backfill"); err != nil {
 			return err
 		}
 		ended = true

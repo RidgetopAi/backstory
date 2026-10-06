@@ -212,6 +212,17 @@ func importFile(st *store.Store, git project.Git, workspaces []string, path stri
 		stats.skipped += len(lines)
 		return stats, nil
 	}
+	// A node with no usable timestamp takes the last observed one; a file
+	// with none at all has nothing to anchor on and is skipped (cursor left
+	// unset), never written with a zero time.
+	stamps := make([]*time.Time, len(order))
+	for i := range order {
+		stamps[i] = &order[i].Timestamp
+	}
+	if !capture.FillTimes(stamps) {
+		stats.skipped += len(lines)
+		return stats, nil
+	}
 	root := order[0]
 	if root.CWD == "" {
 		stats.skipped += len(lines)

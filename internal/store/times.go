@@ -30,3 +30,24 @@ func nullableTS(t *time.Time) any {
 	}
 	return tsToNanos(*t)
 }
+
+// UnknownTS is what a reader renders for an event or record time that is
+// zero or at/before the unix epoch — rows an old backfill wrote from Go's
+// zero time.Time (task 456410f0). A time that cannot be real is shown as
+// unknown, never as a date.
+const UnknownTS = "unknown"
+
+// ValidTS reports whether t is a real stored time: strictly after the unix
+// epoch.
+func ValidTS(t time.Time) bool {
+	return t.After(time.Unix(0, 0))
+}
+
+// FormatTS renders t in layout (UTC), or UnknownTS when t is not a valid
+// time.
+func FormatTS(t time.Time, layout string) string {
+	if !ValidTS(t) {
+		return UnknownTS
+	}
+	return t.UTC().Format(layout)
+}

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/RidgetopAi/backstory/internal/project"
+	"github.com/RidgetopAi/backstory/internal/store"
 	"github.com/RidgetopAi/backstory/internal/week"
 )
 
@@ -238,7 +239,7 @@ func projectSummary(p week.ProjectSummary) projectSummaryJSON {
 }
 
 func formatTSOrEmpty(t time.Time) string {
-	if t.IsZero() {
+	if !store.ValidTS(t) {
 		return ""
 	}
 	return t.UTC().Format(time.RFC3339Nano)
