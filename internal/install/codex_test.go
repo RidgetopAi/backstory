@@ -177,6 +177,9 @@ func TestCodexForeignBackstoryTableLeftUntouched(t *testing.T) {
 			if it.Name == ItemCodexMCPServer {
 				want = StatusForeign
 			}
+			if it.Name == ItemSessionStartHook || it.Name == ItemPostToolUseHook {
+				want = StatusNotTrusted
+			}
 			if it.Status != want {
 				t.Errorf("%s = %s, want %s", it.Name, it.Status, want)
 			}
