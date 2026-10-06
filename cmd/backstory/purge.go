@@ -13,7 +13,7 @@ import (
 	"github.com/RidgetopAi/backstory/internal/week"
 )
 
-// runPurge is `backstory purge (--session ID | --project KEY [--since T]
+// runPurge is `backstory purge (--session ID | --project KEY|PATH [--since T]
 // [--until T] [--location DIR]) [--dry-run] [--yes]` (decision 02c511b3 D4): the human erases
 // captured activity by whole session. Like `delete` it opens the store
 // directly — PurgeSessions is a human-only power the socket API never
@@ -22,7 +22,7 @@ func runPurge(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("purge", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	sessionFlag := fs.String("session", "", "purge this one session id")
-	projectFlag := fs.String("project", "", "purge this project's sessions (optionally within --since/--until by session start)")
+	projectFlag := fs.String("project", "", "purge this project's sessions (a project key or a directory path; optionally within --since/--until by session start)")
 	sinceFlag := fs.String("since", "", "with --project: sessions started at or after this bound (a duration ago, or RFC3339)")
 	untilFlag := fs.String("until", "", "with --project: sessions started before this bound (a duration ago, or RFC3339)")
 	locationFlag := fs.String("location", "", "with --project: act only on the sessions and records This Week attributes to this directory's row (a row's cwd)")
@@ -80,6 +80,14 @@ func runPurge(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	defer func() { _ = st.Close() }()
 
+	if *projectFlag != "" {
+		key, err := resolveProjectRef(st, *projectFlag)
+		if err != nil {
+			_, _ = fmt.Fprintln(stderr, "backstory purge:", err)
+			return 1
+		}
+		scope.ProjectKey = key
+	}
 	if *locationFlag != "" {
 		ls, err := week.LocationScope(st, project.RealGit{}, resolveWorkspaceDirs(), *locationFlag)
 		if err != nil {
