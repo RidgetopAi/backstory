@@ -189,3 +189,51 @@ func TestRecallHonoursProjectKeyAndPath(t *testing.T) {
 		}
 	}
 }
+
+// Task ed31b744 DONE WHEN 2, the fixture the original three-way split needs:
+// the newest handoff filed from a session AT the workspace root was written
+// while editing a repo (labelled demo, not the root). The block used to
+// resume it (writer's key == home), while This Week's row and `records
+// --location` picked the older one labelled with the root. All three must be
+// the root-labelled one.
+func TestWorkspaceRootHandoffIgnoresRootSessionEditingARepo(t *testing.T) {
+	f := newLocFixture(t)
+	rootH := f.handoff(f.root, filepath.Join(f.root, "notes.md"), "ROOT-HANDOFF state")
+	strayH := f.handoff(f.root, filepath.Join(f.demo, "a.go"), "STRAY-HANDOFF state") // newest, labelled demo
+
+	ls, err := f.st.LocationScope(f.root, f.git, f.ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	recs, err := f.st.RecordsForLocation(ls, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var newest string
+	for _, r := range recs {
+		if r.Kind == store.KindHandoff {
+			newest = r.ID
+			break
+		}
+	}
+	week, resume := f.weekRowHandoff(f.root), f.resume(f.root)
+	if rootH == "" || week != rootH || resume != rootH || newest != rootH {
+		t.Errorf("root handoff: this-week=%q block=%q records --location=%q, want all %s (not stray %s)", week, resume, newest, rootH, strayH)
+	}
+}
+
+// Task ed31b744 DONE WHEN 2 / clause 5 mutation 2: a repo row's handoff is
+// the shared resolver's. A session in W/demo that only edited W/other still
+// wrote a demo-location handoff (its repo key matches), so This Week's demo
+// row must show it — the same record the block resumes in W/demo — which a
+// private label-only lookup of the workspace's records cannot.
+func TestRepoRowHandoffMatchesBlockResume(t *testing.T) {
+	f := newLocFixture(t)
+	h := f.handoff(f.demo, filepath.Join(f.other, "b.go"), "DEMO-SESSION-HANDOFF state")
+	if got := f.resume(f.demo); got != h {
+		t.Fatalf("block Resume in W/demo = %q, want %s", got, h)
+	}
+	if got := f.weekRowHandoff(f.demo); got != h {
+		t.Errorf("This Week W/demo row handoff = %q, want the block's Resume %s", got, h)
+	}
+}
