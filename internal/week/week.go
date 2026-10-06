@@ -36,7 +36,7 @@ const maxRecordsPerProject = 1000
 type Params struct {
 	Store *store.Store
 	// Git resolves a project's toplevel repo identity for decision
-	// f3fa04c7's per-repo handoff resolution (store.HandoffForLabel) when a
+	// f3fa04c7's per-repo handoff resolution (store.LatestHandoffAt) when a
 	// project's latest session lives inside a workspace, and (clause 5,
 	// task 482b2320) for deriving a home's own active work-location labels
 	// from its sessions' observed file-touching events. nil is safe as long
@@ -277,7 +277,7 @@ func Build(p Params) (Result, error) {
 			coveredLabels[loc.Label] = true
 
 			key := project.Key(loc.Dir, p.Git, workspaces)
-			summary, items, err := buildHomeLabelProject(p.Store, home, since, now, loc, key, p.Git, workspaces)
+			summary, items, err := buildHomeLabelProject(p.Store, since, now, loc, key, p.Git, workspaces)
 			if err != nil {
 				return Result{}, err
 			}
@@ -423,7 +423,7 @@ func buildProject(st *store.Store, projectKey string, since, now time.Time, git 
 
 	var attention []AttentionItem
 
-	handoff, hasHandoff, err := projectHandoff(st, projectKey, sess, hasSess, name, git, workspaces)
+	handoff, hasHandoff, err := projectHandoff(st, projectKey, sess, hasSess, git, workspaces)
 	if err != nil {
 		return ProjectSummary{}, nil, fmt.Errorf("week: latest handoff for %s: %w", projectKey, err)
 	}
@@ -488,18 +488,16 @@ func buildProject(st *store.Store, projectKey string, since, now time.Time, git 
 }
 
 // projectHandoff resolves projectKey's own handoff for the Where-you-left-
-// off / Attention slot (decision f3fa04c7): when projectKey's latest
-// session lives inside a workspace, ALL handoffs are filed under that
-// workspace's home key (HOME), never under projectKey's own key — so this
-// looks up the home's newest handoff whose own session's labels include
-// projectKey's label (store.HandoffForLabel), the same per-repo filter
-// block's Resume slot applies. Outside any workspace (or with no session at
-// all), this is exactly the old st.LatestRecord(projectKey, KindHandoff)
-// call, unchanged.
-func projectHandoff(st *store.Store, projectKey string, sess store.Session, hasSess bool, label string, git project.Git, workspaces []string) (store.Record, bool, error) {
+// off / Attention slot (decision f3fa04c7, task ed31b744): a session inside
+// a workspace files its handoffs under the workspace's home key, so the
+// row's handoff is the newest one belonging to the row's location
+// (store.LatestHandoffAt — the resolver block's Resume, recall, export and
+// `records --location` share). Outside any workspace (or with no session at
+// all), this is exactly the old st.LatestRecord(projectKey, KindHandoff).
+func projectHandoff(st *store.Store, projectKey string, sess store.Session, hasSess bool, git project.Git, workspaces []string) (store.Record, bool, error) {
 	if hasSess {
-		if home, ok := project.WorkspaceHome(sess.CWD, workspaces); ok && home != projectKey {
-			return st.HandoffForLabel(home, label, git, workspaces)
+		if _, ok := project.WorkspaceHome(sess.CWD, workspaces); ok {
+			return st.LatestHandoffAt(sess.CWD, git, workspaces)
 		}
 	}
 	return st.LatestRecord(projectKey, store.KindHandoff)
@@ -655,7 +653,7 @@ func buildWeekGrid(st *store.Store, keys []string, since, now time.Time, workspa
 // 5, task 482b2320): a session started at the workspace root itself, whose
 // file-touching events resolve to a repo/folder that never got its own
 // session. Its handoff resolves exactly as projectHandoff's home-scoped
-// branch does (store.HandoffForLabel), and the same store.HandoffFreshness
+// branch does (store.LatestHandoffAt), and the same store.HandoffFreshness
 // call feeds both the summary's HandoffStale flag and any
 // AttentionPossiblyStaleHandoff item, so the two can never disagree — the
 // same invariant buildProject's own handoff handling keeps. Unlike
@@ -665,7 +663,7 @@ func buildWeekGrid(st *store.Store, keys []string, since, now time.Time, workspa
 // by a home session's file paths never carries one of its own (class
 // members deferred: documented in this task's commit, not silently
 // dropped).
-func buildHomeLabelProject(st *store.Store, home string, since, now time.Time, loc store.ActiveWorkLocation, key string, git project.Git, workspaces []string) (ProjectSummary, []AttentionItem, error) {
+func buildHomeLabelProject(st *store.Store, since, now time.Time, loc store.ActiveWorkLocation, key string, git project.Git, workspaces []string) (ProjectSummary, []AttentionItem, error) {
 	summary := ProjectSummary{
 		ProjectKey:   key,
 		DisplayName:  loc.Label,
@@ -683,7 +681,7 @@ func buildHomeLabelProject(st *store.Store, home string, since, now time.Time, l
 	}
 
 	var attention []AttentionItem
-	handoff, hasHandoff, err := st.HandoffForLabel(home, loc.Label, git, workspaces)
+	handoff, hasHandoff, err := st.LatestHandoffAt(loc.Dir, git, workspaces)
 	if err != nil {
 		return ProjectSummary{}, nil, fmt.Errorf("week: handoff for label %s: %w", loc.Label, err)
 	}

@@ -257,46 +257,7 @@ func (s *Store) sessionsForHome(homeKey string, workspaces []string) ([]Session,
 	return out, nil
 }
 
-// HandoffForLabel returns the newest non-tombstoned kind=handoff record in
-// home whose own session's work-location labels (sessionLabels) include
-// label — decision f3fa04c7's per-repo Resume/Where-you-left-off
-// resolution: many repos share one home (the workspace they live under), so
-// a home-scoped handoff lookup must filter by which repo the handoff's own
-// session actually touched, the same way block's Resume slot and
-// internal/week's per-project handoff both need to. Scans newest-first
-// (RecordsForProject's own order), capped at maxHandoffScanForLabel. found
-// is false when home has no handoff at all, or none of its handoffs'
-// sessions carry label.
-func (s *Store) HandoffForLabel(home, label string, git project.Git, workspaces []string) (Record, bool, error) {
-	handoffs, err := s.RecordsForProject(home, KindHandoff, maxHandoffScanForLabel)
-	if err != nil {
-		return Record{}, false, fmt.Errorf("store: handoff for label %q in %s: %w", label, home, err)
-	}
-	for _, h := range handoffs {
-		if h.SessionID == "" {
-			continue
-		}
-		sess, err := s.getSession(h.SessionID)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				continue
-			}
-			return Record{}, false, fmt.Errorf("store: handoff for label %q in %s: %w", label, home, err)
-		}
-		labels, err := s.sessionLabels(sess, git, workspaces)
-		if err != nil {
-			return Record{}, false, fmt.Errorf("store: handoff for label %q in %s: %w", label, home, err)
-		}
-		for _, l := range labels {
-			if l == label {
-				return h, true, nil
-			}
-		}
-	}
-	return Record{}, false, nil
-}
-
-// maxHandoffScanForLabel bounds HandoffForLabel's newest-first scan of a
+// maxHandoffScanForLabel bounds HandoffsByWriter's newest-first scan of a
 // home's handoffs — the read-side safety cap RecordsForProject's own limit
 // parameter already exists for, applied here so a workspace with years of
 // handoff history must not load its entire ledger before the label filter
@@ -332,26 +293,18 @@ func LabelAndDir(path string, git project.Git, workspaces []string) (label, dir 
 	return labelAndDir(path, git, workspaces)
 }
 
-// RootHandoffs is the workspace-root RESUME lookup (decision 7a2556b6,
-// narrowing f3fa04c7's read side). Handoffs are stored under the home key
-// whichever session wrote them, so the root must not serve the newest one
-// blindly: it would resume another project's work. Scanning home's handoffs
-// newest-first (capped at maxHandoffScanForLabel), it returns:
-//   - own: the newest handoff whose WRITING session's own project_key is
-//     home itself (written at the root, or from a non-git direct child that
-//     shares the root's key); found reports whether one exists.
-//   - others: one entry per other project key that has a live handoff, in
-//     newest-first order, each carrying that project's latest handoff.
-//
-// Handoffs with no session, or whose session row is gone, belong to nobody
-// and are skipped.
-func (s *Store) RootHandoffs(home string) (own Record, found bool, others []Record, err error) {
+// HandoffsByWriter is the workspace-root pointer's source (decision
+// 7a2556b6): scanning home's handoffs newest-first (capped at
+// maxHandoffScanForLabel), one entry per distinct project key of the
+// WRITING session, each that key's newest handoff. Handoffs with no
+// session, or whose session row is gone, belong to nobody and are skipped.
+func (s *Store) HandoffsByWriter(home string) ([]Record, error) {
 	handoffs, err := s.RecordsForProject(home, KindHandoff, maxHandoffScanForLabel)
 	if err != nil {
-		return Record{}, false, nil, fmt.Errorf("store: root handoffs in %s: %w", home, err)
+		return nil, fmt.Errorf("store: handoffs by writer in %s: %w", home, err)
 	}
-	home = s.canonicalizeProjectKey(home)
 	seen := map[string]bool{}
+	var out []Record
 	for _, h := range handoffs {
 		if h.SessionID == "" {
 			continue
@@ -361,16 +314,13 @@ func (s *Store) RootHandoffs(home string) (own Record, found bool, others []Reco
 			if errors.Is(err, sql.ErrNoRows) {
 				continue
 			}
-			return Record{}, false, nil, fmt.Errorf("store: root handoffs in %s: %w", home, err)
-		}
-		if sess.ProjectKey == home {
-			return h, true, nil, nil
+			return nil, fmt.Errorf("store: handoffs by writer in %s: %w", home, err)
 		}
 		if sess.ProjectKey == "" || seen[sess.ProjectKey] {
 			continue
 		}
 		seen[sess.ProjectKey] = true
-		others = append(others, h)
+		out = append(out, h)
 	}
-	return Record{}, false, others, nil
+	return out, nil
 }

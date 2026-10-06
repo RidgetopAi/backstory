@@ -160,11 +160,19 @@ func (s *Store) purgeRecordIDs(q purgeQuerier, sc PurgeScope) ([]string, error) 
 	if !sc.Until.IsZero() {
 		until = tsToNanos(sc.Until)
 	}
-	ls := LocationScope{RepoKey: s.canonicalizeProjectKey(sc.ProjectKey)}
+	var ls LocationScope
 	if sc.Location != nil {
 		ls = *sc.Location
+	} else {
+		// The key's own records plus those its sessions wrote: a repo
+		// session's handoff is filed under the workspace key, not the
+		// repo's (decision f3fa04c7), and must go with the repo's purge.
+		var err error
+		if ls, err = s.locationScopeForKeyQ(q, sc.ProjectKey); err != nil {
+			return nil, err
+		}
 	}
-	return s.recordIDsInScope(q, ls, since, until, true)
+	return s.recordIDsInScope(q, ls, since, until, true, "")
 }
 
 // PurgePreview reports the exact counts PurgeSessions would remove for sc,

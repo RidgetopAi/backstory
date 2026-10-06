@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/RidgetopAi/backstory/internal/project"
+	"github.com/RidgetopAi/backstory/internal/store"
 )
 
 // resolveHumanProjectKey resolves the project key for a human-path,
@@ -30,6 +31,26 @@ func resolveHumanProjectKey(projectFlag string) (string, error) {
 	// home dir just means no default workspace.
 	workspaces, _ := project.DefaultWorkspaceDirs()
 	return project.Key(cwd, project.RealGit{}, workspaces), nil
+}
+
+// resolveHumanScope is resolveHumanProjectKey plus the location scope the
+// command's records are read through (task ed31b744): --project KEY reads
+// the key's records and those its sessions wrote (a repo session's handoff
+// is filed under the workspace key); with no flag, the current directory's
+// location, so --here sees the workspace-homed handoffs of exactly this
+// repo.
+func resolveHumanScope(st *store.Store, projectFlag string) (string, store.LocationScope, error) {
+	if projectFlag != "" {
+		ls, err := st.LocationScopeForKey(projectFlag)
+		return projectFlag, ls, err
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", store.LocationScope{}, fmt.Errorf("resolve current directory: %w", err)
+	}
+	workspaces, _ := project.DefaultWorkspaceDirs()
+	ls, err := st.LocationScope(cwd, project.RealGit{}, workspaces)
+	return project.Key(cwd, project.RealGit{}, workspaces), ls, err
 }
 
 // locationGiven reports whether --location was passed at all, even empty: an

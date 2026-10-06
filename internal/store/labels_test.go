@@ -15,7 +15,7 @@ const labelsWorkspaceDir = "/tmp/fixture/projects"
 var labelsWorkspaces = []string{labelsWorkspaceDir}
 
 // labelsFakeGit is a canned dir -> Repo lookup for sessionLabels/
-// HandoffForLabel tests: only the repo dirs a test explicitly seeds report
+// LatestHandoffAt tests: only the repo dirs a test explicitly seeds report
 // as git working trees, exactly like a real filesystem where every other
 // dir under the workspace is a plain, non-git folder.
 type labelsFakeGit map[string]project.Repo
@@ -123,12 +123,12 @@ func TestSessionLabelsFallsBackToOwnFolder(t *testing.T) {
 	}
 }
 
-// TestHandoffForLabelFiltersHomeByRepo is store.HandoffForLabel's own unit
+// TestLatestHandoffAtFiltersHomeByRepo is store.LatestHandoffAt's own unit
 // coverage: two handoffs share one home (the workspace), each from a
 // session labelled for a different repo; a label-scoped lookup returns the
 // one whose session actually carries that label, even when it is NOT the
 // newest of the two.
-func TestHandoffForLabelFiltersHomeByRepo(t *testing.T) {
+func TestLatestHandoffAtFiltersHomeByRepo(t *testing.T) {
 	s := mustOpen(t, tempDBPath(t))
 	home := "workspace:" + labelsWorkspaceDir
 	mustUpsertProject(t, s, home)
@@ -160,15 +160,15 @@ func TestHandoffForLabelFiltersHomeByRepo(t *testing.T) {
 		t.Fatalf("InsertRecord vidflow handoff: %v", err)
 	}
 
-	got, ok, err := s.HandoffForLabel(home, "projects/omarcade", labelsGit, labelsWorkspaces)
+	got, ok, err := s.LatestHandoffAt(labelsWorkspaceDir+"/omarcade", labelsGit, labelsWorkspaces)
 	if err != nil {
-		t.Fatalf("HandoffForLabel: %v", err)
+		t.Fatalf("LatestHandoffAt: %v", err)
 	}
 	if !ok {
-		t.Fatal("HandoffForLabel found = false, want true")
+		t.Fatal("LatestHandoffAt found = false, want true")
 	}
 	if got.ID != older {
-		t.Errorf("HandoffForLabel(home, projects/omarcade) = %s, want the OLDER omarcade handoff %s, not the newer vidflow one", got.ID, older)
+		t.Errorf("LatestHandoffAt(home, projects/omarcade) = %s, want the OLDER omarcade handoff %s, not the newer vidflow one", got.ID, older)
 	}
 }
 

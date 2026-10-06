@@ -49,6 +49,18 @@ type Anchor struct {
 	ProjectKey string
 	RecordID   string
 	Text       string
+	// Scope, when set on a project or text anchor, widens "the project's
+	// records" to everything belonging to a location (store.LocationScope):
+	// the repo-key records plus the workspace-homed ones — a repo session's
+	// handoff is filed under the workspace key (task ed31b744). Nil keeps
+	// the bare ProjectKey reading.
+	Scope *store.LocationScope
+}
+
+// WithScope returns a with its records read through ls.
+func (a Anchor) WithScope(ls store.LocationScope) Anchor {
+	a.Scope = &ls
+	return a
 }
 
 // ProjectAnchor anchors on a project: its whole ledger (every record kind,
@@ -203,6 +215,13 @@ func Build(st *store.Store, anchor Anchor, altitude Altitude, budgetTokens int, 
 func resolve(st *store.Store, anchor Anchor) ([]store.Record, error) {
 	switch anchor.Kind {
 	case AnchorProject:
+		if anchor.Scope != nil {
+			recs, err := st.RecordsForLocation(*anchor.Scope, maxProjectRecords)
+			if err != nil {
+				return nil, fmt.Errorf("recall: project anchor: %w", err)
+			}
+			return recs, nil
+		}
 		recs, err := st.RecordsForProjectAll(anchor.ProjectKey, maxProjectRecords)
 		if err != nil {
 			return nil, fmt.Errorf("recall: project anchor: %w", err)
@@ -211,7 +230,7 @@ func resolve(st *store.Store, anchor Anchor) ([]store.Record, error) {
 	case AnchorRecord:
 		return resolveRecordAnchor(st, anchor.RecordID)
 	case AnchorText:
-		return resolveTextAnchor(st, anchor.ProjectKey, anchor.Text)
+		return resolveTextAnchor(st, anchor)
 	default:
 		return nil, fmt.Errorf("recall: unknown anchor kind %q", anchor.Kind)
 	}
@@ -268,8 +287,14 @@ func resolveRecordAnchor(st *store.Store, idOrPrefix string) ([]store.Record, er
 // resolveTextAnchor runs the FTS match scoped to projectKey
 // (store.SearchRecordsInProject) and re-orders the match set into sequence
 // order.
-func resolveTextAnchor(st *store.Store, projectKey, query string) ([]store.Record, error) {
-	results, err := st.SearchRecordsInProject(projectKey, query, maxTextResults)
+func resolveTextAnchor(st *store.Store, anchor Anchor) ([]store.Record, error) {
+	var results []store.SearchResult
+	var err error
+	if anchor.Scope != nil {
+		results, err = st.SearchRecordsInScope(*anchor.Scope, anchor.Text, maxTextResults)
+	} else {
+		results, err = st.SearchRecordsInProject(anchor.ProjectKey, anchor.Text, maxTextResults)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("recall: text anchor: %w", err)
 	}

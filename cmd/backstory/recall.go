@@ -41,12 +41,6 @@ func runRecall(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	projectKey, err := resolveHumanProjectKey(*projectFlag)
-	if err != nil {
-		_, _ = fmt.Fprintln(stderr, "backstory recall:", err)
-		return 1
-	}
-
 	dbPath, err := storePath()
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory recall:", err)
@@ -59,7 +53,12 @@ func runRecall(args []string, stdout, stderr io.Writer) int {
 	}
 	defer func() { _ = st.Close() }()
 
-	anchor, err := recallAnchor(st, projectKey, fs.Arg(0))
+	projectKey, scope, err := resolveHumanScope(st, *projectFlag)
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "backstory recall:", err)
+		return 1
+	}
+	anchor, err := recallAnchor(st, projectKey, scope, fs.Arg(0))
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory recall:", err)
 		return 1
@@ -88,16 +87,16 @@ func runRecall(args []string, stdout, stderr io.Writer) int {
 // happens to also read like search text still wins the id reading —
 // FindRecordByIDPrefix is checked first — so a real match is never
 // shadowed by treating it as a query string.
-func recallAnchor(st *store.Store, projectKey, query string) (recall.Anchor, error) {
+func recallAnchor(st *store.Store, projectKey string, scope store.LocationScope, query string) (recall.Anchor, error) {
 	if query == "" {
-		return recall.ProjectAnchor(projectKey), nil
+		return recall.ProjectAnchor(projectKey).WithScope(scope), nil
 	}
 	if _, ok, err := st.FindRecordByIDPrefix(query); err != nil {
 		return recall.Anchor{}, fmt.Errorf("resolve %q: %w", query, err)
 	} else if ok {
 		return recall.RecordAnchor(query), nil
 	}
-	return recall.TextAnchor(projectKey, query), nil
+	return recall.TextAnchor(projectKey, query).WithScope(scope), nil
 }
 
 // recallItemJSON is one item in `backstory recall --json`'s items array:

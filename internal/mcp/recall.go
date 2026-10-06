@@ -8,6 +8,7 @@ import (
 
 	"github.com/RidgetopAi/backstory/internal/block"
 	"github.com/RidgetopAi/backstory/internal/ident"
+	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/recall"
 	"github.com/RidgetopAi/backstory/internal/store"
 	"github.com/RidgetopAi/backstory/internal/week"
@@ -21,16 +22,16 @@ import (
 const DefaultRecallBudgetTokens = block.DefaultBudgetTokens
 
 // RecallParams is recall's argument shape (decision d9d456e7): budget_tokens
-// plus the two fields the frozen v0 schema reserves for this punch, query
-// and altitude. It deliberately has no Project field even though the frozen
-// schema advertises one: "the caller's own project as the daemon OBSERVES
-// it, never a declared one" — the same rule NoteParams applies to
-// tier/session, applied here to project — a "project" key a caller sends is
-// silently dropped by json.Unmarshal, never read.
+// plus the fields the frozen v0 schema reserves for this punch, query and
+// altitude, and the schema's own `project`: a project key or a directory
+// path naming another project to read (task ed31b744). Empty means the
+// caller's own location as the daemon OBSERVES it. Identity (who is asking,
+// as what tier) is never read from a request; only which ledger to read is.
 type RecallParams struct {
 	Query        string `json:"query,omitempty"`
 	Altitude     string `json:"altitude,omitempty"`
 	BudgetTokens int    `json:"budget_tokens,omitempty"`
+	Project      string `json:"project,omitempty"`
 }
 
 // altitudeSummary etc. are RecallParams.Altitude's accepted wire values, per
@@ -82,17 +83,17 @@ func altitudeAsked(raw, canonical string) string {
 // the caller's observed one, never a declared one" applies here exactly as
 // it does to the project anchor, so the free-text anchor is never given any
 // other project's key.
-func resolveAnchor(st *store.Store, projectKey, query string) (recall.Anchor, error) {
+func resolveAnchor(st *store.Store, projectKey string, scope store.LocationScope, query string) (recall.Anchor, error) {
 	q := strings.TrimSpace(query)
 	if q == "" {
-		return recall.ProjectAnchor(projectKey), nil
+		return recall.ProjectAnchor(projectKey).WithScope(scope), nil
 	}
 	if _, ok, err := st.FindRecordByIDPrefix(q); err != nil {
 		return recall.Anchor{}, fmt.Errorf("resolve recall anchor: %w", err)
 	} else if ok {
 		return recall.RecordAnchor(q), nil
 	}
-	return recall.TextAnchor(projectKey, q), nil
+	return recall.TextAnchor(projectKey, q).WithScope(scope), nil
 }
 
 // summaryTextChars bounds how much of an item's text this tool shows at
@@ -231,14 +232,40 @@ func emptyResultMessage(st *store.Store, projectKey, displayName, query string) 
 	return fmt.Sprintf("query %q matched nothing", query), nil
 }
 
+// resolveRecallScope picks the ledger recall reads: the project the caller
+// names (a key or a path), else the connection's own observed location —
+// its cwd when known, so a repo session sees the handoffs `note` filed under
+// the workspace for it — else its bare project key.
+func resolveRecallScope(st *store.Store, git project.Git, id ident.Identity, ref string, workspaces []string) (string, store.LocationScope, error) {
+	if ref = strings.TrimSpace(ref); ref != "" {
+		return st.ResolveProjectRef(ref, git, workspaces)
+	}
+	ls, err := st.LocationScopeForKey(id.ProjectKey)
+	if err != nil || id.CWD == "" || project.IsWorkspaceKey(id.ProjectKey) {
+		if err == nil && id.CWD != "" {
+			// A workspace root: exactly what is labelled with the root.
+			ls, err = st.LocationScope(id.CWD, git, workspaces)
+		}
+		return id.ProjectKey, ls, err
+	}
+	// The observed key's own scope, widened by the cwd's labelled sessions.
+	at, err := st.LocationScope(id.CWD, git, workspaces)
+	if err != nil {
+		return "", store.LocationScope{}, err
+	}
+	for sid := range at.SessionIDs {
+		ls.SessionIDs[sid] = true
+	}
+	return id.ProjectKey, ls, nil
+}
+
 // handleRecall serves the recall socket method by running the caller's
 // query through internal/recall (decision d9d456e7: "replace the v0 stub
 // ... with a call into internal/recall"). It never reads anything a request
-// line declares about identity or project (id.ProjectKey is the daemon's
-// own observation, the same rule handleBlock follows for the SessionStart
-// block) — a request naming a different project cannot make recall answer
-// for it.
-func handleRecall(st *store.Store, id ident.Identity, raw json.RawMessage, workspaces []string) DaemonResponse {
+// line declares about identity (id.ProjectKey is the daemon's own
+// observation, the same rule handleBlock follows for the SessionStart
+// block); the `project` parameter only selects which ledger to read.
+func handleRecall(st *store.Store, git project.Git, id ident.Identity, raw json.RawMessage, workspaces []string) DaemonResponse {
 	var p RecallParams
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, &p); err != nil {
@@ -254,9 +281,12 @@ func handleRecall(st *store.Store, id ident.Identity, raw json.RawMessage, works
 		return errResponse("invalid-params", `invalid "altitude": `+err.Error())
 	}
 
-	projectKey := id.ProjectKey
+	projectKey, scope, err := resolveRecallScope(st, git, id, p.Project, workspaces)
+	if err != nil {
+		return errResponse("invalid-params", `invalid "project": `+err.Error())
+	}
 
-	anchor, err := resolveAnchor(st, projectKey, p.Query)
+	anchor, err := resolveAnchor(st, projectKey, scope, p.Query)
 	if err != nil {
 		return errResponse("internal", err.Error())
 	}

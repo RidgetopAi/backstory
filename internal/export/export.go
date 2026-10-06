@@ -59,6 +59,10 @@ const summaryBodyChars = 240
 type Params struct {
 	Store      *store.Store
 	ProjectKey string
+	// Scope, when set, reads the mirror's ledger through the location's
+	// full record set (repo-key plus workspace-homed records) instead of the
+	// bare ProjectKey.
+	Scope *store.LocationScope
 	// Altitude is AltitudeHeadline or AltitudeSummary. Build does not
 	// validate it — cmd/backstory/export.go rejects anything else at the
 	// flag, the same division of responsibility recall's own CLI uses.
@@ -91,7 +95,11 @@ func Build(p Params) (string, error) {
 		now = time.Now()
 	}
 
-	result, err := recall.Build(p.Store, recall.ProjectAnchor(p.ProjectKey), p.Altitude, recallBudgetTokens, p.WorkspaceDirs)
+	anchor := recall.ProjectAnchor(p.ProjectKey)
+	if p.Scope != nil {
+		anchor = anchor.WithScope(*p.Scope)
+	}
+	result, err := recall.Build(p.Store, anchor, p.Altitude, recallBudgetTokens, p.WorkspaceDirs)
 	if err != nil {
 		return "", fmt.Errorf("export: %w", err)
 	}
