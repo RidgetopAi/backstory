@@ -30,7 +30,7 @@ func (fakeGit) State(string) (project.State, bool) { return project.State{}, fal
 // /home/fixture/blockproj/a.go) plus one Write to a different path
 // (b.go) and one Bash call: 2 distinct files, never 3, never 0. A Bash
 // tool_result in a Claude transcript never carries an exit code, so the
-// delta must not report any "last exit codes" either.
+// delta must not report any "Last failure" either.
 func TestRenderBackfilledDeltaCountsDistinctFilePathsNotZero(t *testing.T) {
 	s := newTestStore(t)
 	root := filepath.Join("testdata", "backfilldelta", "projects")
@@ -58,7 +58,7 @@ func TestRenderBackfilledDeltaCountsDistinctFilePathsNotZero(t *testing.T) {
 	if !strings.Contains(out, "2 files touched") {
 		t.Errorf("delta slot did not report 2 distinct file paths (a.go edited twice counts once, plus b.go); got:\n%s", out)
 	}
-	if strings.Contains(out, "last exit codes") {
+	if strings.Contains(out, "Last failure") {
 		t.Errorf("delta slot reported exit codes from a backfilled Claude transcript, which never carries one (do NOT invent 0); got:\n%s", out)
 	}
 }

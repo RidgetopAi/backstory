@@ -191,7 +191,7 @@ func TestRenderAllFiveSlotsPopulatedInOrderWithModeLine(t *testing.T) {
 	if !inOrder {
 		t.Fatalf("slots out of order; got:\n%s", out)
 	}
-	if !strings.Contains(out, "1 sessions, 1 files touched, last exit codes: 1") {
+	if !strings.Contains(out, "Delta: 1 sessions, 1 files touched") || !strings.Contains(out, "Last failure:") {
 		t.Errorf("delta slot missing expected counts; got:\n%s", out)
 	}
 	if !strings.Contains(out, "1 unconfirmed draft(s), 1 contradiction(s)") {
@@ -315,10 +315,10 @@ func TestRenderDeltaCountsOnlyEventsAfterHandoff(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	if strings.Contains(out, "before.go") || strings.Contains(out, "exit codes: 9") {
+	if strings.Contains(out, "before.go") || strings.Contains(out, "exit 9") {
 		t.Errorf("delta counted an event before the handoff; got:\n%s", out)
 	}
-	if !strings.Contains(out, "1 sessions, 1 files touched, last exit codes: 0") {
+	if !strings.Contains(out, "Delta: 1 files touched") || strings.Contains(out, "Last failure") {
 		t.Errorf("delta did not count the after-handoff event correctly; got:\n%s", out)
 	}
 }
@@ -351,7 +351,7 @@ func TestRenderDeltaFilesTouchedCountsOnlyMutatingTools(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Render: %v", err)
 	}
-	if !strings.Contains(out, "1 sessions, 2 files touched") {
+	if !strings.Contains(out, "Delta: 2 files touched") {
 		t.Errorf("delta counted Read paths toward files touched; want \"2 files touched\" (edit1.go, edit2.go only); got:\n%s", out)
 	}
 }
@@ -390,7 +390,7 @@ func TestRenderDeltaCountsABackfilledEventAppendedAfterTheHandoffDespiteALyingEa
 	if !strings.Contains(out, "Delta:") {
 		t.Fatalf("delta slot missing entirely; a backfilled event appended after the handoff with a lying earlier ts must still be counted; got:\n%s", out)
 	}
-	if !strings.Contains(out, "1 sessions, 1 files touched, last exit codes: 7") {
+	if !strings.Contains(out, "Delta: 1 files touched") || !strings.Contains(out, "Last failure: (command not recorded) exit 7") {
 		t.Errorf("delta slot did not count the backfilled event appended after the handoff; got:\n%s", out)
 	}
 }
@@ -608,7 +608,8 @@ func TestRenderDeltaDoesNotCountShellSessions(t *testing.T) {
 	self := mustStartSession(t, s, "claude", "/proj", 100)
 	handoff := mustInsertHandoff(t, s, self, "cut here")
 
-	mustAppendToolUse(t, s, self, handoff.TS.Add(time.Minute), "after.go")
+	agent := mustStartSession(t, s, "codex", "/proj", 300)
+	mustAppendToolUse(t, s, agent, handoff.TS.Add(time.Minute), "after.go")
 	for i := 0; i < 3; i++ {
 		sh := mustStartSession(t, s, "shell", "/proj", 200+i)
 		mustAppendEvent(t, s, sh, "shell.command", handoff.TS.Add(2*time.Minute), map[string]any{"cmd": "ls"})

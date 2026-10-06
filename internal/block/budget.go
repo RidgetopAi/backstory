@@ -76,8 +76,7 @@ func readBudgetSetting(st *store.Store, key string) (int, bool, error) {
 // HeaderLine plus FinalLine alone still doesn't fit — so that a budget too
 // small for any slot still yields HeaderLine (task 6ae45e80's DONE WHEN
 // clause 2: the header is the last thing dropped, not the first).
-func assemble(slot1, slot2, slot3, slot4 string, budgetTokens int) string {
-	final := FinalLine
+func assemble(slot1, slot2, slot3, slot4, final string, budgetTokens int) string {
 	slots := [5]string{slot1, slot2, slot3, slot4, final}
 	join := func() string {
 		parts := []string{HeaderLine}

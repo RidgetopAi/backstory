@@ -73,7 +73,7 @@ func TestBudgetKeepsNextWithResumeWhenOnlySlotOneFits(t *testing.T) {
 	mustAppendToolUse(t, s, other, h.TS.Add(1), "f.go") // slot 2 present
 
 	slot1 := "Resume: (id " + h.ID + ") did the first part\nNext: NEXTMARK add the thing"
-	budget := block.EstimateTokens(block.HeaderLine + "\n\n" + slot1 + "\n\n" + block.FinalLine)
+	budget := block.EstimateTokens(block.HeaderLine + "\n\n" + slot1 + "\n\n" + block.FinalLineFor(h.ID))
 	if err := s.SetSetting(block.SettingBudgetKey, strconv.Itoa(budget)); err != nil {
 		t.Fatalf("SetSetting: %v", err)
 	}
