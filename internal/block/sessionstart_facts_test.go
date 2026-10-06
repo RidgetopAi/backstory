@@ -18,6 +18,7 @@ import (
 
 func gitIn(t *testing.T, dir string, args ...string) string {
 	t.Helper()
+	//nolint:gosec // test helper: fixed binary, args are literals from this file
 	cmd := exec.Command("git", append([]string{"-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"}, args...)...)
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
@@ -81,7 +82,7 @@ func renderAt(t *testing.T, s *store.Store, self string, now time.Time) string {
 // DONE WHEN (1): one Repo line naming the branch, the uncommitted count and
 // the commits since the handoff; with could_not_observe, no uncommitted number.
 func TestRepoStateLine(t *testing.T) {
-	setup := func(t *testing.T, gs payload.SessionGitState) (string, time.Time) {
+	setup := func(t *testing.T, gs payload.SessionGitState) string {
 		dir, head := fixtureRepo(t)
 		s := newTestStore(t)
 		upsertProjectAt(t, s, dir)
@@ -91,11 +92,11 @@ func TestRepoStateLine(t *testing.T) {
 		gitIn(t, dir, "commit", "-q", "--allow-empty", "-m", "second")
 		gitIn(t, dir, "commit", "-q", "--allow-empty", "-m", "third")
 		mustAppendEvent(t, s, earlier, payload.KindSessionGitState, h.TS.Add(time.Minute), gs)
-		return renderAt(t, s, self, h.TS.Add(time.Hour)), h.TS
+		return renderAt(t, s, self, h.TS.Add(time.Hour))
 	}
 
 	three := 3
-	out, _ := setup(t, payload.SessionGitState{Branch: "feat", UncommittedCount: &three})
+	out := setup(t, payload.SessionGitState{Branch: "feat", UncommittedCount: &three})
 	if got, want := lineWith(out, "Repo:"), "Repo: branch feat · 3 uncommitted · 2 commits since the handoff"; got != want {
 		t.Errorf("Repo line = %q, want %q; block:\n%s", got, want, out)
 	}
@@ -103,7 +104,7 @@ func TestRepoStateLine(t *testing.T) {
 		t.Errorf("want exactly one Repo line, got %d", n)
 	}
 
-	out, _ = setup(t, payload.SessionGitState{CouldNotObserve: true})
+	out = setup(t, payload.SessionGitState{CouldNotObserve: true})
 	line := lineWith(out, "Repo:")
 	if line == "" || strings.Contains(line, "uncommitted") || strings.Contains(line, "feat") {
 		t.Errorf("could_not_observe Repo line = %q, want commits only and no uncommitted number", line)
