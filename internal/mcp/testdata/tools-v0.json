@@ -32,7 +32,7 @@
     },
     {
       "name": "note",
-      "description": "The one write. Returns the record id and its provenance tier.",
+      "description": "The one write. Returns the record id and its provenance tier. Write a handoff when the session changed or learned something the next session needs; a session that changed nothing should not replace the current handoff.",
       "inputSchema": {
         "type": "object",
         "properties": {

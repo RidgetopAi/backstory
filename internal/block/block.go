@@ -49,10 +49,16 @@ const EmptyProjectLine = "backstory: no history yet for this project."
 // only the block's own last line had no reason not to call recall anyway).
 const FinalLine = "call recall only if you need more than this block"
 
+// ReadOnlyHandoffClause is the one phrase every handoff instruction carries
+// (the install stubs, the block's final line, the note tool's schema): a
+// session that changed nothing must not replace the current handoff, or a
+// read-only session's guess would push out the real resume point.
+const ReadOnlyHandoffClause = "a session that changed nothing should not replace the current handoff"
+
 // handoffRule is the sentence FinalLineFor appends to FinalLine: the handoff
 // rule used to live only in the skill, so an agent that never loaded it ended
 // its session without writing one (V1 review, tesla-gaps #6).
-const handoffRule = "Before you stop: note handoff with next = the one action the next session starts, as an imperative; conditions, don'ts that still hold and the verify command go in text"
+const handoffRule = "Before you stop, if you changed or learned something the next session needs (" + ReadOnlyHandoffClause + "): note handoff with next = the one action the next session starts, as an imperative; conditions, don'ts that still hold and the verify command go in text"
 
 // FinalLineFor is slot 5: FinalLine, then the handoff rule, naming the
 // Resume handoff's id as supersedes when resumeID is not empty so the chain

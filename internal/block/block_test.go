@@ -635,3 +635,13 @@ func TestRenderDeltaDoesNotCountShellSessions(t *testing.T) {
 		t.Errorf("delta counted shell sessions; got:\n%s", out)
 	}
 }
+
+// TestFinalLineSaysReadOnlySessionKeepsHandoff: the block's last line carries
+// the shared read-only clause, with and without a resume id (task df6646f5).
+func TestFinalLineSaysReadOnlySessionKeepsHandoff(t *testing.T) {
+	for _, id := range []string{"", "abc123"} {
+		if got := block.FinalLineFor(id); !strings.Contains(got, block.ReadOnlyHandoffClause) {
+			t.Errorf("block.FinalLineFor(%q) lacks %q: %s", id, block.ReadOnlyHandoffClause, got)
+		}
+	}
+}
