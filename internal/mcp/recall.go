@@ -329,6 +329,9 @@ func handleRecall(st *store.Store, git project.Git, id ident.Identity, raw json.
 		AltitudeLevel: altitudeUsed,
 		Items:         items,
 	}
+	if built.Notice != "" {
+		result.Message = built.Notice
+	}
 	if len(items) == 0 {
 		msg, err := emptyResultMessage(st, projectKey, displayName, p.Query)
 		if err != nil {

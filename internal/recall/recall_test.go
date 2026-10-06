@@ -501,3 +501,118 @@ func TestBuildHandoffItemCarriesNext(t *testing.T) {
 		}
 	}
 }
+
+// insertHandoff files a handoff with the given text and next under proj-a.
+func insertHandoff(t *testing.T, st *store.Store, sessionID, text, next string) string {
+	t.Helper()
+	id, err := st.InsertRecord(store.InsertRecordParams{
+		Identity: store.Identity{Kind: store.IdentityAgent}, Kind: store.KindHandoff, Text: text,
+		SessionID: sessionID, ProjectKey: "proj-a", Next: next,
+	})
+	if err != nil {
+		t.Fatalf("InsertRecord: %v", err)
+	}
+	return id
+}
+
+// textAnchors returns the plain and the location-scoped text anchor for query.
+func textAnchors(t *testing.T, st *store.Store, key, query string) map[string]Anchor {
+	t.Helper()
+	ls, err := st.LocationScopeForKey(key)
+	if err != nil {
+		t.Fatalf("LocationScopeForKey: %v", err)
+	}
+	return map[string]Anchor{
+		"project": TextAnchor(key, query),
+		"scoped":  TextAnchor(key, query).WithScope(ls),
+	}
+}
+
+func TestBuildTextAnchorFindsHandoffForNaturalQueries(t *testing.T) {
+	st := newTestStore(t)
+	mustUpsertProject(t, st, "proj-a")
+	sid := mustStartSession(t, st, "proj-a")
+	id := insertHandoff(t, st, sid, "wired the parser and left the cache half done", "")
+
+	for _, q := range []string{"resume next step", "handoff"} {
+		for name, a := range textAnchors(t, st, "proj-a", q) {
+			res, err := Build(st, a, AltitudeFull, testBudget, nil)
+			if err != nil {
+				t.Fatalf("%s %q: Build: %v", name, q, err)
+			}
+			if got := itemIDs(res.Items); len(got) != 1 || got[0] != id {
+				t.Errorf("%s %q: items = %v, want [%s]", name, q, got, id)
+			}
+			if res.Notice != "" {
+				t.Errorf("%s %q: Notice = %q, want none (a real match)", name, q, res.Notice)
+			}
+		}
+	}
+}
+
+func TestBuildTextAnchorMatchesAnyTermRankedNotAll(t *testing.T) {
+	st := newTestStore(t)
+	mustUpsertProject(t, st, "proj-a")
+	sid := mustStartSession(t, st, "proj-a")
+	id := mustInsertRecord(t, st, sid, "proj-a", store.KindDecision, "use sqlite for storage")
+	res, err := Build(st, TextAnchor("proj-a", "sqlite postgres"), AltitudeFull, testBudget, nil)
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if got := itemIDs(res.Items); len(got) != 1 || got[0] != id {
+		t.Errorf("items = %v, want [%s]", got, id)
+	}
+}
+
+func TestBuildTextAnchorFindsHandoffByNext(t *testing.T) {
+	st := newTestStore(t)
+	mustUpsertProject(t, st, "proj-a")
+	sid := mustStartSession(t, st, "proj-a")
+	id := insertHandoff(t, st, sid, "body without the word", "NEXTWORD finish the migration")
+	insertHandoff(t, st, sid, "a newer handoff, different", "something else")
+	for name, a := range textAnchors(t, st, "proj-a", "NEXTWORD") {
+		res, err := Build(st, a, AltitudeFull, testBudget, nil)
+		if err != nil {
+			t.Fatalf("%s: Build: %v", name, err)
+		}
+		if got := itemIDs(res.Items); len(got) < 1 || got[0] != id {
+			t.Errorf("%s: items = %v, want %s first", name, got, id)
+		}
+		if res.Notice != "" {
+			t.Errorf("%s: Notice = %q, want none", name, res.Notice)
+		}
+	}
+}
+
+func TestBuildTextAnchorNoMatchFallsBackToLatestHandoff(t *testing.T) {
+	st := newTestStore(t)
+	mustUpsertProject(t, st, "proj-a")
+	mustUpsertProject(t, st, "proj-empty")
+	sid := mustStartSession(t, st, "proj-a")
+	insertHandoff(t, st, sid, "older handoff", "")
+	latest := insertHandoff(t, st, sid, "newest handoff", "")
+	mustInsertRecord(t, st, sid, "proj-a", store.KindDecision, "unrelated decision")
+
+	for name, a := range textAnchors(t, st, "proj-a", "zzqx nonexistent") {
+		res, err := Build(st, a, AltitudeFull, testBudget, nil)
+		if err != nil {
+			t.Fatalf("%s: Build: %v", name, err)
+		}
+		if got := itemIDs(res.Items); len(got) != 1 || got[0] != latest {
+			t.Errorf("%s: items = %v, want [%s]", name, got, latest)
+		}
+		if want := "no match for zzqx nonexistent; latest handoff shown"; res.Notice != want {
+			t.Errorf("%s: Notice = %q, want %q", name, res.Notice, want)
+		}
+	}
+
+	for name, a := range textAnchors(t, st, "proj-empty", "zzqx nonexistent") {
+		res, err := Build(st, a, AltitudeFull, testBudget, nil)
+		if err != nil {
+			t.Fatalf("%s empty: Build: %v", name, err)
+		}
+		if len(res.Items) != 0 || res.Notice != "" {
+			t.Errorf("%s empty: items = %v notice = %q, want nothing", name, itemIDs(res.Items), res.Notice)
+		}
+	}
+}
