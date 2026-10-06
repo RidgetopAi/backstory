@@ -272,9 +272,11 @@ func (s *Store) LatestHandoffAt(dir string, git project.Git, workspaces []string
 	marks := strings.TrimSuffix(strings.Repeat("?,", len(keys)), ",")
 	args := append([]any{string(KindHandoff)}, keys...)
 	args = append(args, maxHandoffScanForLocation)
-	rows, err := s.db.Query(`SELECT id FROM records
-		WHERE kind = ? AND tombstoned_at IS NULL AND project_key IN (`+marks+`)
-		ORDER BY rowid DESC LIMIT ?`, args...) //nolint:gosec // marks is only "?" placeholders; every value is bound
+	//nolint:gosec // marks is only "?" placeholders; every value is bound
+	query := `SELECT id FROM records
+		WHERE kind = ? AND tombstoned_at IS NULL AND project_key IN (` + marks + `)
+		ORDER BY rowid DESC LIMIT ?`
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return Record{}, false, fmt.Errorf("store: latest handoff at %s: %w", dir, err)
 	}
@@ -340,12 +342,14 @@ func (s *Store) SearchRecordsInScope(ls LocationScope, query string, limit int) 
 			continue
 		}
 		args = append(args, limit)
-		rows, err := s.db.Query(`SELECT r.id, r.ts, r.kind, r.tier, r.text
+		//nolint:gosec // cond is assembled from fixed fragments and "?" placeholders; every value is bound
+		query := `SELECT r.id, r.ts, r.kind, r.tier, r.text
 			FROM records_fts
 			JOIN records r ON r.rowid = records_fts.rowid
-			WHERE records_fts MATCH ? AND r.tombstoned_at IS NULL AND (`+strings.Join(cond, " OR ")+`)
+			WHERE records_fts MATCH ? AND r.tombstoned_at IS NULL AND (` + strings.Join(cond, " OR ") + `)
 			ORDER BY rank, r.ts ASC
-			LIMIT ?`, args...) //nolint:gosec // cond is assembled from fixed fragments and "?" placeholders; every value is bound
+			LIMIT ?`
+		rows, err := s.db.Query(query, args...)
 		if err != nil {
 			return nil, fmt.Errorf("store: search records in scope: %w", err)
 		}

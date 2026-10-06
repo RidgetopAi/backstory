@@ -12,6 +12,7 @@ done-when holds on a box we do not own: a machine that is not Brian's. See
 
 ### Changed
 
+- One resolver for "the records that belong to location L" (task ed31b744): recall, `export`, `records --here`/`--project`, `purge --project`, This Week's row handoff and the SessionStart Resume now all read the repo-key records plus the workspace-homed ones (`note` files handoffs under the workspace key) whose writing session belongs to that location; for the workspace root, exactly those labelled with the root. recall honours its `project` parameter (a project key or an absolute path) and falls back to the caller's own location. `purge --project` now also tombstones the key's sessions' workspace-homed records.
 - Panel redesign (task fc1f340d, decision 63ce9687): the panel is now "Backstory" with a HERE
   card for the project you are in, a Continue that focuses the project's open window or launches
   Omarchy's default agent (and says when that differs from the agent last used), 7-day session

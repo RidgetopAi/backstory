@@ -277,7 +277,7 @@ func Build(p Params) (Result, error) {
 			coveredLabels[loc.Label] = true
 
 			key := project.Key(loc.Dir, p.Git, workspaces)
-			summary, items, err := buildHomeLabelProject(p.Store, home, since, now, loc, key, p.Git, workspaces)
+			summary, items, err := buildHomeLabelProject(p.Store, since, now, loc, key, p.Git, workspaces)
 			if err != nil {
 				return Result{}, err
 			}
@@ -663,7 +663,7 @@ func buildWeekGrid(st *store.Store, keys []string, since, now time.Time, workspa
 // by a home session's file paths never carries one of its own (class
 // members deferred: documented in this task's commit, not silently
 // dropped).
-func buildHomeLabelProject(st *store.Store, home string, since, now time.Time, loc store.ActiveWorkLocation, key string, git project.Git, workspaces []string) (ProjectSummary, []AttentionItem, error) {
+func buildHomeLabelProject(st *store.Store, since, now time.Time, loc store.ActiveWorkLocation, key string, git project.Git, workspaces []string) (ProjectSummary, []AttentionItem, error) {
 	summary := ProjectSummary{
 		ProjectKey:   key,
 		DisplayName:  loc.Label,
