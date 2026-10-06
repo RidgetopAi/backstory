@@ -50,3 +50,27 @@ func TestInstallCodexSaysStopNudgeIsClaudeOnly(t *testing.T) {
 		t.Fatalf("want one Claude-only Stop note line, got %d:\n%s", n, out.String())
 	}
 }
+
+// TestInstallBashNamesKeptBinaryThatDiffersFromDefault: install bash --binary
+// P then install bash without --binary keeps P and says so.
+func TestInstallBashNamesKeptBinaryThatDiffersFromDefault(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	bin := filepath.Join(t.TempDir(), "bs-fixture")
+	var out, errb bytes.Buffer
+	if code := runInstallBash([]string{"--binary", bin}, &out, &errb); code != 0 {
+		t.Fatalf("install bash --binary: %d %s", code, errb.String())
+	}
+	out.Reset()
+	if code := runInstallBash(nil, &out, &errb); code != 0 {
+		t.Fatalf("install bash: %d %s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), bin) || !strings.Contains(out.String(), "differs from the default binary") || !strings.Contains(out.String(), "--remove") {
+		t.Fatalf("output does not name %s as differing from the default:\n%s", bin, out.String())
+	}
+	// Same binary again: no differing note.
+	out.Reset()
+	_ = runInstallBash([]string{"--binary", bin}, &out, &errb)
+	if strings.Contains(out.String(), "differs") {
+		t.Fatalf("same binary flagged as differing:\n%s", out.String())
+	}
+}

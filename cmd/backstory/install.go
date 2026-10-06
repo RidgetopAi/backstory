@@ -279,12 +279,20 @@ func runInstallBash(args []string, stdout, stderr io.Writer) int {
 			return 2
 		}
 		already := install.BashrcStatus(path) == install.StatusPresent
+		installedBinary := install.BashrcInstalledBinary(path)
 		if err := install.InstallBashrcBinary(path, *binary); err != nil {
 			_, _ = fmt.Fprintln(stderr, "backstory install bash:", err)
 			return 1
 		}
 		if already {
 			_, _ = fmt.Fprintf(stdout, "bashrc: shell command capture block already installed in %s\n", path)
+			if installedBinary != "" && installedBinary != *binary {
+				want := "the default binary (looked up on PATH)"
+				if *binary != "" {
+					want = "the requested binary " + *binary
+				}
+				_, _ = fmt.Fprintf(stdout, "bashrc: the installed snippet points at %s, which differs from %s; to switch, run `backstory install bash --remove` first, then install bash again (with --binary if needed)\n", installedBinary, want)
+			}
 			return 0
 		}
 		_, _ = fmt.Fprintf(stdout, "bashrc: shell command capture block added to %s\n", path)

@@ -66,6 +66,26 @@ func BashrcBlockFor(binary string) string {
 // eval line that follows it.
 var bashrcBlockRE = regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(BashrcMarkerComment) + `\n(?:[^\n]*shell init bash[^\n]*)\n`)
 
+var bashrcInstalledBinaryRE = regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(BashrcMarkerComment) + `\n\[ -x (.+?) \] && eval `)
+
+// BashrcInstalledBinary returns the binary path the installed snippet in path
+// invokes, or "" when the snippet is absent or uses the PATH lookup default.
+func BashrcInstalledBinary(path string) string {
+	target, _, err := resolveBashrcTarget(path)
+	if err != nil {
+		return ""
+	}
+	data, err := os.ReadFile(target) //nolint:gosec // target is resolved by resolveBashrcTarget, which already checked ownership/regularity
+	if err != nil {
+		return ""
+	}
+	m := bashrcInstalledBinaryRE.FindSubmatch(data)
+	if m == nil {
+		return ""
+	}
+	return unquoteShell(string(m[1]))
+}
+
 // InstallBashrcBinary is InstallBashrc with the snippet invoking binary.
 func InstallBashrcBinary(path, binary string) error {
 	target, mode, err := resolveBashrcTarget(path)

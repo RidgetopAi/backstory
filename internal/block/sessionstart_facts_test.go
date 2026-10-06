@@ -97,7 +97,7 @@ func TestRepoStateLine(t *testing.T) {
 
 	three := 3
 	out := setup(t, payload.SessionGitState{Branch: "feat", UncommittedCount: &three})
-	if got, want := lineWith(out, "Repo:"), "Repo: branch feat · 3 uncommitted · 2 commits since the handoff"; got != want {
+	if got, want := lineWith(out, "Repo:"), "Repo: branch feat · 3 uncommitted at last session end (59m ago) · 2 commits since the handoff"; got != want {
 		t.Errorf("Repo line = %q, want %q; block:\n%s", got, want, out)
 	}
 	if n := strings.Count(out, "Repo:"); n != 1 {
