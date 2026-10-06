@@ -278,3 +278,15 @@ func mustExecutable(t *testing.T) string {
 	}
 	return exe
 }
+
+// TestStubLinesSayWhereHandoffGuidanceGoes: the skill is rarely loaded, so
+// the stub line itself must say what goes in `next` versus the handoff text.
+func TestStubLinesSayWhereHandoffGuidanceGoes(t *testing.T) {
+	for name, line := range map[string]string{"claude": StubLine, "codex": CodexStubLine, "agents": AgentsStubLine, "pi": PiStubLine} {
+		for _, w := range []string{"verify", "next", "conditions", "belong in the handoff text"} {
+			if !strings.Contains(line, w) {
+				t.Errorf("%s stub line lacks %q: %s", name, w, line)
+			}
+		}
+	}
+}

@@ -99,3 +99,20 @@ func TestRenderResumeSlotShowsModeLineWithTrailingWords(t *testing.T) {
 		t.Fatalf("want a MODE line for %q; got:\n%s", "MODE: debug/verify. extra words", out)
 	}
 }
+
+// TestFinalLineCarriesNextGuidance: the skill is rarely loaded, so the final
+// line says what `next` is and where conditions and the verify command go,
+// and still names the Resume id when there is one.
+func TestFinalLineCarriesNextGuidance(t *testing.T) {
+	for _, id := range []string{"", "rec-42"} {
+		line := block.FinalLineFor(id)
+		for _, w := range []string{"the one action the next session starts", "imperative", "conditions", "verify command", "go in text"} {
+			if !strings.Contains(line, w) {
+				t.Errorf("FinalLineFor(%q) lacks %q: %s", id, w, line)
+			}
+		}
+		if id != "" && !strings.Contains(line, "supersedes = "+id) {
+			t.Errorf("FinalLineFor(%q) lost the Resume id: %s", id, line)
+		}
+	}
+}

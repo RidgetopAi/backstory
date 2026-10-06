@@ -129,8 +129,9 @@ func TestBudgetCutsDeltaBeforeAttentionBeforeCoordination(t *testing.T) {
 }
 
 // budgetTokens grew from 230 to 260 (task 6833d843): the final line now also
-// carries the handoff rule and the Resume id.
-const budgetTokens = 260
+// carries the handoff rule and the Resume id; to 290 (task abd5a1b5): the
+// rule now also says what next is and where conditions and the verify command go.
+const budgetTokens = 290
 
 // orderPinScenario builds a fixture for the cut-order pinning test: one
 // other live session (a small, constant slot 3), optionally events for

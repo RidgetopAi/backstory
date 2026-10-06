@@ -97,7 +97,7 @@ const (
 
 // HandoffClause is appended to every harness's stub line: the handoff rule
 // lives in the skill, which a harness may not load, so the stub states it.
-const HandoffClause = " End the session with `note handoff` carrying `next` (the single next step) and `supersedes` set to the Resume id."
+const HandoffClause = " End the session with `note handoff` carrying `next` (the one action the next session starts, as an imperative) and `supersedes` set to the Resume id; conditions, don'ts that still hold, and the exact command to verify the work belong in the handoff text, not in `next`."
 
 var stubBlock = StubMarkerBegin + "\n" + StubLine + "\n" + StubMarkerEnd + "\n"
 
