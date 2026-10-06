@@ -50,13 +50,22 @@ func mustStartSession(t *testing.T, s *store.Store, agent, cwd string, pid int) 
 // fakeProcFS reports exactly the pids in alive as live processes; every
 // other pid (including one with no entry at all) is dead — the same shape
 // production /proc reports for a pid that has exited.
+//
+// An alive pid's comm is comm[pid] when set, else defaultComm: the "other
+// live session" every coordination test starts is a codex.
 type fakeProcFS struct {
 	alive map[int]bool
+	comm  map[int]string
 }
+
+const defaultComm = "codex"
 
 func (f fakeProcFS) Status(pid int) (ident.Status, error) {
 	if f.alive[pid] {
-		return ident.Status{Name: "proc"}, nil
+		if name, ok := f.comm[pid]; ok {
+			return ident.Status{Name: name}, nil
+		}
+		return ident.Status{Name: defaultComm}, nil
 	}
 	return ident.Status{}, fmt.Errorf("fakeProcFS: pid %d not alive", pid)
 }
