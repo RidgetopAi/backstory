@@ -35,14 +35,14 @@ func ToolsV0() []Tool {
 	return []Tool{
 		{
 			Name: ToolRecall,
-			Description: "Anchor (project, path, ref, id, or free text) to an ordered, " +
+			Description: "Anchor (the caller's project, a record id, or free text) to an ordered, " +
 				"trust-annotated narrative at an altitude, under a token budget.",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {
 					"query": {
 						"type": "string",
-						"description": "free text, a path, a ref, or a record id — the recall anchor"
+						"description": "free text or a record id (id or unique id prefix) — the recall anchor; empty means the caller's own project"
 					},
 					"project": {
 						"type": "string",
