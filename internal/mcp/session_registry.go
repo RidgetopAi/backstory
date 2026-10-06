@@ -1,8 +1,8 @@
 package mcp
 
 import (
+	"log"
 	"sync"
-	"time"
 
 	"github.com/RidgetopAi/backstory/internal/ident"
 	"github.com/RidgetopAi/backstory/internal/project"
@@ -50,13 +50,25 @@ const ReasonHarnessExited = "harness-exited"
 // 6d68ac6f).
 const ReasonDaemonRestarted = "daemon-restarted"
 
-// EndOrphanedSessions ends every live session row still open in st, at now,
-// with ReasonDaemonRestarted. It must run at daemon start before the socket
+// EndOrphanedSessions ends every live session row still open in st with
+// ReasonDaemonRestarted. It must run at daemon start before the socket
 // listens, so a row "re-bound by a live connection" cannot exist yet: a
 // harness that is still running re-opens a fresh session on its next
-// connection. It returns how many rows it ended.
-func EndOrphanedSessions(st *store.Store, now time.Time) (int, error) {
-	return st.EndLiveSessionsLeftOpen(now, ReasonDaemonRestarted)
+// connection. Each row ends exactly as a live end does (liveSessionEnder):
+// a non-shell session first records session.git_state for its own cwd as
+// observed now (could-not-observe on failure, nothing while capture is
+// off), a shell session records none (task 78ca0350). It returns how many
+// rows it ended.
+func EndOrphanedSessions(st *store.Store, git project.Git, logger *log.Logger, captureOff func() (bool, error)) (int, error) {
+	ids, err := st.LiveSessionIDsLeftOpen()
+	if err != nil {
+		return 0, err
+	}
+	end := liveSessionEnder(st, git, logger, captureOff)
+	for _, id := range ids {
+		end(id, ReasonDaemonRestarted)
+	}
+	return len(ids), nil
 }
 
 // SessionRegistry maps each observed harness process to the one live store
