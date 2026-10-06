@@ -44,7 +44,7 @@ func TestRenderResumeSlotShowsNextImmediatelyAfterResume(t *testing.T) {
 	h := mustInsertHandoffWithNext(t, s, self, "did the first part", "NEXTMARK add the thing")
 
 	out := renderFor(t, s, self)
-	want := "Resume: (id " + h.ID + ") did the first part\nNext: NEXTMARK add the thing"
+	want := "Resume: (id " + h.ID + ") did the first part\nNext (start here): NEXTMARK add the thing"
 	if !strings.Contains(out, want) {
 		t.Fatalf("want Next line immediately after Resume line %q; got:\n%s", want, out)
 	}
@@ -56,7 +56,7 @@ func TestRenderResumeSlotOmitsNextWhenHandoffHasNone(t *testing.T) {
 	self := mustStartSession(t, s, "claude", "/proj", 100)
 	mustInsertHandoffWithNext(t, s, self, "did the first part", "")
 
-	if out := renderFor(t, s, self); strings.Contains(out, "Next:") {
+	if out := renderFor(t, s, self); strings.Contains(out, "Next") {
 		t.Fatalf("handoff with no next must render no Next line; got:\n%s", out)
 	}
 }
@@ -72,7 +72,7 @@ func TestBudgetKeepsNextWithResumeWhenOnlySlotOneFits(t *testing.T) {
 	other := mustStartSession(t, s, "codex", "/elsewhere", 200)
 	mustAppendToolUse(t, s, other, h.TS.Add(1), "f.go") // slot 2 present
 
-	slot1 := "Resume: (id " + h.ID + ") did the first part\nNext: NEXTMARK add the thing"
+	slot1 := "Resume: (id " + h.ID + ") did the first part\nNext (start here): NEXTMARK add the thing"
 	budget := block.EstimateTokens(block.HeaderLine + "\n\n" + slot1 + "\n\n" + block.FinalLineFor(h.ID))
 	if err := s.SetSetting(block.SettingBudgetKey, strconv.Itoa(budget)); err != nil {
 		t.Fatalf("SetSetting: %v", err)

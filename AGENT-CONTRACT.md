@@ -230,7 +230,7 @@ In the file, line 1 is the YAML frontmatter block (`name: backstory` and the
 4. when you choose between alternatives, `note decision` in one line — no ceremony.
 5. claim "done" only with `note outcome` pointing at a `timeline` event id; a claim without
    evidence is recorded as a claim.
-6. end with `note handoff`: what is true now, what is next, what not to do. Put the single next step in the handoff's optional `next` (one line, at most 200 characters; handoff only) so the panel can show it. Set
+6. end with `note handoff`: what is true now, what is next, what still must not be done. Do not carry forward instructions that applied only to the current session ("don't start X now" when X is the next step); `next` is an action the next session can start, with a precondition only if it is real and unmet. Put the single next step in the handoff's optional `next` (one line, at most 200 characters; handoff only) so the panel can show it. Set
    `supersedes` to the Resume slot's id when it showed one; whenever any record replaces or
    corrects an earlier one, set `supersedes` to its id (or `confirm supersede`).
 7. inferred records are hints; declared records are claims; the timeline is fact.
