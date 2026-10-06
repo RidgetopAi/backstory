@@ -171,6 +171,65 @@ func (s *Store) LiveSessionByHarnessSessionID(sessionID string) (Session, bool, 
 	return sess, true, nil
 }
 
+// RunSessionByHarnessSessionID returns the session already recorded for the
+// run (agent, harnessSessionID), whether it is still live or has ended, so an
+// importer re-reading a transcript attaches to it instead of minting a second
+// session for the same run (task a757b754: backfill used to match only live
+// sessions, so a daemon restart re-imported every finished run). A live-origin
+// row wins over an ended one, then the earliest started. ended reports
+// whether the matched session already has an ended_at.
+func (s *Store) RunSessionByHarnessSessionID(agent, harnessSessionID string) (sess Session, ended, found bool, err error) {
+	if agent == "" || harnessSessionID == "" {
+		return Session{}, false, false, nil
+	}
+	var (
+		pid               sql.NullInt64
+		projectKey        sql.NullString
+		workspace, window sql.NullString
+		startedAt         int64
+		origin            string
+		endedAt           sql.NullInt64
+		hsid              sql.NullString
+	)
+	row := s.db.QueryRow(`SELECT id, agent, harness_session_id, pid, cwd, project_key, workspace, window, started_at, origin, ended_at
+		FROM sessions WHERE agent = ? AND harness_session_id = ?
+		ORDER BY (origin = ?) DESC, started_at ASC, rowid ASC LIMIT 1`,
+		agent, harnessSessionID, string(OriginLive))
+	if err := row.Scan(&sess.ID, &sess.Agent, &hsid, &pid, &sess.CWD,
+		&projectKey, &workspace, &window, &startedAt, &origin, &endedAt); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Session{}, false, false, nil
+		}
+		return Session{}, false, false, fmt.Errorf("store: run session for %s/%s: %w", agent, harnessSessionID, err)
+	}
+	sess.HarnessSessionID = hsid.String
+	if pid.Valid {
+		p := int(pid.Int64)
+		sess.PID = &p
+	}
+	sess.ProjectKey = projectKey.String
+	sess.Workspace = workspace.String
+	sess.Window = window.String
+	sess.StartedAt = tsFromNanos(startedAt)
+	sess.Origin = SessionOrigin(origin)
+	return sess, endedAt.Valid, true, nil
+}
+
+// SessionHasEventKind reports whether session id already carries an event of
+// kind — importers attaching to an existing session use it to avoid
+// re-recording the session.start the run already has.
+func (s *Store) SessionHasEventKind(id, kind string) (bool, error) {
+	var one int
+	err := s.db.QueryRow(`SELECT 1 FROM timeline_events WHERE session_id = ? AND kind = ? LIMIT 1`, id, kind).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("store: session %s has event %s: %w", id, kind, err)
+	}
+	return true, nil
+}
+
 // SessionByHarnessSessionID returns the session whose harness_session_id
 // equals sessionID, any origin and whether it has ended — unlike
 // LiveSessionByHarnessSessionID (which exists to attach to a run still being
@@ -315,7 +374,8 @@ func (s *Store) ProjectSessionIDs(projectKey string) ([]string, error) {
 // (agent name breaks exact ties). A session's activity is its start, its
 // timeline events, and its records, bounded above by asOf (the same rule as
 // sessionLastActivity); a session counts only when that is at or after
-// since. Sessions whose agent is not in ident.KnownHarnesses (zero-length
+// since. Sessions sharing (agent, harness_session_id) count once (task
+// a757b754). Sessions whose agent is not in ident.KnownHarnesses (zero-length
 // 'unknown' socket callers) are excluded.
 func (s *Store) AgentActivityForSessions(ids []string, since, asOf time.Time) ([]AgentActivity, error) {
 	if len(ids) == 0 {
@@ -326,14 +386,14 @@ func (s *Store) AgentActivityForSessions(ids []string, since, asOf time.Time) ([
 	//nolint:gosec // only "?" placeholders are concatenated; every value is bound
 	query := `
 		WITH act AS (
-			SELECT id AS sid, agent, started_at AS ts FROM sessions
+			SELECT COALESCE(NULLIF(harness_session_id, ''), id) AS sid, agent, started_at AS ts FROM sessions
 				WHERE id IN (` + idPH + `) AND agent IN (` + agentPH + `)
 			UNION ALL
-			SELECT e.session_id, s.agent, e.ts FROM timeline_events e
+			SELECT COALESCE(NULLIF(s.harness_session_id, ''), s.id), s.agent, e.ts FROM timeline_events e
 				JOIN sessions s ON s.id = e.session_id
 				WHERE e.session_id IN (` + idPH + `) AND s.agent IN (` + agentPH + `)
 			UNION ALL
-			SELECT r.session_id, s.agent, r.ts FROM records r
+			SELECT COALESCE(NULLIF(s.harness_session_id, ''), s.id), s.agent, r.ts FROM records r
 				JOIN sessions s ON s.id = r.session_id
 				WHERE r.session_id IN (` + idPH + `) AND s.agent IN (` + agentPH + `)
 		), per AS (

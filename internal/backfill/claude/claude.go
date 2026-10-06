@@ -248,6 +248,7 @@ func importFile(st *store.Store, git project.Git, workspaces []string, path stri
 	firstTS := parsedLines[0].Timestamp
 	lastTS := parsedLines[len(parsedLines)-1].Timestamp
 
+	attachedEnded := false
 	if !exists {
 		// A session that started while capture was paused is never imported,
 		// even after capture is back on (SCHEMA.md invariant 8). The cursor
@@ -270,10 +271,15 @@ func importFile(st *store.Store, git project.Git, workspaces []string, path stri
 		// sessionId carries) — attach to it instead of minting a second,
 		// backfilled-origin session for the same run (task 25b74537's
 		// clause 2: the daemon-side dedup task 32c6900d left unbuilt).
-		if live, ok, err := st.LiveSessionByHarnessSessionID(firstHarnessSessionID(parsedLines)); err != nil {
+		//
+		// The match ignores ended state (task a757b754): a run whose live
+		// session already ended — or was swept at a daemon restart — is the
+		// same run, and re-importing it must not mint a second session.
+		if prior, priorEnded, ok, err := st.RunSessionByHarnessSessionID(Agent, firstHarnessSessionID(parsedLines)); err != nil {
 			return fileStats{}, err
 		} else if ok {
-			sessionID = live.ID
+			sessionID = prior.ID
+			attachedEnded = priorEnded
 		} else {
 			sessionID, err = createSession(st, git, workspaces, path, parsedLines, firstTS)
 			if err != nil {
@@ -282,16 +288,22 @@ func importFile(st *store.Store, git project.Git, workspaces []string, path stri
 			stats.sessionCreated = true
 		}
 
-		if _, err := st.AppendEvent(store.Event{
-			TS:        firstTS,
-			Kind:      EventSessionStart,
-			SessionID: sessionID,
-			Source:    EventSource,
-			Payload:   sessionStartPayload(parsedLines),
-		}); err != nil {
+		hasStart, err := st.SessionHasEventKind(sessionID, EventSessionStart)
+		if err != nil {
 			return fileStats{}, err
 		}
-		stats.events++
+		if !hasStart {
+			if _, err := st.AppendEvent(store.Event{
+				TS:        firstTS,
+				Kind:      EventSessionStart,
+				SessionID: sessionID,
+				Source:    EventSource,
+				Payload:   sessionStartPayload(parsedLines),
+			}); err != nil {
+				return fileStats{}, err
+			}
+			stats.events++
+		}
 	}
 
 	n, err := appendToolEvents(st, sessionID, "", parsedLines, validIdx)
@@ -313,7 +325,7 @@ func importFile(st *store.Store, git project.Git, workspaces []string, path stri
 	if err != nil {
 		return fileStats{}, err
 	}
-	if origin != store.OriginLive {
+	if origin != store.OriginLive && !attachedEnded {
 		// Every run that processes new lines re-mints session.end as the
 		// session's current last event (append-only: an earlier run's
 		// session.end is never deleted or rewritten, so a session that has

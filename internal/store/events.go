@@ -50,6 +50,20 @@ func (s *Store) AppendEvent(e Event) (int64, error) {
 type TimelineEvent struct {
 	ID int64
 	Event
+	// RunKey identifies the run the event's session belongs to, set only
+	// when that session shares (agent, harness_session_id) with another
+	// session row — a duplicate already on disk (task a757b754). Readers
+	// that count sessions count by Run() so a run counts once.
+	RunKey string
+}
+
+// Run is the identity readers count sessions by: RunKey when the event's
+// session is one of several rows for the same run, else the session id.
+func (e TimelineEvent) Run() string {
+	if e.RunKey != "" {
+		return e.RunKey
+	}
+	return e.SessionID
 }
 
 // HasEventWithToolUseID reports whether a timeline event of kind already
@@ -95,7 +109,7 @@ func (s *Store) EventsSinceID(projectKey string, sinceID int64) ([]TimelineEvent
 	if err != nil {
 		return nil, fmt.Errorf("store: events since %d for project %s: %w", sinceID, projectKey, err)
 	}
-	out, err := scanTimelineEvents(rows)
+	out, err := s.scanTimelineEvents(rows)
 	if err != nil {
 		return nil, fmt.Errorf("store: events since %d for project %s: %w", sinceID, projectKey, err)
 	}
@@ -142,7 +156,7 @@ func (s *Store) EventsForTimeline(projectKey string, since time.Time, kind strin
 	if err != nil {
 		return nil, fmt.Errorf("store: timeline events for project %s: %w", projectKey, err)
 	}
-	out, err := scanTimelineEvents(rows)
+	out, err := s.scanTimelineEvents(rows)
 	if err != nil {
 		return nil, fmt.Errorf("store: timeline events for project %s: %w", projectKey, err)
 	}
@@ -185,7 +199,7 @@ func (s *Store) EventsForSessionTimeline(sessionID string, since time.Time, kind
 	if err != nil {
 		return nil, fmt.Errorf("store: timeline events for session %s: %w", sessionID, err)
 	}
-	out, err := scanTimelineEvents(rows)
+	out, err := s.scanTimelineEvents(rows)
 	if err != nil {
 		return nil, fmt.Errorf("store: timeline events for session %s: %w", sessionID, err)
 	}
@@ -205,7 +219,7 @@ func (s *Store) eventsForSessionID(sessionID string) ([]TimelineEvent, error) {
 	if err != nil {
 		return nil, fmt.Errorf("store: events for session %s: %w", sessionID, err)
 	}
-	out, err := scanTimelineEvents(rows)
+	out, err := s.scanTimelineEvents(rows)
 	if err != nil {
 		return nil, fmt.Errorf("store: events for session %s: %w", sessionID, err)
 	}
@@ -239,7 +253,7 @@ func (s *Store) eventsSinceIDForSessions(sessionIDs []string, sinceID int64) ([]
 	if err != nil {
 		return nil, fmt.Errorf("store: events since %d for sessions: %w", sinceID, err)
 	}
-	out, err := scanTimelineEvents(rows)
+	out, err := s.scanTimelineEvents(rows)
 	if err != nil {
 		return nil, fmt.Errorf("store: events since %d for sessions: %w", sinceID, err)
 	}
@@ -271,7 +285,7 @@ func (s *Store) EventsForSessionsSince(sessionIDs []string, since time.Time) ([]
 	if err != nil {
 		return nil, fmt.Errorf("store: events for sessions since %s: %w", since, err)
 	}
-	out, err := scanTimelineEvents(rows)
+	out, err := s.scanTimelineEvents(rows)
 	if err != nil {
 		return nil, fmt.Errorf("store: events for sessions since %s: %w", since, err)
 	}
@@ -282,7 +296,7 @@ func (s *Store) EventsForSessionsSince(sessionIDs []string, since time.Time) ([]
 // payload, workspace, window) shape both EventsSinceID and
 // EventsForTimeline select, into TimelineEvent values in the rows' own
 // order. It always closes rows itself, even on a scan error.
-func scanTimelineEvents(rows *sql.Rows) ([]TimelineEvent, error) {
+func (s *Store) scanTimelineEvents(rows *sql.Rows) ([]TimelineEvent, error) {
 	defer func() { _ = rows.Close() }()
 
 	out := []TimelineEvent{}
@@ -314,7 +328,45 @@ func scanTimelineEvents(rows *sql.Rows) ([]TimelineEvent, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	return out, nil
+	_ = rows.Close()
+	return out, s.stampRunKeys(out)
+}
+
+// duplicateRunKeys maps session id -> run key for every session whose
+// (agent, harness_session_id) is shared by more than one session row.
+func (s *Store) duplicateRunKeys() (map[string]string, error) {
+	rows, err := s.db.Query(`SELECT s.id, s.agent || char(31) || s.harness_session_id FROM sessions s
+		JOIN (SELECT agent, harness_session_id FROM sessions
+			WHERE harness_session_id IS NOT NULL AND harness_session_id <> ''
+			GROUP BY agent, harness_session_id HAVING COUNT(*) > 1) d
+		ON d.agent = s.agent AND d.harness_session_id = s.harness_session_id`)
+	if err != nil {
+		return nil, fmt.Errorf("store: duplicate run keys: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	keys := map[string]string{}
+	for rows.Next() {
+		var id, key string
+		if err := rows.Scan(&id, &key); err != nil {
+			return nil, fmt.Errorf("store: scan duplicate run key: %w", err)
+		}
+		keys[id] = key
+	}
+	return keys, rows.Err()
+}
+
+func (s *Store) stampRunKeys(events []TimelineEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+	keys, err := s.duplicateRunKeys()
+	if err != nil {
+		return err
+	}
+	for i := range events {
+		events[i].RunKey = keys[events[i].SessionID]
+	}
+	return nil
 }
 
 // ToolOutputExcerpt is the bounded, redacted form of a tool's output that
