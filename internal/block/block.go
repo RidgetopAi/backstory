@@ -146,7 +146,11 @@ func Render(p Params) (string, error) {
 	if !hasHandoff {
 		slot1 = pointer
 	}
-	slot2 := deltaSlot(deltaEvents)
+	shellSessions, err := p.Store.ShellSessionIDs()
+	if err != nil {
+		return "", fmt.Errorf("block: shell sessions: %w", err)
+	}
+	slot2 := deltaSlot(deltaEvents, shellSessions)
 	slot3 := coordinationSlot(liveSessions, allEvents, p.SessionID, p.ProcFS)
 	slot4 := attentionSlot(draftCount, contradictionCount, len(staleReasons) > 0)
 
@@ -365,11 +369,14 @@ func staleReasonClause(r store.FreshnessReason) string {
 // exit codes" rendering, exported for recall's own recent-timeline summary
 // (internal/mcp/recall.go) so the one definition of "what a delta looks
 // like" stays here rather than growing a second copy.
-func DeltaSummary(events []store.TimelineEvent) string {
-	return deltaSlot(events)
+//
+// shellSessions are the sessions (store.ShellSessionIDs) a delta never counts
+// in its "N sessions": a shell's captured commands are not agent work.
+func DeltaSummary(events []store.TimelineEvent, shellSessions map[string]bool) string {
+	return deltaSlot(events, shellSessions)
 }
 
-func deltaSlot(events []store.TimelineEvent) string {
+func deltaSlot(events []store.TimelineEvent, shellSessions map[string]bool) string {
 	if len(events) == 0 {
 		return ""
 	}
@@ -378,7 +385,7 @@ func deltaSlot(events []store.TimelineEvent) string {
 	files := map[string]bool{}
 	var exitCodes []int
 	for _, e := range events {
-		if e.SessionID != "" {
+		if e.SessionID != "" && !shellSessions[e.SessionID] {
 			sessions[e.SessionID] = true
 		}
 		switch e.Kind {

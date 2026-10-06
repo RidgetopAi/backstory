@@ -88,6 +88,7 @@ func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs i
 	if hasFirst {
 		first = append([]byte(nil), sc.Bytes()...)
 		id = applyLocation(id, first, sessions, git, workspaces)
+		id = applyShellIdentity(id, first, procfs)
 	} else {
 		// A connection that closes before its first request line (a plugin's
 		// is_available() liveness probe) mints no session: a probe stays
@@ -140,6 +141,31 @@ func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs i
 	}
 }
 
+// applyShellIdentity keys a shell_emit connection on the emitting shell: the
+// peer's parent process, read from the observed /proc ancestry (never from
+// anything the request carries). Every emit from one interactive shell then
+// shares one session labelled ident.HarnessShell, for as long as that shell
+// process lives. A peer whose parent cannot be observed (pid 1 or less, or an
+// unreadable /proc entry) keeps the identity it already had.
+func applyShellIdentity(id ident.Identity, first []byte, procfs ident.ProcFS) ident.Identity {
+	var req DaemonRequest
+	if procfs == nil || json.Unmarshal(first, &req) != nil || req.Method != DaemonMethodShellEmit {
+		return id
+	}
+	peer, err := procfs.Status(id.PID)
+	if err != nil || peer.PPid <= 1 {
+		return id
+	}
+	shell, err := procfs.Status(peer.PPid)
+	if err != nil {
+		return id
+	}
+	id.Harness = ident.HarnessShell
+	id.HarnessPID = peer.PPid
+	id.HarnessStartTicks = shell.StartTicks
+	return id
+}
+
 // noSessionMethods are the daemon methods whose request may set no_session:
 // read-only ones only, so the flag can never suppress a write's provenance.
 // Named config, not a literal check inside ServeDaemonConn.
@@ -168,6 +194,14 @@ func declinesSession(line []byte) bool {
 func liveSessionEnder(st *store.Store, git project.Git, logger *log.Logger, captureOff func() (bool, error)) func(sessionID, reason string) {
 	return func(sessionID, reason string) {
 		now := time.Now()
+		// A shell session is a running record of one interactive shell's
+		// commands, not a unit of agent work: it ends without observing git.
+		if agent, err := st.SessionAgent(sessionID); err == nil && agent == ident.HarnessShell {
+			if err := st.EndSession(sessionID, now, reason); err != nil {
+				logf(logger, "mcp: end session %s: %v", sessionID, err)
+			}
+			return
+		}
 		cwd, err := st.SessionCWD(sessionID)
 		if err != nil {
 			logf(logger, "mcp: read cwd for ending session %s: %v", sessionID, err)
