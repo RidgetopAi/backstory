@@ -44,7 +44,7 @@ func testDaemonWithGit(t *testing.T, st *store.Store, harness, cwd, projectKey s
 }
 
 // gitStateEventsForSession returns every session.git_state timeline event
-// recorded for sessionID, decoded as payload.SessionGitState.
+// recorded for sessionID at its END, decoded as payload.SessionGitState.
 func gitStateEventsForSession(t *testing.T, st *store.Store, sessionID string) []payload.SessionGitState {
 	t.Helper()
 	rows, err := st.DB().Query(`SELECT payload FROM timeline_events WHERE kind = ? AND session_id = ?`,
@@ -63,6 +63,9 @@ func gitStateEventsForSession(t *testing.T, st *store.Store, sessionID string) [
 		var p payload.SessionGitState
 		if err := json.Unmarshal([]byte(raw), &p); err != nil {
 			t.Fatalf("unmarshal session.git_state payload %q: %v", raw, err)
+		}
+		if p.Phase == payload.GitStatePhaseStart {
+			continue // the session-start observation is not the end state
 		}
 		out = append(out, p)
 	}

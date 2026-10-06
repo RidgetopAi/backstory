@@ -243,3 +243,74 @@ func TestHookStopSilentWhenDisabledOrUnreachable(t *testing.T) {
 
 	silent("no daemon", "XDG_RUNTIME_DIR='"+t.TempDir()+"'")
 }
+
+// gitInitProject makes the fixture's project dir a git repo with one commit
+// and one clean tracked file, before any session exists.
+func (f *stopFixture) gitInitProject() {
+	f.t.Helper()
+	for _, args := range [][]string{
+		{"init", "-q"},
+		{"-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "init"},
+	} {
+		cmd := exec.Command("git", args...) //nolint:gosec // literal git args in a test-owned temp repo
+		cmd.Dir = f.projectDir
+		if out, err := cmd.CombinedOutput(); err != nil {
+			f.t.Skipf("git %v: %v: %s", args, err, out)
+		}
+	}
+}
+
+// TestHookStopSeesBashEditsViaGitState is task 8efad0ce: a file changed through
+// Bash (no Edit/Write tool event) is edit evidence when the repo's observed
+// state differs from the session-start observation; an unchanged repo is
+// silent; a non-git cwd falls back to the tool rule.
+func TestHookStopSeesBashEditsViaGitState(t *testing.T) {
+	t.Run("file changed with no tool edit blocks naming 1 file", func(t *testing.T) {
+		f := newStopFixture(t)
+		f.gitInitProject()
+		// The first hook connection starts the session and records its
+		// session-start git state; an untouched repo is silent.
+		if stdout, exit := f.stop("s-bash", false, ""); exit != "exit=0" || stdout != "" {
+			t.Fatalf("unchanged repo: stdout %q %s, want silent exit 0", stdout, exit)
+		}
+		f.sh("printf 'hello\\n' > notes.txt") // a shell write: no Edit/Write tool event
+		stdout, exit := f.stop("s-bash", false, "")
+		if exit != "exit=0" {
+			t.Fatalf("%s", exit)
+		}
+		var d struct{ Decision, Reason string }
+		if err := json.Unmarshal([]byte(stdout), &d); err != nil {
+			t.Fatalf("stdout %q is not a JSON decision: %v", stdout, err)
+		}
+		if d.Decision != "block" || !strings.Contains(d.Reason, "1 file(s)") || !strings.Contains(d.Reason, "note handoff") {
+			t.Errorf("decision = %+v, want block naming 1 file(s) and note handoff", d)
+		}
+	})
+
+	t.Run("a file already dirty at session start is not evidence", func(t *testing.T) {
+		f := newStopFixture(t)
+		f.gitInitProject()
+		f.sh("echo pre > preexisting.txt")
+		if stdout, exit := f.stop("s-dirty", false, ""); exit != "exit=0" || stdout != "" {
+			t.Fatalf("stdout %q %s, want silent exit 0", stdout, exit)
+		}
+		if stdout, exit := f.stop("s-dirty", false, ""); exit != "exit=0" || stdout != "" {
+			t.Errorf("second stop: stdout %q %s, want silent exit 0", stdout, exit)
+		}
+	})
+
+	t.Run("non-git cwd falls back to the tool rule", func(t *testing.T) {
+		f := newStopFixture(t)
+		if stdout, _ := f.stop("s-nogit", false, ""); stdout != "" {
+			t.Fatalf("stdout %q, want silent", stdout)
+		}
+		f.sh("echo x > bash-written.txt")
+		if stdout, exit := f.stop("s-nogit", false, ""); exit != "exit=0" || stdout != "" {
+			t.Errorf("bash write in non-git cwd: stdout %q %s, want silent exit 0", stdout, exit)
+		}
+		f.edit("s-nogit", "toolu_1", "a.go")
+		if stdout, _ := f.stop("s-nogit", false, ""); !strings.Contains(stdout, "1 file(s)") {
+			t.Errorf("stdout %q, want a block from the tool rule", stdout)
+		}
+	})
+}

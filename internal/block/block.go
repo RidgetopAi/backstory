@@ -605,7 +605,7 @@ func repoStateLine(p Params, handoff store.Record, hasHandoff bool, events []sto
 			continue
 		}
 		var v payload.SessionGitState
-		if json.Unmarshal([]byte(e.Payload), &v) == nil {
+		if json.Unmarshal([]byte(e.Payload), &v) == nil && v.Phase != payload.GitStatePhaseStart {
 			gs = &v
 		}
 	}

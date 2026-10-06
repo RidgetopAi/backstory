@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -40,15 +41,50 @@ func (RealGit) State(cwd string) (State, bool) {
 	if !ok {
 		return State{}, false
 	}
-	status, ok := gitOutput(cwd, "status", "--porcelain")
+	status, ok := gitOutputRaw(cwd, "status", "--porcelain")
 	if !ok {
 		return State{}, false
 	}
-	uncommitted := 0
-	if status != "" {
-		uncommitted = len(strings.Split(status, "\n"))
+	var lines []string
+	if status = strings.TrimRight(status, "\n"); status != "" {
+		lines = strings.Split(status, "\n")
 	}
-	return State{Branch: branch, Uncommitted: uncommitted}, true
+	// A repo with no commit yet has no HEAD to resolve; that is an observed
+	// "", not a failure.
+	head, _ := gitOutput(cwd, "rev-parse", "--verify", "-q", "HEAD")
+	return State{Branch: branch, Uncommitted: len(lines), Head: head, Paths: porcelainPaths(lines)}, true
+}
+
+// porcelainPaths extracts the sorted, de-duplicated paths from `git status
+// --porcelain` lines ("XY path", or "XY old -> new" for a rename).
+func porcelainPaths(lines []string) []string {
+	seen := map[string]bool{}
+	var paths []string
+	for _, l := range lines {
+		if len(l) < 4 {
+			continue
+		}
+		p := l[3:]
+		if !seen[p] {
+			seen[p] = true
+			paths = append(paths, p)
+		}
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+// gitOutputRaw is gitOutput without trimming leading whitespace: a porcelain
+// line's first column may be a space, which is part of the status code.
+func gitOutputRaw(cwd string, args ...string) (string, bool) {
+	cmd := exec.Command("git", args...) //nolint:gosec // args are a fixed set of literal git subcommands, never caller-controlled
+	cmd.Dir = cwd
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Run(); err != nil {
+		return "", false
+	}
+	return out.String(), true
 }
 
 // firstRemoteURL returns the URL of the first remote `git remote` lists for
