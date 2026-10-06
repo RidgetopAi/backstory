@@ -7,6 +7,7 @@ package block
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -239,7 +240,17 @@ func resolveResumeHandoff(st *store.Store, projectKey, cwd string, git project.G
 		return h, found, "", "", nil
 	}
 
-	// At the workspace root itself.
+	// At the workspace root itself — or a non-git direct child, which
+	// shares the root's key (decision 7a2556b6): with no handoff of its own
+	// it carries the root's.
+	if !found {
+		if root, ok := workspaceRootOf(cwd, home, workspaces); ok && root != filepath.Clean(cwd) {
+			h, found, err = st.LatestHandoffAt(root, git, workspaces)
+			if err != nil {
+				return store.Record{}, false, "", "", fmt.Errorf("block: root handoff: %w", err)
+			}
+		}
+	}
 	if !found {
 		others, err := st.HandoffsByWriter(home)
 		if err != nil {
@@ -253,6 +264,22 @@ func resolveResumeHandoff(st *store.Store, projectKey, cwd string, git project.G
 		return store.Record{}, false, "", "", fmt.Errorf("block: resume handoff label: %w", err)
 	}
 	return h, true, label, "", nil
+}
+
+// workspaceRootOf is the configured workspace directory whose home key is
+// home and that holds cwd (cwd itself, or a direct child of it).
+func workspaceRootOf(cwd, home string, workspaces []string) (string, bool) {
+	cwd = filepath.Clean(cwd)
+	for _, w := range workspaces {
+		w = filepath.Clean(w)
+		if cwd != w && filepath.Dir(cwd) != w {
+			continue
+		}
+		if h, ok := project.WorkspaceHome(w, []string{w}); ok && h == home {
+			return w, true
+		}
+	}
+	return "", false
 }
 
 // projectPointerLine renders the one-line stand-in for a root resume with no

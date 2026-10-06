@@ -240,12 +240,23 @@ func resolveRecallScope(st *store.Store, git project.Git, id ident.Identity, ref
 	if ref = strings.TrimSpace(ref); ref != "" {
 		return st.ResolveProjectRef(ref, git, workspaces)
 	}
-	if id.CWD != "" {
-		ls, err := st.LocationScope(id.CWD, git, workspaces)
+	ls, err := st.LocationScopeForKey(id.ProjectKey)
+	if err != nil || id.CWD == "" || project.IsWorkspaceKey(id.ProjectKey) {
+		if err == nil && id.CWD != "" {
+			// A workspace root: exactly what is labelled with the root.
+			ls, err = st.LocationScope(id.CWD, git, workspaces)
+		}
 		return id.ProjectKey, ls, err
 	}
-	ls, err := st.LocationScopeForKey(id.ProjectKey)
-	return id.ProjectKey, ls, err
+	// The observed key's own scope, widened by the cwd's labelled sessions.
+	at, err := st.LocationScope(id.CWD, git, workspaces)
+	if err != nil {
+		return "", store.LocationScope{}, err
+	}
+	for sid := range at.SessionIDs {
+		ls.SessionIDs[sid] = true
+	}
+	return id.ProjectKey, ls, nil
 }
 
 // handleRecall serves the recall socket method by running the caller's
