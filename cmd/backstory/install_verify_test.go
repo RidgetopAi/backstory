@@ -47,9 +47,9 @@ func mergeEnv(base []string, overrides ...string) []string {
 // runInstallVerifySubprocess runs `backstory install claude` (verification
 // ON — no --no-verify) against home and env, returning its stdout, stderr
 // and exit code.
-func runInstallVerifySubprocess(t *testing.T, bin, home string, env []string) (stdout, stderr string, exitCode int) {
+func runInstallVerifySubprocess(t *testing.T, bin, home string, env []string, extraArgs ...string) (stdout, stderr string, exitCode int) {
 	t.Helper()
-	cmd := exec.Command(bin, "install", "claude") //nolint:gosec // bin is the binary this test just built
+	cmd := exec.Command(bin, append([]string{"install", "claude"}, extraArgs...)...) //nolint:gosec // bin is the binary this test just built
 	cmd.Env = mergeEnv(env, "HOME="+home)
 	var outBuf, errBuf safeBuffer
 	cmd.Stdout = &outBuf
@@ -131,7 +131,7 @@ func TestInstallVerifyFailsWhenDaemonUpButHookPrintsNothing(t *testing.T) {
 	home := t.TempDir()
 	env := mergeEnv(daemonEnv, "PATH="+fakeDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	stdout, stderr, exitCode := runInstallVerifySubprocess(t, bin, home, env)
+	stdout, stderr, exitCode := runInstallVerifySubprocess(t, bin, home, env, "--binary", filepath.Join(fakeDir, "backstory"))
 	if exitCode == 0 {
 		t.Fatalf("install claude (verify on) with daemon up and a silent fake hook: exit code = 0, want non-zero (stdout: %s)", stdout)
 	}
@@ -151,7 +151,7 @@ func TestInstallVerifyFailsWhenHookPrintsUnrelatedText(t *testing.T) {
 	home := t.TempDir()
 	env := []string{"PATH=" + fakeDir + string(os.PathListSeparator) + os.Getenv("PATH")}
 
-	stdout, stderr, exitCode := runInstallVerifySubprocess(t, bin, home, env)
+	stdout, stderr, exitCode := runInstallVerifySubprocess(t, bin, home, env, "--binary", filepath.Join(fakeDir, "backstory"))
 	if exitCode == 0 {
 		t.Fatalf("install claude (verify on) with a fake hook printing unrelated text: exit code = 0, want non-zero (stdout: %s)", stdout)
 	}
@@ -176,7 +176,7 @@ func TestInstallVerifyFailsWhenHookExitsNonZero(t *testing.T) {
 	home := t.TempDir()
 	env := []string{"PATH=" + fakeBinDir + string(os.PathListSeparator) + os.Getenv("PATH")}
 
-	stdout, stderr, exitCode := runInstallVerifySubprocess(t, bin, home, env)
+	stdout, stderr, exitCode := runInstallVerifySubprocess(t, bin, home, env, "--binary", scriptPath)
 	if exitCode == 0 {
 		t.Fatalf("install claude (verify on) with a failing hook: exit code = 0, want non-zero (stdout: %s)", stdout)
 	}

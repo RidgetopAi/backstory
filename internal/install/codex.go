@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/RidgetopAi/backstory/internal/skill"
@@ -29,6 +30,10 @@ const (
 // Codex hook commands. Payload handling is `backstory hook … --harness
 // codex` (cmd/backstory/hook.go).
 const (
+	//
+	// These are the bare-PATH forms earlier releases wrote; the installer
+	// now writes the binary's absolute path (Options.BinaryPath) and keeps
+	// these only to recognise older entries.
 	CodexHookCommandSessionStart = "backstory hook session-start --harness codex"
 	CodexHookCommandPostToolUse  = "backstory hook post-tool-use --harness codex"
 	// CodexHookMatcher is empty: match every source / every tool.
@@ -43,10 +48,9 @@ const (
 	CodexTOMLMarkerEnd   = "# backstory:end"
 	codexTOMLBeginLine   = CodexTOMLMarkerBegin + " (managed by `backstory install codex`; do not edit)"
 	codexNoEOLFlag       = " [no-eol]"
-	codexTOMLBody        = "[mcp_servers.backstory]\ncommand = \"backstory\"\nargs = [\"mcp\"]\n"
 
 	// CodexStubLine is the one-line AGENTS.md stub.
-	CodexStubLine = "Backstory: if no SessionStart block is present, call the `backstory` MCP tool's `recall`; see the `backstory` skill, `~/.codex/skills/backstory/SKILL.md`."
+	CodexStubLine = "Backstory: if no SessionStart block is present, call the `backstory` MCP tool's `recall`; see the `backstory` skill, `~/.codex/skills/backstory/SKILL.md`." + HandoffClause
 )
 
 var codexStubBlock = StubMarkerBegin + "\n" + CodexStubLine + "\n" + StubMarkerEnd + "\n"
@@ -127,21 +131,25 @@ func codexHookEntry(command string, timeoutSeconds int) map[string]any {
 	}
 }
 
-// InstallCodex installs every Codex item. A malformed hooks.json fails
-// before anything is written. A foreign mcp_servers.backstory is reported as
-// an ErrForeignConflict naming that item, after every other item has still
-// been installed. Verify-on-install is not run: the codex payload shape is
+// InstallCodex installs every Codex item. A malformed hooks.json or a foreign
+// mcp_servers.backstory (reported as an ErrForeignConflict naming that item)
+// fails before anything is written. Verify-on-install is not run: the codex payload shape is
 // owned by the hook subcommand's own punch.
 func InstallCodex(paths CodexPaths, opts Options) error {
 	hooksRoot, hooksMode, err := loadJSONObject(paths.HooksJSON, ErrMalformedCodexHooksJSON)
 	if err != nil {
 		return err
 	}
-	ss, err := mergeHookEntry(hooksRoot, "SessionStart", codexHookEntry(CodexHookCommandSessionStart, opts.timeoutSeconds()))
+	// A foreign mcp_servers.backstory is found before anything is written, so
+	// a conflict leaves the whole harness exactly as it was.
+	if err := checkCodexTOMLConflict(paths.ConfigTOML); err != nil {
+		return err
+	}
+	ss, err := mergeHookEntry(hooksRoot, "SessionStart", codexHookEntry(opts.hookCommand(subSessionStartCodex), opts.timeoutSeconds()), subSessionStartCodex, opts)
 	if err != nil {
 		return err
 	}
-	pt, err := mergeHookEntry(hooksRoot, "PostToolUse", codexHookEntry(CodexHookCommandPostToolUse, opts.timeoutSeconds()))
+	pt, err := mergeHookEntry(hooksRoot, "PostToolUse", codexHookEntry(opts.hookCommand(subPostToolUseCodex), opts.timeoutSeconds()), subPostToolUseCodex, opts)
 	if err != nil {
 		return err
 	}
@@ -156,7 +164,7 @@ func InstallCodex(paths CodexPaths, opts Options) error {
 	if err := installStubBlock(paths.AgentsMD, codexStubBlock); err != nil {
 		return fmt.Errorf("%s: %w", ItemCodexAgentsMD, err)
 	}
-	return installCodexTOML(paths.ConfigTOML)
+	return installCodexTOML(paths.ConfigTOML, opts)
 }
 
 // RemoveCodex reverses InstallCodex, leaving foreign content untouched and
@@ -166,8 +174,8 @@ func RemoveCodex(paths CodexPaths, opts Options) error {
 	if err != nil {
 		return err
 	}
-	ss := removeHookEntry(hooksRoot, "SessionStart", codexHookEntry(CodexHookCommandSessionStart, opts.timeoutSeconds()))
-	pt := removeHookEntry(hooksRoot, "PostToolUse", codexHookEntry(CodexHookCommandPostToolUse, opts.timeoutSeconds()))
+	ss := removeHookEntry(hooksRoot, "SessionStart", subSessionStartCodex, opts)
+	pt := removeHookEntry(hooksRoot, "PostToolUse", subPostToolUseCodex, opts)
 	if ss || pt {
 		if len(hooksRoot) == 0 {
 			if err := os.Remove(paths.HooksJSON); err != nil {
@@ -203,91 +211,15 @@ func CheckCodex(paths CodexPaths, opts Options) ([]Item, error) {
 		return nil, err
 	}
 	return []Item{
-		{Name: ItemCodexMCPServer, Status: codexTOMLStatus(paths.ConfigTOML)},
-		{Name: ItemSessionStartHook, Status: codexHookStatus(paths, hooksRoot, "SessionStart", codexEventSessionStart, codexHookEntry(CodexHookCommandSessionStart, opts.timeoutSeconds()))},
-		{Name: ItemPostToolUseHook, Status: codexHookStatus(paths, hooksRoot, "PostToolUse", codexEventPostToolUse, codexHookEntry(CodexHookCommandPostToolUse, opts.timeoutSeconds()))},
+		{Name: ItemCodexMCPServer, Status: codexTOMLStatus(paths.ConfigTOML, opts)},
+		{Name: ItemSessionStartHook, Status: codexHookStatus(paths, hooksRoot, "SessionStart", codexEventSessionStart, codexHookEntry(opts.hookCommand(subSessionStartCodex), opts.timeoutSeconds()))},
+		{Name: ItemPostToolUseHook, Status: codexHookStatus(paths, hooksRoot, "PostToolUse", codexEventPostToolUse, codexHookEntry(opts.hookCommand(subPostToolUseCodex), opts.timeoutSeconds()))},
 		{Name: ItemCodexAgentsMD, Status: stubBlockStatus(paths.AgentsMD, codexStubBlock)},
 		{Name: ItemCodexSkill, Status: ItemStatus(skill.CheckStatus(paths.SkillPath, opts.Prefix))},
 	}, nil
 }
 
 // --- hooks.json helpers (generic over event and entry) ---
-
-func mergeHookEntry(root map[string]any, event string, want map[string]any) (bool, error) {
-	hooksObj, err := objectField(root, "hooks")
-	if err != nil {
-		return false, err
-	}
-	arr, err := arrayField(hooksObj, event)
-	if err != nil {
-		return false, err
-	}
-	for _, e := range arr {
-		if jsonDeepEqual(e, want) {
-			return false, nil
-		}
-	}
-	hooksObj[event] = append(arr, want)
-	root["hooks"] = hooksObj
-	return true, nil
-}
-
-func hookEntryStatus(root map[string]any, event string, want map[string]any) ItemStatus {
-	hooksRaw, ok := root["hooks"]
-	if !ok {
-		return StatusAbsent
-	}
-	hooksObj, ok := hooksRaw.(map[string]any)
-	if !ok {
-		return StatusForeign
-	}
-	arrRaw, ok := hooksObj[event]
-	if !ok {
-		return StatusAbsent
-	}
-	arr, ok := arrRaw.([]any)
-	if !ok {
-		return StatusForeign
-	}
-	for _, e := range arr {
-		if jsonDeepEqual(e, want) {
-			return StatusPresent
-		}
-	}
-	return StatusAbsent
-}
-
-func removeHookEntry(root map[string]any, event string, want map[string]any) bool {
-	hooksObj, ok := root["hooks"].(map[string]any)
-	if !ok {
-		return false
-	}
-	arr, ok := hooksObj[event].([]any)
-	if !ok {
-		return false
-	}
-	kept := make([]any, 0, len(arr))
-	found := false
-	for _, e := range arr {
-		if !found && jsonDeepEqual(e, want) {
-			found = true
-			continue
-		}
-		kept = append(kept, e)
-	}
-	if !found {
-		return false
-	}
-	if len(kept) == 0 {
-		delete(hooksObj, event)
-	} else {
-		hooksObj[event] = kept
-	}
-	if len(hooksObj) == 0 {
-		delete(root, "hooks")
-	}
-	return true
-}
 
 // --- config.toml text block ---
 
@@ -310,12 +242,18 @@ func tomlBlockSpan(path, content string) (begin, end int, ok bool, err error) {
 	return begin, end, true, nil
 }
 
-func codexTOMLBlock(noEOL bool) string {
+// codexTOMLBody is the [mcp_servers.backstory] table, invoking the binary by
+// its absolute path (a TOML basic string).
+func codexTOMLBody(opts Options) string {
+	return "[mcp_servers.backstory]\ncommand = " + strconv.Quote(opts.binaryPath()) + "\nargs = [\"mcp\"]\n"
+}
+
+func codexTOMLBlock(noEOL bool, opts Options) string {
 	line := codexTOMLBeginLine
 	if noEOL {
 		line += codexNoEOLFlag
 	}
-	return line + "\n" + codexTOMLBody + CodexTOMLMarkerEnd + "\n"
+	return line + "\n" + codexTOMLBody(opts) + CodexTOMLMarkerEnd + "\n"
 }
 
 // withoutBlock returns content with our block cut out, for foreign scans.
@@ -334,7 +272,24 @@ func fileMode(path string) os.FileMode {
 	return 0o600
 }
 
-func installCodexTOML(path string) error {
+// checkCodexTOMLConflict returns the ErrForeignConflict installCodexTOML
+// would, without writing.
+func checkCodexTOMLConflict(path string) error {
+	data, err := os.ReadFile(path) //nolint:gosec // caller-chosen config location
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	rest, err := withoutBlock(path, string(data))
+	if err != nil {
+		return err
+	}
+	if foreignBackstoryTable.MatchString(rest) {
+		return fmt.Errorf("%w: %s: %s already defines [mcp_servers.backstory]; left untouched", ErrForeignConflict, ItemCodexMCPServer, path)
+	}
+	return nil
+}
+
+func installCodexTOML(path string, opts Options) error {
 	data, err := os.ReadFile(path) //nolint:gosec // caller-chosen config location
 	if err != nil && !os.IsNotExist(err) {
 		return err
@@ -350,10 +305,10 @@ func installCodexTOML(path string) error {
 
 	if b, e, ok, _ := tomlBlockSpan(path, content); ok {
 		noEOL := strings.HasPrefix(content[b:], codexTOMLBeginLine+codexNoEOLFlag)
-		if content[b:e] == codexTOMLBlock(noEOL) {
+		if content[b:e] == codexTOMLBlock(noEOL, opts) {
 			return nil
 		}
-		return writeAtomic(path, []byte(content[:b]+codexTOMLBlock(noEOL)+content[e:]), fileMode(path))
+		return writeAtomic(path, []byte(content[:b]+codexTOMLBlock(noEOL, opts)+content[e:]), fileMode(path))
 	}
 
 	noEOL := content != "" && !strings.HasSuffix(content, "\n")
@@ -363,7 +318,7 @@ func installCodexTOML(path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
-	return writeAtomic(path, []byte(content+codexTOMLBlock(noEOL)), fileMode(path))
+	return writeAtomic(path, []byte(content+codexTOMLBlock(noEOL, opts)), fileMode(path))
 }
 
 func removeCodexTOML(path string) error {
@@ -391,7 +346,7 @@ func removeCodexTOML(path string) error {
 	return writeAtomic(path, []byte(out), fileMode(path))
 }
 
-func codexTOMLStatus(path string) ItemStatus {
+func codexTOMLStatus(path string, opts Options) ItemStatus {
 	data, err := os.ReadFile(path) //nolint:gosec // caller-chosen config location
 	if err != nil {
 		return StatusAbsent
@@ -404,8 +359,12 @@ func codexTOMLStatus(path string) ItemStatus {
 	if foreignBackstoryTable.MatchString(rest) {
 		return StatusForeign
 	}
-	if _, _, ok, _ := tomlBlockSpan(path, content); ok {
-		return StatusPresent
+	if b, e, ok, _ := tomlBlockSpan(path, content); ok {
+		noEOL := strings.HasPrefix(content[b:], codexTOMLBeginLine+codexNoEOLFlag)
+		if content[b:e] == codexTOMLBlock(noEOL, opts) {
+			return StatusPresent
+		}
+		// Backstory's own older block (another binary path): install rewrites it.
 	}
 	return StatusAbsent
 }
