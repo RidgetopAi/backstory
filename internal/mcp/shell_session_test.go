@@ -22,7 +22,7 @@ import (
 type shellProcFS struct {
 	mu     sync.Mutex
 	self   int
-	shells map[int]bool // shell pids that currently exist
+	shells map[int]bool // shell pids that currently exist; StartTicks is a fixed non-zero value
 	parent int
 	cwd    string
 }
@@ -47,7 +47,7 @@ func (f *shellProcFS) Status(pid int) (ident.Status, error) {
 	case pid == f.self:
 		return ident.Status{PPid: f.parent, Name: "backstory", StartTicks: 1}, nil
 	case f.shells[pid]:
-		return ident.Status{PPid: 1, Name: "bash", StartTicks: uint64(pid)}, nil
+		return ident.Status{PPid: 1, Name: "bash", StartTicks: 7}, nil
 	}
 	return ident.Status{}, fmt.Errorf("shellProcFS: no status for pid %d", pid)
 }
