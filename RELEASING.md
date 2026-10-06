@@ -1,7 +1,8 @@
 # Releasing Backstory
 
-Decision `262cf929`: v1 is tagged only once `PLAN.md` §Phase 4's done-when
-holds on a box we do not own: a machine that is not Brian's. This document is the release
+Decision `2deb6c91` (2026-10-06, superseding `262cf929`): v1.0.0 was tagged on Brian's
+call before the Phase 4 done-when was measured on a machine that is not Brian's; that
+measurement now gates the AUR push and the marketplace submission. This document is the release
 branch flow and its tag. It does not authorize anything past a local tag —
 **AUR push and marketplace submission are CN3 and require Brian's explicit
 approval**, decided separately from this document. Nothing in this repo, its

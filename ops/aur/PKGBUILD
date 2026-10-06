@@ -8,7 +8,7 @@
 # RELEASING.md). `make release-check` only validates this file locally; it
 # builds nothing and publishes nothing.
 pkgname=backstory
-pkgver=0.0.0
+pkgver=1.0.0
 pkgrel=1
 pkgdesc="OS memory daemon for Omarchy: systemd --user service, SQLite/FTS5 store, unix socket + MCP stdio shim"
 arch=('x86_64')

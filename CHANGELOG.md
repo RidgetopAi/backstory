@@ -4,11 +4,14 @@ All notable changes to Backstory are documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 are [Semantic Versioning](https://semver.org/) (`vMAJOR.MINOR.PATCH`).
 
-Nothing has been tagged yet — v1 is cut only once `PLAN.md`'s Phase 4
-done-when holds on a box we do not own: a machine that is not Brian's. See
-`RELEASING.md` for the release flow and its approval gates.
+v1.0.0 was cut on 2026-10-06 (decision `2deb6c91`, superseding `262cf929`). The
+measurement on a machine that is not Brian's now gates the AUR push and the
+marketplace submission rather than the tag. See `RELEASING.md` for the release
+flow and its approval gates.
 
 ## [Unreleased]
+
+## [1.0.0] - 2026-10-06
 
 ### Added
 
