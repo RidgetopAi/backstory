@@ -57,8 +57,8 @@ func TestCheckReportsAbsentOnFreshHomeAndPresentAfterInstall(t *testing.T) {
 			t.Errorf("fresh home: item %s status = %s, want absent", name, status)
 		}
 	}
-	if len(statuses) != 6 {
-		t.Fatalf("Check returned %d items, want 6: %#v", len(statuses), items)
+	if len(statuses) != 7 {
+		t.Fatalf("Check returned %d items, want 7: %#v", len(statuses), items)
 	}
 
 	if err := install.Install(paths, opts); err != nil {

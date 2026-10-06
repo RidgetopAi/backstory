@@ -55,12 +55,12 @@ const harnessCodex = "codex"
 // stdout, writes at most one line to stderr, and still exits 0.
 func runHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		_, _ = fmt.Fprintln(stderr, "backstory hook: usage: backstory hook session-start|post-tool-use|post-tool-use-failure [--harness codex]")
+		_, _ = fmt.Fprintln(stderr, "backstory hook: usage: backstory hook session-start|post-tool-use|post-tool-use-failure|stop [--harness codex]")
 		return 0
 	}
 	sub := args[0]
-	if sub != "session-start" && sub != "post-tool-use" && sub != "post-tool-use-failure" {
-		_, _ = fmt.Fprintln(stderr, "backstory hook: usage: backstory hook session-start|post-tool-use|post-tool-use-failure [--harness codex]")
+	if sub != "session-start" && sub != "post-tool-use" && sub != "post-tool-use-failure" && sub != "stop" {
+		_, _ = fmt.Fprintln(stderr, "backstory hook: usage: backstory hook session-start|post-tool-use|post-tool-use-failure|stop [--harness codex]")
 		return 0
 	}
 
@@ -73,6 +73,8 @@ func runHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	switch sub {
 	case "session-start":
 		return runSessionStartHook(stdin, stdout, stderr, harness)
+	case "stop":
+		return runStopHook(stdin, stdout, stderr, harness)
 	case "post-tool-use-failure":
 		return runPostToolUseFailureHook(stdin, stderr, harness)
 	default:
