@@ -44,16 +44,6 @@ func runRecords(args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 
-	var projectKey string
-	if *locationFlag != "" && *projectFlag == "" {
-		projectKey = project.Key(*locationFlag, project.RealGit{}, resolveWorkspaceDirs())
-	} else {
-		var err error
-		if projectKey, err = resolveHumanProjectKey(*projectFlag); err != nil {
-			_, _ = fmt.Fprintln(stderr, "backstory records:", err)
-			return 1
-		}
-	}
 	dbPath, err := storePath()
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory records:", err)
@@ -65,6 +55,15 @@ func runRecords(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	defer func() { _ = st.Close() }()
+
+	var projectKey string
+	var scope store.LocationScope
+	if *locationFlag != "" && *projectFlag == "" {
+		projectKey = project.Key(*locationFlag, project.RealGit{}, resolveWorkspaceDirs())
+	} else if projectKey, scope, err = resolveHumanScope(st, *projectFlag); err != nil {
+		_, _ = fmt.Fprintln(stderr, "backstory records:", err)
+		return 1
+	}
 
 	if _, ok, err := st.GetProject(projectKey); err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory records:", err)
@@ -81,7 +80,7 @@ func runRecords(args []string, stdout, stderr io.Writer) int {
 			recs, err = st.RecordsForLocation(ls, recordsScanLimit)
 		}
 	} else {
-		recs, err = st.RecordsForProjectAll(projectKey, recordsScanLimit)
+		recs, err = st.RecordsForLocation(scope, recordsScanLimit)
 	}
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory records:", err)

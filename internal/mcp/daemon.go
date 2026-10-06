@@ -229,7 +229,7 @@ func dispatchDaemonRequest(line []byte, st *store.Store, procfs ident.ProcFS, id
 	case daemonMethodStatus:
 		return handleStatus(st, id, sessionID, captureOff)
 	case daemonMethodRecall:
-		return handleRecall(st, id, req.Params, workspaces)
+		return handleRecall(st, git, id, req.Params, workspaces)
 	case daemonMethodConfirm:
 		return handleConfirm(st, identity, sessionID, id.ProjectKey, req.Params)
 	case daemonMethodTimeline:

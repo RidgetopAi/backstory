@@ -207,15 +207,15 @@ func handoffAuthorClause(author, reader string) string {
 // names before it collapses the rest into "+N more".
 const maxPointerProjects = 3
 
-// resolveResumeHandoff is decision f3fa04c7's RESUME rule, read side
-// narrowed by decision 7a2556b6: inside a repo under a workspace, the
-// newest non-tombstoned handoff in the home whose session's labels include
-// that repo (no label shown — the caller is already inside it); at the
-// workspace root itself, the newest handoff WRITTEN FROM the root (its
-// session's own project_key is the home), with its session's label on the
-// Resume line — and when none exists, no handoff body but a one-line
-// pointer (returned as the string) naming the projects that have one; with
-// no workspace involved at all (cwd empty, or outside every configured
+// resolveResumeHandoff is decision f3fa04c7's RESUME rule, unified by task
+// ed31b744: the newest non-tombstoned handoff that belongs to the caller's
+// location (store.LatestHandoffAt — the one resolver recall, export,
+// records and This Week's row share): the repo-key handoffs plus the
+// workspace-homed ones whose writing session is labelled with that
+// location; at the workspace root itself, exactly those labelled with the
+// root. At the root with none, no handoff body but a one-line pointer
+// (returned as the string) naming the projects that have one. With no
+// workspace involved at all (cwd empty, or outside every configured
 // workspace), the pre-f3fa04c7 behavior — the newest handoff for
 // projectKey, unchanged, no label.
 func resolveResumeHandoff(st *store.Store, projectKey, cwd string, git project.Git, workspaces []string) (store.Record, bool, string, string, error) {
@@ -229,21 +229,22 @@ func resolveResumeHandoff(st *store.Store, projectKey, cwd string, git project.G
 		return h, ok, "", "", err
 	}
 
+	h, found, err := st.LatestHandoffAt(cwd, git, workspaces)
+	if err != nil {
+		return store.Record{}, false, "", "", fmt.Errorf("block: location handoff: %w", err)
+	}
 	if home != projectKey {
-		// Inside a specific repo under the workspace: filter the home's
-		// handoffs down to the one whose own session actually touched this
-		// repo.
-		label := project.Label(cwd, git, workspaces)
-		h, found, err := st.HandoffForLabel(home, label, git, workspaces)
-		return h, found, "", "", err
+		// Inside a specific repo under the workspace: no label shown, the
+		// caller is already inside it.
+		return h, found, "", "", nil
 	}
 
-	// At the workspace root itself: only handoffs written from the root.
-	h, found, others, err := st.RootHandoffs(home)
-	if err != nil {
-		return store.Record{}, false, "", "", fmt.Errorf("block: root handoffs: %w", err)
-	}
+	// At the workspace root itself.
 	if !found {
+		others, err := st.HandoffsByWriter(home)
+		if err != nil {
+			return store.Record{}, false, "", "", fmt.Errorf("block: root handoffs: %w", err)
+		}
 		pointer, err := projectPointerLine(st, others, git, workspaces)
 		return store.Record{}, false, "", pointer, err
 	}
