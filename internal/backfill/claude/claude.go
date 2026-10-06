@@ -138,7 +138,7 @@ func Import(st *store.Store, opts Options) (Result, error) {
 	var res Result
 	for _, f := range files {
 		res.FilesScanned++
-		stats, err := importFile(st, git, workspaces, opts.CaptureOff, f)
+		stats, err := importFile(st, git, workspaces, f)
 		if err != nil {
 			return res, fmt.Errorf("backfill/claude: import %s: %w", f, err)
 		}
@@ -171,7 +171,7 @@ type fileStats struct {
 // (cwd/branch/version/project resolved from the batch, session.start and
 // session.end emitted); a later run against the same file only appends
 // tool.use/tool.result events for whatever lines were appended since.
-func importFile(st *store.Store, git project.Git, workspaces []string, captureOff capture.OffFunc, path string) (fileStats, error) {
+func importFile(st *store.Store, git project.Git, workspaces []string, path string) (fileStats, error) {
 	cursor, exists, err := st.GetBackfillCursor(Source, path)
 	if err != nil {
 		return fileStats{}, err
@@ -241,7 +241,7 @@ func importFile(st *store.Store, git project.Git, workspaces []string, captureOf
 		// A session that started while capture was paused is never imported,
 		// even after capture is back on (SCHEMA.md invariant 8). The cursor
 		// stays unset, so the decision is re-made on every run.
-		if paused, err := capture.SessionPaused(st, captureOff, firstTS); err != nil {
+		if paused, err := capture.StartedInPause(st, firstTS); err != nil {
 			return fileStats{}, err
 		} else if paused {
 			return fileStats{}, nil

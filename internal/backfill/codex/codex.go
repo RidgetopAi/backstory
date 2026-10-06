@@ -176,7 +176,7 @@ func Import(st *store.Store, opts Options) (Result, error) {
 	var res Result
 	for _, c := range mainFiles {
 		res.FilesScanned++
-		stats, err := importFile(st, git, workspaces, opts.CaptureOff, c.path, "")
+		stats, err := importFile(st, git, workspaces, c.path, "")
 		if err != nil {
 			return res, fmt.Errorf("backfill/codex: import %s: %w", c.path, err)
 		}
@@ -190,7 +190,7 @@ func Import(st *store.Store, opts Options) (Result, error) {
 		} else if ok {
 			parentSessionID = parent.ID
 		}
-		stats, err := importFile(st, git, workspaces, opts.CaptureOff, c.path, parentSessionID)
+		stats, err := importFile(st, git, workspaces, c.path, parentSessionID)
 		if err != nil {
 			return res, fmt.Errorf("backfill/codex: import %s: %w", c.path, err)
 		}
@@ -216,7 +216,7 @@ type fileStats struct {
 // unlike internal/backfill/claude, a Codex session is never 'live' (there is
 // no live Codex capture yet to hand off to), so every rerun over new lines
 // safely owns its own session.end.
-func importFile(st *store.Store, git project.Git, workspaces []string, captureOff capture.OffFunc, path, parentSessionID string) (fileStats, error) {
+func importFile(st *store.Store, git project.Git, workspaces []string, path, parentSessionID string) (fileStats, error) {
 	cursor, exists, err := st.GetBackfillCursor(Source, path)
 	if err != nil {
 		return fileStats{}, err
@@ -279,7 +279,7 @@ func importFile(st *store.Store, git project.Git, workspaces []string, captureOf
 
 	if !exists {
 		// Started during a capture pause: never imported (invariant 8).
-		if paused, err := capture.SessionPaused(st, captureOff, firstTS); err != nil {
+		if paused, err := capture.StartedInPause(st, firstTS); err != nil {
 			return fileStats{}, err
 		} else if paused {
 			return fileStats{}, nil

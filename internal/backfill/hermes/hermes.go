@@ -203,7 +203,7 @@ func Import(st *store.Store, opts Options) (Result, error) {
 
 	var res Result
 	for _, hs := range mains {
-		if err := importSession(st, db, git, workspaces, opts.CaptureOff, path, hs, "", &res); err != nil {
+		if err := importSession(st, db, git, workspaces, path, hs, "", &res); err != nil {
 			return res, fmt.Errorf("backfill/hermes: import session %s: %w", hs.ID, err)
 		}
 	}
@@ -214,7 +214,7 @@ func Import(st *store.Store, opts Options) (Result, error) {
 		} else if ok {
 			parentSessionID = parent.ID
 		}
-		if err := importSession(st, db, git, workspaces, opts.CaptureOff, path, hs, parentSessionID, &res); err != nil {
+		if err := importSession(st, db, git, workspaces, path, hs, parentSessionID, &res); err != nil {
 			return res, fmt.Errorf("backfill/hermes: import session %s: %w", hs.ID, err)
 		}
 	}
@@ -375,7 +375,7 @@ func parseTimestamp(s string) (time.Time, error) {
 // one state.db holds many sessions, unlike the Claude/Codex importers' one
 // cursor per file). session.end is emitted at most once, the first run that
 // observes sessions.ended_at set.
-func importSession(st *store.Store, db *sql.DB, git project.Git, workspaces []string, captureOff capture.OffFunc, dbPath string, hs hermesSession, parentSessionID string, res *Result) error {
+func importSession(st *store.Store, db *sql.DB, git project.Git, workspaces []string, dbPath string, hs hermesSession, parentSessionID string, res *Result) error {
 	cursorPath := dbPath + "#" + hs.ID
 	cursor, exists, err := st.GetBackfillCursor(Source, cursorPath)
 	if err != nil {
@@ -415,7 +415,7 @@ func importSession(st *store.Store, db *sql.DB, git project.Git, workspaces []st
 	attachedLive := false
 	if !exists {
 		// Started during a capture pause: never imported (invariant 8).
-		if paused, err := capture.SessionPaused(st, captureOff, hs.StartedAt); err != nil {
+		if paused, err := capture.StartedInPause(st, hs.StartedAt); err != nil {
 			return err
 		} else if paused {
 			return nil

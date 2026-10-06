@@ -141,7 +141,7 @@ func Import(st *store.Store, opts Options) (Result, error) {
 	var res Result
 	for _, f := range files {
 		res.FilesScanned++
-		stats, err := importFile(st, git, workspaces, opts.CaptureOff, f)
+		stats, err := importFile(st, git, workspaces, f)
 		if err != nil {
 			return res, fmt.Errorf("backfill/pi: import %s: %w", f, err)
 		}
@@ -168,7 +168,7 @@ type fileStats struct {
 // where a newly appended line's parentId places it in the tree, so a
 // partial re-read could never be trusted to walk correctly; only a whole
 // fresh read can.
-func importFile(st *store.Store, git project.Git, workspaces []string, captureOff capture.OffFunc, path string) (fileStats, error) {
+func importFile(st *store.Store, git project.Git, workspaces []string, path string) (fileStats, error) {
 	_, exists, err := st.GetBackfillCursor(Source, path)
 	if err != nil {
 		return fileStats{}, err
@@ -231,7 +231,7 @@ func importFile(st *store.Store, git project.Git, workspaces []string, captureOf
 	}
 
 	// Started during a capture pause: never imported (invariant 8).
-	if paused, err := capture.SessionPaused(st, captureOff, root.Timestamp); err != nil {
+	if paused, err := capture.StartedInPause(st, root.Timestamp); err != nil {
 		return fileStats{}, err
 	} else if paused {
 		return fileStats{}, nil

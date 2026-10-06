@@ -25,11 +25,9 @@ func Off(off OffFunc) (bool, error) {
 	return off()
 }
 
-// SessionPaused reports whether a session starting at start must be skipped:
-// capture is off now, or start falls inside a recorded pause window.
-func SessionPaused(st *store.Store, off OffFunc, start time.Time) (bool, error) {
-	if paused, err := Off(off); err != nil || paused {
-		return paused, err
-	}
+// StartedInPause reports whether a session starting at start falls inside a
+// recorded pause window and so must never be imported, even once capture is
+// back on. The capture-off-now case is Off's, applied once per Import.
+func StartedInPause(st *store.Store, start time.Time) (bool, error) {
 	return st.CapturePausedAt(start)
 }
