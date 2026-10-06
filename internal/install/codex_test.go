@@ -75,11 +75,11 @@ func readFile(t *testing.T, path string) string {
 // the original.
 func TestCodexInstallPreservesConfigTOMLBytes(t *testing.T) {
 	p := codexFixture(t, codexFixtureTOML)
-	if err := InstallCodex(p, Options{}); err != nil {
+	if err := InstallCodex(p, Options{BinaryPath: testBinary}); err != nil {
 		t.Fatal(err)
 	}
 	got := readFile(t, p.ConfigTOML)
-	if !strings.Contains(got, "[mcp_servers.backstory]\ncommand = \"backstory\"\nargs = [\"mcp\"]\n") {
+	if !strings.Contains(got, "[mcp_servers.backstory]\ncommand = \""+testBinary+"\"\nargs = [\"mcp\"]\n") {
 		t.Fatalf("backstory table missing:\n%s", got)
 	}
 	b, e, ok, err := tomlBlockSpan("x", got)
@@ -173,12 +173,10 @@ func TestCodexForeignBackstoryTableLeftUntouched(t *testing.T) {
 		}
 		items, _ := CheckCodex(p, Options{})
 		for _, it := range items {
-			want := StatusPresent
+			// A conflict installs nothing: every other item stays absent.
+			want := StatusAbsent
 			if it.Name == ItemCodexMCPServer {
 				want = StatusForeign
-			}
-			if it.Name == ItemSessionStartHook || it.Name == ItemPostToolUseHook {
-				want = StatusNotTrusted
 			}
 			if it.Status != want {
 				t.Errorf("%s = %s, want %s", it.Name, it.Status, want)
@@ -194,7 +192,7 @@ func TestCodexForeignBackstoryTableLeftUntouched(t *testing.T) {
 func TestCodexHooksJSON(t *testing.T) {
 	p := codexFixture(t, "")
 	writeFile(t, p.HooksJSON, codexFixtureHooks)
-	if err := InstallCodex(p, Options{}); err != nil {
+	if err := InstallCodex(p, Options{BinaryPath: testBinary}); err != nil {
 		t.Fatal(err)
 	}
 	var root map[string]map[string][]map[string]any
@@ -208,7 +206,7 @@ func TestCodexHooksJSON(t *testing.T) {
 	if !strings.Contains(readFile(t, p.HooksJSON), "other-tool start") {
 		t.Errorf("pre-existing hook lost")
 	}
-	for ev, cmd := range map[string]string{"SessionStart": "backstory hook session-start --harness codex", "PostToolUse": "backstory hook post-tool-use --harness codex"} {
+	for ev, cmd := range map[string]string{"SessionStart": testBinary + " hook session-start --harness codex", "PostToolUse": testBinary + " hook post-tool-use --harness codex"} {
 		found := false
 		for _, e := range hooks[ev] {
 			if strings.Contains(toJSON(t, e), cmd) {

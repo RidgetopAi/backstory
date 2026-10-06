@@ -43,7 +43,7 @@ func agentsFixture(t *testing.T, mcp, md string) AgentsPaths {
 // Clause 1: other server preserved, exactly one stub line added.
 func TestAgentsInstallPreservesOtherServerAndAddsOneStub(t *testing.T) {
 	p := agentsFixture(t, agentsFixtureMCP, "# my notes\n")
-	if err := InstallAgents(p, Options{}); err != nil {
+	if err := InstallAgents(p, Options{BinaryPath: testBinary}); err != nil {
 		t.Fatal(err)
 	}
 	root, _, err := loadJSONObject(p.MCPJSON, ErrMalformedAgentsMCPJSON)
@@ -56,7 +56,7 @@ func TestAgentsInstallPreservesOtherServerAndAddsOneStub(t *testing.T) {
 	if !jsonDeepEqual(servers["other"], orig["other"]) {
 		t.Errorf("other server changed: %v", servers["other"])
 	}
-	if !jsonDeepEqual(servers[MCPServerName], map[string]any{"command": "backstory", "args": []any{"mcp"}}) {
+	if !jsonDeepEqual(servers[MCPServerName], map[string]any{"command": testBinary, "args": []any{"mcp"}}) {
 		t.Errorf("backstory entry = %v", servers[MCPServerName])
 	}
 	md := readFile(t, p.AgentsMD)
@@ -163,3 +163,6 @@ func TestAgentsCheckStatuses(t *testing.T) {
 		t.Errorf("post: %v", items)
 	}
 }
+
+// testBinary is the absolute binary path the install tests register.
+const testBinary = "/opt/backstory/bin/backstory"

@@ -173,7 +173,18 @@ do_install() {
 	echo "next: open the panel with $PANEL_BIND; agents get memory on their next session."
 }
 
+# unregister_harnesses: take Backstory out of every harness (and bashrc) BEFORE
+# the binary goes, or their hooks keep calling a binary that no longer exists.
+# `install --remove` with no harness named acts on each detected harness. A
+# failure is reported but does not stop the uninstall.
+unregister_harnesses() {
+	[ -x "$BIN" ] || return 0
+	"$BIN" install --remove || echo "backstory: could not remove every harness integration; check ~/.claude, ~/.codex, ~/.pi and ~/.hermes" >&2
+	"$BIN" install bash --remove || echo "backstory: could not remove the ~/.bashrc block; remove the backstory:begin..end block by hand" >&2
+}
+
 do_uninstall() {
+	unregister_harnesses
 	if [ -f "$UNIT" ] || systemctl --user is-enabled --quiet "$APP" 2>/dev/null; then
 		systemctl --user stop "$APP" || true
 		systemctl --user disable "$APP" || true
@@ -189,7 +200,7 @@ do_uninstall() {
 	fi
 	rm -rf "$PANEL_PREV"
 	echo "uninstalled. Your memory store was not touched."
-	echo "Remove $HYPR_LINE from your hyprland.lua, and run \`backstory install <harness> --remove\` for each harness BEFORE uninstalling next time."
+	echo "Harness integrations and the ~/.bashrc block were removed first. Remove $HYPR_LINE from your hyprland.lua."
 }
 
 case "${1:-}" in

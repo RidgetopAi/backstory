@@ -126,15 +126,32 @@ func (hermesAdapter) Check(home string, opts Options) ([]Item, error) {
 
 // InstallHermes installs the plugin files, then sets memory.provider. A
 // foreign plugin file or a foreign memory.provider is reported as an
-// ErrForeignConflict naming the item and left untouched; the other item is
-// still installed.
+// ErrForeignConflict naming the item; nothing at all is written then.
 // The skill follows the claude/pi semantics: a foreign SKILL.md is left
 // untouched (--check reports it), an outdated one is replaced after a backup.
 func InstallHermes(paths HermesPaths, opts Options) error {
+	// Every conflict is found before anything is written: a foreign plugin
+	// file or memory.provider leaves the whole harness exactly as it was
+	// rather than half-installed.
+	var conflicts []string
+	if err := checkHermesPluginConflict(paths.PluginDir); err != nil {
+		if !isForeign(err) {
+			return fmt.Errorf("%s: %w", ItemHermesPlugin, err)
+		}
+		conflicts = append(conflicts, foreignDetail(err))
+	}
+	if err := checkHermesConfigConflict(paths.ConfigYAML); err != nil {
+		if !isForeign(err) {
+			return fmt.Errorf("%s: %w", ItemHermesMemoryProvider, err)
+		}
+		conflicts = append(conflicts, foreignDetail(err))
+	}
+	if len(conflicts) > 0 {
+		return fmt.Errorf("%w: %s", ErrForeignConflict, strings.Join(conflicts, "; "))
+	}
 	if _, err := skill.Install(paths.SkillPath, opts.Prefix); err != nil {
 		return fmt.Errorf("%s: %w", ItemHermesSkill, err)
 	}
-	var conflicts []string
 	if err := installHermesPlugin(paths.PluginDir); err != nil {
 		if !isForeign(err) {
 			return fmt.Errorf("%s: %w", ItemHermesPlugin, err)
@@ -199,17 +216,42 @@ func isOurs(content string) bool {
 	return strings.HasPrefix(content, hermesManagedMarker+"\n")
 }
 
-func installHermesPlugin(dir string) error {
+// checkHermesPluginConflict reports an ErrForeignConflict when a plugin file
+// exists that backstory did not write. It never writes.
+func checkHermesPluginConflict(dir string) error {
 	files, err := HermesPluginFiles()
 	if err != nil {
 		return err
 	}
-	// Foreign check first, so a conflict writes nothing at all.
 	for name := range files {
 		data, err := os.ReadFile(filepath.Join(dir, name)) //nolint:gosec // caller-chosen plugin location
 		if err == nil && !isOurs(string(data)) {
 			return fmt.Errorf("%w: %s: %s exists and was not written by backstory; left untouched", ErrForeignConflict, ItemHermesPlugin, filepath.Join(dir, name))
 		}
+	}
+	return nil
+}
+
+// checkHermesConfigConflict reports an ErrForeignConflict when config.yaml
+// names another memory provider. It never writes.
+func checkHermesConfigConflict(path string) error {
+	content, err := readOptional(path)
+	if err != nil {
+		return err
+	}
+	if scanHermesConfig(content).state == provForeign {
+		return fmt.Errorf("%w: %s: %s sets memory.provider to something other than %s (only one memory provider runs at a time); left untouched", ErrForeignConflict, ItemHermesMemoryProvider, path, HermesProviderName)
+	}
+	return nil
+}
+
+func installHermesPlugin(dir string) error {
+	files, err := HermesPluginFiles()
+	if err != nil {
+		return err
+	}
+	if err := checkHermesPluginConflict(dir); err != nil {
+		return err
 	}
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err

@@ -26,7 +26,7 @@ const PiExtensionMarker = "// Backstory's Pi extension, written by `backstory in
 // PiStubLine is the one-line stub added to ~/.pi/agent/AGENTS.md. Pi gets the
 // warm block by injection (the extension), so the stub names the tools and
 // points at the backstory skill, as the Claude stub does.
-const PiStubLine = "Backstory: a warm block is injected at session start; for more, call the `recall`, `note`, `timeline`, `confirm` and `status` tools; see the `backstory` skill, `~/.pi/agent/skills/backstory/SKILL.md`."
+const PiStubLine = "Backstory: a warm block is injected at session start; for more, call the `recall`, `note`, `timeline`, `confirm` and `status` tools; see the `backstory` skill, `~/.pi/agent/skills/backstory/SKILL.md`." + HandoffClause
 
 var piStubBlock = StubMarkerBegin + "\n" + PiStubLine + "\n" + StubMarkerEnd + "\n"
 

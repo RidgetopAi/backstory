@@ -131,8 +131,8 @@ func TestInstallClaudePreservesForeignEntriesAndIsIdempotent(t *testing.T) {
 	if !ok {
 		t.Fatalf("claude.json has no mcpServers.backstory after install: %#v", servers)
 	}
-	if backstoryServer["command"] != "backstory" {
-		t.Errorf("mcpServers.backstory.command = %v, want backstory", backstoryServer["command"])
+	if backstoryServer["command"] != bin {
+		t.Errorf("mcpServers.backstory.command = %v, want the absolute binary path %s", backstoryServer["command"], bin)
 	}
 
 	var settingsRoot map[string]any
@@ -163,7 +163,7 @@ func TestInstallClaudePreservesForeignEntriesAndIsIdempotent(t *testing.T) {
 			switch hook["command"] {
 			case "foreign-hook --flag":
 				foundForeign = true
-			case "backstory hook session-start":
+			case bin + " hook session-start":
 				foundOurs = true
 			}
 		}

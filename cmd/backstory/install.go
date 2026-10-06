@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -24,9 +25,12 @@ installs a memory-provider plugin and the backstory skill under $HERMES_HOME.
 Valid harness names: claude, codex, hermes, pi, agents
 
   --check      report each item's status (present/absent/outdated/foreign-conflict)
-               and exit non-zero unless every item is present; writes nothing
+               and whether the daemon socket answers; exits non-zero unless
+               every item is present; writes nothing
   --remove     reverse a prior install, leaving foreign entries untouched
   --no-verify  skip running the installed hook to confirm it fires
+  --binary P   register P (an absolute path) as the backstory binary hook
+               commands and MCP entries invoke; default is this executable
 
 "install bash" is not a harness: it adds (or, with --remove, removes) the
 marked block in ~/.bashrc that wires bash's preexec/precmd shell command
@@ -63,6 +67,7 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 	check := fs.Bool("check", false, "report install status per item")
 	remove := fs.Bool("remove", false, "remove everything backstory install added")
 	noVerify := fs.Bool("no-verify", false, "skip verifying the installed hook actually fires")
+	binary := fs.String("binary", "", "path of the backstory binary hooks and MCP entries invoke (default: this executable)")
 	fs.SetOutput(stderr)
 	fs.Usage = func() { _, _ = fmt.Fprint(stderr, installUsage) }
 	if err := fs.Parse(flagArgs); err != nil {
@@ -106,7 +111,7 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 	}
-	opts := install.Options{Verify: !*noVerify}
+	opts := install.Options{Verify: !*noVerify, BinaryPath: *binary}
 
 	var rc int
 	switch {
@@ -115,7 +120,7 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 	case *remove:
 		rc = runInstallRemove(adapters, home, opts, stdout, stderr)
 	default:
-		rc = runInstallInstall(adapters, home, opts, stdout, stderr)
+		rc = runInstallInstall(adapters, home, opts, detected, stdout, stderr)
 	}
 	if detected && rc == 0 && !*check && !*remove {
 		_, _ = fmt.Fprintln(stdout, "shell command capture is separate: run `backstory install bash` to add it")
@@ -138,6 +143,14 @@ func runInstallCheck(adapters []install.Adapter, home string, opts install.Optio
 			}
 		}
 	}
+	// The files can all be present while nothing is listening: dial the
+	// daemon too. Informational — the exit code still reflects the items.
+	sock, answering := install.DaemonAnswering()
+	if answering {
+		_, _ = fmt.Fprintf(stdout, "daemon: answering (%s)\n", sock)
+	} else {
+		_, _ = fmt.Fprintf(stdout, "daemon: not answering (%s)\n", sock)
+	}
 	if !allPresent {
 		return 1
 	}
@@ -155,18 +168,58 @@ func runInstallRemove(adapters []install.Adapter, home string, opts install.Opti
 	return 0
 }
 
-func runInstallInstall(adapters []install.Adapter, home string, opts install.Options, stdout, stderr io.Writer) int {
+// runInstallInstall installs every adapter. A foreign-conflict in one harness
+// leaves that harness exactly as it was (the adapters check before writing)
+// and is reported as skipped; every other harness is still installed. Under
+// detection (no harness named) a skip is not a failure while something was
+// installed; a harness named explicitly that conflicts still exits 1, as does
+// any other error.
+func runInstallInstall(adapters []install.Adapter, home string, opts install.Options, detected bool, stdout, stderr io.Writer) int {
+	var installed, skipped []string
+	failed := false
 	for _, a := range adapters {
-		if err := a.Install(home, opts); err != nil {
-			_, _ = fmt.Fprintln(stderr, "backstory install:", err)
-			return 1
-		}
-		_, _ = fmt.Fprintf(stdout, "%s: installed\n", a.Name())
-		if n, ok := a.(interface{ InstallNotice() string }); ok {
-			_, _ = fmt.Fprintln(stdout, n.InstallNotice())
+		err := a.Install(home, opts)
+		switch {
+		case err == nil:
+			installed = append(installed, a.Name())
+			_, _ = fmt.Fprintf(stdout, "%s: installed\n", a.Name())
+			if n, ok := a.(interface{ InstallNotice() string }); ok {
+				_, _ = fmt.Fprintln(stdout, n.InstallNotice())
+			}
+		case isInstallConflict(err):
+			skipped = append(skipped, a.Name())
+			if detected {
+				_, _ = fmt.Fprintf(stdout, "%s: skipped — %s; left exactly as it was\n", a.Name(), err)
+			} else {
+				_, _ = fmt.Fprintf(stderr, "backstory install: %v\n", err)
+				failed = true
+			}
+		default:
+			_, _ = fmt.Fprintf(stderr, "backstory install: %s: %v\n", a.Name(), err)
+			failed = true
 		}
 	}
+	if len(skipped) > 0 {
+		_, _ = fmt.Fprintf(stdout, "installed: %s; skipped: %s\n", listOrNone(installed), strings.Join(skipped, ", "))
+	}
+	if failed || len(installed) == 0 {
+		if !failed {
+			_, _ = fmt.Fprintln(stderr, "backstory install: nothing was installed: every harness conflicted with an existing entry")
+		}
+		return 1
+	}
 	return 0
+}
+
+func isInstallConflict(err error) bool {
+	return errors.Is(err, install.ErrForeignConflict) || errors.Is(err, install.ErrPiExtensionForeign)
+}
+
+func listOrNone(names []string) string {
+	if len(names) == 0 {
+		return "none"
+	}
+	return strings.Join(names, ", ")
 }
 
 func runInstallBash(args []string, stdout, stderr io.Writer) int {
@@ -208,6 +261,7 @@ func runInstallBash(args []string, stdout, stderr io.Writer) int {
 			_, _ = fmt.Fprintln(stderr, "backstory install bash:", err)
 			return 1
 		}
+		_, _ = fmt.Fprintf(stdout, "bashrc: shell command capture block added to %s\n", path)
 		return 0
 	}
 }

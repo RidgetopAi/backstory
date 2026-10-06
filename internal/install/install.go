@@ -52,13 +52,18 @@ const MCPServerName = "backstory"
 // HookCommand is the exact SessionStart hook command string the installer
 // writes and verify-on-install executes through sh -c. It must match the
 // `backstory hook session-start` subcommand (cmd/backstory/hook.go).
+//
+// HookCommand is the bare-PATH form earlier releases wrote; the installer now
+// writes the absolute path of the binary (see Options.BinaryPath) and keeps
+// this form only to recognise and replace those older entries.
 const HookCommand = "backstory hook session-start"
 
 // HookMatcher is the single combined SessionStart matcher this installer
-// writes: one entry covers startup, resume and clear rather than three
+// writes: one entry covers startup, resume, clear and compact (the block is
+// gone after a compaction unless it is re-injected) rather than four
 // separate entries (AGENT-CONTRACT.md's installer note picks one and tests
 // it).
-const HookMatcher = "startup|resume|clear"
+const HookMatcher = "startup|resume|clear|compact"
 
 // HookCommandPostToolUse is the exact PostToolUse hook command string the
 // installer writes. It must match the `backstory hook post-tool-use`
@@ -84,8 +89,12 @@ const DefaultHookTimeoutSeconds = 10
 const (
 	StubMarkerBegin = "<!-- backstory:begin -->"
 	StubMarkerEnd   = "<!-- backstory:end -->"
-	StubLine        = "Backstory: if no SessionStart block is present, call the `backstory` MCP tool's `recall`; see `~/.claude/skills/backstory/SKILL.md`."
+	StubLine        = "Backstory: if no SessionStart block is present, call the `backstory` MCP tool's `recall`; see `~/.claude/skills/backstory/SKILL.md`." + HandoffClause
 )
+
+// HandoffClause is appended to every harness's stub line: the handoff rule
+// lives in the skill, which a harness may not load, so the stub states it.
+const HandoffClause = " End the session with `note handoff` carrying `next` (the single next step) and `supersedes` set to the Resume id."
 
 var stubBlock = StubMarkerBegin + "\n" + StubLine + "\n" + StubMarkerEnd + "\n"
 
@@ -124,6 +133,10 @@ type Options struct {
 	Prefix string
 	// HookTimeoutSeconds overrides DefaultHookTimeoutSeconds when non-zero.
 	HookTimeoutSeconds int
+	// BinaryPath is the backstory binary hook commands and MCP entries
+	// invoke; "" means this process's own executable (os.Executable), so a
+	// harness launched without ~/.local/bin on PATH still finds it.
+	BinaryPath string
 	// Verify runs the written hook command through sh -c after installing
 	// and fails the install if it exits non-zero (--no-verify sets this
 	// false).
@@ -151,15 +164,15 @@ func Install(paths Paths, opts Options) error {
 		return err
 	}
 
-	mcpChanged, err := mergeMCPServer(claudeRoot)
+	mcpChanged, err := mergeMCPServer(claudeRoot, opts)
 	if err != nil {
 		return err
 	}
-	hookChanged, err := mergeSessionStartHook(settingsRoot, opts.timeoutSeconds())
+	hookChanged, err := mergeHookEntry(settingsRoot, "SessionStart", wantSessionStartEntry(opts), subSessionStart, opts)
 	if err != nil {
 		return err
 	}
-	postToolUseChanged, err := mergePostToolUseHook(settingsRoot, opts.timeoutSeconds())
+	postToolUseChanged, err := mergeHookEntry(settingsRoot, "PostToolUse", wantPostToolUseEntry(opts), subPostToolUse, opts)
 	if err != nil {
 		return err
 	}
@@ -183,7 +196,7 @@ func Install(paths Paths, opts Options) error {
 	}
 
 	if opts.Verify {
-		if err := verifyHook(); err != nil {
+		if err := verifyHook(opts); err != nil {
 			return err
 		}
 	}
@@ -208,9 +221,9 @@ func Check(paths Paths, opts Options) ([]Item, error) {
 	}
 
 	items := []Item{
-		{Name: ItemMCPServer, Status: mcpServerStatus(claudeRoot)},
-		{Name: ItemSessionStartHook, Status: sessionStartHookStatus(settingsRoot, opts.timeoutSeconds())},
-		{Name: ItemPostToolUseHook, Status: postToolUseHookStatus(settingsRoot, opts.timeoutSeconds())},
+		{Name: ItemMCPServer, Status: mcpServerStatus(claudeRoot, opts)},
+		{Name: ItemSessionStartHook, Status: hookEntryStatus(settingsRoot, "SessionStart", wantSessionStartEntry(opts))},
+		{Name: ItemPostToolUseHook, Status: hookEntryStatus(settingsRoot, "PostToolUse", wantPostToolUseEntry(opts))},
 		{Name: ItemSkill, Status: install2checkStatus(skill.CheckStatus(paths.SkillPath, opts.Prefix))},
 		{Name: ItemClaudeMDStub, Status: stubStatus(paths.ClaudeMD)},
 	}
@@ -232,8 +245,8 @@ func Remove(paths Paths, opts Options) error {
 	}
 
 	mcpChanged := removeMCPServer(claudeRoot)
-	hookChanged := removeSessionStartHook(settingsRoot, opts.timeoutSeconds())
-	postToolUseChanged := removePostToolUseHook(settingsRoot, opts.timeoutSeconds())
+	hookChanged := removeHookEntry(settingsRoot, "SessionStart", subSessionStart, opts)
+	postToolUseChanged := removeHookEntry(settingsRoot, "PostToolUse", subPostToolUse, opts)
 
 	if mcpChanged {
 		if err := writeJSONAtomic(paths.ClaudeJSON, claudeRoot, claudeMode); err != nil {
@@ -257,20 +270,20 @@ func Remove(paths Paths, opts Options) error {
 
 // --- mcpServers.backstory ---
 
-func wantMCPServerValue() map[string]any {
+func wantMCPServerValue(opts Options) map[string]any {
 	return map[string]any{
 		"type":    "stdio",
-		"command": "backstory",
+		"command": opts.binaryPath(),
 		"args":    []any{"mcp"},
 	}
 }
 
-func mergeMCPServer(root map[string]any) (changed bool, err error) {
+func mergeMCPServer(root map[string]any, opts Options) (changed bool, err error) {
 	servers, err := objectField(root, "mcpServers")
 	if err != nil {
 		return false, err
 	}
-	want := wantMCPServerValue()
+	want := wantMCPServerValue(opts)
 	if existing, ok := servers[MCPServerName]; ok && jsonDeepEqual(existing, want) {
 		return false, nil
 	}
@@ -279,7 +292,7 @@ func mergeMCPServer(root map[string]any) (changed bool, err error) {
 	return true, nil
 }
 
-func mcpServerStatus(root map[string]any) ItemStatus {
+func mcpServerStatus(root map[string]any, opts Options) ItemStatus {
 	serversRaw, ok := root["mcpServers"]
 	if !ok {
 		return StatusAbsent
@@ -292,7 +305,7 @@ func mcpServerStatus(root map[string]any) ItemStatus {
 	if !ok {
 		return StatusAbsent
 	}
-	if jsonDeepEqual(entry, wantMCPServerValue()) {
+	if jsonDeepEqual(entry, wantMCPServerValue(opts)) {
 		return StatusPresent
 	}
 	return StatusForeign
@@ -317,226 +330,27 @@ func removeMCPServer(root map[string]any) (changed bool) {
 	return true
 }
 
-// --- hooks.SessionStart ---
+// --- hooks.SessionStart / hooks.PostToolUse ---
 
-func wantSessionStartEntry(timeoutSeconds int) map[string]any {
+func wantSessionStartEntry(opts Options) map[string]any {
+	return hookEntry(HookMatcher, opts.hookCommand(subSessionStart), opts.timeoutSeconds())
+}
+
+func wantPostToolUseEntry(opts Options) map[string]any {
+	return hookEntry(HookMatcherPostToolUse, opts.hookCommand(subPostToolUse), opts.timeoutSeconds())
+}
+
+func hookEntry(matcher, command string, timeoutSeconds int) map[string]any {
 	return map[string]any{
-		"matcher": HookMatcher,
+		"matcher": matcher,
 		"hooks": []any{
 			map[string]any{
 				"type":    "command",
-				"command": HookCommand,
+				"command": command,
 				"timeout": float64(timeoutSeconds),
 			},
 		},
 	}
-}
-
-func mergeSessionStartHook(root map[string]any, timeoutSeconds int) (changed bool, err error) {
-	hooksObj, err := objectField(root, "hooks")
-	if err != nil {
-		return false, err
-	}
-	arr, err := arrayField(hooksObj, "SessionStart")
-	if err != nil {
-		return false, err
-	}
-
-	want := wantSessionStartEntry(timeoutSeconds)
-	for _, e := range arr {
-		if jsonDeepEqual(e, want) {
-			return false, nil
-		}
-	}
-	arr = append(arr, want)
-	hooksObj["SessionStart"] = arr
-	root["hooks"] = hooksObj
-	return true, nil
-}
-
-func sessionStartHookStatus(root map[string]any, timeoutSeconds int) ItemStatus {
-	hooksRaw, ok := root["hooks"]
-	if !ok {
-		return StatusAbsent
-	}
-	hooksObj, ok := hooksRaw.(map[string]any)
-	if !ok {
-		return StatusForeign
-	}
-	arrRaw, ok := hooksObj["SessionStart"]
-	if !ok {
-		return StatusAbsent
-	}
-	arr, ok := arrRaw.([]any)
-	if !ok {
-		return StatusForeign
-	}
-	want := wantSessionStartEntry(timeoutSeconds)
-	for _, e := range arr {
-		if jsonDeepEqual(e, want) {
-			return StatusPresent
-		}
-	}
-	return StatusAbsent
-}
-
-func removeSessionStartHook(root map[string]any, timeoutSeconds int) (changed bool) {
-	hooksRaw, ok := root["hooks"]
-	if !ok {
-		return false
-	}
-	hooksObj, ok := hooksRaw.(map[string]any)
-	if !ok {
-		return false
-	}
-	arrRaw, ok := hooksObj["SessionStart"]
-	if !ok {
-		return false
-	}
-	arr, ok := arrRaw.([]any)
-	if !ok {
-		return false
-	}
-
-	want := wantSessionStartEntry(timeoutSeconds)
-	kept := make([]any, 0, len(arr))
-	found := false
-	for _, e := range arr {
-		if !found && jsonDeepEqual(e, want) {
-			found = true
-			continue
-		}
-		kept = append(kept, e)
-	}
-	if !found {
-		return false
-	}
-
-	if len(kept) == 0 {
-		delete(hooksObj, "SessionStart")
-	} else {
-		hooksObj["SessionStart"] = kept
-	}
-	if len(hooksObj) == 0 {
-		delete(root, "hooks")
-	} else {
-		root["hooks"] = hooksObj
-	}
-	return true
-}
-
-// --- hooks.PostToolUse ---
-
-func wantPostToolUseEntry(timeoutSeconds int) map[string]any {
-	return map[string]any{
-		"matcher": HookMatcherPostToolUse,
-		"hooks": []any{
-			map[string]any{
-				"type":    "command",
-				"command": HookCommandPostToolUse,
-				"timeout": float64(timeoutSeconds),
-			},
-		},
-	}
-}
-
-// mergePostToolUseHook appends the PostToolUse entry to root's
-// hooks.PostToolUse array, exactly like mergeSessionStartHook does for
-// hooks.SessionStart: an existing foreign entry in that array (a different
-// matcher, a different command) is left in place, never replaced or
-// reordered, because this installer only ever appends its own entry and
-// only ever removes it by exact match (removePostToolUseHook).
-func mergePostToolUseHook(root map[string]any, timeoutSeconds int) (changed bool, err error) {
-	hooksObj, err := objectField(root, "hooks")
-	if err != nil {
-		return false, err
-	}
-	arr, err := arrayField(hooksObj, "PostToolUse")
-	if err != nil {
-		return false, err
-	}
-
-	want := wantPostToolUseEntry(timeoutSeconds)
-	for _, e := range arr {
-		if jsonDeepEqual(e, want) {
-			return false, nil
-		}
-	}
-	arr = append(arr, want)
-	hooksObj["PostToolUse"] = arr
-	root["hooks"] = hooksObj
-	return true, nil
-}
-
-func postToolUseHookStatus(root map[string]any, timeoutSeconds int) ItemStatus {
-	hooksRaw, ok := root["hooks"]
-	if !ok {
-		return StatusAbsent
-	}
-	hooksObj, ok := hooksRaw.(map[string]any)
-	if !ok {
-		return StatusForeign
-	}
-	arrRaw, ok := hooksObj["PostToolUse"]
-	if !ok {
-		return StatusAbsent
-	}
-	arr, ok := arrRaw.([]any)
-	if !ok {
-		return StatusForeign
-	}
-	want := wantPostToolUseEntry(timeoutSeconds)
-	for _, e := range arr {
-		if jsonDeepEqual(e, want) {
-			return StatusPresent
-		}
-	}
-	return StatusAbsent
-}
-
-func removePostToolUseHook(root map[string]any, timeoutSeconds int) (changed bool) {
-	hooksRaw, ok := root["hooks"]
-	if !ok {
-		return false
-	}
-	hooksObj, ok := hooksRaw.(map[string]any)
-	if !ok {
-		return false
-	}
-	arrRaw, ok := hooksObj["PostToolUse"]
-	if !ok {
-		return false
-	}
-	arr, ok := arrRaw.([]any)
-	if !ok {
-		return false
-	}
-
-	want := wantPostToolUseEntry(timeoutSeconds)
-	kept := make([]any, 0, len(arr))
-	found := false
-	for _, e := range arr {
-		if !found && jsonDeepEqual(e, want) {
-			found = true
-			continue
-		}
-		kept = append(kept, e)
-	}
-	if !found {
-		return false
-	}
-
-	if len(kept) == 0 {
-		delete(hooksObj, "PostToolUse")
-	} else {
-		hooksObj["PostToolUse"] = kept
-	}
-	if len(hooksObj) == 0 {
-		delete(root, "hooks")
-	} else {
-		root["hooks"] = hooksObj
-	}
-	return true
 }
 
 // --- CLAUDE.md stub ---
@@ -822,8 +636,11 @@ const verifyDialTimeout = 2 * time.Second
 // of the three documented shapes: a rendered block, the exact empty-project
 // line, or (only when independently confirmed here that no daemon is
 // actually reachable, never taken on the hook's own say-so) empty.
-func verifyHook() error {
-	cmd := exec.Command("sh", "-c", HookCommand) //nolint:gosec // HookCommand is our own named constant, not external input
+func verifyHook(opts Options) error {
+	cmd := exec.Command("sh", "-c", opts.hookCommand(subSessionStart)) //nolint:gosec // built from our own subcommand constant and the binary path, not external input
+	// The probe must not mint a session (or a project for the cwd) in the
+	// user's memory; the daemon honours this on the block method.
+	cmd.Env = append(os.Environ(), "BACKSTORY_NO_SESSION=1")
 	cmd.Stdin = strings.NewReader(syntheticSessionStartPayload)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -867,16 +684,24 @@ func verifyStdoutOK(out string, daemonUp bool) bool {
 // hook resolve it: $XDG_RUNTIME_DIR/backstory/sock, falling back to
 // ~/.local/state/backstory/sock.
 func daemonReachable() bool {
+	_, ok := DaemonAnswering()
+	return ok
+}
+
+// DaemonAnswering dials the daemon socket and reports its path and whether
+// something answered the connection. A stale socket file with no listener
+// reads as not answering.
+func DaemonAnswering() (path string, answering bool) {
 	path, err := verifySocketPath()
 	if err != nil {
-		return false
+		return "", false
 	}
 	conn, err := net.DialTimeout("unix", path, verifyDialTimeout)
 	if err != nil {
-		return false
+		return path, false
 	}
 	_ = conn.Close()
-	return true
+	return path, true
 }
 
 func verifySocketPath() (string, error) {

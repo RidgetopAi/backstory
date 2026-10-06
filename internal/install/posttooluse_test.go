@@ -16,7 +16,7 @@ import (
 func TestPostToolUseHookAddedKeepsForeignEntryAndRemoveOnlyRemovesOwn(t *testing.T) {
 	home := t.TempDir()
 	paths := install.DefaultPaths(home)
-	opts := install.Options{Prefix: t.TempDir()}
+	opts := install.Options{Prefix: t.TempDir(), BinaryPath: "/opt/backstory/bin/backstory"}
 
 	seededSettingsJSON := `{"hooks":{"PostToolUse":[{"matcher":"Edit|Write","hooks":[{"type":"command","command":"foreign-lint-hook","timeout":5}]}]}}`
 	mustWriteFile(t, paths.SettingsJSON, seededSettingsJSON)
@@ -57,7 +57,7 @@ func TestPostToolUseHookAddedKeepsForeignEntryAndRemoveOnlyRemovesOwn(t *testing
 		if e["matcher"] == install.HookMatcherPostToolUse {
 			hooks, _ := e["hooks"].([]any)
 			if len(hooks) == 1 {
-				if h, ok := hooks[0].(map[string]any); ok && h["command"] == install.HookCommandPostToolUse {
+				if h, ok := hooks[0].(map[string]any); ok && h["command"] == opts.BinaryPath+" hook post-tool-use" {
 					foundOwn = true
 				}
 			}
