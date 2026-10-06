@@ -599,3 +599,29 @@ func TestRenderResumeLineNamesTheWritingHarness(t *testing.T) {
 		t.Fatalf("same harness: want unchanged %q; got:\n%s", want, out)
 	}
 }
+
+// TestRenderDeltaDoesNotCountShellSessions: one agent session and three shell
+// sessions after the handoff render "1 sessions".
+func TestRenderDeltaDoesNotCountShellSessions(t *testing.T) {
+	s := newTestStore(t)
+	mustUpsertProject(t, s, testProjectKey)
+	self := mustStartSession(t, s, "claude", "/proj", 100)
+	handoff := mustInsertHandoff(t, s, self, "cut here")
+
+	mustAppendToolUse(t, s, self, handoff.TS.Add(time.Minute), "after.go")
+	for i := 0; i < 3; i++ {
+		sh := mustStartSession(t, s, "shell", "/proj", 200+i)
+		mustAppendEvent(t, s, sh, "shell.command", handoff.TS.Add(2*time.Minute), map[string]any{"cmd": "ls"})
+	}
+
+	out, err := block.Render(block.Params{
+		Store: s, ProcFS: fakeProcFS{}, ProjectKey: testProjectKey, SessionID: self, Harness: "claude",
+		Now: handoff.TS.Add(time.Hour),
+	})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	if !strings.Contains(out, "Delta: 1 sessions, 1 files touched") {
+		t.Errorf("delta counted shell sessions; got:\n%s", out)
+	}
+}

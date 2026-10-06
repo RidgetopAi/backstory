@@ -88,6 +88,7 @@ func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs i
 	if hasFirst {
 		first = append([]byte(nil), sc.Bytes()...)
 		id = applyLocation(id, first, sessions, git, workspaces)
+		id = applyShellIdentity(id, first, procfs)
 	} else {
 		// A connection that closes before its first request line (a plugin's
 		// is_available() liveness probe) mints no session: a probe stays
@@ -140,6 +141,36 @@ func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs i
 	}
 }
 
+// applyShellIdentity keys a shell_emit connection on the emitting shell: the
+// peer's kernel SESSION id (/proc/<pid>/stat field 6, observed — never
+// anything the request carries). The shipped snippet launches each emit as
+// `( backstory shell emit … & )`, so by the time the daemon looks, the
+// emit's parent is gone and it has been reparented (to pid 1 or a
+// subreaper); its session id survives that double fork. An interactive
+// shell in a terminal or tmux pane is its session's leader, so the SID is
+// the shell's own pid and every emit it launches shares one session labelled
+// ident.HarnessShell for as long as that shell lives. A peer whose session
+// cannot be observed (SID of 0 or 1 or less, a dead leader, an unreadable
+// /proc entry) keeps the identity it already had.
+func applyShellIdentity(id ident.Identity, first []byte, procfs ident.ProcFS) ident.Identity {
+	var req DaemonRequest
+	if procfs == nil || json.Unmarshal(first, &req) != nil || req.Method != DaemonMethodShellEmit {
+		return id
+	}
+	peer, err := procfs.Status(id.PID)
+	if err != nil || peer.SID <= 1 {
+		return id
+	}
+	shell, err := procfs.Status(peer.SID)
+	if err != nil {
+		return id
+	}
+	id.Harness = ident.HarnessShell
+	id.HarnessPID = peer.SID
+	id.HarnessStartTicks = shell.StartTicks
+	return id
+}
+
 // noSessionMethods are the daemon methods whose request may set no_session:
 // read-only ones only, so the flag can never suppress a write's provenance.
 // Named config, not a literal check inside ServeDaemonConn.
@@ -168,6 +199,14 @@ func declinesSession(line []byte) bool {
 func liveSessionEnder(st *store.Store, git project.Git, logger *log.Logger, captureOff func() (bool, error)) func(sessionID, reason string) {
 	return func(sessionID, reason string) {
 		now := time.Now()
+		// A shell session is a running record of one interactive shell's
+		// commands, not a unit of agent work: it ends without observing git.
+		if agent, err := st.SessionAgent(sessionID); err == nil && agent == ident.HarnessShell {
+			if err := st.EndSession(sessionID, now, reason); err != nil {
+				logf(logger, "mcp: end session %s: %v", sessionID, err)
+			}
+			return
+		}
 		cwd, err := st.SessionCWD(sessionID)
 		if err != nil {
 			logf(logger, "mcp: read cwd for ending session %s: %v", sessionID, err)

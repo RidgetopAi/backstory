@@ -142,15 +142,11 @@ func ignoredByMarker(dir string) bool {
 //     subshell exits. Only a real filesystem write survives back to the
 //     PROMPT_COMMAND (precmd) that later reads it — created once, mode 0600
 //     via a temporary umask, at a path keyed on this shell's own $$ and
-//     $RANDOM so two concurrent shells never collide. It is deliberately
-//     left in $TMPDIR at shell exit rather than chased with an EXIT trap:
-//     doing that safely would mean capturing and re-chaining whatever EXIT
-//     trap the user already has, the same class of "never clobber what's
-//     already there" problem PS0/PROMPT_COMMAND themselves solve, and it is
-//     out of scope for this punch (class members deferred: EXIT-trap
-//     cleanup of the per-shell state file — because the OS's normal /tmp
-//     lifecycle already reclaims it, and correctly preserving a user's own
-//     EXIT trap is its own separate, untested concern here).
+//     $RANDOM so two concurrent shells never collide. It lives under
+//     $XDG_RUNTIME_DIR when set (a per-user 0700 tmpfs), else $TMPDIR, else
+//     /tmp, and an EXIT trap removes it. The trap is chained onto whatever
+//     EXIT trap the shell already has (trap -p EXIT's output is unwrapped
+//     and re-quoted), never replacing it.
 //   - HISTCONTROL gets `:ignorespace` appended (once, only if neither
 //     ignorespace nor ignoreboth is already present) so a command starting
 //     with a space is never added to bash's own history at all — precmd's
@@ -188,7 +184,7 @@ func ignoredByMarker(dir string) bool {
 //     control in this shell" and disown would not reliably apply there).
 const bashInitSnippet = `if [[ $- == *i* && -z "${_BACKSTORY_SHELL_READY:-}" ]]; then
 _BACKSTORY_SHELL_READY=1
-_backstory_state_file="${TMPDIR:-/tmp}/.backstory-shell-$$-$RANDOM"
+_backstory_state_file="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}/.backstory-shell-$$-$RANDOM"
 _backstory_last_histnum=""
 if [[ "$(HISTTIMEFORMAT= history 1)" =~ ^[[:space:]]*([0-9]+) ]]; then
     _backstory_last_histnum="${BASH_REMATCH[1]}"
@@ -246,6 +242,23 @@ _backstory_precmd() {
 
     return $__bs_exit
 }
+
+_backstory_cleanup() {
+    rm -f -- "$_backstory_state_file" 2>/dev/null
+}
+# Chain, never clobber: an EXIT trap the user already set keeps running, then
+# the state file goes. The trap is a single quoted command so re-evaluating
+# "trap -p EXIT" output below stays well-formed.
+__bs_prev_trap="$(trap -p EXIT)"
+if [[ -z "$__bs_prev_trap" ]]; then
+    trap '_backstory_cleanup' EXIT
+else
+    __bs_prev_trap="${__bs_prev_trap#trap -- \'}"
+    __bs_prev_trap="${__bs_prev_trap%\' EXIT}"
+    __bs_prev_trap="${__bs_prev_trap//\'\\\'\'/\'}"
+    trap "${__bs_prev_trap}"$'\n''_backstory_cleanup' EXIT
+fi
+unset __bs_prev_trap
 
 PS0="${PS0}"'$(_backstory_preexec)'
 

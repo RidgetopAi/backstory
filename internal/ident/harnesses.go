@@ -1,5 +1,11 @@
 package ident
 
+// HarnessShell is the agent label of a session minted for one interactive
+// shell's captured commands (`backstory shell emit`). It is deliberately not
+// in KnownHarnesses: a shell is never matched by the ancestry walk, and its
+// sessions do not count as agent work.
+const HarnessShell = "shell"
+
 // KnownHarnesses is the named table of harness process names the /proc
 // ancestry walk recognizes (PLAN.md §Phase 1: "harness table lives in named
 // config, not literals in the walk"). The value reported by ProcFS.Status's

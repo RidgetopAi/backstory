@@ -12,6 +12,11 @@ type Status struct {
 	// (harness, pid, StartTicks) never conflates two different processes
 	// that happened to share a pid.
 	StartTicks uint64
+	// SID is /proc/<pid>/stat field 6 (session): the process's kernel session
+	// id, which a backgrounded or double-forked child inherits from the
+	// interactive shell (that shell is its session's leader, so SID is the
+	// shell's own pid) even after every intermediate parent has exited.
+	SID int
 }
 
 // ProcFS abstracts /proc so the resolver is tested against a fake tree

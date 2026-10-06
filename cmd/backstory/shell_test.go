@@ -564,3 +564,57 @@ func TestShellEmitHonoursBackstoryIgnoreMarker(t *testing.T) {
 		t.Errorf("sibling emit events = %d, want 1", len(evs))
 	}
 }
+
+// TestShellStateFileLocationModeAndCleanup: the snippet's per-shell state
+// file lives under $XDG_RUNTIME_DIR when set and under the temp dir when not,
+// is mode 0600 while the shell runs, and is gone once the shell exits.
+// The environment is built explicitly, so the result never depends on what
+// the invoking environment happens to export.
+func TestShellStateFileLocationModeAndCleanup(t *testing.T) {
+	bin := buildBackstory(t)
+	snippet := initSnippet(t, bin)
+
+	for _, tc := range []struct {
+		name    string
+		withXDG bool
+	}{{"xdg-runtime-dir-set", true}, {"xdg-runtime-dir-unset", false}} {
+		t.Run(tc.name, func(t *testing.T) {
+			xdg, tmp := t.TempDir(), t.TempDir()
+			env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "TMPDIR=" + tmp}
+			wantDir := tmp
+			if tc.withXDG {
+				env = append(env, "XDG_RUNTIME_DIR="+xdg)
+				wantDir = xdg
+			}
+
+			script := "eval \"$(cat <<'BSEOF'\n" + snippet + "BSEOF\n)\"\n" +
+				"echo STATEFILE=$_backstory_state_file\n" +
+				"echo MODE=$(stat -c %a \"$_backstory_state_file\")\n" +
+				"exit 0\n"
+			out, _ := runBashSession(t, t.TempDir(), env, script)
+
+			var path, mode string
+			for _, line := range strings.Split(out, "\n") {
+				line = strings.TrimSpace(line)
+				if v, ok := strings.CutPrefix(line, "STATEFILE="); ok {
+					path = v
+				}
+				if v, ok := strings.CutPrefix(line, "MODE="); ok {
+					mode = v
+				}
+			}
+			if path == "" {
+				t.Fatalf("snippet did not report a state file; output:\n%s", out)
+			}
+			if filepath.Dir(path) != wantDir {
+				t.Errorf("state file %q is not under %q", path, wantDir)
+			}
+			if mode != "600" {
+				t.Errorf("state file mode = %q, want 600", mode)
+			}
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Errorf("state file %q still exists after the shell exited (stat err = %v)", path, err)
+			}
+		})
+	}
+}

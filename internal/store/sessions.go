@@ -356,6 +356,27 @@ func (s *Store) AgentActivityForSessions(ids []string, since, asOf time.Time) ([
 	return out, rows.Err()
 }
 
+// ShellSessionIDs returns the id of every session minted for an interactive
+// shell's captured commands (agent ident.HarnessShell). Readers that count
+// sessions as units of work use it to leave those out, including the
+// per-command shell sessions older daemons left on disk.
+func (s *Store) ShellSessionIDs() (map[string]bool, error) {
+	rows, err := s.db.Query(`SELECT id FROM sessions WHERE agent = ?`, ident.HarnessShell)
+	if err != nil {
+		return nil, fmt.Errorf("store: shell session ids: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("store: shell session ids: %w", err)
+		}
+		out[id] = true
+	}
+	return out, rows.Err()
+}
+
 // SessionAgent returns the agent of session id, "" when id is empty or
 // names no session.
 func (s *Store) SessionAgent(id string) (string, error) {

@@ -513,6 +513,12 @@ func uncommittedSessionEndItems(st *store.Store, projectKey string, since time.T
 	if err != nil {
 		return nil, fmt.Errorf("week: session git-state events for %s: %w", projectKey, err)
 	}
+	// Per-command shell sessions older daemons left on disk each carry a
+	// git_state of their own; a shell is not an agent session ending.
+	shellSessions, err := st.ShellSessionIDs()
+	if err != nil {
+		return nil, fmt.Errorf("week: shell sessions for %s: %w", projectKey, err)
+	}
 	// Only the LATEST observable event counts: events arrive oldest-first, so
 	// the last one that is not could-not-observe is the project's current
 	// state. An earlier dirty event is superseded by a later clean one, and a
@@ -521,6 +527,9 @@ func uncommittedSessionEndItems(st *store.Store, projectKey string, since time.T
 	var latestGS payload.SessionGitState
 	for i := range events {
 		e := events[i]
+		if shellSessions[e.SessionID] {
+			continue
+		}
 		var gs payload.SessionGitState
 		if err := json.Unmarshal([]byte(e.Payload), &gs); err != nil {
 			return nil, fmt.Errorf("week: parse session.git_state payload (event %d): %w", e.ID, err)
@@ -609,6 +618,10 @@ func buildWhereLeftOff(st *store.Store, keys []string, summaries map[string]Proj
 // records once, then buckets them by day in Go, rather than issuing one
 // query per (project, day) pair.
 func buildWeekGrid(st *store.Store, keys []string, since, now time.Time, workspaces []string) ([]DayProjectStats, error) {
+	shellSessions, err := st.ShellSessionIDs()
+	if err != nil {
+		return nil, fmt.Errorf("week: shell sessions: %w", err)
+	}
 	days := make([]time.Time, WindowDays)
 	for i := range days {
 		days[i] = since.AddDate(0, 0, i)
@@ -632,7 +645,7 @@ func buildWeekGrid(st *store.Store, keys []string, since, now time.Time, workspa
 
 		for _, day := range days {
 			dayEnd := day.AddDate(0, 0, 1)
-			stats := dayStats(events, records, day, dayEnd, now)
+			stats := dayStats(events, records, shellSessions, day, dayEnd, now)
 			if stats.Sessions == 0 && stats.FilesTouched == 0 && stats.RecordsWritten == 0 {
 				continue
 			}
@@ -811,13 +824,14 @@ func homeLabelDayStats(events []store.TimelineEvent, records []store.Record, lab
 // dayStats buckets events and records into [dayStart, dayEnd): sessions is
 // the count of distinct session ids among that day's events (every event
 // carries a session id, including session.start, so a session that merely
-// started that day with no tool use still counts); filesTouched is the
+// started that day with no tool use still counts, except shellSessions: a
+// shell's captured commands are not agent work); filesTouched is the
 // same payload.IsMutatingFileTool rule the SessionStart block's delta slot
 // and HandoffFreshness both apply (task 393d174c); recordsWritten counts
 // records whose own ts falls in the day. now bounds dayEnd from above too,
 // so a fixture (or a clock skew) that inserted something after "now" is
 // never counted into a future day.
-func dayStats(events []store.TimelineEvent, records []store.Record, dayStart, dayEnd, now time.Time) DayProjectStats {
+func dayStats(events []store.TimelineEvent, records []store.Record, shellSessions map[string]bool, dayStart, dayEnd, now time.Time) DayProjectStats {
 	if dayEnd.After(now) {
 		dayEnd = now
 	}
@@ -830,7 +844,7 @@ func dayStats(events []store.TimelineEvent, records []store.Record, dayStart, da
 		if e.TS.Before(dayStart) || !e.TS.Before(dayEnd) {
 			continue
 		}
-		if e.SessionID != "" {
+		if e.SessionID != "" && !shellSessions[e.SessionID] {
 			sessions[e.SessionID] = true
 		}
 		if e.Kind == payload.KindToolUse {

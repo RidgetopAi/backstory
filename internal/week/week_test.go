@@ -1036,3 +1036,48 @@ func TestUncommittedSurvivesLaterCouldNotObserveEvent(t *testing.T) {
 		t.Fatalf("EvidenceIDs = %v, want [%s]", items[0].EvidenceIDs, want)
 	}
 }
+
+// TestBuildWeekGridLeavesShellSessionsOut: a project with one agent session
+// and three shell sessions (the per-command ones older daemons wrote, with
+// their git_state) reports 1 session on its row and no uncommitted flag.
+func TestBuildWeekGridLeavesShellSessionsOut(t *testing.T) {
+	st := openTestStore(t)
+	const proj = "proj-shell-week"
+	upsertProject(t, st, proj, "/home/brian/shellweek")
+	day := time.Now().UTC().Truncate(24 * time.Hour)
+	agent := startSession(t, st, "sess-agent", proj, "/home/brian/shellweek", day)
+	appendEvent(t, st, store.Event{TS: day, Kind: "tool.use", SessionID: agent, Source: "posttooluse", Payload: `{"name":"Edit","path":"main.go"}`})
+	for i := 0; i < 3; i++ {
+		sid, err := st.StartSession(store.StartSessionParams{
+			ID: fmt.Sprintf("sess-shell-%d", i), Agent: "shell", CWD: "/home/brian/shellweek", ProjectKey: proj,
+			StartedAt: day, Origin: store.OriginLive,
+		})
+		if err != nil {
+			t.Fatalf("StartSession: %v", err)
+		}
+		appendEvent(t, st, store.Event{TS: day.Add(time.Minute), Kind: "shell.command", SessionID: sid, Source: "shell", Payload: `{"cmd":"ls"}`})
+		appendEvent(t, st, store.Event{TS: day.Add(2 * time.Minute), Kind: "session.git_state", SessionID: sid, Source: "daemon", Payload: `{"branch":"main","uncommitted_count":4}`})
+	}
+
+	res, err := Build(Params{Store: st, Now: time.Now()})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	var found *DayProjectStats
+	for i := range res.Week {
+		if res.Week[i].ProjectKey == proj {
+			found = &res.Week[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("no week entry for %s in %+v", proj, res.Week)
+	}
+	if found.Sessions != 1 {
+		t.Errorf("Sessions = %d, want 1 (shell sessions are not counted)", found.Sessions)
+	}
+	for _, a := range res.Attention {
+		if a.ProjectKey == proj && a.Kind == AttentionUncommittedAtSessionEnd {
+			t.Errorf("shell session git_state raised an uncommitted flag: %+v", a)
+		}
+	}
+}
