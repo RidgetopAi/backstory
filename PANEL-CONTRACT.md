@@ -69,7 +69,7 @@ validates it before use and, with a valid one, focuses the window then runs
 ## Attention — `AttentionItem`
 
 Positive evidence only, never elapsed time and never the absence of activity
-(`AGENT-CONTRACT.md` §Outcomes are three-state). Scoped to projects with activity in the
+(`AGENT-CONTRACT.md` §Outcomes). Scoped to projects with activity in the
 window (the same set Where-you-left-off lists).
 
 | Field          | Type       | Always present | Meaning |

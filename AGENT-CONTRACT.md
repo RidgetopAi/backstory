@@ -154,6 +154,8 @@ note({ kind: decision | outcome | handoff | note | claim,  text })
 
 ## Outcomes: cite evidence; contradiction only on positive evidence
 
+(Earlier titled "Outcomes are three-state"; code comments may still cite that name.)
+
 Q2's own example — "the agent writes 'tests green' but the timeline shows no test process
 ran → flagged" — commits the C1 three-state bug. Absence of an event is not evidence of
 absence: a test run inside a container, over ssh, or from a harness without PostToolUse is
