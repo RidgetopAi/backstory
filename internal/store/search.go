@@ -74,8 +74,8 @@ func (s *Store) SearchRecordsInProject(projectKey, query string, limit int) ([]S
 // escapeFTS5Query turns arbitrary user text into a safe FTS5 MATCH query:
 // split on whitespace, drop empty tokens, wrap each remaining token in a
 // double-quoted FTS5 string literal (doubling any `"` inside it per FTS5's
-// own escaping rule), and join the literals with spaces for FTS5's implicit
-// AND. A quoted literal is plain text to FTS5's query-language parser, so a
+// own escaping rule), and join the literals with OR, so a record matching any
+// term is a hit and bm25 ranks those matching more (or rarer) terms first. A quoted literal is plain text to FTS5's query-language parser, so a
 // token like "wobble-party" or "a:b" is searched for as text rather than
 // parsed as the hyphen/colon/quote/asterisk/paren/caret/AND/OR/NOT/NEAR
 // operators those characters would otherwise trigger (the bug this fixes:
@@ -90,7 +90,7 @@ func escapeFTS5Query(query string) string {
 	for _, f := range fields {
 		terms = append(terms, `"`+strings.ReplaceAll(f, `"`, `""`)+`"`)
 	}
-	return strings.Join(terms, " ")
+	return strings.Join(terms, " OR ")
 }
 
 // scanSearchResults drains rows into a []SearchResult, closing rows itself

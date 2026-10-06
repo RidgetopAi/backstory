@@ -171,6 +171,10 @@ type Item struct {
 type Result struct {
 	Items    []Item
 	Rendered string
+	// Notice is set when a text anchor matched nothing and recall fell back to
+	// the location's latest handoff: "no match for <query>; latest handoff
+	// shown". Empty otherwise.
+	Notice string
 }
 
 // Build resolves anchor to an ordered set of records — walking edges for a
@@ -183,7 +187,7 @@ type Result struct {
 // call, no env read) — it only needs the list to pass through to
 // store.HandoffFreshness when annotating a handoff's possibly-stale status.
 func Build(st *store.Store, anchor Anchor, altitude Altitude, budgetTokens int, workspaces []string) (Result, error) {
-	recs, err := resolve(st, anchor)
+	recs, notice, err := resolve(st, anchor)
 	if err != nil {
 		return Result{}, err
 	}
@@ -203,7 +207,11 @@ func Build(st *store.Store, anchor Anchor, altitude Altitude, budgetTokens int, 
 		items[i] = item
 	}
 
-	return fit(items, altitude, budgetTokens), nil
+	res := fit(items, altitude, budgetTokens)
+	if len(res.Items) > 0 {
+		res.Notice = notice
+	}
+	return res, nil
 }
 
 // resolve turns anchor into an ordered record set, before status
@@ -212,28 +220,35 @@ func Build(st *store.Store, anchor Anchor, altitude Altitude, budgetTokens int, 
 // FTS match set is re-ordered into sequence order the same way, so every
 // anchor kind's output obeys the one ordering rule (SCHEMA.md invariant
 // 10: order by sequence, never ts).
-func resolve(st *store.Store, anchor Anchor) ([]store.Record, error) {
+func resolve(st *store.Store, anchor Anchor) ([]store.Record, string, error) {
 	switch anchor.Kind {
 	case AnchorProject:
-		if anchor.Scope != nil {
-			recs, err := st.RecordsForLocation(*anchor.Scope, maxProjectRecords)
-			if err != nil {
-				return nil, fmt.Errorf("recall: project anchor: %w", err)
-			}
-			return recs, nil
-		}
-		recs, err := st.RecordsForProjectAll(anchor.ProjectKey, maxProjectRecords)
-		if err != nil {
-			return nil, fmt.Errorf("recall: project anchor: %w", err)
-		}
-		return recs, nil
+		recs, err := projectRecords(st, anchor)
+		return recs, "", err
 	case AnchorRecord:
-		return resolveRecordAnchor(st, anchor.RecordID)
+		recs, err := resolveRecordAnchor(st, anchor.RecordID)
+		return recs, "", err
 	case AnchorText:
 		return resolveTextAnchor(st, anchor)
 	default:
-		return nil, fmt.Errorf("recall: unknown anchor kind %q", anchor.Kind)
+		return nil, "", fmt.Errorf("recall: unknown anchor kind %q", anchor.Kind)
 	}
+}
+
+// projectRecords reads anchor's whole ledger (scoped to its location when it
+// has one), newest first by sequence.
+func projectRecords(st *store.Store, anchor Anchor) ([]store.Record, error) {
+	var recs []store.Record
+	var err error
+	if anchor.Scope != nil {
+		recs, err = st.RecordsForLocation(*anchor.Scope, maxProjectRecords)
+	} else {
+		recs, err = st.RecordsForProjectAll(anchor.ProjectKey, maxProjectRecords)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("recall: project anchor: %w", err)
+	}
+	return recs, nil
 }
 
 // resolveRecordAnchor resolves idOrPrefix to a record, then breadth-first
@@ -284,10 +299,19 @@ func resolveRecordAnchor(st *store.Store, idOrPrefix string) ([]store.Record, er
 	return recs, nil
 }
 
-// resolveTextAnchor runs the FTS match scoped to projectKey
-// (store.SearchRecordsInProject) and re-orders the match set into sequence
-// order.
-func resolveTextAnchor(st *store.Store, anchor Anchor) ([]store.Record, error) {
+// handoffKindWords are the query words that name the handoff record kind
+// itself: a query containing one matches every handoff at the location, since
+// an agent asking for "resume" or the "handoff" wants the handoff whatever
+// words it happens to contain.
+var handoffKindWords = map[string]bool{"handoff": true, "handoffs": true, "resume": true}
+
+// resolveTextAnchor runs the FTS match (any query term, best bm25 first;
+// store.SearchRecordsInProject / SearchRecordsInScope), adds the location's
+// handoffs the index cannot see — those whose next text contains a query term
+// or when the query names the handoff kind — and re-orders the match set into
+// sequence order. When nothing matches it falls back to the location's latest
+// handoff and says so in the returned notice.
+func resolveTextAnchor(st *store.Store, anchor Anchor) ([]store.Record, string, error) {
 	var results []store.SearchResult
 	var err error
 	if anchor.Scope != nil {
@@ -296,17 +320,56 @@ func resolveTextAnchor(st *store.Store, anchor Anchor) ([]store.Record, error) {
 		results, err = st.SearchRecordsInProject(anchor.ProjectKey, anchor.Text, maxTextResults)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("recall: text anchor: %w", err)
+		return nil, "", fmt.Errorf("recall: text anchor: %w", err)
 	}
 	ids := make([]string, 0, len(results))
+	seen := map[string]bool{}
 	for _, r := range results {
 		ids = append(ids, r.ID)
+		seen[r.ID] = true
+	}
+
+	all, err := projectRecords(st, anchor)
+	if err != nil {
+		return nil, "", err
+	}
+	terms := strings.Fields(strings.ToLower(anchor.Text))
+	var latest *store.Record
+	for i, rec := range all {
+		if rec.Kind != store.KindHandoff || rec.TombstonedAt != nil {
+			continue
+		}
+		if latest == nil {
+			latest = &all[i]
+		}
+		if !seen[rec.ID] && handoffMatches(rec, terms) {
+			seen[rec.ID] = true
+			ids = append(ids, rec.ID)
+		}
+	}
+
+	notice := ""
+	if len(ids) == 0 && latest != nil {
+		ids = append(ids, latest.ID)
+		notice = fmt.Sprintf("no match for %s; latest handoff shown", anchor.Text)
 	}
 	recs, err := st.RecordsByIDs(ids)
 	if err != nil {
-		return nil, fmt.Errorf("recall: text anchor: %w", err)
+		return nil, "", fmt.Errorf("recall: text anchor: %w", err)
 	}
-	return recs, nil
+	return recs, notice, nil
+}
+
+// handoffMatches reports whether a handoff answers terms (lower-cased query
+// words): one names the handoff kind, or appears in its next text.
+func handoffMatches(h store.Record, terms []string) bool {
+	next := strings.ToLower(h.Next)
+	for _, t := range terms {
+		if handoffKindWords[t] || (next != "" && strings.Contains(next, t)) {
+			return true
+		}
+	}
+	return false
 }
 
 // Annotate is annotate's exported form: the single status code path, shared
