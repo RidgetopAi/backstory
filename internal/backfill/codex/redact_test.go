@@ -16,7 +16,7 @@ func TestCodexBackfillRedactsCommandAndOutput(t *testing.T) {
 	secret := testsecrets.All()[0].Secret
 	root := t.TempDir()
 	dir := filepath.Join(root, "2026", "01", "15")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	fixture := strings.Join([]string{
@@ -25,7 +25,7 @@ func TestCodexBackfillRedactsCommandAndOutput(t *testing.T) {
 		`{"type":"response_item","timestamp":"2026-01-15T09:00:04Z","ordinal":3,"payload":{"type":"function_call_output","call_id":"call_1","output":"` + secret + `"}}`,
 		"",
 	}, "\n")
-	if err := os.WriteFile(filepath.Join(dir, "rollout-20260115T090000-redact0thread.jsonl"), []byte(fixture), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "rollout-20260115T090000-redact0thread.jsonl"), []byte(fixture), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	st := mustOpenStore(t)

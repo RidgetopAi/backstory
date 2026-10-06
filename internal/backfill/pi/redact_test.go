@@ -16,7 +16,7 @@ func TestPiBackfillRedactsCommandAndOutput(t *testing.T) {
 	secret := testsecrets.All()[0].Secret
 	root := t.TempDir()
 	dir := filepath.Join(root, "--home-bob-redact--")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	fixture := strings.Join([]string{
@@ -26,7 +26,7 @@ func TestPiBackfillRedactsCommandAndOutput(t *testing.T) {
 		`{"id":"result-r1","parentId":"asst-r1","timestamp":"2026-05-02T00:00:03Z","type":"toolResult","toolCallId":"call-r1","isError":false,"content":"` + secret + `"}`,
 		"",
 	}, "\n")
-	if err := os.WriteFile(filepath.Join(dir, "2026-05-02T00-00-00Z_root-r.jsonl"), []byte(fixture), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "2026-05-02T00-00-00Z_root-r.jsonl"), []byte(fixture), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	st := mustOpenStore(t)

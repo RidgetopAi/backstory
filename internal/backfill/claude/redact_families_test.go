@@ -17,7 +17,7 @@ func TestBackfillRedactsEveryCredentialFamily(t *testing.T) {
 		t.Run(f.Family, func(t *testing.T) {
 			root := t.TempDir()
 			dir := filepath.Join(root, "-home-zed-redact")
-			if err := os.MkdirAll(dir, 0o755); err != nil {
+			if err := os.MkdirAll(dir, 0o750); err != nil {
 				t.Fatal(err)
 			}
 			lines := []map[string]any{
@@ -36,7 +36,7 @@ func TestBackfillRedactsEveryCredentialFamily(t *testing.T) {
 				b.Write(j)
 				b.WriteByte('\n')
 			}
-			if err := os.WriteFile(filepath.Join(dir, "sess-redact.jsonl"), []byte(b.String()), 0o644); err != nil {
+			if err := os.WriteFile(filepath.Join(dir, "sess-redact.jsonl"), []byte(b.String()), 0o600); err != nil {
 				t.Fatal(err)
 			}
 
