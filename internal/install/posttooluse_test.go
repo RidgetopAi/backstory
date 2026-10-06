@@ -103,3 +103,64 @@ func TestPostToolUseHookAddedKeepsForeignEntryAndRemoveOnlyRemovesOwn(t *testing
 			afterRemove.Hooks.PostToolUse[0])
 	}
 }
+
+// TestPostToolUseFailureHookInstalledCheckedAndRemoved is task b2613e7a's
+// clause 1: install writes a PostToolUseFailure entry for the same absolute
+// binary, --check reports it, --remove removes it (and only it).
+func TestPostToolUseFailureHookInstalledCheckedAndRemoved(t *testing.T) {
+	home := t.TempDir()
+	paths := install.DefaultPaths(home)
+	opts := install.Options{Prefix: t.TempDir(), BinaryPath: "/opt/backstory/bin/backstory"}
+	mustWriteFile(t, paths.SettingsJSON, `{"hooks":{"PostToolUseFailure":[{"matcher":"","hooks":[{"type":"command","command":"foreign-fail-hook"}]}]}}`)
+
+	items, err := install.Check(paths, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := statusMap(t, items)[install.ItemPostToolUseFailureHook]; got != install.StatusAbsent {
+		t.Errorf("before install status = %s, want absent", got)
+	}
+	if err := install.Install(paths, opts); err != nil {
+		t.Fatal(err)
+	}
+	read := func() []map[string]any {
+		data, err := os.ReadFile(paths.SettingsJSON)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var st struct {
+			Hooks struct {
+				F []map[string]any `json:"PostToolUseFailure"`
+			} `json:"hooks"`
+		}
+		if err := json.Unmarshal(data, &st); err != nil {
+			t.Fatal(err)
+		}
+		return st.Hooks.F
+	}
+	entries := read()
+	if len(entries) != 2 {
+		t.Fatalf("PostToolUseFailure has %d entries after install, want 2: %#v", len(entries), entries)
+	}
+	own := false
+	for _, e := range entries {
+		hooks, _ := e["hooks"].([]any)
+		if h, ok := hooks[0].(map[string]any); ok && h["command"] == opts.BinaryPath+" hook post-tool-use-failure" {
+			own = true
+		}
+	}
+	if !own {
+		t.Errorf("own PostToolUseFailure entry missing: %#v", entries)
+	}
+	items, _ = install.Check(paths, opts)
+	if got := statusMap(t, items)[install.ItemPostToolUseFailureHook]; got != install.StatusPresent {
+		t.Errorf("after install status = %s, want present", got)
+	}
+	if err := install.Remove(paths, opts); err != nil {
+		t.Fatal(err)
+	}
+	entries = read()
+	if len(entries) != 1 {
+		t.Fatalf("after remove %d entries, want only the foreign one: %#v", len(entries), entries)
+	}
+}

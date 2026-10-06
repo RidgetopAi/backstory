@@ -53,6 +53,10 @@ type PostToolUseParams struct {
 	// interrupted flag.
 	Output      string `json:"output,omitempty"`
 	Interrupted bool   `json:"interrupted,omitempty"`
+	// IsError is set by the PostToolUseFailure hook: the tool call failed.
+	// Any tool then gets a tool.result (not just Bash) so the failure is
+	// on the timeline.
+	IsError bool `json:"is_error,omitempty"`
 	// RecordID is the id of the record a Backstory note call created, read
 	// by the hook from that call's tool_response (task d0c8c84b). The hook
 	// only sets it for Backstory's own note tool.
@@ -116,9 +120,9 @@ func handlePostToolUse(st *store.Store, sessionID string, raw json.RawMessage, c
 	}
 	n++
 
-	if p.ToolName == bashToolName {
+	if p.ToolName == bashToolName || p.IsError {
 		tr := payload.ToolResult{
-			ToolUseID: p.ToolUseID, Exit: p.Exit, Interrupted: p.Interrupted,
+			ToolUseID: p.ToolUseID, IsError: p.IsError, Exit: p.Exit, Interrupted: p.Interrupted,
 			Content: store.ToolOutputExcerpt(p.Output),
 		}
 		trBytes, err := json.Marshal(tr)

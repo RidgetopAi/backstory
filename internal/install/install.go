@@ -25,8 +25,11 @@ const (
 	ItemMCPServer        = "mcp-server"
 	ItemSessionStartHook = "session-start-hook"
 	ItemPostToolUseHook  = "post-tool-use-hook"
-	ItemSkill            = "skill"
-	ItemClaudeMDStub     = "claude-md-stub"
+	// ItemPostToolUseFailureHook is Claude's PostToolUseFailure hook: Claude
+	// Code reports a failed tool call under that event, never PostToolUse.
+	ItemPostToolUseFailureHook = "post-tool-use-failure-hook"
+	ItemSkill                  = "skill"
+	ItemClaudeMDStub           = "claude-md-stub"
 )
 
 // ItemStatus is a --check item's reported state: present, absent, outdated
@@ -182,12 +185,17 @@ func Install(paths Paths, opts Options) error {
 		return err
 	}
 
+	failureChanged, err := mergeHookEntry(settingsRoot, "PostToolUseFailure", wantPostToolUseFailureEntry(opts), subPostToolUseFailure, opts)
+	if err != nil {
+		return err
+	}
+
 	if mcpChanged {
 		if err := writeJSONAtomic(paths.ClaudeJSON, claudeRoot, claudeMode); err != nil {
 			return fmt.Errorf("%s: %w", ItemMCPServer, err)
 		}
 	}
-	if hookChanged || postToolUseChanged {
+	if hookChanged || postToolUseChanged || failureChanged {
 		if err := writeJSONAtomic(paths.SettingsJSON, settingsRoot, settingsMode); err != nil {
 			return fmt.Errorf("%s: %w", ItemSessionStartHook, err)
 		}
@@ -229,6 +237,7 @@ func Check(paths Paths, opts Options) ([]Item, error) {
 		{Name: ItemMCPServer, Status: mcpServerStatus(claudeRoot, opts)},
 		{Name: ItemSessionStartHook, Status: hookEntryStatus(settingsRoot, "SessionStart", wantSessionStartEntry(opts))},
 		{Name: ItemPostToolUseHook, Status: hookEntryStatus(settingsRoot, "PostToolUse", wantPostToolUseEntry(opts))},
+		{Name: ItemPostToolUseFailureHook, Status: hookEntryStatus(settingsRoot, "PostToolUseFailure", wantPostToolUseFailureEntry(opts))},
 		{Name: ItemSkill, Status: install2checkStatus(skill.CheckStatus(paths.SkillPath, opts.Prefix))},
 		{Name: ItemClaudeMDStub, Status: stubStatus(paths.ClaudeMD)},
 	}
@@ -252,13 +261,14 @@ func Remove(paths Paths, opts Options) error {
 	mcpChanged := removeMCPServer(claudeRoot)
 	hookChanged := removeHookEntry(settingsRoot, "SessionStart", subSessionStart, opts)
 	postToolUseChanged := removeHookEntry(settingsRoot, "PostToolUse", subPostToolUse, opts)
+	failureChanged := removeHookEntry(settingsRoot, "PostToolUseFailure", subPostToolUseFailure, opts)
 
 	if mcpChanged {
 		if err := writeJSONAtomic(paths.ClaudeJSON, claudeRoot, claudeMode); err != nil {
 			return fmt.Errorf("%s: %w", ItemMCPServer, err)
 		}
 	}
-	if hookChanged || postToolUseChanged {
+	if hookChanged || postToolUseChanged || failureChanged {
 		if err := writeJSONAtomic(paths.SettingsJSON, settingsRoot, settingsMode); err != nil {
 			return fmt.Errorf("%s: %w", ItemSessionStartHook, err)
 		}
@@ -343,6 +353,10 @@ func wantSessionStartEntry(opts Options) map[string]any {
 
 func wantPostToolUseEntry(opts Options) map[string]any {
 	return hookEntry(HookMatcherPostToolUse, opts.hookCommand(subPostToolUse), opts.timeoutSeconds())
+}
+
+func wantPostToolUseFailureEntry(opts Options) map[string]any {
+	return hookEntry(HookMatcherPostToolUse, opts.hookCommand(subPostToolUseFailure), opts.timeoutSeconds())
 }
 
 func hookEntry(matcher, command string, timeoutSeconds int) map[string]any {
