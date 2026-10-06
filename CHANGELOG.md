@@ -10,6 +10,10 @@ done-when holds on a box we do not own: a machine that is not Brian's. See
 
 ## [Unreleased]
 
+### Added
+
+- `backstory hook stop` and a Claude Stop hook registered by `install claude` (task 914964ae): when a session changed files or had failed commands and wrote no handoff, it asks once (Claude's block decision, naming the observed counts) for `note handoff` or a one-line reason none is needed. Silent on `stop_hook_active`, `BACKSTORY_NO_SESSION`, capture off, no daemon, or any error. The daemon only reports counts and never authors a handoff.
+
 ### Changed
 
 - Docs corrected to what V1 does (task d05fb955): adoption in `status`, retention/pruning, outcome three-state, the inferred tier, `recall` anchors (project, record id, free text — not path or ref), the project key (common dir only), the workspace root row, the SessionStart budget (default 1,500, not yet user-settable), the exact redacted secret shapes, install/uninstall steps, a privacy section, the single-user identity caveat, the CTRL+SHIFT+B shadowing note and the Qt 6 `qmltestrunner` note. The `recall` tool's description text changed accordingly; its parameters did not.
