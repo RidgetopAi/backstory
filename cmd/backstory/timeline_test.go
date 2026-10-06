@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -289,5 +290,38 @@ func TestTimelineEmptyProjectJSONNamesProjectWithNoEvents(t *testing.T) {
 	want := `{"project_key":"empty-project","events":[]}` + "\n"
 	if stdout != want {
 		t.Fatalf("stdout = %q, want %q", stdout, want)
+	}
+}
+
+// TestTimelineShowsNonPositiveTSAsUnknown (task 456410f0): an event stored
+// with Go's zero time (or any ts <= 0) is shown as unknown — text and JSON —
+// and no output contains a year before 1970.
+func TestTimelineShowsNonPositiveTSAsUnknown(t *testing.T) {
+	dataDir := t.TempDir()
+	buildTimelineFixtureStore(t, dataDir)
+	st, err := store.Open(filepath.Join(dataDir, "backstory", "backstory.db"), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, ts := range []time.Time{{}, time.Unix(0, 0), time.Unix(-5, 0)} {
+		if _, err := st.AppendEvent(store.Event{TS: ts, Kind: "session.end", SessionID: "sess-timeline-fixture", Source: "backfill", Payload: `{}`}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_ = st.Close()
+
+	for _, args := range [][]string{{"--project", timelineFixtureProject}, {"--project", timelineFixtureProject, "--json"}} {
+		stdout, stderr, code := runTimelineCLI(t, dataDir, args...)
+		if code != 0 {
+			t.Fatalf("timeline %v exit %d: %s", args, code, stderr)
+		}
+		if got := strings.Count(stdout, "unknown"); got != 3 {
+			t.Errorf("timeline %v: %d unknown timestamps, want 3:\n%s", args, got, stdout)
+		}
+		for _, y := range []string{"1754", "1969", "0001", "1901"} {
+			if strings.Contains(stdout, y+"-") {
+				t.Errorf("timeline %v shows pre-1970 year %s:\n%s", args, y, stdout)
+			}
+		}
 	}
 }
