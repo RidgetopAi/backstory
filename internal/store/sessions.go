@@ -332,23 +332,17 @@ func (s *Store) EndSession(id string, endedAt time.Time, exitKind string) error 
 	return nil
 }
 
-// EndLiveSessionsLeftOpen ends every live-origin session row that has no
-// ended_at, recording endedAt and exitKind, and returns how many it ended.
-// The daemon calls it once at start, before it accepts a connection: the
-// session registry is in memory, so any row still open then was left by a
-// previous daemon run and no connection holds it (task 6d68ac6f). Rows of
-// every other origin (backfilled transcripts) are untouched.
-func (s *Store) EndLiveSessionsLeftOpen(endedAt time.Time, exitKind string) (int, error) {
-	res, err := s.db.Exec(`UPDATE sessions SET ended_at = ?, exit_kind = ? WHERE ended_at IS NULL AND origin = ?`,
-		tsToNanos(endedAt), nullable(exitKind), string(OriginLive))
+// LiveSessionIDsLeftOpen returns the id of every live-origin session row that
+// has no ended_at, oldest first. The daemon's start-up sweep reads it to end
+// each such row through the same path a live end takes (task 78ca0350). Rows
+// of every other origin (backfilled transcripts) are not listed.
+func (s *Store) LiveSessionIDsLeftOpen() ([]string, error) {
+	rows, err := s.db.Query(`SELECT id FROM sessions WHERE ended_at IS NULL AND origin = ? ORDER BY started_at, id`,
+		string(OriginLive))
 	if err != nil {
-		return 0, fmt.Errorf("store: end live sessions left open: %w", err)
+		return nil, fmt.Errorf("store: live sessions left open: %w", err)
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return 0, fmt.Errorf("store: end live sessions left open: %w", err)
-	}
-	return int(n), nil
+	return scanIDs(rows)
 }
 
 // AgentActivity is one known harness's footprint across a set of sessions:

@@ -105,7 +105,7 @@ func runDaemon(_ []string, stdout, stderr io.Writer) int {
 	}
 	defer func() { _ = st.Close() }()
 
-	if n, err := mcp.EndOrphanedSessions(st, time.Now()); err != nil {
+	if n, err := mcp.EndOrphanedSessions(st, project.RealGit{}, logger, captureOff); err != nil {
 		logger.Printf("end sessions left live by a previous run: %v", err)
 	} else if n > 0 {
 		logger.Printf("ended %d session(s) left live by a previous run", n)
