@@ -169,6 +169,9 @@ type RecallItem struct {
 	Tier string `json:"tier"`
 	Mark string `json:"mark"`
 	Text string `json:"text,omitempty"`
+	// Next is a handoff's one-line next step (absent for other kinds and for
+	// a handoff with none).
+	Next string `json:"next,omitempty"`
 	// GitHead, GitShort, CommitsSince, GitNote and GitStatus are additive
 	// (task 5615ddae): the repo HEAD stamped at write, its short form, how
 	// many commits the repo is ahead of it now (absent, with GitNote as the
@@ -276,6 +279,7 @@ func handleRecall(st *store.Store, id ident.Identity, raw json.RawMessage, works
 			Tier: string(item.Tier),
 			Mark: trustMark(item),
 			Text: renderItemText(item.Text, altitude),
+			Next: item.Next,
 		}
 		if g := item.Git; g != nil {
 			items[i].GitHead = g.SHA

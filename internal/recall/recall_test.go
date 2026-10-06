@@ -472,3 +472,29 @@ func TestBuildOrdersBySequenceDespiteDisagreeingTS(t *testing.T) {
 // rec.TombstonedAt != nil` branch -> RED
 // (TestBuildMarksTombstonedStatusKeepsEdges: "tombstoned record's Edges =
 // [], want exactly one edge"); remove it -> GREEN.
+
+// Task 91860fb0 clause 2: recall's handoff item carries the next text, at
+// every altitude's rendering; a handoff without one carries none.
+func TestBuildHandoffItemCarriesNext(t *testing.T) {
+	st := newTestStore(t)
+	mustUpsertProject(t, st, "proj-a")
+	sessionID := mustStartSession(t, st, "proj-a")
+	if _, err := st.InsertRecord(store.InsertRecordParams{
+		Identity: store.Identity{Kind: store.IdentityAgent}, Kind: store.KindHandoff, Text: "body",
+		SessionID: sessionID, ProjectKey: "proj-a", Next: "NEXTMARK add the thing",
+	}); err != nil {
+		t.Fatalf("InsertRecord: %v", err)
+	}
+	for _, alt := range []Altitude{AltitudeHeadline, AltitudeSummary, AltitudeFull} {
+		res, err := Build(st, ProjectAnchor("proj-a"), alt, testBudget, nil)
+		if err != nil {
+			t.Fatalf("Build: %v", err)
+		}
+		if len(res.Items) != 1 || res.Items[0].Next != "NEXTMARK add the thing" {
+			t.Fatalf("altitude %v: item Next = %+v, want NEXTMARK", alt, res.Items)
+		}
+		if !strings.Contains(res.Rendered, "Next: NEXTMARK add the thing") {
+			t.Errorf("altitude %v: rendered lacks next:\n%s", alt, res.Rendered)
+		}
+	}
+}

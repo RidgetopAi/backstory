@@ -149,6 +149,9 @@ func writeResumeSection(b *strings.Builder, handoff recall.Item, hasHandoff, sta
 		return
 	}
 	fmt.Fprintf(b, "(id %s) %s\n", handoff.ID, handoff.Text)
+	if handoff.Next != "" {
+		fmt.Fprintf(b, "Next: %s\n", handoff.Next)
+	}
 	if staleHandoff {
 		b.WriteString("⚠ possibly stale\n")
 	}
