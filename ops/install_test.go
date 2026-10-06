@@ -185,24 +185,6 @@ func treeMap(t *testing.T, dir string) map[string]string {
 	return m
 }
 
-func assertSameTree(t *testing.T, want, got string) {
-	t.Helper()
-	w, g := treeMap(t, want), treeMap(t, got)
-	for k, v := range w {
-		gv, ok := g[k]
-		if !ok {
-			t.Errorf("%s lacks %s", got, k)
-		} else if gv != v {
-			t.Errorf("%s differs from %s", filepath.Join(got, k), filepath.Join(want, k))
-		}
-	}
-	for k := range g {
-		if _, ok := w[k]; !ok {
-			t.Errorf("%s has extra %s", got, k)
-		}
-	}
-}
-
 func mustExist(t *testing.T, p string) {
 	t.Helper()
 	if _, err := os.Lstat(p); err != nil {
