@@ -4,8 +4,12 @@
 // ~/.codex/skills/backstory/SKILL.md.
 //
 // config.toml is hand-written (comments, trust tables, other servers), so it
-// is never parsed and re-serialized: the backstory table is appended as a
-// marker-delimited text block and removed by cutting exactly that block.
+// is never re-serialized: the backstory table is appended as a
+// marker-delimited text block and removed by cutting exactly the lines
+// Backstory wrote. Codex edits the file too (it appends hooks.state and
+// projects trust tables, which can land between our markers); any such line
+// is foreign, is kept verbatim (moved after the end marker), and is never
+// deleted. --check reads the TOML tables themselves, not the marker region.
 package install
 
 import (
@@ -142,7 +146,7 @@ func InstallCodex(paths CodexPaths, opts Options) error {
 	}
 	// A foreign mcp_servers.backstory is found before anything is written, so
 	// a conflict leaves the whole harness exactly as it was.
-	if err := checkCodexTOMLConflict(paths.ConfigTOML); err != nil {
+	if err := checkCodexTOMLConflict(paths.ConfigTOML, opts); err != nil {
 		return err
 	}
 	ss, err := mergeHookEntry(hooksRoot, "SessionStart", codexHookEntry(opts.hookCommand(subSessionStartCodex), opts.timeoutSeconds()), subSessionStartCodex, opts)
@@ -198,7 +202,7 @@ func RemoveCodex(paths CodexPaths, opts Options) error {
 	if err := removeStub(paths.AgentsMD); err != nil {
 		return fmt.Errorf("%s: %w", ItemCodexAgentsMD, err)
 	}
-	if err := removeCodexTOML(paths.ConfigTOML); err != nil {
+	if err := removeCodexTOML(paths.ConfigTOML, opts); err != nil {
 		return fmt.Errorf("%s: %w", ItemCodexMCPServer, err)
 	}
 	return nil
@@ -256,13 +260,72 @@ func codexTOMLBlock(noEOL bool, opts Options) string {
 	return line + "\n" + codexTOMLBody(opts) + CodexTOMLMarkerEnd + "\n"
 }
 
-// withoutBlock returns content with our block cut out, for foreign scans.
-func withoutBlock(path, content string) (string, error) {
-	b, e, ok, err := tomlBlockSpan(path, content)
+// codexBlock is a located managed block. Lines between the markers that
+// Backstory did not write (Codex's own appended tables) are Foreign.
+type codexBlock struct {
+	Begin, End int    // span in content, End one past the end marker's newline
+	OwnEnd     int    // one past the last line Backstory wrote
+	NoEOL      bool   // begin line carries codexNoEOLFlag
+	Foreign    string // interior text that is not Backstory's, verbatim
+}
+
+var codexOwnCommandLine = regexp.MustCompile(`^command = "(?:[^"\\\n]|\\.)*"\n$`)
+
+// codexOwnBody returns how many bytes of interior (the text after the begin
+// line) are Backstory's table: the current body exactly, or an older one
+// with another binary path (same three-line shape).
+func codexOwnBody(interior string, opts Options) int {
+	if cur := codexTOMLBody(opts); strings.HasPrefix(interior, cur) {
+		return len(cur)
+	}
+	const head = "[mcp_servers.backstory]\n"
+	const args = "args = [\"mcp\"]\n"
+	if !strings.HasPrefix(interior, head) {
+		return 0
+	}
+	rest := interior[len(head):]
+	i := strings.Index(rest, "\n")
+	if i < 0 || !codexOwnCommandLine.MatchString(rest[:i+1]) || !strings.HasPrefix(rest[i+1:], args) {
+		return 0
+	}
+	return len(head) + i + 1 + len(args)
+}
+
+// findCodexBlock locates our marked block; ok is false when there is none.
+func findCodexBlock(path, content string, opts Options) (blk codexBlock, ok bool, err error) {
+	begin, end, ok, err := tomlBlockSpan(path, content)
+	if err != nil || !ok {
+		return codexBlock{}, false, err
+	}
+	blk = codexBlock{Begin: begin, End: end}
+	blk.NoEOL = strings.HasPrefix(content[begin:], codexTOMLBeginLine+codexNoEOLFlag)
+	line := codexTOMLBeginLine
+	if blk.NoEOL {
+		line += codexNoEOLFlag
+	}
+	if !strings.HasPrefix(content[begin:end], line+"\n") {
+		// Begin line altered: treat the whole interior as foreign.
+		line = content[begin : begin+strings.Index(content[begin:], "\n")]
+	}
+	interiorStart := begin + len(line) + 1
+	endMarker := strings.LastIndex(content[:end], "\n"+CodexTOMLMarkerEnd) + 1
+	if interiorStart > endMarker {
+		return codexBlock{}, false, fmt.Errorf("%s: malformed backstory block", path)
+	}
+	own := codexOwnBody(content[interiorStart:endMarker], opts)
+	blk.OwnEnd = interiorStart + own
+	blk.Foreign = content[blk.OwnEnd:endMarker]
+	return blk, true, nil
+}
+
+// withoutBlock returns content with the lines Backstory wrote cut out
+// (foreign lines inside the block stay), for foreign scans.
+func withoutBlock(path, content string, opts Options) (string, error) {
+	blk, ok, err := findCodexBlock(path, content, opts)
 	if err != nil || !ok {
 		return content, err
 	}
-	return content[:b] + content[e:], nil
+	return content[:blk.Begin] + blk.Foreign + content[blk.End:], nil
 }
 
 func fileMode(path string) os.FileMode {
@@ -274,12 +337,12 @@ func fileMode(path string) os.FileMode {
 
 // checkCodexTOMLConflict returns the ErrForeignConflict installCodexTOML
 // would, without writing.
-func checkCodexTOMLConflict(path string) error {
+func checkCodexTOMLConflict(path string, opts Options) error {
 	data, err := os.ReadFile(path) //nolint:gosec // caller-chosen config location
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	rest, err := withoutBlock(path, string(data))
+	rest, err := withoutBlock(path, string(data), opts)
 	if err != nil {
 		return err
 	}
@@ -295,20 +358,18 @@ func installCodexTOML(path string, opts Options) error {
 		return err
 	}
 	content := string(data)
-	rest, err := withoutBlock(path, content)
-	if err != nil {
+	if err := checkCodexTOMLConflict(path, opts); err != nil {
 		return err
 	}
-	if foreignBackstoryTable.MatchString(rest) {
-		return fmt.Errorf("%w: %s: %s already defines [mcp_servers.backstory]; left untouched", ErrForeignConflict, ItemCodexMCPServer, path)
-	}
 
-	if b, e, ok, _ := tomlBlockSpan(path, content); ok {
-		noEOL := strings.HasPrefix(content[b:], codexTOMLBeginLine+codexNoEOLFlag)
-		if content[b:e] == codexTOMLBlock(noEOL, opts) {
+	if blk, ok, _ := findCodexBlock(path, content, opts); ok {
+		want := codexTOMLBlock(blk.NoEOL, opts)
+		if content[blk.Begin:blk.End] == want {
 			return nil
 		}
-		return writeAtomic(path, []byte(content[:b]+codexTOMLBlock(noEOL, opts)+content[e:]), fileMode(path))
+		// Foreign lines found inside the block move out, after the end marker.
+		out := content[:blk.Begin] + want + blk.Foreign + content[blk.End:]
+		return writeAtomic(path, []byte(out), fileMode(path))
 	}
 
 	noEOL := content != "" && !strings.HasSuffix(content, "\n")
@@ -321,7 +382,7 @@ func installCodexTOML(path string, opts Options) error {
 	return writeAtomic(path, []byte(content+codexTOMLBlock(noEOL, opts)), fileMode(path))
 }
 
-func removeCodexTOML(path string) error {
+func removeCodexTOML(path string, opts Options) error {
 	data, err := os.ReadFile(path) //nolint:gosec // caller-chosen config location
 	if os.IsNotExist(err) {
 		return nil
@@ -330,43 +391,73 @@ func removeCodexTOML(path string) error {
 		return err
 	}
 	content := string(data)
-	b, e, ok, err := tomlBlockSpan(path, content)
+	blk, ok, err := findCodexBlock(path, content, opts)
 	if err != nil || !ok {
 		return err
 	}
-	noEOL := strings.HasPrefix(content[b:], codexTOMLBeginLine+codexNoEOLFlag)
-	head := content[:b]
-	if noEOL {
+	head := content[:blk.Begin]
+	if blk.NoEOL && blk.Foreign == "" {
 		head = strings.TrimSuffix(head, "\n")
 	}
-	out := head + content[e:]
+	out := head + blk.Foreign + content[blk.End:]
 	if out == "" {
 		return os.Remove(path)
 	}
 	return writeAtomic(path, []byte(out), fileMode(path))
 }
 
+// codexTOMLStatus decides from the TOML tables, not the marker region: the
+// backstory table must exist with Backstory's command and args wherever it
+// sits in the file, and nothing foreign may define it.
 func codexTOMLStatus(path string, opts Options) ItemStatus {
 	data, err := os.ReadFile(path) //nolint:gosec // caller-chosen config location
 	if err != nil {
 		return StatusAbsent
 	}
 	content := string(data)
-	rest, err := withoutBlock(path, content)
+	rest, err := withoutBlock(path, content, opts)
 	if err != nil {
 		return StatusForeign
 	}
 	if foreignBackstoryTable.MatchString(rest) {
 		return StatusForeign
 	}
-	if b, e, ok, _ := tomlBlockSpan(path, content); ok {
-		noEOL := strings.HasPrefix(content[b:], codexTOMLBeginLine+codexNoEOLFlag)
-		if content[b:e] == codexTOMLBlock(noEOL, opts) {
-			return StatusPresent
-		}
-		// Backstory's own older block (another binary path): install rewrites it.
+	if codexBackstoryTableMatches(content, opts) {
+		return StatusPresent
 	}
+	// Absent, or Backstory's own older block (another binary path): install rewrites it.
 	return StatusAbsent
+}
+
+// codexBackstoryTableMatches reports whether content has a
+// [mcp_servers.backstory] table whose only entries are Backstory's command
+// and args.
+func codexBackstoryTableMatches(content string, opts Options) bool {
+	want := map[string]bool{
+		"command = " + strconv.Quote(opts.binaryPath()): true,
+		`args = ["mcp"]`: true,
+	}
+	in, found := false, false
+	seen := 0
+	for _, line := range strings.Split(content, "\n") {
+		trim := strings.TrimSpace(line)
+		if trim == "" || strings.HasPrefix(trim, "#") {
+			continue
+		}
+		if strings.HasPrefix(trim, "[") {
+			in = trim == "[mcp_servers.backstory]"
+			found = found || in
+			continue
+		}
+		if !in {
+			continue
+		}
+		if !want[trim] {
+			return false
+		}
+		seen++
+	}
+	return found && seen == len(want)
 }
 
 // --- hook trust (config.toml hooks.state) ---
