@@ -45,40 +45,46 @@ func (RealProcFS) Status(pid int) (Status, error) {
 		return Status{}, fmt.Errorf("ident: read %s: %w", path, err)
 	}
 
-	st.StartTicks, err = readStartTicks(pid)
+	st.StartTicks, st.SID, err = readStat(pid)
 	if err != nil {
 		return Status{}, err
 	}
 	return st, nil
 }
 
-// readStartTicks reads /proc/<pid>/stat's field 22 (starttime). The comm
+// readStat reads /proc/<pid>/stat's field 22 (starttime) and field 6 (session). The comm
 // field (field 2) is parenthesized and may itself contain spaces or
 // parens, so the field split anchors on the LAST ")" in the line rather
 // than counting from the front — the same trick ps/procps use.
-func readStartTicks(pid int) (uint64, error) {
+func readStat(pid int) (uint64, int, error) {
 	path := "/proc/" + strconv.Itoa(pid) + "/stat"
 	b, err := os.ReadFile(path) //nolint:gosec // path is built from an int pid, not attacker input
 	if err != nil {
-		return 0, fmt.Errorf("ident: read %s: %w", path, err)
+		return 0, 0, fmt.Errorf("ident: read %s: %w", path, err)
 	}
 	s := string(b)
 	close := strings.LastIndexByte(s, ')')
 	if close == -1 || close+2 > len(s) {
-		return 0, fmt.Errorf("ident: parse %s: no comm field", path)
+		return 0, 0, fmt.Errorf("ident: parse %s: no comm field", path)
 	}
 	// fields[0] is state (stat field 3); starttime (stat field 22) is
 	// therefore fields[22-3] = fields[19].
 	fields := strings.Fields(s[close+2:])
 	const startTimeField = 19
+	// session (stat field 6) is fields[6-3].
+	const sessionField = 3
 	if len(fields) <= startTimeField {
-		return 0, fmt.Errorf("ident: parse %s: too few fields after comm", path)
+		return 0, 0, fmt.Errorf("ident: parse %s: too few fields after comm", path)
 	}
 	v, err := strconv.ParseUint(fields[startTimeField], 10, 64)
 	if err != nil {
-		return 0, fmt.Errorf("ident: parse starttime in %s: %w", path, err)
+		return 0, 0, fmt.Errorf("ident: parse starttime in %s: %w", path, err)
 	}
-	return v, nil
+	sid, err := strconv.Atoi(fields[sessionField])
+	if err != nil {
+		return 0, 0, fmt.Errorf("ident: parse session in %s: %w", path, err)
+	}
+	return v, sid, nil
 }
 
 // Cwd resolves the /proc/<pid>/cwd symlink.

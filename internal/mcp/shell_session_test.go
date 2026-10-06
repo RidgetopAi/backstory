@@ -45,7 +45,7 @@ func (f *shellProcFS) Status(pid int) (ident.Status, error) {
 	defer f.mu.Unlock()
 	switch {
 	case pid == f.self:
-		return ident.Status{PPid: f.parent, Name: "backstory", StartTicks: 1}, nil
+		return ident.Status{PPid: 1, SID: f.parent, Name: "backstory", StartTicks: 1}, nil
 	case f.shells[pid]:
 		return ident.Status{PPid: 1, Name: "bash", StartTicks: 7}, nil
 	}
