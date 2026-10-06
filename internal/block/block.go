@@ -129,8 +129,10 @@ func Render(p Params) (string, error) {
 		return "", fmt.Errorf("block: events: %w", err)
 	}
 	var deltaCursor int64
+	handoffSessionID := ""
 	if hasHandoff {
 		deltaCursor = handoff.EventCursor
+		handoffSessionID = handoff.SessionID
 	}
 	deltaEvents, err := p.Store.EventsSinceID(p.ProjectKey, deltaCursor)
 	if err != nil {
@@ -172,6 +174,7 @@ func Render(p Params) (string, error) {
 		return "", fmt.Errorf("block: shell sessions: %w", err)
 	}
 	failure := lastFailure(deltaEvents)
+	testsLine := testsLine(allEvents, p.Now)
 	repoLine, err := repoStateLine(p, handoff, hasHandoff, deltaEvents, shellSessions)
 	if err != nil {
 		return "", err
@@ -180,7 +183,7 @@ func Render(p Params) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	slot2 := joinLines(repoLine, deltaSlot(deltaEvents, shellSessions, p.SessionID), failure.line(p.Now), ledgerLine)
+	slot2 := joinLines(repoLine, deltaSlot(deltaEvents, shellSessions, p.SessionID, handoffSessionID), failure.line(p.Now), testsLine, ledgerLine)
 	slot3 := coordinationSlot(liveSessions, allEvents, p.SessionID, p.ProcFS)
 	slot4 := attentionSlot(draftCount, contradictionCount, len(staleReasons) > 0, failure.found)
 
@@ -380,6 +383,8 @@ func staleReasonClause(r store.FreshnessReason) string {
 		return fmt.Sprintf("%d later record(s) share a path it names (ids %s)", len(r.RecordIDs), idList)
 	case store.FreshnessLaterActivity:
 		return fmt.Sprintf("%d later edit(s) to files it names (ids %s)", len(r.EventIDs), idList)
+	case store.FreshnessLaterFailure:
+		return fmt.Sprintf("%d later non-zero exit(s) (ids %s)", len(r.EventIDs), idList)
 	default:
 		return fmt.Sprintf("%s (ids %s)", r.Kind, idList)
 	}
@@ -408,14 +413,26 @@ func staleReasonClause(r store.FreshnessReason) string {
 // shellSessions are the sessions (store.ShellSessionIDs) a delta never counts
 // in its "N sessions": a shell's captured commands are not agent work.
 func DeltaSummary(events []store.TimelineEvent, shellSessions map[string]bool, selfSessionID string) string {
-	return deltaSlot(events, shellSessions, selfSessionID)
+	return deltaSlot(events, shellSessions, selfSessionID, "")
 }
 
-func deltaSlot(events []store.TimelineEvent, shellSessions map[string]bool, selfSessionID string) string {
+// deltaSlot also never counts the run that wrote the Resume handoff
+// (handoffSessionID, "" when there is none): it is the handoff's own source,
+// not later news, yet its session.end lands after the handoff's cursor
+// ("Delta: 1 sessions" right after session 1).
+func deltaSlot(events []store.TimelineEvent, shellSessions map[string]bool, selfSessionID, handoffSessionID string) string {
+	handoffRun := ""
+	for _, e := range events {
+		if handoffSessionID != "" && e.SessionID == handoffSessionID {
+			handoffRun = e.Run()
+			break
+		}
+	}
 	sessions := map[string]bool{}
 	files := map[string]bool{}
 	for _, e := range events {
-		if e.SessionID != "" && e.SessionID != selfSessionID && !shellSessions[e.SessionID] {
+		if e.SessionID != "" && e.SessionID != selfSessionID && !shellSessions[e.SessionID] &&
+			e.SessionID != handoffSessionID && (handoffRun == "" || e.Run() != handoffRun) {
 			// By run, not session row: duplicate rows for one run count once.
 			sessions[e.Run()] = true
 		}
@@ -469,7 +486,8 @@ type failure struct {
 // restricted to those since the handoff, ordered by id): a shell `command`
 // event with a non-zero exit, or a tool.result that is_error or carries a
 // non-zero exit (its command is read back from the matching tool.use). A
-// later result for the same subject clears it: the same Bash command text, or
+// later result for the same subject clears it: the same Bash command (by
+// commandKey, so `-v` or a piped `| tail` does not make it a different one), or
 // the same tool and path, coming back as a non-error tool.result or a shell
 // event with exit 0. A different command passing says nothing about the one
 // that failed, so it clears nothing.
@@ -493,7 +511,7 @@ func lastFailure(events []store.TimelineEvent) failure {
 		case payload.KindToolUse:
 			var tu payload.ToolUse
 			if json.Unmarshal([]byte(e.Payload), &tu) == nil && tu.ToolUseID != "" {
-				sub := subject{cmd: tu.Command, key: "cmd:" + tu.Command}
+				sub := subject{cmd: tu.Command, key: "cmd:" + commandKey(tu.Command)}
 				if tu.Command == "" {
 					sub.cmd = tu.Name
 					sub.key = "tool:" + tu.Name + ":" + tu.Path
@@ -528,7 +546,7 @@ func lastFailure(events []store.TimelineEvent) failure {
 			if json.Unmarshal([]byte(e.Payload), &sc) != nil {
 				continue
 			}
-			key := "cmd:" + sc.Cmd
+			key := "cmd:" + commandKey(sc.Cmd)
 			clear(key)
 			if sc.Exit == 0 {
 				continue
