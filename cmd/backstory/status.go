@@ -5,14 +5,12 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"os"
 
 	"github.com/RidgetopAi/backstory/internal/mcp"
 )
 
-// noSessionEnv, when set, makes `backstory status` ask the daemon not to
-// record a session for the call. ops/install.sh sets it so the installer's
-// health probe never makes the build directory a project in the user's memory.
+// noSessionEnv, when set, makes the SessionStart hook ask the daemon not to
+// record a session. `backstory status` never records one regardless.
 const noSessionEnv = "BACKSTORY_NO_SESSION"
 
 // runStatus is the `backstory status` subcommand: it connects to the daemon,
@@ -35,9 +33,9 @@ func runStatus(_ []string, stdout, stderr io.Writer) int {
 		return conn, dErr
 	})
 	defer func() { _ = srv.Close() }()
-	if os.Getenv(noSessionEnv) != "" {
-		srv.WithoutSession()
-	}
+	// A read-only CLI call never mints a session; noSessionEnv is kept for
+	// callers that set it and is now redundant here.
+	srv.WithoutSession()
 
 	raw, rerr := srv.CallTool(mcp.ToolStatus, nil)
 	if rerr != nil {

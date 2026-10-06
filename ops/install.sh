@@ -150,7 +150,10 @@ do_install() {
 		mv "$PANEL" "$PANEL_PREV"
 		echo "previous panel backed up to $PANEL_PREV"
 	fi
-	cp -a "$SRC/panel" "$PANEL"
+	# Runtime files only: the manifest, the QML types and their JS. The
+	# panel's Go tests, testdata and qmltest/ stay in the source tree.
+	mkdir -p "$PANEL"
+	cp -a "$SRC/panel/manifest.json" "$SRC"/panel/*.qml "$SRC/panel/js" "$PANEL/"
 	echo "installed $PANEL"
 
 	# New QML types need a shell restart, which must not happen over a

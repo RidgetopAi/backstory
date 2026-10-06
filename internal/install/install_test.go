@@ -354,3 +354,30 @@ func TestOutdatedSkillFlowsThroughCheckAndInstall(t *testing.T) {
 		t.Fatalf("skill status after install = %s, want present", got)
 	}
 }
+
+// TestRemoveLeavesNoEmptySkillsDir: install then remove on a fixture HOME
+// leaves no backstory dir under .claude/skills; a user's own skill beside it
+// is untouched.
+func TestRemoveLeavesNoEmptySkillsDir(t *testing.T) {
+	home := t.TempDir()
+	paths := install.DefaultPaths(home)
+	opts := install.Options{Prefix: t.TempDir()}
+	userSkill := filepath.Join(home, ".claude", "skills", "mine", "SKILL.md")
+	mustWriteFile(t, userSkill, "user skill")
+
+	if err := install.Install(paths, opts); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(paths.SkillPath); err != nil {
+		t.Fatalf("skill not installed: %v", err)
+	}
+	if err := install.Remove(paths, opts); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Dir(paths.SkillPath)); !os.IsNotExist(err) {
+		t.Errorf("backstory skill dir remains after remove: %v", err)
+	}
+	if b, err := os.ReadFile(userSkill); err != nil || string(b) != "user skill" { //nolint:gosec // fixture path
+		t.Errorf("user skill disturbed: %q %v", b, err)
+	}
+}
