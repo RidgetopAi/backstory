@@ -278,9 +278,14 @@ func runInstallBash(args []string, stdout, stderr io.Writer) int {
 			_, _ = fmt.Fprintf(stderr, "backstory install bash: --binary must be an absolute path, got %q\n", *binary)
 			return 2
 		}
+		already := install.BashrcStatus(path) == install.StatusPresent
 		if err := install.InstallBashrcBinary(path, *binary); err != nil {
 			_, _ = fmt.Fprintln(stderr, "backstory install bash:", err)
 			return 1
+		}
+		if already {
+			_, _ = fmt.Fprintf(stdout, "bashrc: shell command capture block already installed in %s\n", path)
+			return 0
 		}
 		_, _ = fmt.Fprintf(stdout, "bashrc: shell command capture block added to %s\n", path)
 		return 0

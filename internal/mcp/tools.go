@@ -6,7 +6,11 @@
 // identity), it only relays tool arguments.
 package mcp
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/RidgetopAi/backstory/internal/block"
+)
 
 // Tool names, frozen at v0. No `discover`; the descriptions carry the
 // contract (AGENT-CONTRACT.md §The five tools).
@@ -63,7 +67,7 @@ func ToolsV0() []Tool {
 		},
 		{
 			Name:        ToolNote,
-			Description: "The one write. Returns the record id and its provenance tier.",
+			Description: "The one write. Returns the record id and its provenance tier. Write a handoff when the session changed or learned something the next session needs; " + block.ReadOnlyHandoffClause + ".",
 			InputSchema: json.RawMessage(`{
 				"type": "object",
 				"properties": {

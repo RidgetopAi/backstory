@@ -3,7 +3,10 @@ package mcp
 import (
 	"encoding/json"
 	"os"
+	"strings"
 	"testing"
+
+	"github.com/RidgetopAi/backstory/internal/block"
 )
 
 // TestToolsV0MatchesFrozenSnapshotByteForByte is DONE WHEN clause 1: tools/list
@@ -134,4 +137,18 @@ func TestCheckAdditiveOnlyEncodesTheAdditiveOnlyRule(t *testing.T) {
 			t.Fatal("CheckAdditiveOnly accepted a new required field (about), want an error")
 		}
 	})
+}
+
+// TestNoteDescriptionSaysReadOnlySessionKeepsHandoff: the note tool's
+// description carries the shared read-only clause (task df6646f5).
+func TestNoteDescriptionSaysReadOnlySessionKeepsHandoff(t *testing.T) {
+	for _, tl := range ToolsV0() {
+		if tl.Name == ToolNote {
+			if !strings.Contains(tl.Description, block.ReadOnlyHandoffClause) {
+				t.Fatalf("note description lacks %q: %s", block.ReadOnlyHandoffClause, tl.Description)
+			}
+			return
+		}
+	}
+	t.Fatal("no note tool")
 }
