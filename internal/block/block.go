@@ -612,7 +612,17 @@ func ledgerLine(p Params) (string, error) {
 func coordinationSlot(sessions []store.Session, events []store.TimelineEvent, selfSessionID string, procfs ident.ProcFS) string {
 	branches := latestBranchPerSession(events)
 
+	// The reader's own pid is never "another session": a restarted daemon or
+	// a second chat in the same harness process leaves rows under it.
+	var selfPID int
+	for _, s := range sessions {
+		if s.ID == selfSessionID && s.PID != nil {
+			selfPID = *s.PID
+		}
+	}
+
 	var lines []string
+	seenPID := map[int]bool{}
 	for _, s := range sessions {
 		if s.ID == selfSessionID {
 			continue
@@ -620,11 +630,16 @@ func coordinationSlot(sessions []store.Session, events []store.TimelineEvent, se
 		if s.Origin != store.OriginLive {
 			continue
 		}
-		if !pidAlive(procfs, s.PID) {
+		if !harnessAlive(procfs, s.PID, s.Agent) {
 			continue
 		}
+		// sessions is newest first: the first row seen for a pid wins.
+		if *s.PID == selfPID || seenPID[*s.PID] {
+			continue
+		}
+		seenPID[*s.PID] = true
 		line := fmt.Sprintf("- %s in %s", s.Agent, s.CWD)
-		if branch, ok := branches[s.ID]; ok && branch != "" {
+		if branch, ok := branches[s.ID]; ok && branch != "" && branch != detachedHead {
 			line += fmt.Sprintf(" (branch %s)", branch)
 		}
 		lines = append(lines, line)
@@ -634,6 +649,10 @@ func coordinationSlot(sessions []store.Session, events []store.TimelineEvent, se
 	}
 	return "Coordination:\n" + strings.Join(lines, "\n")
 }
+
+// detachedHead is what git reports as the branch of a detached HEAD; it
+// names no branch, so the coordination line omits it.
+const detachedHead = "HEAD"
 
 // latestBranchPerSession maps a session id to the most recently observed
 // git branch from its session.start events. events is ordered by id
@@ -655,16 +674,17 @@ func latestBranchPerSession(events []store.TimelineEvent) map[string]string {
 	return out
 }
 
-// pidAlive reports whether pid is a live process, using the same ProcFS
-// abstraction the identity resolver uses (AGENT-CONTRACT.md §Observed
-// identity) rather than reading /proc directly: ProcFS.Status returns an
-// error for a pid with no /proc entry.
-func pidAlive(procfs ident.ProcFS, pid *int) bool {
+// harnessAlive reports whether pid is still the harness process the session
+// recorded, not merely a live process: the pid must have a /proc entry (the
+// same ProcFS abstraction the identity resolver uses, AGENT-CONTRACT.md
+// §Observed identity) and its comm (Status.Name) must be the recorded agent,
+// so a pid the kernel recycled for an unrelated process is not listed.
+func harnessAlive(procfs ident.ProcFS, pid *int, agent string) bool {
 	if procfs == nil || pid == nil || *pid == 0 {
 		return false
 	}
-	_, err := procfs.Status(*pid)
-	return err == nil
+	st, err := procfs.Status(*pid)
+	return err == nil && st.Name == agent
 }
 
 // attentionSlot is slot 4: unconfirmed inferred drafts, contradictions

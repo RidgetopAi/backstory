@@ -2,8 +2,10 @@ package mcp
 
 import (
 	"sync"
+	"time"
 
 	"github.com/RidgetopAi/backstory/internal/ident"
+	"github.com/RidgetopAi/backstory/internal/store"
 )
 
 // harnessKey identifies one observed harness process instance: the daemon's
@@ -36,6 +38,21 @@ type locationKey struct {
 // the session's point of view both mean the harness process it was opened
 // for is gone (task 25b74537).
 const ReasonHarnessExited = "harness-exited"
+
+// ReasonDaemonRestarted is the exit_kind EndOrphanedSessions records for a
+// session row a previous daemon run left live: the registry that owned it
+// died with that run, so no connection can still be writing to it (task
+// 6d68ac6f).
+const ReasonDaemonRestarted = "daemon-restarted"
+
+// EndOrphanedSessions ends every live session row still open in st, at now,
+// with ReasonDaemonRestarted. It must run at daemon start before the socket
+// listens, so a row "re-bound by a live connection" cannot exist yet: a
+// harness that is still running re-opens a fresh session on its next
+// connection. It returns how many rows it ended.
+func EndOrphanedSessions(st *store.Store, now time.Time) (int, error) {
+	return st.EndLiveSessionsLeftOpen(now, ReasonDaemonRestarted)
+}
 
 // SessionRegistry maps each observed harness process to the one live store
 // session every connection from that process shares, for the lifetime of
