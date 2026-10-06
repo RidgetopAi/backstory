@@ -4,9 +4,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/RidgetopAi/backstory/internal/payload"
+	"github.com/RidgetopAi/backstory/internal/testsecrets"
 )
 
 func TestRedactionOnInsertAndReadback(t *testing.T) {
@@ -148,5 +150,69 @@ func TestElideMiddleKeepsHeadTailWithinCap(t *testing.T) {
 	}
 	if short := "short"; payload.ElideMiddle(short, 100) != short {
 		t.Error("short input must pass through unchanged")
+	}
+}
+
+// TestRedactFamilyTable: every credential family the store's users hold is
+// scrubbed from a note's records.text, and an env-style line keeps its name.
+func TestRedactFamilyTable(t *testing.T) {
+	for _, f := range testsecrets.All() {
+		t.Run(f.Family, func(t *testing.T) {
+			got := Redact(f.Text)
+			if strings.Contains(got, f.Secret) {
+				t.Fatalf("Redact left the secret in place: %q", got)
+			}
+			if !strings.Contains(got, "[redacted:") {
+				t.Fatalf("Redact(%q) = %q, want a marker", f.Text, got)
+			}
+			if f.Keep != "" && !strings.Contains(got, f.Keep) {
+				t.Fatalf("Redact dropped the variable name %q: %q", f.Keep, got)
+			}
+
+			st := mustOpen(t, filepath.Join(t.TempDir(), "backstory.db"))
+			id, err := st.InsertRecord(InsertRecordParams{Identity: Identity{Kind: IdentityAgent}, Kind: KindNote, Text: f.Text})
+			if err != nil {
+				t.Fatalf("InsertRecord: %v", err)
+			}
+			rec, err := st.GetRecord(id)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(rec.Text, f.Secret) || (f.Keep != "" && !strings.Contains(rec.Text, f.Keep)) {
+				t.Fatalf("records.text = %q", rec.Text)
+			}
+			if _, err := st.AppendEvent(Event{TS: time.Now(), Kind: "shell.command", Source: "shell", Payload: f.Text}); err != nil {
+				t.Fatalf("AppendEvent: %v", err)
+			}
+			var stored string
+			if err := st.DB().QueryRow(`SELECT payload FROM timeline_events`).Scan(&stored); err != nil {
+				t.Fatal(err)
+			}
+			if strings.Contains(stored, f.Secret) {
+				t.Fatalf("stored payload carries the secret: %q", stored)
+			}
+		})
+	}
+}
+
+// TestRedactLeavesProseAlone: ordinary words, shas and uuids are not secrets.
+func TestRedactLeavesProseAlone(t *testing.T) {
+	for _, in := range []string{
+		"the token bucket",
+		"set the Authorization header",
+		"commit 0123456789abcdef0123456789abcdef01234567 landed",
+		"id 123e4567-e89b-12d3-a456-426614174000",
+		"export PATH=/usr/bin",
+	} {
+		if got := Redact(in); got != in {
+			t.Errorf("Redact(%q) = %q, want unchanged", in, got)
+		}
+	}
+	got := Redact("bearer Authorization: Bearer X")
+	if got != "bearer Authorization: Bearer X" {
+		t.Errorf("bearer prose = %q, want unchanged (words bearer and Authorization kept)", got)
+	}
+	if got := Redact("Authorization: Bearer abcdef0123456789"); strings.Contains(got, "abcdef0123456789") {
+		t.Errorf("real bearer token survived: %q", got)
 	}
 }
