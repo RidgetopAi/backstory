@@ -508,3 +508,48 @@ func TestBlockResumeIDRoundTripsIntoNoteSupersedesEdge(t *testing.T) {
 		t.Errorf("supersedes edge %s -> %s count = %d, want 1", second.ID, first.ID, n)
 	}
 }
+
+// TestNoteOutcomeEvidenceMustNameRealTimelineEvents is the evidence twin of
+// the unknown-link test: an outcome citing a timeline event id that does not
+// exist is rejected whole, naming the id, storing no record and no edge; a
+// real event id is stored.
+func TestNoteOutcomeEvidenceMustNameRealTimelineEvents(t *testing.T) {
+	st := mustOpenStore(t)
+	sockPath := testDaemon(t, st, "claude", "/home/brian/proj", "proj-key")
+	shim := dialShim(t, sockPath)
+
+	before := countStoreRecords(t, st)
+	_, rerr := shim.CallTool(ToolNote, json.RawMessage(
+		`{"kind":"outcome","text":"it worked","evidence":[99999999]}`))
+	if rerr == nil {
+		t.Fatal("CallTool(note) with a nonexistent evidence id = nil error, want a rejection")
+	}
+	if rerr.Code != CodeInvalidParams {
+		t.Errorf("error code = %d, want %d (CodeInvalidParams)", rerr.Code, CodeInvalidParams)
+	}
+	if !strings.Contains(rerr.Message, "99999999") {
+		t.Errorf("error message = %q, want it to name the bad id 99999999", rerr.Message)
+	}
+	if got := countStoreRecords(t, st); got != before {
+		t.Errorf("record count = %d after a rejected note, want unchanged %d", got, before)
+	}
+	var edgeCount int
+	if err := st.DB().QueryRow(`SELECT COUNT(*) FROM edges`).Scan(&edgeCount); err != nil {
+		t.Fatal(err)
+	}
+	if edgeCount != 0 {
+		t.Errorf("edges count = %d after a rejected note, want 0", edgeCount)
+	}
+
+	evID, err := st.AppendEvent(store.Event{TS: time.Now(), Kind: "tool.use", Source: "posttooluse", Payload: `{}`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, rerr := shim.CallTool(ToolNote, json.RawMessage(
+		fmt.Sprintf(`{"kind":"outcome","text":"it worked","evidence":[%d]}`, evID))); rerr != nil {
+		t.Fatalf("CallTool(note) with a real evidence id: %v", rerr)
+	}
+	if got := countStoreRecords(t, st); got != before+1 {
+		t.Errorf("record count = %d, want %d after the valid note", got, before+1)
+	}
+}

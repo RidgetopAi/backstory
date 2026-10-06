@@ -57,7 +57,7 @@ func runBackfillClaude(args []string, stdout, stderr io.Writer) int {
 	}
 	defer func() { _ = st.Close() }()
 
-	res, err := claude.Import(st, claude.Options{Root: *root})
+	res, err := claude.Import(st, claude.Options{Root: *root, CaptureOff: captureOff})
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory backfill claude:", err)
 		return 1
@@ -89,7 +89,7 @@ func runBackfillCodex(args []string, stdout, stderr io.Writer) int {
 	}
 	defer func() { _ = st.Close() }()
 
-	res, err := codex.Import(st, codex.Options{Root: *root})
+	res, err := codex.Import(st, codex.Options{Root: *root, CaptureOff: captureOff})
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory backfill codex:", err)
 		return 1
@@ -121,7 +121,7 @@ func runBackfillHermes(args []string, stdout, stderr io.Writer) int {
 	}
 	defer func() { _ = st.Close() }()
 
-	res, err := hermes.Import(st, hermes.Options{Path: *path})
+	res, err := hermes.Import(st, hermes.Options{Path: *path, CaptureOff: captureOff})
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory backfill hermes:", err)
 		return 1
@@ -153,7 +153,7 @@ func runBackfillPi(args []string, stdout, stderr io.Writer) int {
 	}
 	defer func() { _ = st.Close() }()
 
-	res, err := pi.Import(st, pi.Options{Root: *root})
+	res, err := pi.Import(st, pi.Options{Root: *root, CaptureOff: captureOff})
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory backfill pi:", err)
 		return 1

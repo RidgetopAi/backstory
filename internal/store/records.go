@@ -171,6 +171,16 @@ func (s *Store) InsertRecordWithEdges(p InsertRecordParams, edges []EdgeSpec) (s
 		return "", fmt.Errorf("store: insert record: %w", err)
 	}
 
+	for _, evID := range p.Evidence {
+		var found int
+		if err := tx.QueryRow(`SELECT COUNT(*) FROM timeline_events WHERE id = ?`, evID).Scan(&found); err != nil {
+			return "", fmt.Errorf("store: check evidence event %d: %w", evID, err)
+		}
+		if found == 0 {
+			return "", &UnknownEvidenceError{ID: evID}
+		}
+	}
+
 	for _, e := range edges {
 		var exists int
 		if err := tx.QueryRow(`SELECT COUNT(*) FROM records WHERE id = ?`, e.OtherID).Scan(&exists); err != nil {

@@ -14,6 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/RidgetopAi/backstory/internal/backfill/capture"
 	"github.com/RidgetopAi/backstory/internal/payload"
 	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/store"
@@ -74,6 +75,10 @@ type Options struct {
 	// checked against before falling back to a repo/path key (decision
 	// bcc9fa54). Nil uses project.DefaultWorkspaceDirs().
 	Workspaces []string
+	// CaptureOff reports whether capture is paused (SCHEMA.md invariant 8).
+	// While it is, Import imports nothing; a session that started inside a
+	// recorded pause window is never imported. Nil means no flag to consult.
+	CaptureOff capture.OffFunc
 }
 
 // Result is Import's one-line summary: `backstory backfill claude` prints
@@ -98,6 +103,11 @@ func (r Result) String() string {
 // never an error — a fresh Omarchy install with no ~/.claude yet must not
 // fail the daemon's on-start run.
 func Import(st *store.Store, opts Options) (Result, error) {
+	if paused, err := capture.Off(opts.CaptureOff); err != nil {
+		return Result{}, err
+	} else if paused {
+		return Result{}, nil
+	}
 	root := opts.Root
 	if root == "" {
 		r, err := DefaultRoot()
@@ -128,7 +138,7 @@ func Import(st *store.Store, opts Options) (Result, error) {
 	var res Result
 	for _, f := range files {
 		res.FilesScanned++
-		stats, err := importFile(st, git, workspaces, f)
+		stats, err := importFile(st, git, workspaces, opts.CaptureOff, f)
 		if err != nil {
 			return res, fmt.Errorf("backfill/claude: import %s: %w", f, err)
 		}
@@ -161,7 +171,7 @@ type fileStats struct {
 // (cwd/branch/version/project resolved from the batch, session.start and
 // session.end emitted); a later run against the same file only appends
 // tool.use/tool.result events for whatever lines were appended since.
-func importFile(st *store.Store, git project.Git, workspaces []string, path string) (fileStats, error) {
+func importFile(st *store.Store, git project.Git, workspaces []string, captureOff capture.OffFunc, path string) (fileStats, error) {
 	cursor, exists, err := st.GetBackfillCursor(Source, path)
 	if err != nil {
 		return fileStats{}, err
@@ -228,6 +238,14 @@ func importFile(st *store.Store, git project.Git, workspaces []string, path stri
 	lastTS := parsedLines[len(parsedLines)-1].Timestamp
 
 	if !exists {
+		// A session that started while capture was paused is never imported,
+		// even after capture is back on (SCHEMA.md invariant 8). The cursor
+		// stays unset, so the decision is re-made on every run.
+		if paused, err := capture.SessionPaused(st, captureOff, firstTS); err != nil {
+			return fileStats{}, err
+		} else if paused {
+			return fileStats{}, nil
+		}
 		// A transcript never imported whose session was purged (a live
 		// session the human erased) must not come back either.
 		if purged, err := st.HarnessSessionPurged(firstHarnessSessionID(parsedLines)); err != nil {

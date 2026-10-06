@@ -5,7 +5,26 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
+
+	"github.com/RidgetopAi/backstory/internal/store"
 )
+
+// recordCapturePause opens the memory store and applies fn to it: the pause
+// windows live there (store.CapturePause) so backfill can refuse a session
+// that started during a pause even after capture is back on.
+func recordCapturePause(fn func(st *store.Store) error) error {
+	dbPath, err := storePath()
+	if err != nil {
+		return err
+	}
+	st, err := openStore(dbPath)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = st.Close() }()
+	return fn(st)
+}
 
 // runCapture is the `backstory capture off|on|status` subcommand. off and
 // on write and remove the exact same capture-off flag file
@@ -47,6 +66,14 @@ func runCaptureOff(stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintln(stderr, "backstory capture off:", err)
 		return 1
 	}
+	// The flag file is already in place, so capture is off even if recording
+	// the window fails; the error is still reported.
+	if err := recordCapturePause(func(st *store.Store) error {
+		return st.BeginCapturePause(time.Now())
+	}); err != nil {
+		_, _ = fmt.Fprintln(stderr, "backstory capture off: record pause window:", err)
+		return 1
+	}
 	_, _ = fmt.Fprintln(stdout, "capture: off")
 	return 0
 }
@@ -57,6 +84,14 @@ func runCaptureOn(stdout, stderr io.Writer) int {
 	path, err := captureOffPath()
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory capture on:", err)
+		return 1
+	}
+	// Close the window before the flag goes: if that fails capture stays off
+	// rather than leaving a window open forever behind a capture-on flag.
+	if err := recordCapturePause(func(st *store.Store) error {
+		return st.EndCapturePause(time.Now())
+	}); err != nil {
+		_, _ = fmt.Fprintln(stderr, "backstory capture on: record pause window:", err)
 		return 1
 	}
 	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {

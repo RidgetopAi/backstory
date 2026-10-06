@@ -203,6 +203,10 @@ func handleNote(st *store.Store, git project.Git, identity store.Identity, sessi
 		if errors.As(err, &capErr) {
 			return errResponse("rate-limited", capErr.Error())
 		}
+		var evErr *store.UnknownEvidenceError
+		if errors.As(err, &evErr) {
+			return errResponse("invalid-params", fmt.Sprintf("unknown evidence id %d: no such timeline event", evErr.ID))
+		}
 		var edgeErr *store.UnknownEdgeTargetError
 		if errors.As(err, &edgeErr) {
 			return errResponse("invalid-params", edgeErr.Error())

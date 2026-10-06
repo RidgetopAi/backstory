@@ -383,7 +383,10 @@ func TestBuildMarksContradictedStatusWithEvidenceIDs(t *testing.T) {
 	sessionID := mustStartSession(t, st, "proj-a")
 
 	claim := mustInsertRecord(t, st, sessionID, "proj-a", store.KindNote, "claim: the migration is done")
-	evidence := []int64{101, 102}
+	evidence := []int64{
+		mustAppendToolUseEvent(t, st, sessionID, "Bash", ""),
+		mustAppendToolUseEvent(t, st, sessionID, "Bash", ""),
+	}
 	contradiction := mustInsertRecordWithEvidence(t, st, sessionID, "proj-a", store.KindNote,
 		"actually the migration failed", evidence)
 	mustLinkEdge(t, st, contradiction, claim, store.EdgeContradicts, sessionID)
