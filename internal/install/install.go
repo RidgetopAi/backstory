@@ -40,6 +40,9 @@ const (
 	StatusForeign ItemStatus = "foreign-conflict"
 	// StatusOutdated is the skill file matching a past embedded version.
 	StatusOutdated ItemStatus = "outdated"
+	// StatusNotTrusted is a hook installed but not approved in the harness
+	// (Codex's hooks.state trusted_hash), so the harness will not run it.
+	StatusNotTrusted ItemStatus = "not-trusted"
 )
 
 // MCPServerName is the mcpServers key this installer owns exclusively

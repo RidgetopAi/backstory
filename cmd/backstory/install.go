@@ -162,6 +162,9 @@ func runInstallInstall(adapters []install.Adapter, home string, opts install.Opt
 			return 1
 		}
 		_, _ = fmt.Fprintf(stdout, "%s: installed\n", a.Name())
+		if n, ok := a.(interface{ InstallNotice() string }); ok {
+			_, _ = fmt.Fprintln(stdout, n.InstallNotice())
+		}
 	}
 	return 0
 }

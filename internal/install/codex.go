@@ -51,6 +51,24 @@ const (
 
 var codexStubBlock = StubMarkerBegin + "\n" + CodexStubLine + "\n" + StubMarkerEnd + "\n"
 
+// Codex 0.151 only runs a hook whose hash is recorded in config.toml under
+//
+//	[hooks.state."<hooks.json path>:<event>:<group>:<handler>"]
+//	trusted_hash = "..."
+//
+// Codex derives that hash itself and we cannot reproduce it reliably from
+// outside, so Backstory never writes trust entries: it tells the user to
+// approve the hooks in codex and --check reports StatusNotTrusted until an
+// entry for each hook's key exists. The entries are the user's (written by
+// codex), so --remove leaves them alone.
+const (
+	codexEventSessionStart = "session_start"
+	codexEventPostToolUse  = "post_tool_use"
+
+	// CodexTrustNotice is the one line printed after `install codex`.
+	CodexTrustNotice = "codex: action needed: start codex and approve the Backstory hooks (SessionStart, PostToolUse); until then Codex 0.151 will not run them, and `backstory install --check` reports them as not-trusted"
+)
+
 // ErrForeignConflict marks an item whose slot is occupied by something
 // backstory did not write. The item is left untouched.
 var ErrForeignConflict = errors.New("foreign-conflict")
@@ -88,6 +106,9 @@ func (codexAdapter) Name() string { return HarnessCodex }
 func (codexAdapter) Install(home string, opts Options) error {
 	return InstallCodex(DefaultCodexPaths(home), opts)
 }
+
+// InstallNotice is printed by the CLI after a successful install.
+func (codexAdapter) InstallNotice() string { return CodexTrustNotice }
 
 func (codexAdapter) Remove(home string, opts Options) error {
 	return RemoveCodex(DefaultCodexPaths(home), opts)
@@ -183,8 +204,8 @@ func CheckCodex(paths CodexPaths, opts Options) ([]Item, error) {
 	}
 	return []Item{
 		{Name: ItemCodexMCPServer, Status: codexTOMLStatus(paths.ConfigTOML)},
-		{Name: ItemSessionStartHook, Status: hookEntryStatus(hooksRoot, "SessionStart", codexHookEntry(CodexHookCommandSessionStart, opts.timeoutSeconds()))},
-		{Name: ItemPostToolUseHook, Status: hookEntryStatus(hooksRoot, "PostToolUse", codexHookEntry(CodexHookCommandPostToolUse, opts.timeoutSeconds()))},
+		{Name: ItemSessionStartHook, Status: codexHookStatus(paths, hooksRoot, "SessionStart", codexEventSessionStart, codexHookEntry(CodexHookCommandSessionStart, opts.timeoutSeconds()))},
+		{Name: ItemPostToolUseHook, Status: codexHookStatus(paths, hooksRoot, "PostToolUse", codexEventPostToolUse, codexHookEntry(CodexHookCommandPostToolUse, opts.timeoutSeconds()))},
 		{Name: ItemCodexAgentsMD, Status: stubBlockStatus(paths.AgentsMD, codexStubBlock)},
 		{Name: ItemCodexSkill, Status: ItemStatus(skill.CheckStatus(paths.SkillPath, opts.Prefix))},
 	}, nil
@@ -387,4 +408,71 @@ func codexTOMLStatus(path string) ItemStatus {
 		return StatusPresent
 	}
 	return StatusAbsent
+}
+
+// --- hook trust (config.toml hooks.state) ---
+
+// codexHookStatus is hookEntryStatus, downgraded to StatusNotTrusted when the
+// hook is installed but config.toml has no trusted_hash for its key.
+func codexHookStatus(paths CodexPaths, root map[string]any, event, label string, want map[string]any) ItemStatus {
+	st := hookEntryStatus(root, event, want)
+	if st != StatusPresent {
+		return st
+	}
+	group := codexGroupIndex(root, event, want)
+	key := fmt.Sprintf("%s:%s:%d:0", paths.HooksJSON, label, group)
+	if codexHookTrusted(paths.ConfigTOML, key) {
+		return StatusPresent
+	}
+	return StatusNotTrusted
+}
+
+func codexGroupIndex(root map[string]any, event string, want map[string]any) int {
+	hooksObj, _ := root["hooks"].(map[string]any)
+	arr, _ := hooksObj[event].([]any)
+	for i, e := range arr {
+		if jsonDeepEqual(e, want) {
+			return i
+		}
+	}
+	return 0
+}
+
+var (
+	tomlTableHeader = regexp.MustCompile(`^\s*\[`)
+	tomlTrustedHash = regexp.MustCompile(`^\s*trusted_hash\s*=\s*(?:"[^"]+"|'[^']+')`)
+)
+
+// codexHookTrusted reports whether config.toml has a non-empty trusted_hash
+// in the [hooks.state."<key>"] table. The hash itself is not verified.
+func codexHookTrusted(configPath, key string) bool {
+	data, err := os.ReadFile(configPath) //nolint:gosec // caller-chosen config location
+	if err != nil {
+		return false
+	}
+	escaped := strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(key)
+	headers := []string{
+		`[hooks.state."` + escaped + `"]`,
+		`[hooks.state.'` + key + `']`,
+	}
+	in := false
+	for _, line := range strings.Split(string(data), "\n") {
+		trim := strings.TrimSpace(line)
+		if tomlTableHeader.MatchString(line) {
+			in = false
+			if i := strings.LastIndex(trim, "]"); i >= 0 {
+				head := trim[:i+1]
+				for _, h := range headers {
+					if head == h {
+						in = true
+					}
+				}
+			}
+			continue
+		}
+		if in && tomlTrustedHash.MatchString(line) {
+			return true
+		}
+	}
+	return false
 }
