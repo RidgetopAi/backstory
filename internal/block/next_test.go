@@ -56,7 +56,7 @@ func TestRenderResumeSlotOmitsNextWhenHandoffHasNone(t *testing.T) {
 	self := mustStartSession(t, s, "claude", "/proj", 100)
 	mustInsertHandoffWithNext(t, s, self, "did the first part", "")
 
-	if out := renderFor(t, s, self); strings.Contains(out, "Next:") {
+	if out := renderFor(t, s, self); strings.Contains(out, "Next") {
 		t.Fatalf("handoff with no next must render no Next line; got:\n%s", out)
 	}
 }
