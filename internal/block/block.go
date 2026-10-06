@@ -526,7 +526,7 @@ func lastFailure(events []store.TimelineEvent) failure {
 			sub, known := toolSubject[tr.ToolUseID]
 			failed := tr.IsError || (tr.Exit != nil && *tr.Exit != 0)
 			if !failed {
-				if known {
+				if known && !exitUnobserved(sub.cmd) {
 					clear(sub.key)
 				}
 				continue
@@ -547,10 +547,13 @@ func lastFailure(events []store.TimelineEvent) failure {
 				continue
 			}
 			key := "cmd:" + commandKey(sc.Cmd)
-			clear(key)
 			if sc.Exit == 0 {
+				if !exitUnobserved(sc.Cmd) {
+					clear(key)
+				}
 				continue
 			}
+			clear(key)
 			open = append(open, failure{found: true, cmd: sc.Cmd, exit: sc.Exit, ts: e.TS})
 			keys = append(keys, key)
 		}

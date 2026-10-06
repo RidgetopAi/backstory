@@ -28,20 +28,82 @@ var testRunners = []string{
 	"make check",
 }
 
-// commandSeparators end the part of a command line that names what runs: a
-// pipe, `;`, `&&` or `||` hands the rest to something else.
-var commandSeparators = regexp.MustCompile(`\|\||&&|\||;`)
+// commandSeparators split a command into segments: a newline, `;`, `&&`,
+// `||` or a pipe hands the rest to something else.
+var commandSeparators = regexp.MustCompile(`\|\||&&|\||;|\n`)
 
 // redirectToken matches shell redirection words such as `2>&1` or `>out`.
 var redirectToken = regexp.MustCompile(`^\d*[<>]`)
 
-// commandHead is cmd's text before the first separator, whitespace collapsed.
-func commandHead(cmd string) string {
-	if loc := commandSeparators.FindStringIndex(cmd); loc != nil {
-		cmd = cmd[:loc[0]]
+// pipefailSetting matches a `set` segment that turns pipefail on, e.g.
+// `set -o pipefail` or `set -euo pipefail`.
+var pipefailSetting = regexp.MustCompile(`^set\s(.*\s)?-[A-Za-z]*o\s+pipefail\b`)
+
+// segment is one separator-delimited piece of a command line and the
+// separator that followed it ("" for the last).
+type segment struct{ text, sep string }
+
+// splitSegments cuts cmd at every commandSeparators match, whitespace
+// collapsed, dropping empty segments.
+func splitSegments(cmd string) []segment {
+	var segs []segment
+	prev := 0
+	add := func(text, sep string) {
+		if text = strings.Join(strings.Fields(text), " "); text != "" {
+			segs = append(segs, segment{text, sep})
+		}
 	}
-	return strings.Join(strings.Fields(cmd), " ")
+	for _, loc := range commandSeparators.FindAllStringIndex(cmd, -1) {
+		add(cmd[prev:loc[0]], cmd[loc[0]:loc[1]])
+		prev = loc[1]
+	}
+	add(cmd[prev:], "")
+	return segs
 }
+
+// runnerSegment reports whether a segment's text starts with a test runner.
+func runnerSegment(text string) bool {
+	for _, r := range testRunners {
+		if text == r || strings.HasPrefix(text, r+" ") {
+			return true
+		}
+	}
+	return false
+}
+
+// cmdInfo is what the block knows about one command line.
+type cmdInfo struct {
+	head   string // the test-runner segment, else the first segment
+	isTest bool   // some segment runs one of testRunners
+	// piped: the runner segment feeds a pipe and pipefail is not on, so the
+	// command's exit status is the last pipeline stage's, not the runner's.
+	piped bool
+}
+
+// analyseCommand segments cmd and finds its first test-runner segment.
+func analyseCommand(cmd string) cmdInfo {
+	segs := splitSegments(cmd)
+	info := cmdInfo{}
+	if len(segs) > 0 {
+		info.head = segs[0].text
+	}
+	pipefail := false
+	for _, sg := range segs {
+		if pipefailSetting.MatchString(sg.text) {
+			pipefail = true
+		}
+		if runnerSegment(sg.text) {
+			info.head, info.isTest = sg.text, true
+			info.piped = sg.sep == "|" && !pipefail
+			break
+		}
+	}
+	return info
+}
+
+// commandHead is the segment of cmd that names what runs: its test-runner
+// segment, else its first segment.
+func commandHead(cmd string) string { return analyseCommand(cmd).head }
 
 // commandKey is the normalised identity a later result clears a failure by:
 // commandHead with flag tokens (starting with `-`) and redirections removed,
@@ -61,16 +123,14 @@ func commandKey(cmd string) string {
 	return strings.Join(kept, " ")
 }
 
-// isTestCommand reports whether cmd runs one of testRunners.
-func isTestCommand(cmd string) bool {
-	head := commandHead(cmd)
-	for _, r := range testRunners {
-		if head == r || strings.HasPrefix(head, r+" ") {
-			return true
-		}
-	}
-	return false
-}
+// isTestCommand reports whether any segment of cmd runs one of testRunners.
+func isTestCommand(cmd string) bool { return analyseCommand(cmd).isTest }
+
+// exitUnobserved reports whether cmd's exit status says nothing about its
+// test runner (the runner is piped without pipefail): such an exit never
+// clears a failure and never renders as a pass. A non-zero one is still
+// positive evidence of failure.
+func exitUnobserved(cmd string) bool { return analyseCommand(cmd).piped }
 
 // testRun is the newest observed test-runner command.
 type testRun struct {
@@ -120,10 +180,14 @@ func testsLine(events []store.TimelineEvent, now time.Time) string {
 	}
 	outcome := "last ok"
 	switch {
-	case last.exit != nil:
+	case last.exit != nil && *last.exit != 0:
 		outcome = fmt.Sprintf("last exit %d", *last.exit)
 	case last.isError:
 		outcome = "last failed"
+	case exitUnobserved(last.cmd):
+		outcome = "exit not observed (piped)"
+	case last.exit != nil:
+		outcome = fmt.Sprintf("last exit %d", *last.exit)
 	}
 	return fmt.Sprintf("Tests: %s (%s, %s)", cmd, outcome, formatAge(now.Sub(last.ts)))
 }

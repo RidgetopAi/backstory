@@ -9,15 +9,15 @@ import (
 	"github.com/RidgetopAi/backstory/internal/payload"
 )
 
-// TestLastFailureClearsOnNormalisedCommandKey: `-v` and a piped `| tail`
+// TestLastFailureClearsOnNormalisedCommandKey: `-v` and a `2>&1` redirect
 // are the same command; an unrelated passing command still leaves it.
 func TestLastFailureClearsOnNormalisedCommandKey(t *testing.T) {
 	out := renderAfterHandoff(t, func(s func(string, any)) {
 		s(payload.KindShellCommand, payload.ShellCommand{Cmd: "python -m unittest", Exit: 1})
-		s(payload.KindShellCommand, payload.ShellCommand{Cmd: "python -m unittest -v 2>&1 | tail", Exit: 0})
+		s(payload.KindShellCommand, payload.ShellCommand{Cmd: "python -m unittest -v 2>&1", Exit: 0})
 	})
 	if strings.Contains(out, "Last failure") {
-		t.Errorf("same command with -v and a pipe passed, failure still shown:\n%s", out)
+		t.Errorf("same command with -v and a redirect passed, failure still shown:\n%s", out)
 	}
 	out = renderAfterHandoff(t, func(s func(string, any)) {
 		s(payload.KindShellCommand, payload.ShellCommand{Cmd: "python -m unittest", Exit: 1})
