@@ -163,11 +163,16 @@ TestCase {
   // chips have the room the MAX_AGENT_CHIPS cap alone decides.
   function stale(p) { p.last_activity = new Date(Date.now() - 300 * 60000).toISOString() }
 
+  // The strip is built standalone with no availableWidth bound: whether the
+  // panel row has room for three chips depends on the machine's default font
+  // (Liberation Sans folds the third chip into +1), so the row's width must
+  // not decide what this test asserts. Folding itself is covered by
+  // test_chips_fold_into_more_when_they_do_not_fit.
   function test_chips_render_newest_first_with_display_names() {
-    open(withAgents(["hermes", "pi", "claude"], stale))
-    compare(JSON.stringify(names(fooRow(), "agentChipName")), JSON.stringify(["Hermes", "Pi", "Claude Code"]))
-    var more = TestUtil.findAll(fooRow(), function (n) { return n.objectName === "agentChipMoreText" })
-    compare(more.length, 0)
+    var strip = createTemporaryObject(chipsComponent, testCase, { agents: ["hermes", "pi", "claude"].map(function (id, i) { return agentEntry(id, 10 * (i + 1)) }) })
+    verify(strip !== null)
+    compare(JSON.stringify(names(strip, "agentChipName")), JSON.stringify(["Hermes", "Pi", "Claude Code"]))
+    compare(chipsFor(strip, "agentChipMoreText").length, 0)
   }
 
   function test_more_chip_when_agents_exceed_the_cap() {

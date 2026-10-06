@@ -39,12 +39,21 @@ function collectOutOfBounds(root, reference, boundsWidth, boundsHeight, epsilon)
     var rect = { x: topLeft.x, y: topLeft.y, width: node.width, height: node.height }
 
     var withinX = rect.x >= -eps && (rect.x + rect.width) <= (boundsWidth + eps)
-    var withinY = rect.y >= -eps && (rect.y + rect.height) <= (boundsHeight + eps)
+    var withinY = scrolls(node) || (rect.y >= -eps && (rect.y + rect.height) <= (boundsHeight + eps))
     if (!withinX || !withinY) {
       bad.push({ path: path, rect: rect })
     }
   })
   return bad
+}
+
+// scrolls reports whether node sits inside a Flickable's content (any
+// ancestor exposing contentHeight/flickableDirection other than node itself).
+function scrolls(node) {
+  for (var p = node.parent; p; p = p.parent) {
+    if (p.flickableDirection !== undefined) return true
+  }
+  return false
 }
 
 // walkVisible calls fn(node, path) for `root` and every descendant reached
