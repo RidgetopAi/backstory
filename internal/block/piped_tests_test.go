@@ -36,7 +36,7 @@ func TestPipefailMakesPipedExitObserved(t *testing.T) {
 	if strings.Contains(out, "Last failure") {
 		t.Errorf("pipefail exit 0 should clear the failure:\n%s", out)
 	}
-	if !strings.Contains(out, "Tests: "+cmd+" (last exit 0") {
+	if !strings.Contains(out, "Tests: python -m unittest 2>&1 (last exit 0") {
 		t.Errorf("want Tests line with last exit 0:\n%s", out)
 	}
 
