@@ -12,6 +12,7 @@ done-when holds on a box we do not own: a machine that is not Brian's. See
 
 ### Changed
 
+- Docs corrected to what V1 does (task d05fb955): adoption in `status`, retention/pruning, outcome three-state, the inferred tier, `recall` anchors (project, record id, free text — not path or ref), the project key (common dir only), the workspace root row, the SessionStart budget (default 1,500, not yet user-settable), the exact redacted secret shapes, install/uninstall steps, a privacy section, the single-user identity caveat, the CTRL+SHIFT+B shadowing note and the Qt 6 `qmltestrunner` note. The `recall` tool's description text changed accordingly; its parameters did not.
 - Install and uninstall hardening (task 024f209a): a bare `backstory install` reports a harness with a foreign entry (e.g. another Hermes `memory.provider`) as skipped, leaves it byte-identical, and installs the rest, exiting 0 when anything installed; `make uninstall` runs `install --remove` and `install bash --remove` before removing the binary; hook commands and MCP entries use the binary's absolute path (`--binary` overrides); `install --check` also dials the daemon; stub lines tell the agent to end with `note handoff` carrying `next` and `supersedes`; the Claude SessionStart matcher includes `compact`; `install bash` prints a line; the installer's self-check no longer leaves a session row.
 - One resolver for "the records that belong to location L" (task ed31b744): recall, `export`, `records --here`/`--project`, `purge --project`, This Week's row handoff and the SessionStart Resume now all read the repo-key records plus the workspace-homed ones (`note` files handoffs under the workspace key) whose writing session belongs to that location; for the workspace root, exactly those labelled with the root. recall honours its `project` parameter (a project key or an absolute path) and falls back to the caller's own location. `purge --project` now also tombstones the key's sessions' workspace-homed records.
 - Panel redesign (task fc1f340d, decision 63ce9687): the panel is now "Backstory" with a HERE
@@ -35,7 +36,7 @@ full command list):
 - Provenance tiers set from caller identity (never a parameter); secret
   redaction, write rate/size caps, capture-off flag file (`backstory capture
   off|on|status`) (Phase 1).
-- Project identity from git common dir + first remote; unix socket server
+- Project identity from the git common dir (the first remote is not part of the key); unix socket server
   identifying callers via `SO_PEERCRED` → `/proc` ancestry, with fakes for
   the untested hops (Phase 1).
 - `systemd --user` unit (`ops/backstory.service`), restart on crash (Phase 1).
@@ -45,8 +46,9 @@ full command list):
   skill file, and the Claude Code installer (`backstory install claude`,
   with `--check` and `--remove`) wiring MCP/hook/skill entries, deduped
   against anything already present (Phase 2).
-- Claude transcript backfill (`backstory backfill claude`), ingested at the
-  inferred tier (Phase 3).
+- Claude transcript backfill (`backstory backfill claude`): replays transcripts as
+  timeline events (`source = backfill`), not ledger records. The `inferred` tier is
+  reserved; nothing produces an inferred record in V1 (Phase 3).
 - PostToolUse capture for Claude Code, recording observed file writes as
   live timeline events (Phase 3).
 - Read-only CLI reading the store directly, no daemon required: `backstory

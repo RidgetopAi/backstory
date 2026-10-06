@@ -11,7 +11,8 @@ one file, mode 0600, owned by the `systemd --user` daemon (Q3 `5d2733c0`).
 ## The three tiers, in one line each
 
 - **Timeline** (`timeline_events`) — observed fact. Only the daemon writes it. Append-only,
-  retention-bounded, ordered by sequence only.
+  ordered by sequence only. Retention is not implemented in V1: nothing prunes it, so it
+  grows until the human purges sessions.
 - **Sessions** (`sessions`) — derived from the timeline: one agent run, live or backfilled.
 - **Ledger** (`records` + `edges`) — meaning: decisions, outcomes, handoffs, claims, and
   the loop's punch/claim/stage. Permanent, append-only, tiered by provenance.
@@ -27,8 +28,10 @@ every existing installation; the Go API is unaffected (`time.Time` in, `time.Tim
 out — see `internal/store/times.go`). `edges` carries no timestamp column.
 
 `project_key` (`projects.key`, and every `sessions.project_key` / `records.project_key`
-that copies it) is `internal/project.Key`'s output: `git_common_dir` and the first remote
-URL joined with `|`, a printable separator — not the NUL byte v0 used, which came back
+that copies it) is `internal/project.Key`'s output: the canonical `git_common_dir` alone
+(the first remote is not part of the key; see `AGENT-CONTRACT.md §Project`). Older
+installs spelled it `<common-dir>|<remote>`, joined by a printable `|` — not the NUL byte v0
+used, which came back
 from `status` over JSON as a `\u0000` escape every agent rendered literally (critic T1 on
 `14704ebe`, task `e7951178`). Migration `0003_printable_project_key_separator.sql`
 rewrites every NUL-separated key already on disk; its data rewrite runs in Go
@@ -59,7 +62,7 @@ that's exactly the lying-clock problem the column exists to stop relying on goin
 
 `project_groups` (decision `bcc9fa54`, task `57ec6e62`) is a user-owned grouping layer over
 `projects.key`, not a redefinition of project identity: identity stays observed (git common
-dir + first remote, invariant unchanged), while a group name is a label the human attaches
+dir only, invariant unchanged), while a group name is a label the human attaches
 on top, so `project_key` is the table's primary key — a project is in at most one group,
 and re-setting it moves it rather than adding a second membership. `SetProjectGroup` and
 `ClearProjectGroup` (`internal/store/groups.go`) take an `Identity` and reject anything that
@@ -97,7 +100,7 @@ CREATE TABLE schema_version (
 );
 
 CREATE TABLE projects (
-  key             TEXT PRIMARY KEY,        -- git common dir + first remote (AGENT-CONTRACT §Project)
+  key             TEXT PRIMARY KEY,        -- git common dir (AGENT-CONTRACT §Project)
   git_common_dir  TEXT,
   remote_url      TEXT,
   toplevel        TEXT NOT NULL,           -- fallback identity for non-git dirs
@@ -163,7 +166,7 @@ CREATE TABLE edges (
 );
 
 CREATE TABLE settings (
-  key    TEXT PRIMARY KEY,                  -- budget, capture_on, inference_model, retention_days, ...
+  key    TEXT PRIMARY KEY,                  -- reserved names (budget, capture_on, inference_model, retention_days, ...); V1 reads the SessionStart budget and capture pauses from here, and no command writes the budget
   value  TEXT NOT NULL
 );
 
@@ -212,18 +215,21 @@ unmutated → GREEN.
    `status`.
 6. **Redaction on write.** Token/key patterns are redacted from `records.text` and
    `timeline_events.payload` before insert; the raw value is never stored.
-7. **`outcome` is three-state.** `could-not-observe` is a value, never folded into `false`;
-   a `contradicts` edge is minted only on positive evidence (`AGENT-CONTRACT.md §Outcomes`).
+7. **Absence is not evidence.** `could-not-observe` is a value, never folded into `false`
+   or `0` (V1 applies it to `session.git_state`; nothing writes `records.outcome`); the
+   daemon mints no `contradicts` edge itself — one exists only when `confirm` files it with
+   evidence (`AGENT-CONTRACT.md §Outcomes`).
 8. **Capture-off flag file honoured** on every write path: while set, no events and no
    records are inserted.
-9. **Retention bounds the timeline only.** `timeline_events` are pruned by age by the daemon;
-   the human `backstory purge` is the one other delete: it erases whole sessions' events,
+9. **Retention is not implemented in V1.** Nothing prunes `timeline_events` by age; the
+   timeline grows until the human deletes from it. The human `backstory purge` is the only
+   delete: it erases whole sessions' events,
    stamps `sessions.purged_at` (backfill never re-imports a purged session) and appends a
    counts-only `purge_log` row (`ts, scope, sessions, events, records`); a project purge also
    tombstones the in-scope records written in its window (human Delete path). Session rows, `backfill_cursors`
    and `records` stay; record evidence / `event_cursor` ids may dangle and readers tolerate it.
-   `records` are never pruned except expired `claim`s and expired `inferred` drafts
-   (`expires_at`), which are pruned, not tombstoned.
+   `records` are never pruned in V1: an expired `claim` or `inferred` draft stays and is
+   merely shown as expired.
 10. **Ordering is by sequence.** Recall and the SessionStart delta order events by
     `timeline_events.id`, never by `ts`; backfilled sessions carry file clocks that lie. The
     delta's membership boundary is the same sequence, not a clock reading: it is
@@ -262,10 +268,12 @@ must never record `uncommitted_count: 0` in that case (invariant 7 below).
 
 `tool.use.path` is set for the file-editing tools (Edit/Write/Read/MultiEdit/NotebookEdit);
 `command` is set for Bash; a tool outside both groups (Grep, Glob, WebFetch, ...) carries
-neither. `tool.result.exit` is nil unless the writer observed a real process exit code — a
-Bash `tool_result` replayed from a Claude transcript never carries one (Phase 3 live
-PostToolUse capture will), so a writer must never invent `0`; the SessionStart delta's
-"last exit codes" is empty for backfilled-only history as a result.
+neither. `tool.result.exit` is nil unless the writer observed a real process exit code. A
+Bash `tool_result` replayed from a Claude transcript carries one only when its text begins
+with an `Exit code <N>` line (the backfill parses that line, as described above); otherwise
+it stays nil, and a writer must never invent `0`. Live PostToolUse capture and the bash
+integration record the real exit. The SessionStart delta's "last exit codes" is empty only
+for history where no exit was observed or parsed.
 
 `payload.MutatingFileTools` (Edit/Write/MultiEdit/NotebookEdit — NOT Read) is the one
 definition, in this codebase, of "changed a file." The SessionStart delta's "files

@@ -103,8 +103,12 @@ window (the same set Where-you-left-off lists).
 One row per project with activity in the window, most recently active first. A project in a
 user group (`store.SetProjectGroup`, human-only) collapses into one row with its
 group-mates as children, rather than appearing as its own row (decision `9be5c1d5`). A
-workspace identity (`project.IsWorkspaceKey`) never appears here, standalone or as a child
-(decision `bcc9fa54`: a workspace is not a project).
+workspace identity (`project.IsWorkspaceKey`) is never a standalone project row and never a
+group child (decision `bcc9fa54`: a workspace is not a project). It does appear, though, as
+the **workspace root row**: when a session started at the workspace root itself (or a
+handoff was filed there), the root is listed as a work location labelled with the root, next
+to the rows for repos and non-git folders under it (decision `f3fa04c7` clause 5;
+`AGENT-CONTRACT.md` "the workspace root row").
 
 ```json
 { "project": ProjectSummary }                          // standalone row
