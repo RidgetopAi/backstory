@@ -67,7 +67,7 @@ type ShellEmitResult struct {
 // is a quiet skip (EventsRecorded: 0, no error) rather than invalid-params:
 // ignorespace is a recording convention the command's own author opted
 // into, not a malformed request.
-func handleShellEmit(st *store.Store, sessionID string, raw json.RawMessage, captureOff func() (bool, error)) DaemonResponse {
+func handleShellEmit(st *store.Store, sessionID, observedCWD string, raw json.RawMessage, captureOff func() (bool, error)) DaemonResponse {
 	if off, err := captureOff(); err != nil {
 		return errResponse("internal", err.Error())
 	} else if off {
@@ -89,7 +89,9 @@ func handleShellEmit(st *store.Store, sessionID string, raw json.RawMessage, cap
 		return DaemonResponse{Result: result}
 	}
 
-	sc := payload.ShellCommand{Cmd: p.Cmd, CWD: p.CWD, Exit: p.Exit, DurationMS: p.DurationMS}
+	// The claimed cwd is never trusted: the event records the emit process's
+	// own /proc cwd (id.CWD), or nothing when that could not be observed.
+	sc := payload.ShellCommand{Cmd: p.Cmd, CWD: observedCWD, Exit: p.Exit, DurationMS: p.DurationMS}
 	scBytes, err := json.Marshal(sc)
 	if err != nil {
 		return errResponse("internal", err.Error())

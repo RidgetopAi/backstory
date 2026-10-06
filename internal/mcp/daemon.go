@@ -152,6 +152,11 @@ func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs i
 // ident.HarnessShell for as long as that shell lives. A peer whose session
 // cannot be observed (SID of 0 or 1 or less, a dead leader, an unreadable
 // /proc entry) keeps the identity it already had.
+//
+// The identity is Located: id.CWD / id.ProjectKey are the EMIT's own observed
+// cwd (not the shell's first), and the registry keeps one shell session per
+// (shell, location), so a command run after `cd` lands in the project it ran
+// in (task 149d6cd4).
 func applyShellIdentity(id ident.Identity, first []byte, procfs ident.ProcFS) ident.Identity {
 	var req DaemonRequest
 	if procfs == nil || json.Unmarshal(first, &req) != nil || req.Method != DaemonMethodShellEmit {
@@ -168,6 +173,7 @@ func applyShellIdentity(id ident.Identity, first []byte, procfs ident.ProcFS) id
 	id.Harness = ident.HarnessShell
 	id.HarnessPID = peer.SID
 	id.HarnessStartTicks = shell.StartTicks
+	id.Located = true
 	return id
 }
 
@@ -278,7 +284,7 @@ func dispatchDaemonRequest(line []byte, st *store.Store, procfs ident.ProcFS, id
 	case DaemonMethodPostToolUse:
 		return handlePostToolUse(st, sessionID, req.Params, captureOff)
 	case DaemonMethodShellEmit:
-		return handleShellEmit(st, sessionID, req.Params, captureOff)
+		return handleShellEmit(st, sessionID, id.CWD, req.Params, captureOff)
 	default:
 		return errResponse("unknown-method", "unknown method "+req.Method)
 	}
