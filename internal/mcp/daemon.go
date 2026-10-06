@@ -112,7 +112,13 @@ func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs i
 		} else if off {
 			return "", errCaptureOff
 		}
-		return startSession(st, id)
+		sessionID, err := startSession(st, id)
+		// A shell session is a running record of commands, not agent work: it
+		// has no Stop to compare against.
+		if err == nil && id.Harness != ident.HarnessShell {
+			recordSessionStartGitState(st, git, sessionID, id.CWD, logger)
+		}
+		return sessionID, err
 	}
 	sessionID, err := sessions.SessionFor(id, procfs, end, start)
 	if err != nil {
@@ -242,13 +248,37 @@ func liveSessionEnder(st *store.Store, git project.Git, logger *log.Logger, capt
 // never a zero UncommittedCount, which would be indistinguishable from a
 // clean tree (SCHEMA.md invariant 7).
 func recordSessionEndGitState(st *store.Store, git project.Git, sessionID, cwd string, now time.Time, logger *log.Logger) {
-	p := payload.SessionGitState{CouldNotObserve: true}
-	// An unknown cwd is could-not-observe: git.State("") would observe the
-	// DAEMON's own working directory instead.
+	recordSessionGitState(st, git, sessionID, cwd, "", now, logger)
+}
+
+// observeGitState reads cwd's git state as a payload. An unknown cwd is
+// could-not-observe: git.State("") would observe the DAEMON's own working
+// directory instead.
+func observeGitState(git project.Git, cwd, phase string) payload.SessionGitState {
 	if state, ok := git.State(cwd); cwd != "" && ok {
 		count := state.Uncommitted
-		p = payload.SessionGitState{Branch: state.Branch, UncommittedCount: &count}
+		return payload.SessionGitState{Phase: phase, Branch: state.Branch, UncommittedCount: &count,
+			Head: state.Head, Paths: state.Paths}
 	}
+	return payload.SessionGitState{Phase: phase, CouldNotObserve: true}
+}
+
+// recordSessionStartGitState records the session-start observation the Stop
+// hook diffs against (task 8efad0ce): what git showed before this session did
+// anything, so a change made through Bash is visible as evidence.
+func recordSessionStartGitState(st *store.Store, git project.Git, sessionID, cwd string, logger *log.Logger) {
+	// A start observation that could not be observed carries no evidence and
+	// reads exactly like a missing one (the Stop check falls back to the tool
+	// rule either way), so it is not written: a non-git cwd adds nothing to
+	// the timeline.
+	if observeGitState(git, cwd, payload.GitStatePhaseStart).CouldNotObserve {
+		return
+	}
+	recordSessionGitState(st, git, sessionID, cwd, payload.GitStatePhaseStart, time.Now(), logger)
+}
+
+func recordSessionGitState(st *store.Store, git project.Git, sessionID, cwd, phase string, now time.Time, logger *log.Logger) {
+	p := observeGitState(git, cwd, phase)
 	b, err := json.Marshal(p)
 	if err != nil {
 		logf(logger, "mcp: marshal session git state for %s: %v", sessionID, err)
@@ -284,7 +314,7 @@ func dispatchDaemonRequest(line []byte, st *store.Store, procfs ident.ProcFS, id
 	case DaemonMethodPostToolUse:
 		return handlePostToolUse(st, sessionID, req.Params, captureOff)
 	case DaemonMethodStopCheck:
-		return handleStopCheck(st, sessionID, captureOff)
+		return handleStopCheck(st, git, sessionID, captureOff)
 	case DaemonMethodShellEmit:
 		return handleShellEmit(st, sessionID, id.CWD, req.Params, captureOff)
 	default:

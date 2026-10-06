@@ -53,11 +53,24 @@ type SessionEnd struct {
 // carry this event: the importer replays a transcript's own recorded
 // history, and there is no live cwd left to observe once a session has
 // already ended.
+//
+// Phase distinguishes the two observations a live session records: "" is the
+// end-of-session observation every reader above means; GitStatePhaseStart is
+// the observation taken when the session began, which exists only so the Stop
+// hook can tell what changed since (task 8efad0ce) and which the end-state
+// readers (the block's Repo line, This Week's Attention) must skip. Head and
+// Paths (sorted uncommitted paths) carry the observation the Stop hook diffs.
 type SessionGitState struct {
-	Branch           string `json:"branch,omitempty"`
-	UncommittedCount *int   `json:"uncommitted_count,omitempty"`
-	CouldNotObserve  bool   `json:"could_not_observe,omitempty"`
+	Phase            string   `json:"phase,omitempty"`
+	Branch           string   `json:"branch,omitempty"`
+	UncommittedCount *int     `json:"uncommitted_count,omitempty"`
+	Head             string   `json:"head,omitempty"`
+	Paths            []string `json:"paths,omitempty"`
+	CouldNotObserve  bool     `json:"could_not_observe,omitempty"`
 }
+
+// GitStatePhaseStart is SessionGitState.Phase for the session-start observation.
+const GitStatePhaseStart = "start"
 
 // ToolUse is the tool.use event payload: Path is set for the file-editing
 // tools (Edit/Write/Read/MultiEdit/NotebookEdit), Command is set for Bash. A

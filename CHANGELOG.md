@@ -13,6 +13,7 @@ done-when holds on a box we do not own: a machine that is not Brian's. See
 ### Added
 
 - `backstory hook stop` and a Claude Stop hook registered by `install claude` (task 914964ae): when a session changed files or had failed commands and wrote no handoff, it asks once (Claude's block decision, naming the observed counts) for `note handoff` or a one-line reason none is needed. Silent on `stop_hook_active`, `BACKSTORY_NO_SESSION`, capture off, no daemon, or any error. The daemon only reports counts and never authors a handoff.
+- The Stop hook now sees edits made through Bash (heredocs, `sed`) (task 8efad0ce): a live session records a start-of-session `session.git_state` (`phase: start`, with HEAD and uncommitted paths), and at Stop a differing observed repo state counts as edit evidence. Falls back to the tool-event rule when either observation is could-not-observe.
 
 ### Changed
 

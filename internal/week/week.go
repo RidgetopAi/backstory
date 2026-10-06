@@ -534,7 +534,7 @@ func uncommittedSessionEndItems(st *store.Store, projectKey string, since time.T
 		if err := json.Unmarshal([]byte(e.Payload), &gs); err != nil {
 			return nil, fmt.Errorf("week: parse session.git_state payload (event %d): %w", e.ID, err)
 		}
-		if gs.CouldNotObserve || gs.UncommittedCount == nil {
+		if gs.Phase == payload.GitStatePhaseStart || gs.CouldNotObserve || gs.UncommittedCount == nil {
 			continue
 		}
 		latest, latestGS = &events[i], gs

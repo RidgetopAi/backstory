@@ -25,9 +25,16 @@ type Repo struct {
 // State is a git working tree's observed state at a point in time: the
 // current branch and the count of uncommitted/untracked files (`git status
 // --porcelain`).
+//
+// Head and Paths are the finer evidence the Stop hook diffs between a
+// session's start and its stop: the HEAD commit sha ("" in a repo with no
+// commit yet) and the sorted, de-duplicated paths `git status --porcelain`
+// lists.
 type State struct {
 	Branch      string
 	Uncommitted int
+	Head        string
+	Paths       []string
 }
 
 // Git resolves git facts for a working directory. Tests inject a fake; the
