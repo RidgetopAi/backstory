@@ -167,12 +167,14 @@ func Render(p Params) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("block: contradiction count: %w", err)
 	}
+	failure := lastFailure(deltaEvents)
 	var staleReasons []store.FreshnessReason
 	if hasHandoff {
 		staleReasons, err = p.Store.HandoffFreshness(handoff, p.WorkspaceDirs)
 		if err != nil {
 			return "", fmt.Errorf("block: handoff freshness: %w", err)
 		}
+		staleReasons = dropClearedFailure(staleReasons, failure.found)
 	}
 
 	author := ""
@@ -190,7 +192,6 @@ func Render(p Params) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("block: shell sessions: %w", err)
 	}
-	failure := lastFailure(deltaEvents)
 	testsLine := testsLine(allEvents, p.Now)
 	repoLine, err := repoStateLine(p, handoff, hasHandoff, deltaEvents, shellSessions)
 	if err != nil {
@@ -384,6 +385,23 @@ func staleMarker(reasons []store.FreshnessReason) string {
 		clauses[i] = staleReasonClause(r)
 	}
 	return "⚠ possibly stale: " + strings.Join(clauses, "; ")
+}
+
+// dropClearedFailure removes the later-failure reason when no failure is
+// still open (lastFailure found none: an attributable passing run cleared
+// every one), so a fixed failure is no longer possibly-stale evidence.
+// File-edit, record and contradiction reasons are untouched.
+func dropClearedFailure(reasons []store.FreshnessReason, failureOpen bool) []store.FreshnessReason {
+	if failureOpen {
+		return reasons
+	}
+	var kept []store.FreshnessReason
+	for _, r := range reasons {
+		if r.Kind != store.FreshnessLaterFailure {
+			kept = append(kept, r)
+		}
+	}
+	return kept
 }
 
 func staleReasonClause(r store.FreshnessReason) string {
@@ -622,6 +640,7 @@ func formatAge(d time.Duration) string {
 // Each part is shown only when observed; "" when none is.
 func repoStateLine(p Params, handoff store.Record, hasHandoff bool, events []store.TimelineEvent, shellSessions map[string]bool) (string, error) {
 	var gs *payload.SessionGitState
+	var gsTS time.Time
 	for _, e := range events {
 		if e.Kind != payload.KindSessionGitState || shellSessions[e.SessionID] {
 			continue
@@ -629,6 +648,7 @@ func repoStateLine(p Params, handoff store.Record, hasHandoff bool, events []sto
 		var v payload.SessionGitState
 		if json.Unmarshal([]byte(e.Payload), &v) == nil && v.Phase != payload.GitStatePhaseStart {
 			gs = &v
+			gsTS = e.TS
 		}
 	}
 	var parts []string
@@ -637,7 +657,7 @@ func repoStateLine(p Params, handoff store.Record, hasHandoff bool, events []sto
 			parts = append(parts, "branch "+gs.Branch)
 		}
 		if gs.UncommittedCount != nil {
-			parts = append(parts, fmt.Sprintf("%d uncommitted", *gs.UncommittedCount))
+			parts = append(parts, fmt.Sprintf("%d uncommitted at last session end (%s)", *gs.UncommittedCount, formatAge(p.Now.Sub(gsTS))))
 		}
 	}
 	if hasHandoff && handoff.GitHead != "" {
