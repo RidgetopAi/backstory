@@ -4,6 +4,8 @@
 // real adapters.
 package install
 
+import "errors"
+
 // Harness names backstory install recognizes, in the order Adapters and
 // HarnessNames report them.
 const (
@@ -83,4 +85,33 @@ func (claudeAdapter) Remove(home string, opts Options) error {
 
 func (claudeAdapter) Check(home string, opts Options) ([]Item, error) {
 	return Check(DefaultPaths(home), opts)
+}
+
+// Outcome is one adapter's result from InstallAll.
+type Outcome struct {
+	Adapter Adapter
+	// Err is nil when the harness was installed.
+	Err error
+	// Conflict is true when Err is a foreign-conflict: the harness was left
+	// exactly as it was and the rest of the run carried on.
+	Conflict bool
+}
+
+// IsConflict reports whether err is a foreign-conflict (something else
+// already occupies a slot backstory would write).
+func IsConflict(err error) bool {
+	return errors.Is(err, ErrForeignConflict) || errors.Is(err, ErrPiExtensionForeign)
+}
+
+// InstallAll installs every adapter in order and never stops early: a
+// conflict in one harness is recorded and the next is still installed. The
+// adapters check for conflicts before writing, so a conflicted harness is
+// untouched.
+func InstallAll(adapters []Adapter, home string, opts Options) []Outcome {
+	out := make([]Outcome, 0, len(adapters))
+	for _, a := range adapters {
+		err := a.Install(home, opts)
+		out = append(out, Outcome{Adapter: a, Err: err, Conflict: IsConflict(err)})
+	}
+	return out
 }

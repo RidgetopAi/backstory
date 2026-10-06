@@ -137,6 +137,11 @@ type Options struct {
 	// invoke; "" means this process's own executable (os.Executable), so a
 	// harness launched without ~/.local/bin on PATH still finds it.
 	BinaryPath string
+	// SocketPath is the daemon socket verification and --check dial; "" falls
+	// back to $XDG_RUNTIME_DIR/backstory/sock, then ~/.local/state/backstory/sock.
+	// The CLI passes the path the daemon itself resolves (which also knows the
+	// /run/user/<uid> case).
+	SocketPath string
 	// Verify runs the written hook command through sh -c after installing
 	// and fails the install if it exits non-zero (--no-verify sets this
 	// false).
@@ -650,7 +655,7 @@ func verifyHook(opts Options) error {
 	}
 
 	out := strings.TrimRight(stdout.String(), "\n")
-	if !verifyStdoutOK(out, daemonReachable()) {
+	if !verifyStdoutOK(out, daemonReachable(opts)) {
 		return fmt.Errorf("%w: %s: unexpected stdout %q", ErrVerifyFailed, ItemSessionStartHook, stdout.String())
 	}
 	return nil
@@ -683,18 +688,21 @@ func verifyStdoutOK(out string, daemonUp bool) bool {
 // environment's socket, resolved the same way cmd/backstory's daemon and
 // hook resolve it: $XDG_RUNTIME_DIR/backstory/sock, falling back to
 // ~/.local/state/backstory/sock.
-func daemonReachable() bool {
-	_, ok := DaemonAnswering()
+func daemonReachable(opts Options) bool {
+	_, ok := DaemonAnswering(opts)
 	return ok
 }
 
 // DaemonAnswering dials the daemon socket and reports its path and whether
 // something answered the connection. A stale socket file with no listener
 // reads as not answering.
-func DaemonAnswering() (path string, answering bool) {
-	path, err := verifySocketPath()
-	if err != nil {
-		return "", false
+func DaemonAnswering(opts Options) (path string, answering bool) {
+	path = opts.SocketPath
+	if path == "" {
+		var err error
+		if path, err = verifySocketPath(); err != nil {
+			return "", false
+		}
 	}
 	conn, err := net.DialTimeout("unix", path, verifyDialTimeout)
 	if err != nil {

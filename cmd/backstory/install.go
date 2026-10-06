@@ -1,7 +1,6 @@
 package main
 
 import (
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -55,9 +54,15 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 	}
 
 	var harnessArgs, flagArgs []string
-	for _, a := range args {
+	for i := 0; i < len(args); i++ {
+		a := args[i]
 		if strings.HasPrefix(a, "-") {
 			flagArgs = append(flagArgs, a)
+			// --binary takes a value in the next argument, which is not a harness.
+			if (a == "--binary" || a == "-binary") && i+1 < len(args) {
+				i++
+				flagArgs = append(flagArgs, args[i])
+			}
 		} else {
 			harnessArgs = append(harnessArgs, a)
 		}
@@ -112,6 +117,9 @@ func runInstall(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	opts := install.Options{Verify: !*noVerify, BinaryPath: *binary}
+	if sock, err := socketPath(); err == nil {
+		opts.SocketPath = sock
+	}
 
 	var rc int
 	switch {
@@ -145,7 +153,7 @@ func runInstallCheck(adapters []install.Adapter, home string, opts install.Optio
 	}
 	// The files can all be present while nothing is listening: dial the
 	// daemon too. Informational — the exit code still reflects the items.
-	sock, answering := install.DaemonAnswering()
+	sock, answering := install.DaemonAnswering(opts)
 	if answering {
 		_, _ = fmt.Fprintf(stdout, "daemon: answering (%s)\n", sock)
 	} else {
@@ -177,25 +185,25 @@ func runInstallRemove(adapters []install.Adapter, home string, opts install.Opti
 func runInstallInstall(adapters []install.Adapter, home string, opts install.Options, detected bool, stdout, stderr io.Writer) int {
 	var installed, skipped []string
 	failed := false
-	for _, a := range adapters {
-		err := a.Install(home, opts)
+	for _, o := range install.InstallAll(adapters, home, opts) {
+		name := o.Adapter.Name()
 		switch {
-		case err == nil:
-			installed = append(installed, a.Name())
-			_, _ = fmt.Fprintf(stdout, "%s: installed\n", a.Name())
-			if n, ok := a.(interface{ InstallNotice() string }); ok {
+		case o.Err == nil:
+			installed = append(installed, name)
+			_, _ = fmt.Fprintf(stdout, "%s: installed\n", name)
+			if n, ok := o.Adapter.(interface{ InstallNotice() string }); ok {
 				_, _ = fmt.Fprintln(stdout, n.InstallNotice())
 			}
-		case isInstallConflict(err):
-			skipped = append(skipped, a.Name())
+		case o.Conflict:
+			skipped = append(skipped, name)
 			if detected {
-				_, _ = fmt.Fprintf(stdout, "%s: skipped — %s; left exactly as it was\n", a.Name(), err)
+				_, _ = fmt.Fprintf(stdout, "%s: skipped — %s; left exactly as it was\n", name, o.Err)
 			} else {
-				_, _ = fmt.Fprintf(stderr, "backstory install: %v\n", err)
+				_, _ = fmt.Fprintf(stderr, "backstory install: %v\n", o.Err)
 				failed = true
 			}
 		default:
-			_, _ = fmt.Fprintf(stderr, "backstory install: %s: %v\n", a.Name(), err)
+			_, _ = fmt.Fprintf(stderr, "backstory install: %s: %v\n", name, o.Err)
 			failed = true
 		}
 	}
@@ -209,10 +217,6 @@ func runInstallInstall(adapters []install.Adapter, home string, opts install.Opt
 		return 1
 	}
 	return 0
-}
-
-func isInstallConflict(err error) bool {
-	return errors.Is(err, install.ErrForeignConflict) || errors.Is(err, install.ErrPiExtensionForeign)
 }
 
 func listOrNone(names []string) string {
