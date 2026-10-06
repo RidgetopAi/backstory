@@ -12,6 +12,7 @@ const (
 	subSessionStart         = "hook session-start"
 	subPostToolUse          = "hook post-tool-use"
 	subPostToolUseFailure   = "hook post-tool-use-failure"
+	subStop                 = "hook stop"
 	subSessionStartCodex    = "hook session-start --harness codex"
 	subPostToolUseCodex     = "hook post-tool-use --harness codex"
 	fallbackBinaryName      = "backstory"

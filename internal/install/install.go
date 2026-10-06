@@ -28,8 +28,10 @@ const (
 	// ItemPostToolUseFailureHook is Claude's PostToolUseFailure hook: Claude
 	// Code reports a failed tool call under that event, never PostToolUse.
 	ItemPostToolUseFailureHook = "post-tool-use-failure-hook"
-	ItemSkill                  = "skill"
-	ItemClaudeMDStub           = "claude-md-stub"
+	// ItemStopHook is Claude's Stop hook: the once-only handoff nudge.
+	ItemStopHook     = "stop-hook"
+	ItemSkill        = "skill"
+	ItemClaudeMDStub = "claude-md-stub"
 )
 
 // ItemStatus is a --check item's reported state: present, absent, outdated
@@ -190,12 +192,17 @@ func Install(paths Paths, opts Options) error {
 		return err
 	}
 
+	stopChanged, err := mergeHookEntry(settingsRoot, "Stop", wantStopEntry(opts), subStop, opts)
+	if err != nil {
+		return err
+	}
+
 	if mcpChanged {
 		if err := writeJSONAtomic(paths.ClaudeJSON, claudeRoot, claudeMode); err != nil {
 			return fmt.Errorf("%s: %w", ItemMCPServer, err)
 		}
 	}
-	if hookChanged || postToolUseChanged || failureChanged {
+	if hookChanged || postToolUseChanged || failureChanged || stopChanged {
 		if err := writeJSONAtomic(paths.SettingsJSON, settingsRoot, settingsMode); err != nil {
 			return fmt.Errorf("%s: %w", ItemSessionStartHook, err)
 		}
@@ -238,6 +245,7 @@ func Check(paths Paths, opts Options) ([]Item, error) {
 		{Name: ItemSessionStartHook, Status: hookEntryStatus(settingsRoot, "SessionStart", wantSessionStartEntry(opts))},
 		{Name: ItemPostToolUseHook, Status: hookEntryStatus(settingsRoot, "PostToolUse", wantPostToolUseEntry(opts))},
 		{Name: ItemPostToolUseFailureHook, Status: hookEntryStatus(settingsRoot, "PostToolUseFailure", wantPostToolUseFailureEntry(opts))},
+		{Name: ItemStopHook, Status: hookEntryStatus(settingsRoot, "Stop", wantStopEntry(opts))},
 		{Name: ItemSkill, Status: install2checkStatus(skill.CheckStatus(paths.SkillPath, opts.Prefix))},
 		{Name: ItemClaudeMDStub, Status: stubStatus(paths.ClaudeMD)},
 	}
@@ -262,13 +270,14 @@ func Remove(paths Paths, opts Options) error {
 	hookChanged := removeHookEntry(settingsRoot, "SessionStart", subSessionStart, opts)
 	postToolUseChanged := removeHookEntry(settingsRoot, "PostToolUse", subPostToolUse, opts)
 	failureChanged := removeHookEntry(settingsRoot, "PostToolUseFailure", subPostToolUseFailure, opts)
+	stopChanged := removeHookEntry(settingsRoot, "Stop", subStop, opts)
 
 	if mcpChanged {
 		if err := writeJSONAtomic(paths.ClaudeJSON, claudeRoot, claudeMode); err != nil {
 			return fmt.Errorf("%s: %w", ItemMCPServer, err)
 		}
 	}
-	if hookChanged || postToolUseChanged || failureChanged {
+	if hookChanged || postToolUseChanged || failureChanged || stopChanged {
 		if err := writeJSONAtomic(paths.SettingsJSON, settingsRoot, settingsMode); err != nil {
 			return fmt.Errorf("%s: %w", ItemSessionStartHook, err)
 		}
@@ -357,6 +366,12 @@ func wantPostToolUseEntry(opts Options) map[string]any {
 
 func wantPostToolUseFailureEntry(opts Options) map[string]any {
 	return hookEntry(HookMatcherPostToolUse, opts.hookCommand(subPostToolUseFailure), opts.timeoutSeconds())
+}
+
+// wantStopEntry is the Stop hook group. Stop takes no matcher, so it carries
+// the same empty one the PostToolUse groups do.
+func wantStopEntry(opts Options) map[string]any {
+	return hookEntry(HookMatcherPostToolUse, opts.hookCommand(subStop), opts.timeoutSeconds())
 }
 
 func hookEntry(matcher, command string, timeoutSeconds int) map[string]any {
