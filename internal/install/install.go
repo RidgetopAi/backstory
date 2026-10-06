@@ -675,7 +675,7 @@ func verifyStdoutOK(out string, daemonUp bool) bool {
 	switch {
 	case strings.HasSuffix(out, block.EmptyProjectLine):
 		return true
-	case out != "" && strings.HasSuffix(out, block.FinalLine):
+	case out != "" && block.EndsWithFinalLine(out):
 		return true
 	case out == "" && !daemonUp:
 		return true

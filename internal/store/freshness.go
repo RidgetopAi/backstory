@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/RidgetopAi/backstory/internal/payload"
@@ -85,7 +86,11 @@ func (s *Store) HandoffFreshness(h Record, workspaces []string) ([]FreshnessReas
 		reasons = append(reasons, FreshnessReason{Kind: FreshnessLaterRecord, RecordIDs: laterRecordIDs})
 	}
 
-	laterEventIDs, err := s.laterEventsTouchingAbout(sessionIDs, boundaryEventCursor, h.About)
+	aboutPaths, err := s.aboutWithAbsolutePaths(memberKeys, h.About)
+	if err != nil {
+		return nil, err
+	}
+	laterEventIDs, err := s.laterEventsTouchingAbout(sessionIDs, boundaryEventCursor, aboutPaths)
 	if err != nil {
 		return nil, err
 	}
@@ -94,6 +99,41 @@ func (s *Store) HandoffFreshness(h Record, workspaces []string) ([]FreshnessReas
 	}
 
 	return reasons, nil
+}
+
+// aboutWithAbsolutePaths returns about plus, for every relative path in it,
+// that path joined onto each member project's toplevel: tool.use events carry
+// absolute paths, so a handoff that names `src/a.go` would otherwise never
+// match an edit of /repo/src/a.go (V1 review, cold-start gap 7). The
+// original entries are kept, so an about path that is already absolute (or a
+// relative one a writer recorded relatively) still matches as before.
+func (s *Store) aboutWithAbsolutePaths(memberKeys, about []string) ([]string, error) {
+	hasRelative := false
+	for _, p := range about {
+		if p != "" && !filepath.IsAbs(p) {
+			hasRelative = true
+			break
+		}
+	}
+	if !hasRelative {
+		return about, nil
+	}
+	out := append([]string(nil), about...)
+	for _, key := range memberKeys {
+		proj, found, err := s.GetProject(key)
+		if err != nil {
+			return nil, fmt.Errorf("store: toplevel of %s for about paths: %w", key, err)
+		}
+		if !found || !filepath.IsAbs(proj.Toplevel) {
+			continue
+		}
+		for _, p := range about {
+			if p != "" && !filepath.IsAbs(p) {
+				out = append(out, filepath.Join(proj.Toplevel, p))
+			}
+		}
+	}
+	return out, nil
 }
 
 // homeMembership resolves handoffProjectKey's HOME scope (decision
@@ -257,7 +297,7 @@ func (s *Store) laterEventsTouchingAbout(sessionIDs []string, sinceEventCursor i
 		if json.Unmarshal([]byte(e.Payload), &tu) != nil {
 			continue
 		}
-		if tu.Path != "" && payload.IsMutatingFileTool(tu.Name) && wanted[tu.Path] {
+		if tu.Path != "" && payload.IsMutatingFileTool(tu.Name) && (wanted[tu.Path] || wanted[filepath.Clean(tu.Path)]) {
 			out = append(out, e.ID)
 		}
 	}

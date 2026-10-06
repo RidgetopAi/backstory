@@ -179,8 +179,10 @@ func TestOneHarnessProcessSharesOneSessionAcrossHookAndMCPCalls(t *testing.T) {
 	if err := json.Unmarshal(results[7], &finalBlock); err != nil {
 		t.Fatalf("unmarshal final block result: %v", err)
 	}
-	if !strings.Contains(finalBlock.Block, "Delta: 1 sessions, 0 files touched") {
-		t.Errorf("final block = %q, want it to contain %q", finalBlock.Block, "Delta: 1 sessions, 0 files touched")
+	// The reading session is excluded from Delta's session count and "0 files
+	// touched" is never printed, so one shared session leaves no Delta line.
+	if strings.Contains(finalBlock.Block, "Delta:") || strings.Contains(finalBlock.Block, "0 files touched") {
+		t.Errorf("final block = %q, want no Delta line (the only session is the reader)", finalBlock.Block)
 	}
 
 	projectKey := project.Key(projectDir, project.RealGit{}, nil)

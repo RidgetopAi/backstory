@@ -32,7 +32,7 @@ func overflowingScenario(t *testing.T) (*store.Store, string) {
 		other := mustStartSession(t, s, "codex", cwd, pid)
 		ts := handoff.TS.Add(time.Duration(i+1) * time.Second)
 		mustAppendToolUse(t, s, other, ts, "file"+itoa(i)+".go")
-		mustAppendToolResult(t, s, other, ts, i%2)
+		mustAppendToolResult(t, s, other, ts, 0)
 	}
 
 	mustInsertDraft(t, s, self, "", nil)
@@ -128,7 +128,9 @@ func TestBudgetCutsDeltaBeforeAttentionBeforeCoordination(t *testing.T) {
 	}
 }
 
-const budgetTokens = 230
+// budgetTokens grew from 230 to 260 (task 6833d843): the final line now also
+// carries the handoff rule and the Resume id.
+const budgetTokens = 260
 
 // orderPinScenario builds a fixture for the cut-order pinning test: one
 // other live session (a small, constant slot 3), optionally events for
@@ -145,10 +147,11 @@ func orderPinScenario(t *testing.T, includeDelta, includeAttention bool) string 
 
 	handoff := mustInsertHandoff(t, s, self, "keep going")
 	if includeDelta {
+		mustInsertDecision(t, s, self, "a decision the ledger line counts")
 		mustAppendToolUse(t, s, self, handoff.TS.Add(time.Second), "a.go")
 		mustAppendToolResult(t, s, self, handoff.TS.Add(time.Second), 0)
 		mustAppendToolUse(t, s, self, handoff.TS.Add(2*time.Second), "b.go")
-		mustAppendToolResult(t, s, self, handoff.TS.Add(2*time.Second), 1)
+		mustAppendToolResult(t, s, self, handoff.TS.Add(2*time.Second), 0)
 	}
 	if includeAttention {
 		mustInsertDraft(t, s, self, "", nil)
@@ -195,10 +198,11 @@ func TestBudgetCutOrderPinnedWhenOnlyDeltaAloneMustBeCut(t *testing.T) {
 	self := mustStartSession(t, s, "claude", "/proj", 100)
 	mustStartSession(t, s, "codex", "/proj2", 200)
 	handoff := mustInsertHandoff(t, s, self, "keep going")
+	mustInsertDecision(t, s, self, "a decision the ledger line counts")
 	mustAppendToolUse(t, s, self, handoff.TS.Add(time.Second), "a.go")
 	mustAppendToolResult(t, s, self, handoff.TS.Add(time.Second), 0)
 	mustAppendToolUse(t, s, self, handoff.TS.Add(2*time.Second), "b.go")
-	mustAppendToolResult(t, s, self, handoff.TS.Add(2*time.Second), 1)
+	mustAppendToolResult(t, s, self, handoff.TS.Add(2*time.Second), 0)
 	mustInsertDraft(t, s, self, "", nil)
 
 	if err := s.SetSetting(block.SettingBudgetKey, strconv.Itoa(budget)); err != nil {
@@ -244,7 +248,7 @@ func TestBudgetTruncatesAResumeSlotThatAloneExceedsTheBudget(t *testing.T) {
 	longResume := strings.Repeat("word ", 400)
 	mustInsertHandoff(t, s, self, longResume)
 
-	const smallBudget = 50 // ~200 chars: far smaller than the resume text alone
+	const smallBudget = 130 // ~520 chars: far smaller than the resume text alone
 	if err := s.SetSetting(block.SettingBudgetKey, strconv.Itoa(smallBudget)); err != nil {
 		t.Fatalf("SetSetting: %v", err)
 	}
@@ -339,5 +343,15 @@ func TestBudgetPerHarnessOverrideWinsOverGlobal(t *testing.T) {
 	if got := block.EstimateTokens(outCodex); got <= 200 {
 		t.Fatalf("Render(codex) = %d tokens, want > 200 (no per-harness override for codex, so the 1500 global applies and nothing should be cut)",
 			got)
+	}
+}
+
+func mustInsertDecision(t *testing.T, s *store.Store, sessionID, text string) {
+	t.Helper()
+	if _, err := s.InsertRecord(store.InsertRecordParams{
+		Identity: store.Identity{Kind: store.IdentityAgent}, Kind: store.KindDecision, Text: text,
+		SessionID: sessionID, ProjectKey: testProjectKey,
+	}); err != nil {
+		t.Fatalf("InsertRecord decision: %v", err)
 	}
 }

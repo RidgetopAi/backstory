@@ -49,10 +49,31 @@ const EmptyProjectLine = "backstory: no history yet for this project."
 // only the block's own last line had no reason not to call recall anyway).
 const FinalLine = "call recall only if you need more than this block"
 
-// maxLastExitCodes bounds how many exit codes slot 2 lists, oldest kept
-// dropped first, so the delta stays a compressed summary rather than a full
-// log.
-const maxLastExitCodes = 5
+// handoffRule is the sentence FinalLineFor appends to FinalLine: the handoff
+// rule used to live only in the skill, so an agent that never loaded it ended
+// its session without writing one (V1 review, tesla-gaps #6).
+const handoffRule = "Before you stop: note handoff with next = the single next step"
+
+// FinalLineFor is slot 5: FinalLine, then the handoff rule, naming the
+// Resume handoff's id as supersedes when resumeID is not empty so the chain
+// links without the agent having to look the id up.
+func FinalLineFor(resumeID string) string {
+	if resumeID == "" {
+		return FinalLine + ". " + handoffRule + ", supersedes = nothing (no earlier handoff)"
+	}
+	return FinalLine + ". " + handoffRule + ", supersedes = " + resumeID
+}
+
+// EndsWithFinalLine reports whether out's last line is a FinalLineFor line
+// (any resume id).
+func EndsWithFinalLine(out string) bool {
+	last := out[strings.LastIndex(out, "\n")+1:]
+	return strings.HasPrefix(last, FinalLine+". "+handoffRule)
+}
+
+// maxFailureCmdRunes bounds how much of a failed command the Last failure
+// line quotes.
+const maxFailureCmdRunes = 80
 
 // modeLine matches a "MODE: <word>" line inside a handoff's free text
 // (AGENT-CONTRACT.md §The SessionStart block: "its MODE line if present").
@@ -150,9 +171,18 @@ func Render(p Params) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("block: shell sessions: %w", err)
 	}
-	slot2 := deltaSlot(deltaEvents, shellSessions)
+	failure := lastFailure(deltaEvents)
+	repoLine, err := repoStateLine(p, handoff, hasHandoff, deltaEvents, shellSessions)
+	if err != nil {
+		return "", err
+	}
+	ledgerLine, err := ledgerLine(p)
+	if err != nil {
+		return "", err
+	}
+	slot2 := joinLines(repoLine, deltaSlot(deltaEvents, shellSessions, p.SessionID), failure.line(p.Now), ledgerLine)
 	slot3 := coordinationSlot(liveSessions, allEvents, p.SessionID, p.ProcFS)
-	slot4 := attentionSlot(draftCount, contradictionCount, len(staleReasons) > 0)
+	slot4 := attentionSlot(draftCount, contradictionCount, len(staleReasons) > 0, failure.found)
 
 	if slot1 == "" && slot2 == "" && slot3 == "" && slot4 == "" {
 		return HeaderLine + "\n\n" + EmptyProjectLine, nil
@@ -162,7 +192,11 @@ func Render(p Params) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("block: resolve budget: %w", err)
 	}
-	return assemble(slot1, slot2, slot3, slot4, budgetTokens), nil
+	resumeID := ""
+	if hasHandoff {
+		resumeID = handoff.ID
+	}
+	return assemble(slot1, slot2, slot3, slot4, FinalLineFor(resumeID), budgetTokens), nil
 }
 
 // resumeSlot is slot 1: the latest handoff's record id, its text, plus its
@@ -351,75 +385,225 @@ func staleReasonClause(r store.FreshnessReason) string {
 	}
 }
 
-// deltaSlot is slot 2: sessions, distinct files touched, and last exit
-// codes, from events since the handoff's event cursor (or every project
+// deltaSlot is the Delta line of slot 2: sessions and distinct files
+// touched, from events since the handoff's event cursor (or every project
 // event when there is no handoff). events is caller-filtered by
 // store.EventsSinceID(handoff.EventCursor) — the membership boundary is the
 // handoff's position in the sequence, never its ts: a backfilled event can
 // carry a ts earlier than the handoff's even though it was appended after
-// it (SCHEMA.md invariant 10, critic T1 on 7d3954f0). events is already
-// ordered by id ascending, so "last exit codes" reflects true sequence.
+// it (SCHEMA.md invariant 10, critic T1 on 7d3954f0).
 //
 // "files touched" counts CHANGED files only (payload.IsMutatingFileTool),
 // never every tool_use that merely carries a path: a Read populates Path
 // too (it is real history), but counting it here overstated the figure
 // 3.9x on real history (task 393d174c) — the number that Brian recalls to
 // check has to be a number he can check.
-// DeltaSummary is deltaSlot's compressed "N sessions, M files touched, last
-// exit codes" rendering, exported for recall's own recent-timeline summary
-// (internal/mcp/recall.go) so the one definition of "what a delta looks
-// like" stays here rather than growing a second copy.
+//
+// The reading session (selfSessionID) is never one of the "N sessions": the
+// reader is not news to itself, and its own session.start always lands after
+// the handoff. The files phrase is omitted when 0 (agents that write through
+// Bash never produce a mutating tool.use, so it read "0 files touched"
+// whenever they did), and the line itself when there is nothing left to say.
 //
 // shellSessions are the sessions (store.ShellSessionIDs) a delta never counts
 // in its "N sessions": a shell's captured commands are not agent work.
-func DeltaSummary(events []store.TimelineEvent, shellSessions map[string]bool) string {
-	return deltaSlot(events, shellSessions)
+func DeltaSummary(events []store.TimelineEvent, shellSessions map[string]bool, selfSessionID string) string {
+	return deltaSlot(events, shellSessions, selfSessionID)
 }
 
-func deltaSlot(events []store.TimelineEvent, shellSessions map[string]bool) string {
-	if len(events) == 0 {
-		return ""
-	}
-
+func deltaSlot(events []store.TimelineEvent, shellSessions map[string]bool, selfSessionID string) string {
 	sessions := map[string]bool{}
 	files := map[string]bool{}
-	var exitCodes []int
 	for _, e := range events {
-		if e.SessionID != "" && !shellSessions[e.SessionID] {
+		if e.SessionID != "" && e.SessionID != selfSessionID && !shellSessions[e.SessionID] {
 			sessions[e.SessionID] = true
 		}
+		if e.Kind != payload.KindToolUse {
+			continue
+		}
+		var tu payload.ToolUse
+		if json.Unmarshal([]byte(e.Payload), &tu) != nil {
+			continue
+		}
+		if tu.Path != "" && payload.IsMutatingFileTool(tu.Name) {
+			files[tu.Path] = true
+		}
+	}
+
+	var parts []string
+	if len(sessions) > 0 {
+		parts = append(parts, fmt.Sprintf("%d sessions", len(sessions)))
+	}
+	if len(files) > 0 {
+		parts = append(parts, fmt.Sprintf("%d files touched", len(files)))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "Delta: " + strings.Join(parts, ", ")
+}
+
+// joinLines joins the non-empty lines with newlines.
+func joinLines(lines ...string) string {
+	var kept []string
+	for _, l := range lines {
+		if l != "" {
+			kept = append(kept, l)
+		}
+	}
+	return strings.Join(kept, "\n")
+}
+
+// failure is the newest non-zero exit since the handoff.
+type failure struct {
+	found bool
+	cmd   string
+	exit  int
+	ts    time.Time
+}
+
+// lastFailure finds the newest non-zero exit in events (already restricted
+// to those since the handoff, ordered by id): shell `command` events always
+// carry an exit, and a tool.result carries one when the harness reported it
+// (its command is read back from the matching tool.use). It is observed
+// evidence only — a later passing command does not clear it, since a
+// different command passing says nothing about the one that failed.
+func lastFailure(events []store.TimelineEvent) failure {
+	toolCmd := map[string]string{}
+	var out failure
+	for _, e := range events {
 		switch e.Kind {
 		case payload.KindToolUse:
 			var tu payload.ToolUse
-			if json.Unmarshal([]byte(e.Payload), &tu) != nil {
-				continue
-			}
-			if tu.Path != "" && payload.IsMutatingFileTool(tu.Name) {
-				files[tu.Path] = true
+			if json.Unmarshal([]byte(e.Payload), &tu) == nil && tu.ToolUseID != "" {
+				cmd := tu.Command
+				if cmd == "" {
+					cmd = tu.Name
+				}
+				toolCmd[tu.ToolUseID] = cmd
 			}
 		case payload.KindToolResult:
 			var tr payload.ToolResult
-			if json.Unmarshal([]byte(e.Payload), &tr) != nil {
+			if json.Unmarshal([]byte(e.Payload), &tr) != nil || tr.Exit == nil || *tr.Exit == 0 {
 				continue
 			}
-			if tr.Exit != nil {
-				exitCodes = append(exitCodes, *tr.Exit)
+			cmd := toolCmd[tr.ToolUseID]
+			if cmd == "" {
+				cmd = "(command not recorded)"
+			}
+			out = failure{found: true, cmd: cmd, exit: *tr.Exit, ts: e.TS}
+		case payload.KindShellCommand:
+			var sc payload.ShellCommand
+			if json.Unmarshal([]byte(e.Payload), &sc) != nil || sc.Exit == 0 {
+				continue
+			}
+			out = failure{found: true, cmd: sc.Cmd, exit: sc.Exit, ts: e.TS}
+		}
+	}
+	return out
+}
+
+// line renders `Last failure: <cmd> exit N (<age>)`, or "" when none.
+func (f failure) line(now time.Time) string {
+	if !f.found {
+		return ""
+	}
+	cmd := strings.Join(strings.Fields(f.cmd), " ")
+	if r := []rune(cmd); len(r) > maxFailureCmdRunes {
+		cmd = string(r[:maxFailureCmdRunes]) + "…"
+	}
+	return fmt.Sprintf("Last failure: %s exit %d (%s)", cmd, f.exit, formatAge(now.Sub(f.ts)))
+}
+
+// formatAge renders d as a coarse age: "just now", "5m ago", "3h ago", "2d ago".
+func formatAge(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d/time.Minute))
+	case d < 48*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d/time.Hour))
+	default:
+		return fmt.Sprintf("%dd ago", int(d/(24*time.Hour)))
+	}
+}
+
+// repoStateLine is slot 2's observed repo state, `Repo: branch <b> · <n>
+// uncommitted · <k> commits since the handoff`: the branch and uncommitted
+// count come from the newest non-shell session.git_state since the handoff
+// (the last session end; with could_not_observe there is no count to show),
+// the commits from the handoff's git stamp against the repo as it is now.
+// Each part is shown only when observed; "" when none is.
+func repoStateLine(p Params, handoff store.Record, hasHandoff bool, events []store.TimelineEvent, shellSessions map[string]bool) (string, error) {
+	var gs *payload.SessionGitState
+	for _, e := range events {
+		if e.Kind != payload.KindSessionGitState || shellSessions[e.SessionID] {
+			continue
+		}
+		var v payload.SessionGitState
+		if json.Unmarshal([]byte(e.Payload), &v) == nil {
+			gs = &v
+		}
+	}
+	var parts []string
+	if gs != nil && !gs.CouldNotObserve {
+		if gs.Branch != "" {
+			parts = append(parts, "branch "+gs.Branch)
+		}
+		if gs.UncommittedCount != nil {
+			parts = append(parts, fmt.Sprintf("%d uncommitted", *gs.UncommittedCount))
+		}
+	}
+	if hasHandoff && handoff.GitHead != "" {
+		top := p.CWD
+		if top == "" {
+			proj, found, err := p.Store.GetProject(handoff.ProjectKey)
+			if err != nil {
+				return "", fmt.Errorf("block: handoff project: %w", err)
+			}
+			if found {
+				top = proj.Toplevel
 			}
 		}
+		if n, _, ok := project.CommitsSince(top, handoff.GitHead); ok {
+			word := "commits"
+			if n == 1 {
+				word = "commit"
+			}
+			parts = append(parts, fmt.Sprintf("%d %s since the handoff", n, word))
+		}
 	}
+	if len(parts) == 0 {
+		return "", nil
+	}
+	return "Repo: " + strings.Join(parts, " · "), nil
+}
 
-	line := fmt.Sprintf("Delta: %d sessions, %d files touched", len(sessions), len(files))
-	if len(exitCodes) > 0 {
-		if len(exitCodes) > maxLastExitCodes {
-			exitCodes = exitCodes[len(exitCodes)-maxLastExitCodes:]
-		}
-		codes := make([]string, len(exitCodes))
-		for i, c := range exitCodes {
-			codes[i] = strconv.Itoa(c)
-		}
-		line += ", last exit codes: " + strings.Join(codes, ", ")
+// ledgerLine is slot 2's `Ledger: N decisions · M outcomes · K claims
+// (newest <age>) — recall for them`, counting this location's current
+// records so the agent knows whether a recall call is worth making. "" when
+// all three counts are 0.
+func ledgerLine(p Params) (string, error) {
+	var ls store.LocationScope
+	var err error
+	if p.CWD != "" && p.Git != nil {
+		ls, err = p.Store.LocationScope(p.CWD, p.Git, p.WorkspaceDirs)
+	} else {
+		ls, err = p.Store.LocationScopeForKey(p.ProjectKey)
 	}
-	return line
+	if err != nil {
+		return "", fmt.Errorf("block: ledger scope: %w", err)
+	}
+	c, err := p.Store.LedgerCounts(ls, p.Now)
+	if err != nil {
+		return "", fmt.Errorf("block: ledger counts: %w", err)
+	}
+	if c.Total() == 0 {
+		return "", nil
+	}
+	return fmt.Sprintf("Ledger: %d decisions · %d outcomes · %d claims (newest %s) — recall for them",
+		c.Decisions, c.Outcomes, c.Claims, formatAge(p.Now.Sub(c.Newest))), nil
 }
 
 // coordinationSlot is slot 3: other live sessions in the project, excluding
@@ -485,17 +669,21 @@ func pidAlive(procfs ident.ProcFS, pid *int) bool {
 
 // attentionSlot is slot 4: unconfirmed inferred drafts, contradictions
 // flagged against this project's records, and whether the Resume slot's
-// handoff is possibly stale (decision bcc9fa54). The possibly-stale clause
+// handoff is possibly stale (decision bcc9fa54), and whether a command failed
+// since the handoff. The possibly-stale clause
 // is appended only when staleHandoff is true, so a project with no flagged
 // handoff renders the exact same "Attention: N unconfirmed draft(s), M
 // contradiction(s)" text this slot always has.
-func attentionSlot(draftCount, contradictionCount int, staleHandoff bool) string {
-	if draftCount == 0 && contradictionCount == 0 && !staleHandoff {
+func attentionSlot(draftCount, contradictionCount int, staleHandoff, failedCommand bool) string {
+	if draftCount == 0 && contradictionCount == 0 && !staleHandoff && !failedCommand {
 		return ""
 	}
 	line := fmt.Sprintf("Attention: %d unconfirmed draft(s), %d contradiction(s)", draftCount, contradictionCount)
 	if staleHandoff {
 		line += ", 1 possibly-stale handoff"
+	}
+	if failedCommand {
+		line += ", 1 command failed since the handoff (see Last failure)"
 	}
 	return line
 }
