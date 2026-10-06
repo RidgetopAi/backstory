@@ -117,3 +117,33 @@ func TestCodexUnrelatedTablesRoundTrip(t *testing.T) {
 		}
 	}
 }
+
+// Remove straight from the state Codex leaves (tables inside the markers, no
+// reinstall in between) keeps them byte-identical.
+func TestCodexRemoveDirectWithTablesInsideBlock(t *testing.T) {
+	p, tables := installedWithCodexTables(t, codexFixtureTOML)
+	if !strings.Contains(readFile(t, p.ConfigTOML), CodexTOMLMarkerBegin) {
+		t.Fatal("block missing before remove")
+	}
+	if err := RemoveCodex(p, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	c := readFile(t, p.ConfigTOML)
+	if strings.Contains(c, "backstory:") || strings.Contains(c, "mcp_servers.backstory") {
+		t.Errorf("remove left backstory lines:\n%s", c)
+	}
+	if want := codexFixtureTOML + tables; c != want {
+		t.Errorf("after direct remove:\n%q\nwant\n%q", c, want)
+	}
+}
+
+// Same on a config that is nothing but the block plus Codex's tables.
+func TestCodexRemoveDirectEmptySeedKeepsTables(t *testing.T) {
+	p, tables := installedWithCodexTables(t, "")
+	if err := RemoveCodex(p, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, p.ConfigTOML); !strings.Contains(got, tables) || strings.Contains(got, "mcp_servers.backstory") {
+		t.Errorf("after direct remove:\n%q", got)
+	}
+}
