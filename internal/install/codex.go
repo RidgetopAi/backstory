@@ -115,8 +115,14 @@ func (codexAdapter) Install(home string, opts Options) error {
 	return InstallCodex(DefaultCodexPaths(home), opts)
 }
 
-// InstallNotice is printed by the CLI after a successful install.
-func (codexAdapter) InstallNotice() string { return CodexTrustNotice }
+// InstallNotice is printed by the CLI after a successful install: the
+// approval step, or nothing when the hooks are already trusted.
+func (codexAdapter) InstallNotice(home string, opts Options) string {
+	if CodexHooksTrusted(home, opts) {
+		return ""
+	}
+	return CodexTrustNotice
+}
 
 func (codexAdapter) Remove(home string, opts Options) error {
 	return RemoveCodex(DefaultCodexPaths(home), opts)
@@ -214,10 +220,13 @@ func CheckCodex(paths CodexPaths, opts Options) ([]Item, error) {
 	if err != nil {
 		return nil, err
 	}
+	mcpSt, mcpBin := codexTOMLStatus(paths.ConfigTOML, opts)
+	startSt, startBin := codexHookStatus(paths, hooksRoot, "SessionStart", codexEventSessionStart, subSessionStartCodex, opts)
+	postSt, postBin := codexHookStatus(paths, hooksRoot, "PostToolUse", codexEventPostToolUse, subPostToolUseCodex, opts)
 	return []Item{
-		{Name: ItemCodexMCPServer, Status: codexTOMLStatus(paths.ConfigTOML, opts)},
-		{Name: ItemSessionStartHook, Status: codexHookStatus(paths, hooksRoot, "SessionStart", codexEventSessionStart, codexHookEntry(opts.hookCommand(subSessionStartCodex), opts.timeoutSeconds()))},
-		{Name: ItemPostToolUseHook, Status: codexHookStatus(paths, hooksRoot, "PostToolUse", codexEventPostToolUse, codexHookEntry(opts.hookCommand(subPostToolUseCodex), opts.timeoutSeconds()))},
+		{Name: ItemCodexMCPServer, Status: mcpSt, Binary: mcpBin},
+		{Name: ItemSessionStartHook, Status: startSt, Binary: startBin},
+		{Name: ItemPostToolUseHook, Status: postSt, Binary: postBin},
 		{Name: ItemCodexAgentsMD, Status: stubBlockStatus(paths.AgentsMD, codexStubBlock)},
 		{Name: ItemCodexSkill, Status: ItemStatus(skill.CheckStatus(paths.SkillPath, opts.Prefix))},
 	}, nil
@@ -409,24 +418,53 @@ func removeCodexTOML(path string, opts Options) error {
 // codexTOMLStatus decides from the TOML tables, not the marker region: the
 // backstory table must exist with Backstory's command and args wherever it
 // sits in the file, and nothing foreign may define it.
-func codexTOMLStatus(path string, opts Options) ItemStatus {
+func codexTOMLStatus(path string, opts Options) (ItemStatus, string) {
 	data, err := os.ReadFile(path) //nolint:gosec // caller-chosen config location
 	if err != nil {
-		return StatusAbsent
+		return StatusAbsent, ""
 	}
 	content := string(data)
+	// Backstory's table is recognised by its shape, whatever binary it names
+	// (an install made with --binary); compare against that recorded path.
+	if bin, ok := codexRecordedBinary(content); ok {
+		opts.BinaryPath = bin
+	}
 	rest, err := withoutBlock(path, content, opts)
 	if err != nil {
-		return StatusForeign
+		return StatusForeign, ""
 	}
 	if foreignBackstoryTable.MatchString(rest) {
-		return StatusForeign
+		return StatusForeign, ""
 	}
 	if codexBackstoryTableMatches(content, opts) {
-		return StatusPresent
+		return StatusPresent, opts.binaryPath()
 	}
 	// Absent, or Backstory's own older block (another binary path): install rewrites it.
-	return StatusAbsent
+	return StatusAbsent, ""
+}
+
+var tomlCommandLine = regexp.MustCompile(`^command\s*=\s*("(?:[^"\\]|\\.)*")\s*$`)
+
+// codexRecordedBinary is the binary named by the command line of the
+// [mcp_servers.backstory] table, if there is one.
+func codexRecordedBinary(content string) (string, bool) {
+	in := false
+	for _, line := range strings.Split(content, "\n") {
+		trim := strings.TrimSpace(line)
+		if strings.HasPrefix(trim, "[") {
+			in = trim == "[mcp_servers.backstory]"
+			continue
+		}
+		if !in {
+			continue
+		}
+		if m := tomlCommandLine.FindStringSubmatch(trim); m != nil {
+			if bin, err := strconv.Unquote(m[1]); err == nil && bin != "" {
+				return bin, true
+			}
+		}
+	}
+	return "", false
 }
 
 // codexBackstoryTableMatches reports whether content has a
@@ -464,28 +502,32 @@ func codexBackstoryTableMatches(content string, opts Options) bool {
 
 // codexHookStatus is hookEntryStatus, downgraded to StatusNotTrusted when the
 // hook is installed but config.toml has no trusted_hash for its key.
-func codexHookStatus(paths CodexPaths, root map[string]any, event, label string, want map[string]any) ItemStatus {
-	st := hookEntryStatus(root, event, want)
+func codexHookStatus(paths CodexPaths, root map[string]any, event, label, sub string, opts Options) (ItemStatus, string) {
+	want := codexHookEntry(opts.hookCommand(sub), opts.timeoutSeconds())
+	st, bin, group := hookEntryStatus(root, event, want, sub, opts)
 	if st != StatusPresent {
-		return st
+		return st, ""
 	}
-	group := codexGroupIndex(root, event, want)
 	key := fmt.Sprintf("%s:%s:%d:0", paths.HooksJSON, label, group)
 	if codexHookTrusted(paths.ConfigTOML, key) {
-		return StatusPresent
+		return StatusPresent, bin
 	}
-	return StatusNotTrusted
+	return StatusNotTrusted, bin
 }
 
-func codexGroupIndex(root map[string]any, event string, want map[string]any) int {
-	hooksObj, _ := root["hooks"].(map[string]any)
-	arr, _ := hooksObj[event].([]any)
-	for i, e := range arr {
-		if jsonDeepEqual(e, want) {
-			return i
+// CodexHooksTrusted reports whether every Backstory hook installed in
+// Codex's hooks.json already has a trusted_hash in config.toml.
+func CodexHooksTrusted(home string, opts Options) bool {
+	items, err := CheckCodex(DefaultCodexPaths(home), opts)
+	if err != nil {
+		return false
+	}
+	for _, it := range items {
+		if (it.Name == ItemSessionStartHook || it.Name == ItemPostToolUseHook) && it.Status != StatusPresent {
+			return false
 		}
 	}
-	return 0
+	return true
 }
 
 var (

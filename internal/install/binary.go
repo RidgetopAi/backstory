@@ -133,29 +133,79 @@ func mergeHookEntry(root map[string]any, event string, want map[string]any, sub 
 	return true, nil
 }
 
-func hookEntryStatus(root map[string]any, event string, want map[string]any) ItemStatus {
+// hookEntryStatus finds Backstory's group for sub under event. A group
+// matches when it equals want, or equals want with the command's binary
+// replaced by whatever path the group names (an install made with --binary):
+// the hook subcommand and the group's shape are Backstory's marker, not the
+// current binary path. bin is the path the matched group invokes; idx its
+// position in the event's array.
+func hookEntryStatus(root map[string]any, event string, want map[string]any, sub string, opts Options) (st ItemStatus, bin string, idx int) {
 	hooksRaw, ok := root["hooks"]
 	if !ok {
-		return StatusAbsent
+		return StatusAbsent, "", 0
 	}
 	hooksObj, ok := hooksRaw.(map[string]any)
 	if !ok {
-		return StatusForeign
+		return StatusForeign, "", 0
 	}
 	arrRaw, ok := hooksObj[event]
 	if !ok {
-		return StatusAbsent
+		return StatusAbsent, "", 0
 	}
 	arr, ok := arrRaw.([]any)
 	if !ok {
-		return StatusForeign
+		return StatusForeign, "", 0
 	}
-	for _, e := range arr {
+	for i, e := range arr {
 		if jsonDeepEqual(e, want) {
-			return StatusPresent
+			return StatusPresent, opts.binaryPath(), i
+		}
+		if cmd, ok := recordedHookCommand(e); ok {
+			if prefix, ok := strings.CutSuffix(cmd, " "+sub); ok && jsonDeepEqual(e, withHookCommand(want, cmd)) {
+				return StatusPresent, unquoteShell(prefix), i
+			}
 		}
 	}
-	return StatusAbsent
+	return StatusAbsent, "", 0
+}
+
+// recordedHookCommand is the command of a single-hook group, if e is one.
+func recordedHookCommand(e any) (string, bool) {
+	m, ok := e.(map[string]any)
+	if !ok {
+		return "", false
+	}
+	hooks, ok := m["hooks"].([]any)
+	if !ok || len(hooks) != 1 {
+		return "", false
+	}
+	h, ok := hooks[0].(map[string]any)
+	if !ok {
+		return "", false
+	}
+	cmd, ok := h["command"].(string)
+	return cmd, ok
+}
+
+// withHookCommand returns a copy of the single-hook group want with its
+// command replaced.
+func withHookCommand(want map[string]any, command string) map[string]any {
+	out := map[string]any{}
+	for k, v := range want {
+		out[k] = v
+	}
+	hooks, _ := want["hooks"].([]any)
+	if len(hooks) != 1 {
+		return out
+	}
+	h, _ := hooks[0].(map[string]any)
+	h2 := map[string]any{}
+	for k, v := range h {
+		h2[k] = v
+	}
+	h2["command"] = command
+	out["hooks"] = []any{h2}
+	return out
 }
 
 // removeHookEntry drops every group backstory wrote for sub, whatever binary

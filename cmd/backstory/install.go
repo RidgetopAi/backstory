@@ -145,7 +145,11 @@ func runInstallCheck(adapters []install.Adapter, home string, opts install.Optio
 			return 1
 		}
 		for _, it := range items {
-			_, _ = fmt.Fprintf(stdout, "%s: %s: %s\n", a.Name(), it.Name, it.Status)
+			if it.Binary != "" && it.Status != install.StatusAbsent {
+				_, _ = fmt.Fprintf(stdout, "%s: %s: %s (%s)\n", a.Name(), it.Name, it.Status, it.Binary)
+			} else {
+				_, _ = fmt.Fprintf(stdout, "%s: %s: %s\n", a.Name(), it.Name, it.Status)
+			}
 			if it.Status != install.StatusPresent {
 				allPresent = false
 			}
@@ -191,8 +195,12 @@ func runInstallInstall(adapters []install.Adapter, home string, opts install.Opt
 		case o.Err == nil:
 			installed = append(installed, name)
 			_, _ = fmt.Fprintf(stdout, "%s: installed\n", name)
-			if n, ok := o.Adapter.(interface{ InstallNotice() string }); ok {
-				_, _ = fmt.Fprintln(stdout, n.InstallNotice())
+			if n, ok := o.Adapter.(interface {
+				InstallNotice(home string, opts install.Options) string
+			}); ok {
+				if msg := n.InstallNotice(home, opts); msg != "" {
+					_, _ = fmt.Fprintln(stdout, msg)
+				}
 			}
 		case o.Conflict:
 			skipped = append(skipped, name)

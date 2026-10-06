@@ -54,7 +54,7 @@ func TestCodexCheckReportsUntrustedHooks(t *testing.T) {
 // Clause 2 (path ii): install names the approval step; --check is
 // not-trusted until a matching entry exists, then present.
 func TestCodexInstallNoticeAndTrustTransition(t *testing.T) {
-	if n := (codexAdapter{}).InstallNotice(); strings.Count(n, "\n") != 0 || !strings.Contains(n, "approve the Backstory hooks") {
+	if n := (codexAdapter{}).InstallNotice(t.TempDir(), Options{}); strings.Count(n, "\n") != 0 || !strings.Contains(n, "approve the Backstory hooks") {
 		t.Errorf("notice = %q", n)
 	}
 	p := codexFixture(t, codexFixtureTOML)
