@@ -98,7 +98,7 @@ func ToolsV0() []Tool {
 					},
 					"next": {
 						"type": "string",
-						"description": "handoff only: the single next step, one line, at most 200 characters"
+						"description": "handoff only: the one action the next session starts, as an imperative, one line, at most 200 characters; conditions, don'ts that still hold, and the exact command to verify the work go in text"
 					}
 				},
 				"required": ["kind", "text"]

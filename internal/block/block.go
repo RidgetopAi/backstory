@@ -52,7 +52,7 @@ const FinalLine = "call recall only if you need more than this block"
 // handoffRule is the sentence FinalLineFor appends to FinalLine: the handoff
 // rule used to live only in the skill, so an agent that never loaded it ended
 // its session without writing one (V1 review, tesla-gaps #6).
-const handoffRule = "Before you stop: note handoff with next = the single next step"
+const handoffRule = "Before you stop: note handoff with next = the one action the next session starts, as an imperative; conditions, don'ts that still hold and the verify command go in text"
 
 // FinalLineFor is slot 5: FinalLine, then the handoff rule, naming the
 // Resume handoff's id as supersedes when resumeID is not empty so the chain
