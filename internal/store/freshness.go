@@ -26,6 +26,11 @@ const (
 	// FreshnessLaterActivity is reason (c): a later timeline event touches a
 	// path the handoff's about[] names.
 	FreshnessLaterActivity FreshnessReasonKind = "later-activity"
+	// FreshnessLaterFailure is reason (d): a later shell command event or
+	// tool.result observed a non-zero exit (or is_error) — positive evidence
+	// the handoff's "it works" no longer holds, whoever ran it and whether or
+	// not any file was edited.
+	FreshnessLaterFailure FreshnessReasonKind = "later-failure"
 )
 
 // FreshnessReason is one reason HandoffFreshness flagged a handoff, with the
@@ -98,7 +103,42 @@ func (s *Store) HandoffFreshness(h Record, workspaces []string) ([]FreshnessReas
 		reasons = append(reasons, FreshnessReason{Kind: FreshnessLaterActivity, EventIDs: laterEventIDs})
 	}
 
+	failureIDs, err := s.laterFailureEvents(sessionIDs, boundaryEventCursor)
+	if err != nil {
+		return nil, err
+	}
+	if len(failureIDs) > 0 {
+		reasons = append(reasons, FreshnessReason{Kind: FreshnessLaterFailure, EventIDs: failureIDs})
+	}
+
 	return reasons, nil
+}
+
+// laterFailureEvents returns, ascending by id, the ids of command events with
+// a non-zero exit and tool.result events that are is_error or carry a
+// non-zero exit, from one of sessionIDs after sinceEventCursor. Unlike
+// laterEventsTouchingAbout it needs no about[] path.
+func (s *Store) laterFailureEvents(sessionIDs []string, sinceEventCursor int64) ([]int64, error) {
+	events, err := s.eventsSinceIDForSessions(sessionIDs, sinceEventCursor)
+	if err != nil {
+		return nil, err
+	}
+	var out []int64
+	for _, e := range events {
+		switch e.Kind {
+		case payload.KindShellCommand:
+			var sc payload.ShellCommand
+			if json.Unmarshal([]byte(e.Payload), &sc) == nil && sc.Exit != 0 {
+				out = append(out, e.ID)
+			}
+		case payload.KindToolResult:
+			var tr payload.ToolResult
+			if json.Unmarshal([]byte(e.Payload), &tr) == nil && (tr.IsError || (tr.Exit != nil && *tr.Exit != 0)) {
+				out = append(out, e.ID)
+			}
+		}
+	}
+	return out, nil
 }
 
 // aboutWithAbsolutePaths returns about plus, for every relative path in it,
