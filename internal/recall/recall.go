@@ -121,6 +121,9 @@ type Item struct {
 	// (SCHEMA.md invariant 1: recall omits a tombstoned record's text,
 	// keeps its edges).
 	Text string
+	// Next is a handoff's one-line next step, empty for any other kind, for
+	// a handoff with none, and when Status is StatusTombstoned.
+	Next string
 	// Edges are every edge touching this record, both directions, every
 	// type, unaffected by Status — in particular still populated when
 	// Status is StatusTombstoned, per SCHEMA.md invariant 1 ("keeps its
@@ -306,6 +309,7 @@ func annotate(st *store.Store, rec store.Record, workspaces []string) (Item, err
 		Kind:   rec.Kind,
 		Tier:   rec.Tier,
 		Text:   rec.Text,
+		Next:   rec.Next,
 		Status: StatusCurrent,
 		Edges:  edges,
 	}
@@ -315,6 +319,7 @@ func annotate(st *store.Store, rec store.Record, workspaces []string) (Item, err
 	if rec.TombstonedAt != nil {
 		item.Status = StatusTombstoned
 		item.Text = ""
+		item.Next = ""
 		return item, nil
 	}
 
@@ -423,17 +428,29 @@ func renderItem(item Item, altitude Altitude) string {
 	}
 	switch altitude {
 	case AltitudeHeadline:
+		out := header
 		if fl := firstLine(item.Text); fl != "" {
-			return header + " · " + fl
+			out += " · " + fl
 		}
-		return header
+		if nl := firstLine(item.Next); nl != "" {
+			out += " · Next: " + nl
+		}
+		return out
 	case AltitudeSummary:
-		return renderBody(header, item.Text, summaryBodyChars)
+		return withNext(renderBody(header, item.Text, summaryBodyChars), item.Next)
 	case AltitudeFull:
-		return renderBody(header, item.Text, 0)
+		return withNext(renderBody(header, item.Text, 0), item.Next)
 	default:
 		return header
 	}
+}
+
+// withNext appends a handoff's next step on its own "Next:" line.
+func withNext(body, next string) string {
+	if next == "" {
+		return body
+	}
+	return body + "\nNext: " + next
 }
 
 func renderBody(header, text string, maxChars int) string {

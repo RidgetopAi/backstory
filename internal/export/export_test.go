@@ -402,3 +402,23 @@ func TestWriteAtomicNoPartialFileWhenDestinationDidNotExist(t *testing.T) {
 		t.Fatalf("dir %s = %v after a failed write, want empty (temp file cleaned up)", dir, entries)
 	}
 }
+
+// Task 91860fb0 clause 2: the Resume section includes the handoff's next.
+func TestBuildResumeSectionIncludesNext(t *testing.T) {
+	st := newTestStore(t)
+	buildExportFixtureStore(t, st)
+	if _, err := st.InsertRecord(store.InsertRecordParams{
+		Identity: store.Identity{Kind: store.IdentityAgent}, Kind: store.KindHandoff, Text: "newest handoff",
+		ProjectKey: exportFixtureProject, Next: "NEXTMARK add the thing",
+	}); err != nil {
+		t.Fatalf("insert handoff: %v", err)
+	}
+
+	got, err := Build(Params{Store: st, ProjectKey: exportFixtureProject, Altitude: AltitudeSummary, Now: exportFixtureNow})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if !strings.Contains(got, "Next: NEXTMARK add the thing") {
+		t.Fatalf("export Resume section lacks next:\n%s", got)
+	}
+}

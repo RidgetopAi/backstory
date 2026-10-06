@@ -55,7 +55,10 @@ const maxLastExitCodes = 5
 
 // modeLine matches a "MODE: <word>" line inside a handoff's free text
 // (AGENT-CONTRACT.md §The SessionStart block: "its MODE line if present").
-var modeLine = regexp.MustCompile(`(?m)^MODE:\s*(\S+)\s*$`)
+// It captures the leading mode token only (letters, digits, "_", "/", "-"),
+// so a real line like "MODE: debug/verify. extra words" still renders as
+// "MODE: debug/verify" instead of being missed (task 91860fb0).
+var modeLine = regexp.MustCompile(`(?m)^MODE:[ \t]*([\w/-]+)`)
 
 // Params is Render's input: everything it needs to read from the store and
 // /proc for one project, plus the caller's own session (excluded from slot
@@ -171,6 +174,9 @@ func resumeSlot(rec store.Record, ok bool, staleReasons []store.FreshnessReason,
 		return ""
 	}
 	line := "Resume: (id " + rec.ID + ") " + authorClause + rec.Text
+	if rec.Next != "" {
+		line += "\nNext: " + rec.Next
+	}
 	if m := modeLine.FindStringSubmatch(rec.Text); m != nil {
 		line += "\nMODE: " + m[1]
 	}
