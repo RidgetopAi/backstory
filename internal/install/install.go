@@ -227,6 +227,9 @@ func Install(paths Paths, opts Options) error {
 type Item struct {
 	Name   string
 	Status ItemStatus
+	// Binary is the absolute binary path a present MCP/hook entry invokes
+	// (empty for items that name none, or when not present).
+	Binary string
 }
 
 // Check reports every item's status. It never writes.
@@ -240,12 +243,17 @@ func Check(paths Paths, opts Options) ([]Item, error) {
 		return nil, err
 	}
 
+	mcpSt, mcpBin := mcpServerStatus(claudeRoot, opts)
+	startSt, startBin, _ := hookEntryStatus(settingsRoot, "SessionStart", wantSessionStartEntry(opts), subSessionStart, opts)
+	postSt, postBin, _ := hookEntryStatus(settingsRoot, "PostToolUse", wantPostToolUseEntry(opts), subPostToolUse, opts)
+	failSt, failBin, _ := hookEntryStatus(settingsRoot, "PostToolUseFailure", wantPostToolUseFailureEntry(opts), subPostToolUseFailure, opts)
+	stopSt, stopBin, _ := hookEntryStatus(settingsRoot, "Stop", wantStopEntry(opts), subStop, opts)
 	items := []Item{
-		{Name: ItemMCPServer, Status: mcpServerStatus(claudeRoot, opts)},
-		{Name: ItemSessionStartHook, Status: hookEntryStatus(settingsRoot, "SessionStart", wantSessionStartEntry(opts))},
-		{Name: ItemPostToolUseHook, Status: hookEntryStatus(settingsRoot, "PostToolUse", wantPostToolUseEntry(opts))},
-		{Name: ItemPostToolUseFailureHook, Status: hookEntryStatus(settingsRoot, "PostToolUseFailure", wantPostToolUseFailureEntry(opts))},
-		{Name: ItemStopHook, Status: hookEntryStatus(settingsRoot, "Stop", wantStopEntry(opts))},
+		{Name: ItemMCPServer, Status: mcpSt, Binary: mcpBin},
+		{Name: ItemSessionStartHook, Status: startSt, Binary: startBin},
+		{Name: ItemPostToolUseHook, Status: postSt, Binary: postBin},
+		{Name: ItemPostToolUseFailureHook, Status: failSt, Binary: failBin},
+		{Name: ItemStopHook, Status: stopSt, Binary: stopBin},
 		{Name: ItemSkill, Status: install2checkStatus(skill.CheckStatus(paths.SkillPath, opts.Prefix))},
 		{Name: ItemClaudeMDStub, Status: stubStatus(paths.ClaudeMD)},
 	}
@@ -318,23 +326,31 @@ func mergeMCPServer(root map[string]any, opts Options) (changed bool, err error)
 	return true, nil
 }
 
-func mcpServerStatus(root map[string]any, opts Options) ItemStatus {
+// mcpServerStatus reports mcpServers.backstory. The entry is Backstory's own
+// when it has the shape the installer writes (stdio, args ["mcp"]) whatever
+// absolute binary it names; bin is that path.
+func mcpServerStatus(root map[string]any, opts Options) (ItemStatus, string) {
 	serversRaw, ok := root["mcpServers"]
 	if !ok {
-		return StatusAbsent
+		return StatusAbsent, ""
 	}
 	servers, ok := serversRaw.(map[string]any)
 	if !ok {
-		return StatusForeign
+		return StatusForeign, ""
 	}
 	entry, ok := servers[MCPServerName]
 	if !ok {
-		return StatusAbsent
+		return StatusAbsent, ""
 	}
 	if jsonDeepEqual(entry, wantMCPServerValue(opts)) {
-		return StatusPresent
+		return StatusPresent, opts.binaryPath()
 	}
-	return StatusForeign
+	if m, ok := entry.(map[string]any); ok {
+		if cmd, ok := m["command"].(string); ok && cmd != "" && jsonDeepEqual(entry, wantMCPServerValue(Options{BinaryPath: cmd})) {
+			return StatusPresent, cmd
+		}
+	}
+	return StatusForeign, ""
 }
 
 func removeMCPServer(root map[string]any) (changed bool) {
