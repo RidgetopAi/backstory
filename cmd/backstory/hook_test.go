@@ -94,6 +94,9 @@ func startTestDaemon(t *testing.T, bin string, ancestry ...ident.FakeAncestryHop
 		"XDG_RUNTIME_DIR="+runtimeDir,
 		"XDG_DATA_HOME="+dataDir,
 	)
+	// The daemon's startup backfill scans $HOME for Claude Code transcripts;
+	// an empty fixture HOME keeps the real one from adding sessions rows.
+	env = append(envWithout(env, "HOME", "BACKSTORY_WORKSPACE_DIRS"), "HOME="+t.TempDir())
 	if len(ancestry) > 0 {
 		b, err := json.Marshal(ancestry)
 		if err != nil {

@@ -185,24 +185,6 @@ func treeMap(t *testing.T, dir string) map[string]string {
 	return m
 }
 
-func assertSameTree(t *testing.T, want, got string) {
-	t.Helper()
-	w, g := treeMap(t, want), treeMap(t, got)
-	for k, v := range w {
-		gv, ok := g[k]
-		if !ok {
-			t.Errorf("%s lacks %s", got, k)
-		} else if gv != v {
-			t.Errorf("%s differs from %s", filepath.Join(got, k), filepath.Join(want, k))
-		}
-	}
-	for k := range g {
-		if _, ok := w[k]; !ok {
-			t.Errorf("%s has extra %s", got, k)
-		}
-	}
-}
-
 func mustExist(t *testing.T, p string) {
 	t.Helper()
 	if _, err := os.Lstat(p); err != nil {
@@ -233,7 +215,7 @@ func TestMakeInstallFirstInstall(t *testing.T) {
 	if !bytes.Equal(unit, want) {
 		t.Error("installed unit differs from ops/backstory.service")
 	}
-	assertSameTree(t, "../panel", f.panelDir())
+	assertPanelRuntimeOnly(t, f.panelDir())
 	hypr, err := os.ReadFile(f.path(".config", "hypr", "backstory.lua"))
 	if err != nil {
 		t.Fatal(err)
@@ -436,16 +418,16 @@ func TestInstallerRecordsNoProjectForBuildDir(t *testing.T) {
 		t.Errorf("installer recorded %d project row(s) in the user's store", n)
 	}
 
-	// Control: the same call without the installer's flag is recorded, so
-	// the assertions above can fail.
+	// A plain `backstory status` from the clone dir is a read-only call and
+	// mints no session either.
 	ctl := exec.Command(f.path(".local", "bin", "backstory"), "status") //nolint:gosec // fixture path under t.TempDir
 	ctl.Dir = clone
 	ctl.Env = append(os.Environ(), "HOME="+f.home, "XDG_RUNTIME_DIR="+f.run, "XDG_DATA_HOME="+filepath.Join(f.home, ".local", "share"))
 	if out, err := ctl.CombinedOutput(); err != nil {
 		t.Fatalf("control status: %v\n%s", err, out)
 	}
-	if sessionsAt() == 0 {
-		t.Error("control: a plain `backstory status` from the clone dir recorded no session — the probe is not sensitive")
+	if n := sessionsAt(); n != 0 {
+		t.Errorf("plain `backstory status` minted %d session(s)", n)
 	}
 }
 
@@ -535,7 +517,7 @@ func TestMakeInstallUpgrade(t *testing.T) {
 	}
 	mustExist(t, filepath.Join(f.panelBackup(), "stale-from-old-version.qml"))
 	mustNotExist(t, filepath.Join(f.panelDir(), "stale-from-old-version.qml"))
-	assertSameTree(t, "../panel", f.panelDir())
+	assertPanelRuntimeOnly(t, f.panelDir())
 }
 
 func TestMakeInstallShellRestartHonoursLock(t *testing.T) {
@@ -669,5 +651,54 @@ func TestRepoShipsBackstoryIgnoreAndReadmeDocumentsIt(t *testing.T) {
 	}
 	if !strings.Contains(string(readme), ".backstory-ignore") {
 		t.Error("README.md does not mention .backstory-ignore")
+	}
+}
+
+// panelRuntimeFiles lists what the panel loads at runtime: the manifest, its
+// entry points, every QML type and the JS under js/.
+func panelRuntimeFiles(t *testing.T) []string {
+	t.Helper()
+	var want []string
+	for _, pat := range []string{"manifest.json", "*.qml", "js/*.js"} {
+		m, err := filepath.Glob(filepath.Join("..", "panel", pat))
+		if err != nil || len(m) == 0 {
+			t.Fatalf("glob %s: %v (%d matches)", pat, err, len(m))
+		}
+		for _, p := range m {
+			rel, _ := filepath.Rel(filepath.Join("..", "panel"), p)
+			want = append(want, rel)
+		}
+	}
+	return want
+}
+
+// assertPanelRuntimeOnly checks the installed panel holds every runtime file
+// byte-for-byte and no test or fixture file (tst_*, anything under tests/,
+// qmltest/ or testdata/, or *_test.go).
+func assertPanelRuntimeOnly(t *testing.T, dir string) {
+	t.Helper()
+	for _, rel := range panelRuntimeFiles(t) {
+		want, err := os.ReadFile(filepath.Join("..", "panel", rel)) //nolint:gosec // repo path
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := os.ReadFile(filepath.Join(dir, rel)) //nolint:gosec // fixture path
+		if err != nil {
+			t.Errorf("installed panel lacks runtime file %s: %v", rel, err)
+		} else if string(got) != string(want) {
+			t.Errorf("installed %s differs from source", rel)
+		}
+	}
+	for rel := range treeMap(t, dir) {
+		parts := strings.Split(filepath.ToSlash(rel), "/")
+		bad := strings.HasPrefix(parts[len(parts)-1], "tst_") || strings.HasSuffix(rel, "_test.go")
+		for _, p := range parts[:len(parts)-1] {
+			if p == "tests" || p == "qmltest" || p == "testdata" {
+				bad = true
+			}
+		}
+		if bad {
+			t.Errorf("installed panel contains test/fixture file %s", rel)
+		}
 	}
 }

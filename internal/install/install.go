@@ -286,6 +286,8 @@ func Remove(paths Paths, opts Options) error {
 	if err := skill.Remove(paths.SkillPath, opts.Prefix); err != nil {
 		return fmt.Errorf("%s: %w", ItemSkill, err)
 	}
+	// Prune the skill directory install created; os.Remove only takes an empty one.
+	_ = os.Remove(filepath.Dir(paths.SkillPath))
 	if err := removeStub(paths.ClaudeMD); err != nil {
 		return fmt.Errorf("%s: %w", ItemClaudeMDStub, err)
 	}
