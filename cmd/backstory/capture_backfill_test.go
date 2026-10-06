@@ -96,11 +96,15 @@ func TestCaptureOffStopsCLIBackfillAndDaemonStartupBackfill(t *testing.T) {
 // the CLI: capture off records a window; a transcript started inside it is
 // not imported after capture is back on, one started after is.
 func TestPausedSessionNotImportedAfterCaptureOn(t *testing.T) {
-	root := captureBackfillEnv(t, "sess-paused", time.Now().Add(200*time.Millisecond))
+	root := captureBackfillEnv(t, "sess-unused", time.Now())
 	mustRunCmd(t, "capture", func(a []string, o, e io.Writer) int { return runCapture(a, o, e) }, "off")
-	time.Sleep(500 * time.Millisecond)
+	// Stamped after capture off returned and before capture on runs, so it
+	// is inside the recorded window however slow the machine is.
+	writeClaudeTranscript(t, root, "sess-paused", time.Now())
+	time.Sleep(50 * time.Millisecond)
 	mustRunCmd(t, "capture", func(a []string, o, e io.Writer) int { return runCapture(a, o, e) }, "on")
-	writeClaudeTranscript(t, root, "sess-after", time.Now().Add(time.Second))
+	time.Sleep(50 * time.Millisecond)
+	writeClaudeTranscript(t, root, "sess-after", time.Now())
 
 	mustRunCmd(t, "backfill", runBackfill, "claude")
 
