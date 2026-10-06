@@ -138,6 +138,17 @@ func Render(p Params) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("block: delta events: %w", err)
 	}
+	// Runs that already had an event at or before the cursor are not "since
+	// the handoff": a daemon restart backfills their later events after it.
+	// Sequence-based (event id), never a clock comparison (invariant 10).
+	priorRuns := map[string]bool{}
+	if deltaCursor > 0 {
+		for _, e := range allEvents {
+			if e.ID <= deltaCursor {
+				priorRuns[e.Run()] = true
+			}
+		}
+	}
 	liveSessions, err := p.Store.LiveSessionsInProject(p.ProjectKey)
 	if err != nil {
 		return "", fmt.Errorf("block: live sessions: %w", err)
@@ -183,7 +194,7 @@ func Render(p Params) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	slot2 := joinLines(repoLine, deltaSlot(deltaEvents, shellSessions, p.SessionID, handoffSessionID), failure.line(p.Now), testsLine, ledgerLine)
+	slot2 := joinLines(repoLine, deltaSlot(deltaEvents, shellSessions, p.SessionID, handoffSessionID, priorRuns), failure.line(p.Now), testsLine, ledgerLine)
 	slot3 := coordinationSlot(liveSessions, allEvents, p.SessionID, p.ProcFS)
 	slot4 := attentionSlot(draftCount, contradictionCount, len(staleReasons) > 0, failure.found)
 
@@ -413,14 +424,16 @@ func staleReasonClause(r store.FreshnessReason) string {
 // shellSessions are the sessions (store.ShellSessionIDs) a delta never counts
 // in its "N sessions": a shell's captured commands are not agent work.
 func DeltaSummary(events []store.TimelineEvent, shellSessions map[string]bool, selfSessionID string) string {
-	return deltaSlot(events, shellSessions, selfSessionID, "")
+	return deltaSlot(events, shellSessions, selfSessionID, "", nil)
 }
 
 // deltaSlot also never counts the run that wrote the Resume handoff
 // (handoffSessionID, "" when there is none): it is the handoff's own source,
 // not later news, yet its session.end lands after the handoff's cursor
-// ("Delta: 1 sessions" right after session 1).
-func deltaSlot(events []store.TimelineEvent, shellSessions map[string]bool, selfSessionID, handoffSessionID string) string {
+// ("Delta: 1 sessions" right after session 1). priorRuns are runs with an
+// event at or before the handoff's cursor; they never count (backfill can
+// append their later events after it).
+func deltaSlot(events []store.TimelineEvent, shellSessions map[string]bool, selfSessionID, handoffSessionID string, priorRuns map[string]bool) string {
 	handoffRun := ""
 	for _, e := range events {
 		if handoffSessionID != "" && e.SessionID == handoffSessionID {
@@ -432,7 +445,7 @@ func deltaSlot(events []store.TimelineEvent, shellSessions map[string]bool, self
 	files := map[string]bool{}
 	for _, e := range events {
 		if e.SessionID != "" && e.SessionID != selfSessionID && !shellSessions[e.SessionID] &&
-			e.SessionID != handoffSessionID && (handoffRun == "" || e.Run() != handoffRun) {
+			e.SessionID != handoffSessionID && !priorRuns[e.Run()] && (handoffRun == "" || e.Run() != handoffRun) {
 			// By run, not session row: duplicate rows for one run count once.
 			sessions[e.Run()] = true
 		}

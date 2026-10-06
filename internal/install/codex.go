@@ -124,6 +124,13 @@ func (codexAdapter) InstallNotice(home string, opts Options) string {
 	return CodexTrustNotice
 }
 
+// CodexStopNote is the one line install codex prints saying the handoff Stop
+// nudge does not exist there.
+const CodexStopNote = "note: the handoff Stop nudge is Claude-only; Codex sessions are not nudged to write a handoff"
+
+// InstallNote is a second line printed after InstallNotice.
+func (codexAdapter) InstallNote() string { return CodexStopNote }
+
 func (codexAdapter) Remove(home string, opts Options) error {
 	return RemoveCodex(DefaultCodexPaths(home), opts)
 }
