@@ -416,7 +416,8 @@ func deltaSlot(events []store.TimelineEvent, shellSessions map[string]bool, self
 	files := map[string]bool{}
 	for _, e := range events {
 		if e.SessionID != "" && e.SessionID != selfSessionID && !shellSessions[e.SessionID] {
-			sessions[e.SessionID] = true
+			// By run, not session row: duplicate rows for one run count once.
+			sessions[e.Run()] = true
 		}
 		if e.Kind != payload.KindToolUse {
 			continue

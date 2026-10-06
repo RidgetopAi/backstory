@@ -255,10 +255,13 @@ func importFile(st *store.Store, git project.Git, workspaces []string, path stri
 	// so this is always a miss today; it costs nothing to hold the
 	// invariant now rather than relearn it once one lands.
 	sessionID := ""
-	if live, ok, err := st.LiveSessionByHarnessSessionID(root.ID); err != nil {
+	// The match ignores ended state (task a757b754).
+	attachedEnded := false
+	if prior, priorEnded, ok, err := st.RunSessionByHarnessSessionID(Agent, root.ID); err != nil {
 		return fileStats{}, err
 	} else if ok {
-		sessionID = live.ID
+		sessionID = prior.ID
+		attachedEnded = priorEnded
 	} else {
 		sessionID, err = createSession(st, git, workspaces, root)
 		if err != nil {
@@ -267,16 +270,22 @@ func importFile(st *store.Store, git project.Git, workspaces []string, path stri
 		stats.sessionCreated = true
 	}
 
-	if _, err := st.AppendEvent(store.Event{
-		TS:        root.Timestamp,
-		Kind:      EventSessionStart,
-		SessionID: sessionID,
-		Source:    EventSource,
-		Payload:   sessionStartPayload(order),
-	}); err != nil {
+	hasStart, err := st.SessionHasEventKind(sessionID, EventSessionStart)
+	if err != nil {
 		return fileStats{}, err
 	}
-	stats.events++
+	if !hasStart {
+		if _, err := st.AppendEvent(store.Event{
+			TS:        root.Timestamp,
+			Kind:      EventSessionStart,
+			SessionID: sessionID,
+			Source:    EventSource,
+			Payload:   sessionStartPayload(order),
+		}); err != nil {
+			return fileStats{}, err
+		}
+		stats.events++
+	}
 
 	n, err := appendToolEvents(st, sessionID, order[1:])
 	if err != nil {
@@ -292,7 +301,7 @@ func importFile(st *store.Store, git project.Git, workspaces []string, path stri
 	if err != nil {
 		return fileStats{}, err
 	}
-	if origin != store.OriginLive {
+	if origin != store.OriginLive && !attachedEnded {
 		lastTS := order[len(order)-1].Timestamp
 		endPayload, err := json.Marshal(payload.SessionEnd{Reason: "eof"})
 		if err != nil {

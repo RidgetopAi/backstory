@@ -455,6 +455,7 @@ func importSession(st *store.Store, db *sql.DB, git project.Git, workspaces []st
 	// and Pi importers. The live session already carries its own
 	// session.start, and its end-of-life belongs to the daemon alone.
 	attachedLive := false
+	attachedEnded := false
 	if !exists {
 		// Started during a capture pause: never imported (invariant 8).
 		if paused, err := capture.StartedInPause(st, hs.StartedAt); err != nil {
@@ -462,11 +463,13 @@ func importSession(st *store.Store, db *sql.DB, git project.Git, workspaces []st
 		} else if paused {
 			return nil
 		}
-		if live, ok, err := st.LiveSessionByHarnessSessionID(hs.ID); err != nil {
+		// The match ignores ended state (task a757b754).
+		if prior, priorEnded, ok, err := st.RunSessionByHarnessSessionID(Agent, hs.ID); err != nil {
 			return err
 		} else if ok {
-			sessionID = live.ID
+			sessionID = prior.ID
 			attachedLive = true
+			attachedEnded = priorEnded
 		}
 	}
 
@@ -505,7 +508,7 @@ func importSession(st *store.Store, db *sql.DB, git project.Git, workspaces []st
 	if err != nil {
 		return err
 	}
-	if !ended && endedAt != nil && origin != store.OriginLive {
+	if !ended && !attachedEnded && endedAt != nil && origin != store.OriginLive {
 		endPayload, _ := json.Marshal(payload.SessionEnd{Reason: "eof"})
 		if _, err := st.AppendEvent(store.Event{
 			TS:        *endedAt,

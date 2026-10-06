@@ -800,7 +800,7 @@ func homeLabelDayStats(events []store.TimelineEvent, records []store.Record, lab
 		}
 		files[tu.Path] = true
 		if e.SessionID != "" {
-			sessions[e.SessionID] = true
+			sessions[e.Run()] = true
 		}
 	}
 	for _, r := range records {
@@ -845,7 +845,8 @@ func dayStats(events []store.TimelineEvent, records []store.Record, shellSession
 			continue
 		}
 		if e.SessionID != "" && !shellSessions[e.SessionID] {
-			sessions[e.SessionID] = true
+			// By run, not session row: duplicate rows for one run count once.
+			sessions[e.Run()] = true
 		}
 		if e.Kind == payload.KindToolUse {
 			var tu payload.ToolUse

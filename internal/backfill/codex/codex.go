@@ -288,6 +288,7 @@ func importFile(st *store.Store, git project.Git, workspaces []string, path, par
 	firstTS := parsedLines[0].Timestamp
 	lastTS := parsedLines[len(parsedLines)-1].Timestamp
 
+	attachedEnded := false
 	if !exists {
 		// Started during a capture pause: never imported (invariant 8).
 		if paused, err := capture.StartedInPause(st, firstTS); err != nil {
@@ -295,22 +296,37 @@ func importFile(st *store.Store, git project.Git, workspaces []string, path, par
 		} else if paused {
 			return fileStats{}, nil
 		}
-		sessionID, err = createSession(st, git, workspaces, parsedLines, firstTS, parentSessionID)
+		// The same run already recorded (cursor lost, or another copy of
+		// the rollout) is attached to, never duplicated (task a757b754).
+		if prior, priorEnded, ok, err := st.RunSessionByHarnessSessionID(Agent, firstHarnessSessionID(parsedLines)); err != nil {
+			return fileStats{}, err
+		} else if ok {
+			sessionID = prior.ID
+			attachedEnded = priorEnded
+		} else {
+			sessionID, err = createSession(st, git, workspaces, parsedLines, firstTS, parentSessionID)
+			if err != nil {
+				return fileStats{}, err
+			}
+			stats.sessionCreated = true
+		}
+
+		hasStart, err := st.SessionHasEventKind(sessionID, EventSessionStart)
 		if err != nil {
 			return fileStats{}, err
 		}
-		stats.sessionCreated = true
-
-		if _, err := st.AppendEvent(store.Event{
-			TS:        firstTS,
-			Kind:      EventSessionStart,
-			SessionID: sessionID,
-			Source:    EventSource,
-			Payload:   sessionStartPayload(parsedLines),
-		}); err != nil {
-			return fileStats{}, err
+		if !hasStart {
+			if _, err := st.AppendEvent(store.Event{
+				TS:        firstTS,
+				Kind:      EventSessionStart,
+				SessionID: sessionID,
+				Source:    EventSource,
+				Payload:   sessionStartPayload(parsedLines),
+			}); err != nil {
+				return fileStats{}, err
+			}
+			stats.events++
 		}
-		stats.events++
 	}
 
 	n, err := appendToolEvents(st, sessionID, parsedLines, validIdx)
@@ -324,20 +340,22 @@ func importFile(st *store.Store, git project.Git, workspaces []string, path, par
 	// session.end is never deleted or rewritten) and moves sessions.ended_at
 	// to this batch's last line, mirroring internal/backfill/claude's own
 	// rule for a still-growing transcript.
-	sessionEndPayload, _ := json.Marshal(payload.SessionEnd{Reason: "eof"})
-	if _, err := st.AppendEvent(store.Event{
-		TS:        lastTS,
-		Kind:      EventSessionEnd,
-		SessionID: sessionID,
-		Source:    EventSource,
-		Payload:   string(sessionEndPayload),
-	}); err != nil {
-		return fileStats{}, err
-	}
-	stats.events++
+	if !attachedEnded {
+		sessionEndPayload, _ := json.Marshal(payload.SessionEnd{Reason: "eof"})
+		if _, err := st.AppendEvent(store.Event{
+			TS:        lastTS,
+			Kind:      EventSessionEnd,
+			SessionID: sessionID,
+			Source:    EventSource,
+			Payload:   string(sessionEndPayload),
+		}); err != nil {
+			return fileStats{}, err
+		}
+		stats.events++
 
-	if err := st.EndSession(sessionID, lastTS, "backfill"); err != nil {
-		return fileStats{}, err
+		if err := st.EndSession(sessionID, lastTS, "backfill"); err != nil {
+			return fileStats{}, err
+		}
 	}
 
 	if err := st.SetBackfillCursor(Source, path, store.BackfillCursor{
@@ -521,4 +539,18 @@ func truncateRunes(s string, max int) string {
 	}
 	r := []rune(s)
 	return string(r[:max]) + "…"
+}
+
+// firstHarnessSessionID returns the rollout's own session id (session_meta.id)
+// — the harness_session_id its session carries — or "" when none is present.
+func firstHarnessSessionID(lines []rolloutLine) string {
+	for _, l := range lines {
+		if l.Type != "session_meta" {
+			continue
+		}
+		if meta, err := parseSessionMeta(l.Payload); err == nil && meta.ID != "" {
+			return meta.ID
+		}
+	}
+	return ""
 }
