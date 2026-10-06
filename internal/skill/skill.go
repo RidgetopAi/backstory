@@ -48,6 +48,7 @@ var PastEmbeddedSHA256 = []string{
 	"0f626aa1b0172683d985881cf9d93e424f7aa7c57f23f54875c8af90cb157abd", // f0616db
 	"1d1016ae20d05095fd16712e2fa7be5c8a14b5f2c96685e55288de740ffa8a35", // e887d71
 	"6d39ea0375361d25aa77430aabb8cf25910818c3f82465c2ff4fa550084acaed", // 462e93f
+	"47d86ad1e62945d890f710016e46e694529249961cd23320d251a2cc2b03389d", // de430a0
 }
 
 // backupSuffixPrefix is appended to the skill path, followed by the first

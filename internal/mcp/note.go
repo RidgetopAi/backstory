@@ -79,6 +79,12 @@ type NoteResult struct {
 	// that edited one repo is filed under that repo, not the workspace.
 	ProjectKey string     `json:"project_key,omitempty"`
 	Edges      []NoteEdge `json:"edges,omitempty"`
+	// VisibleAt and Message are additive (task 01c20ad2): for a handoff homed
+	// on the workspace key, the folder whose next session will see it, and
+	// the human line saying so — so agents stop warning the user that the
+	// handoff "might not be found". Empty for every other record.
+	VisibleAt string `json:"visible_at,omitempty"`
+	Message   string `json:"message,omitempty"`
 }
 
 // NoteEdge is one edge NoteResult.Edges echoes back: the edge's type and
@@ -146,8 +152,10 @@ func handleNote(st *store.Store, git project.Git, identity store.Identity, sessi
 		expiresAt = &t
 	}
 
+	var visibleAt string
 	if kind == store.KindHandoff {
 		if home, ok := handoffHomeKey(cwd, workspaces); ok {
+			visibleAt = handoffVisibleAt(st, git, sessionID, cwd, workspaces)
 			if err := ensureHomeProject(st, home); err != nil {
 				return errResponse("internal", err.Error())
 			}
@@ -224,11 +232,32 @@ func handleNote(st *store.Store, git project.Git, identity store.Identity, sessi
 		noteEdges[i] = NoteEdge{Type: string(e.Type), OtherID: e.OtherID}
 	}
 
-	result, err := json.Marshal(NoteResult{ID: id, Tier: string(rec.Tier), ProjectKey: rec.ProjectKey, Edges: noteEdges})
+	result, err := json.Marshal(NoteResult{ID: id, Tier: string(rec.Tier), ProjectKey: rec.ProjectKey, Edges: noteEdges, VisibleAt: visibleAt, Message: visibleMessage(visibleAt)})
 	if err != nil {
 		return errResponse("internal", err.Error())
 	}
 	return DaemonResponse{Result: result}
+}
+
+// handoffVisibleAt is the folder a workspace-homed handoff is shown in: the
+// single location the writing session observably edited in (the same
+// extraction the Resume label uses), else the session's own cwd.
+func handoffVisibleAt(st *store.Store, git project.Git, sessionID, cwd string, workspaces []string) string {
+	dirs, err := st.SessionEditedDirs(sessionID, git, workspaces)
+	if err == nil && len(dirs) == 1 {
+		for _, dir := range dirs {
+			return dir
+		}
+	}
+	return cwd
+}
+
+// visibleMessage is the human line note returns for a workspace-homed handoff.
+func visibleMessage(dir string) string {
+	if dir == "" {
+		return ""
+	}
+	return "saved; the next session in " + dir + " will see it"
 }
 
 // handoffHomeKey resolves a kind=handoff record's HOME (decision f3fa04c7):

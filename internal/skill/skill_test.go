@@ -324,13 +324,48 @@ func TestEmbeddedSkillHasFrontmatter(t *testing.T) {
 
 // The rule lines that followed the old prose header survive byte-for-byte.
 func TestEmbeddedSkillKeepsRuleLinesVerbatim(t *testing.T) {
-	before := pastSkills[len(pastSkills)-1] // 462e93f: the version before the frontmatter
+	before := pastSkills[len(pastSkills)-2] // 462e93f: the version before the frontmatter
 	_, wantRules, ok := strings.Cut(before.body, "\n")
 	if !ok {
 		t.Fatal("462e93f test data has no first line")
 	}
 	_, rules := splitFrontmatter(t, skill.Embedded)
-	if rules != wantRules {
-		t.Errorf("rule lines differ from the 462e93f version:\n got %q\nwant %q", rules, wantRules)
+	// The handoff line (6) is deliberately reworded by task 01c20ad2; every
+	// other rule line is verbatim.
+	gotLines, wantLines := strings.Split(rules, "\n"), strings.Split(wantRules, "\n")
+	if len(gotLines) != len(wantLines) {
+		t.Fatalf("rule line count = %d, want %d", len(gotLines), len(wantLines))
+	}
+	for i := range gotLines {
+		if strings.HasPrefix(wantLines[i], "end with `note handoff`") {
+			continue
+		}
+		if gotLines[i] != wantLines[i] {
+			t.Errorf("rule line %d differs:\n got %q\nwant %q", i+1, gotLines[i], wantLines[i])
+		}
+	}
+}
+
+// Task 01c20ad2 clause 1: the handoff line does not carry this-session
+// prohibitions forward, and says next is an action the next session can start.
+func TestSkillHandoffLineDropsSessionOnlyInstructions(t *testing.T) {
+	body := string(skill.Embedded)
+	lines := strings.Split(strings.TrimRight(body, "\n"), "\n")
+	var handoff string
+	for _, l := range lines {
+		if strings.HasPrefix(l, "end with `note handoff`") {
+			handoff = l
+		}
+	}
+	if handoff == "" {
+		t.Fatalf("no handoff line in skill:\n%s", body)
+	}
+	for _, want := range []string{"Do not carry forward instructions that applied only to the current session", "`next` is an action the next session can start"} {
+		if !strings.Contains(handoff, want) {
+			t.Errorf("handoff line missing %q: %s", want, handoff)
+		}
+	}
+	if strings.Contains(handoff, "what not to do") {
+		t.Errorf("handoff line still asks for %q: %s", "what not to do", handoff)
 	}
 }

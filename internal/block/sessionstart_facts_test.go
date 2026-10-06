@@ -271,6 +271,6 @@ func TestEverythingFitsDefaultBudget(t *testing.T) {
 	if got := block.EstimateTokens(out); got > block.DefaultBudgetTokens {
 		t.Fatalf("block is %d tokens, over the default %d; got:\n%s", got, block.DefaultBudgetTokens, out)
 	}
-	assertPresent(t, out, "Resume: (id "+h.ID+")", "Next: finish the parser", "Repo:", "Delta:", "Last failure:", "Ledger:",
+	assertPresent(t, out, "Resume: (id "+h.ID+")", "Next (start here): finish the parser", "Repo:", "Delta:", "Last failure:", "Ledger:",
 		"Coordination:", "Attention:", "⚠ possibly stale", "supersedes = "+h.ID)
 }

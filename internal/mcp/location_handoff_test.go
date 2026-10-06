@@ -237,3 +237,32 @@ func TestRepoRowHandoffMatchesBlockResume(t *testing.T) {
 		t.Errorf("This Week W/demo row handoff = %q, want the block's Resume %s", got, h)
 	}
 }
+
+// Task 01c20ad2 clause 3: a workspace-homed handoff's note result names the
+// repo directory its next session will see it in.
+func TestNoteHandoffResultNamesVisibleAt(t *testing.T) {
+	f := newLocFixture(t)
+	key := f.key(f.demo)
+	if err := f.st.UpsertProject(store.Project{Key: key, Toplevel: f.demo, FirstSeen: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	sid, err := f.st.StartSession(store.StartSessionParams{Agent: "claude", CWD: f.demo, ProjectKey: key, StartedAt: time.Now(), Origin: store.OriginLive})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(NoteParams{Kind: "handoff", Text: "h"})
+	resp := handleNote(f.st, f.git, store.Identity{Kind: store.IdentityAgent}, sid, key, f.demo, f.ws, raw, func() (bool, error) { return false, nil })
+	if resp.Error != nil {
+		t.Fatalf("handleNote: %v", resp.Error)
+	}
+	var res NoteResult
+	if err := json.Unmarshal(resp.Result, &res); err != nil {
+		t.Fatal(err)
+	}
+	if res.VisibleAt != f.demo {
+		t.Fatalf("visible_at = %q, want %q", res.VisibleAt, f.demo)
+	}
+	if want := "the next session in " + f.demo + " will see it"; !strings.Contains(res.Message, want) {
+		t.Fatalf("message = %q, want it to contain %q", res.Message, want)
+	}
+}

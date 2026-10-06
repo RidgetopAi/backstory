@@ -214,7 +214,7 @@ func resumeSlot(rec store.Record, ok bool, staleReasons []store.FreshnessReason,
 	}
 	line := "Resume: (id " + rec.ID + ") " + authorClause + rec.Text
 	if rec.Next != "" {
-		line += "\nNext: " + rec.Next
+		line += "\nNext (start here): " + rec.Next
 	}
 	if m := modeLine.FindStringSubmatch(rec.Text); m != nil {
 		line += "\nMODE: " + m[1]
