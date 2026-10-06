@@ -133,7 +133,7 @@ func handleTimeline(st *store.Store, id ident.Identity, sessionID string, raw js
 	for i, e := range events {
 		out[i] = TimelineEventResult{
 			ID:      e.ID,
-			TS:      e.TS.UTC().Format(time.RFC3339Nano),
+			TS:      store.FormatTS(e.TS, time.RFC3339Nano),
 			Kind:    e.Kind,
 			Source:  e.Source,
 			Payload: json.RawMessage(e.Payload),

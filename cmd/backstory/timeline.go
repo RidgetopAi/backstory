@@ -111,7 +111,7 @@ func printTimelineJSON(stdout io.Writer, projectKey string, events []store.Timel
 	for _, e := range events {
 		out.Events = append(out.Events, timelineEventJSON{
 			ID:        e.ID,
-			TS:        e.TS.UTC().Format(time.RFC3339Nano),
+			TS:        store.FormatTS(e.TS, time.RFC3339Nano),
 			Kind:      e.Kind,
 			SessionID: e.SessionID,
 			Source:    e.Source,
@@ -142,7 +142,7 @@ func printTimelineText(stdout io.Writer, projectKey string, events []store.Timel
 		if session == "" {
 			session = "-"
 		}
-		line := fmt.Sprintf("%d · %s · %s · %s", e.ID, e.TS.UTC().Format(time.RFC3339Nano), e.Kind, session)
+		line := fmt.Sprintf("%d · %s · %s · %s", e.ID, store.FormatTS(e.TS, time.RFC3339Nano), e.Kind, session)
 		if e.Kind == payload.KindToolUse {
 			var tu payload.ToolUse
 			if json.Unmarshal([]byte(e.Payload), &tu) == nil && tu.RecordID != "" {

@@ -6,7 +6,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/RidgetopAi/backstory/internal/backfill/capture"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
@@ -135,6 +137,15 @@ func importSubagentFile(st *store.Store, path, parentSessionID, agentID string) 
 		// importFile applies, and (for a wholly malformed file) the
 		// mechanism by which clause 4's degenerate file is skipped
 		// without touching any other file in the walk.
+		return stats, nil
+	}
+
+	stamps := make([]*time.Time, len(parsedLines))
+	for i := range parsedLines {
+		stamps[i] = &parsedLines[i].Timestamp
+	}
+	if !capture.FillTimes(stamps) {
+		// No usable timestamp anywhere: never write a zero time.
 		return stats, nil
 	}
 

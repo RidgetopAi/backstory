@@ -274,6 +274,17 @@ func importFile(st *store.Store, git project.Git, workspaces []string, path, par
 		return stats, nil
 	}
 
+	// A line with no usable timestamp takes the last observed one; a batch
+	// with none at all has nothing to anchor a session or event on, so
+	// nothing is written and the cursor stays put (never a zero time).
+	stamps := make([]*time.Time, len(parsedLines))
+	for i := range parsedLines {
+		stamps[i] = &parsedLines[i].Timestamp
+	}
+	if !capture.FillTimes(stamps) {
+		return stats, nil
+	}
+
 	firstTS := parsedLines[0].Timestamp
 	lastTS := parsedLines[len(parsedLines)-1].Timestamp
 
