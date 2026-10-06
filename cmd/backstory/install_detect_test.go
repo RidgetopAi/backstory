@@ -43,7 +43,8 @@ func allPresent(t *testing.T, name, home string) bool {
 		t.Fatal(err)
 	}
 	for _, it := range items {
-		if it.Status != install.StatusPresent {
+		// not-trusted: installed, awaiting the user's approval in the harness.
+		if it.Status != install.StatusPresent && it.Status != install.StatusNotTrusted {
 			return false
 		}
 	}
