@@ -397,3 +397,37 @@ func TestPurgeRecordsWindowDryRunAndRealRun(t *testing.T) {
 		t.Errorf("live records = %d, want 4", n)
 	}
 }
+
+// TestPurgeProjectAcceptsPathAndRefusesUnknown: `purge --project <repo path>`
+// reports the same counts as `--project <key>`, and a path that resolves to no
+// project exits non-zero naming it (task 149d6cd4, N8) — never "purged 0".
+func TestPurgeProjectAcceptsPathAndRefusesUnknown(t *testing.T) {
+	f := newLocFixture(t)
+	appKey := project.Key(f.appA, project.RealGit{}, []string{f.ws})
+
+	byKey, code := f.purge(t, "--project", appKey, "--dry-run")
+	if code != 0 || byKey == "would purge 0 sessions, 0 events, 0 records\n" {
+		t.Fatalf("by key = %q (exit %d), want a non-empty preview", byKey, code)
+	}
+	byPath, code := f.purge(t, "--project", f.appA, "--dry-run")
+	if code != 0 || byPath != byKey {
+		t.Fatalf("by path = %q (exit %d), want %q", byPath, code, byKey)
+	}
+	out, code := f.purge(t, "--project", f.appA, "--yes")
+	if code != 0 || strings.Contains(out, "purged 0 sessions, 0 events, 0 records") {
+		t.Fatalf("purge by path = %q (exit %d), want a real purge", out, code)
+	}
+
+	missing := filepath.Join(f.home, "no-such-repo")
+	var outBuf, errBuf bytes.Buffer
+	code = run([]string{"purge", "--project", missing, "--yes"}, bytes.NewReader(nil), &outBuf, &errBuf)
+	if code == 0 {
+		t.Fatalf("purge of unknown path exited 0 (stdout %q)", outBuf.String())
+	}
+	if !strings.Contains(errBuf.String(), missing) {
+		t.Errorf("stderr %q does not name %q", errBuf.String(), missing)
+	}
+	if strings.Contains(outBuf.String(), "purged") {
+		t.Errorf("stdout claims a purge: %q", outBuf.String())
+	}
+}

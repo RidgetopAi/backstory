@@ -1,6 +1,8 @@
 package recall
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/RidgetopAi/backstory/internal/project"
@@ -50,7 +52,27 @@ func newGitStamper(st *store.Store) *gitStamper {
 	}
 }
 
-func (g *gitStamper) toplevel(projectKey string) (string, error) {
+// toplevel is the directory rec's git stamp is compared against. A record
+// homed on a workspace key (a re-homed handoff) has no repo of its own — the
+// workspace's toplevel is the plain folder holding the repos — so its
+// observed location, the cwd of the session that wrote it, is used instead
+// (task 149d6cd4); every other record uses its project's toplevel.
+func (g *gitStamper) toplevel(rec store.Record) (string, error) {
+	projectKey := rec.ProjectKey
+	if project.IsWorkspaceKey(projectKey) && rec.SessionID != "" {
+		cacheKey := "session:" + rec.SessionID
+		if top, ok := g.toplevels[cacheKey]; ok {
+			return top, nil
+		}
+		cwd, err := g.st.SessionCWD(rec.SessionID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return "", fmt.Errorf("recall: git stamp session %s: %w", rec.SessionID, err)
+		}
+		if err == nil && cwd != "" {
+			g.toplevels[cacheKey] = cwd
+			return cwd, nil
+		}
+	}
 	if top, ok := g.toplevels[projectKey]; ok {
 		return top, nil
 	}
@@ -72,7 +94,7 @@ func (g *gitStamper) stamp(rec store.Record) (*GitStamp, error) {
 		return nil, nil
 	}
 	s := &GitStamp{SHA: rec.GitHead, Short: shortSHA(rec.GitHead)}
-	top, err := g.toplevel(rec.ProjectKey)
+	top, err := g.toplevel(rec)
 	if err != nil {
 		return nil, err
 	}

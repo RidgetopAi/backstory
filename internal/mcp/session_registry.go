@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/RidgetopAi/backstory/internal/ident"
+	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
@@ -21,6 +22,10 @@ type harnessKey struct {
 	// project key for a session selected by a harness-reported folder: one
 	// harness process serving many chats holds one session per project.
 	Project string
+	// Dir is the observed directory, set only for a shell session whose
+	// project is a workspace key: sibling non-git folders share that key but
+	// are distinct locations, so each gets its own session.
+	Dir string
 }
 
 // locationKey identifies one chat of one harness process: the harness
@@ -111,6 +116,9 @@ func (r *SessionRegistry) SessionFor(id ident.Identity, procfs ident.ProcFS, end
 	key := baseKey(id)
 	if id.Located {
 		key.Project = id.ProjectKey
+		if id.Harness == ident.HarnessShell && project.IsWorkspaceKey(id.ProjectKey) {
+			key.Dir = id.CWD
+		}
 	}
 
 	r.mu.Lock()
