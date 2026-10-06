@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"syscall"
 )
@@ -49,7 +50,24 @@ var ErrBashrcNotWritable = errors.New("install: ~/.bashrc is not a writable regu
 // ErrBashrcNotWritable without writing anything. A symlink to a regular
 // file the current user owns is written through: the symlink itself is
 // left in place, and its target file is updated.
-func InstallBashrc(path string) error {
+func InstallBashrc(path string) error { return InstallBashrcBinary(path, "") }
+
+// BashrcBlockFor is BashrcBlock with the eval invoking binary (an absolute
+// path) instead of looking `backstory` up on PATH; "" is BashrcBlock itself.
+func BashrcBlockFor(binary string) string {
+	if binary == "" {
+		return BashrcBlock
+	}
+	q := shellQuote(binary)
+	return BashrcMarkerComment + "\n" + "[ -x " + q + ` ] && eval "$(` + q + ` shell init bash)"` + "\n"
+}
+
+// bashrcBlockRE matches the block under any binary: the marker line and the
+// eval line that follows it.
+var bashrcBlockRE = regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(BashrcMarkerComment) + `\n(?:[^\n]*shell init bash[^\n]*)\n`)
+
+// InstallBashrcBinary is InstallBashrc with the snippet invoking binary.
+func InstallBashrcBinary(path, binary string) error {
 	target, mode, err := resolveBashrcTarget(path)
 	if err != nil {
 		return err
@@ -68,7 +86,7 @@ func InstallBashrc(path string) error {
 	if content != "" && !strings.HasSuffix(content, "\n") {
 		content += "\n"
 	}
-	content += BashrcBlock
+	content += BashrcBlockFor(binary)
 
 	if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
 		return err
@@ -97,11 +115,11 @@ func RemoveBashrc(path string) error {
 	}
 	content := string(data)
 
-	idx := strings.Index(content, BashrcBlock)
-	if idx == -1 {
+	loc := bashrcBlockRE.FindStringIndex(content)
+	if loc == nil {
 		return nil // not installed; nothing to remove
 	}
-	newContent := content[:idx] + content[idx+len(BashrcBlock):]
+	newContent := content[:loc[0]] + content[loc[1]:]
 
 	if newContent == "" {
 		return os.Remove(target)

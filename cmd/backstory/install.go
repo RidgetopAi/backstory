@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/RidgetopAi/backstory/internal/install"
@@ -35,7 +36,7 @@ Valid harness names: claude, codex, hermes, pi, agents
 marked block in ~/.bashrc that wires bash's preexec/precmd shell command
 capture (task 7fe84ffb) into every interactive shell.
 
-usage: backstory install bash [--check] [--remove]
+usage: backstory install bash [--check] [--remove] [--binary P]
 
   --check      report whether the block is present; exit non-zero if absent
   --remove     remove exactly the marked block, leaving the rest of
@@ -194,6 +195,9 @@ func runInstallInstall(adapters []install.Adapter, home string, opts install.Opt
 			if n, ok := o.Adapter.(interface{ InstallNotice() string }); ok {
 				_, _ = fmt.Fprintln(stdout, n.InstallNotice())
 			}
+			if n, ok := o.Adapter.(interface{ InstallNote() string }); ok {
+				_, _ = fmt.Fprintln(stdout, n.InstallNote())
+			}
 		case o.Conflict:
 			skipped = append(skipped, name)
 			if detected {
@@ -230,6 +234,7 @@ func runInstallBash(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("install bash", flag.ContinueOnError)
 	check := fs.Bool("check", false, "report whether the bashrc block is present")
 	remove := fs.Bool("remove", false, "remove the bashrc block backstory install added")
+	binary := fs.String("binary", "", "absolute path of the backstory binary the bashrc snippet invokes (default: looked up on PATH)")
 	fs.SetOutput(stderr)
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -261,7 +266,11 @@ func runInstallBash(args []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	default:
-		if err := install.InstallBashrc(path); err != nil {
+		if *binary != "" && !filepath.IsAbs(*binary) {
+			_, _ = fmt.Fprintf(stderr, "backstory install bash: --binary must be an absolute path, got %q\n", *binary)
+			return 2
+		}
+		if err := install.InstallBashrcBinary(path, *binary); err != nil {
 			_, _ = fmt.Fprintln(stderr, "backstory install bash:", err)
 			return 1
 		}
