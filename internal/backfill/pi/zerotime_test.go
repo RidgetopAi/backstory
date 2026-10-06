@@ -14,7 +14,7 @@ import (
 func TestImportNoEndTimestampNeverWritesZeroTime(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "--home-zed-proj--")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	body := `{"id":"root-z","parentId":"","timestamp":"2026-05-01T00:00:00Z","type":"session","cwd":"/home/zed/proj"}
@@ -22,7 +22,7 @@ func TestImportNoEndTimestampNeverWritesZeroTime(t *testing.T) {
 {"id":"a1","parentId":"u1","timestamp":"2026-05-01T00:00:02Z","type":"message","role":"assistant","content":[{"type":"toolCall","id":"c1","name":"Bash"}]}
 {"id":"r1","parentId":"a1","type":"toolResult","toolCallId":"c1","content":"ok"}
 `
-	if err := os.WriteFile(filepath.Join(dir, "2026-05-01T00-00-00Z_root-z.jsonl"), []byte(body), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "2026-05-01T00-00-00Z_root-z.jsonl"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	st := mustOpenStore(t)

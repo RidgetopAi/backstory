@@ -15,14 +15,14 @@ import (
 func TestImportNoEndTimestampNeverWritesZeroTime(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "-home-zed-proj")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	body := `{"type":"user","uuid":"u1","sessionId":"sess-zero","cwd":"/home/zed/proj","version":"2.1.0","timestamp":"2026-03-01T00:00:00Z","message":{"role":"user","content":"hi"}}
 {"type":"assistant","uuid":"u2","sessionId":"sess-zero","timestamp":"2026-03-01T00:00:05Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"tu1","name":"Bash","input":{"command":"ls"}}]}}
 {"type":"summary","uuid":"u3","sessionId":"sess-zero"}
 `
-	if err := os.WriteFile(filepath.Join(dir, "sess-zero.jsonl"), []byte(body), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "sess-zero.jsonl"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	st := mustOpenStore(t)
@@ -37,12 +37,12 @@ func TestImportNoEndTimestampNeverWritesZeroTime(t *testing.T) {
 func TestImportNoTimestampAtAllWritesNothing(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "-home-zed-proj")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	body := `{"type":"user","uuid":"u1","sessionId":"sess-none","cwd":"/home/zed/proj","message":{"role":"user","content":"hi"}}
 `
-	if err := os.WriteFile(filepath.Join(dir, "sess-none.jsonl"), []byte(body), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "sess-none.jsonl"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	st := mustOpenStore(t)
