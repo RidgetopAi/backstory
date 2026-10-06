@@ -484,8 +484,8 @@ func TestShellEmitProjectComesFromResolverNotCwdFlag(t *testing.T) {
 	if len(realEvents) != 1 {
 		t.Fatalf("project at the resolved (real) cwd has %d shell command events, want exactly 1: %#v", len(realEvents), realEvents)
 	}
-	if realEvents[0].CWD != fakeProjectDir {
-		t.Errorf("event payload CWD = %q, want %q (the flag's own value — descriptive payload content, not identity)", realEvents[0].CWD, fakeProjectDir)
+	if realEvents[0].CWD != realProjectDir {
+		t.Errorf("event payload CWD = %q, want the observed cwd %q (the --cwd flag's claim is never stored; task 149d6cd4)", realEvents[0].CWD, realProjectDir)
 	}
 
 	fakeEvents := queryShellCommandEvents(t, s, fakeKey)
