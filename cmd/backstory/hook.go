@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/RidgetopAi/backstory/internal/mcp"
@@ -54,12 +55,12 @@ const harnessCodex = "codex"
 // stdout, writes at most one line to stderr, and still exits 0.
 func runHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		_, _ = fmt.Fprintln(stderr, "backstory hook: usage: backstory hook session-start|post-tool-use [--harness codex]")
+		_, _ = fmt.Fprintln(stderr, "backstory hook: usage: backstory hook session-start|post-tool-use|post-tool-use-failure [--harness codex]")
 		return 0
 	}
 	sub := args[0]
-	if sub != "session-start" && sub != "post-tool-use" {
-		_, _ = fmt.Fprintln(stderr, "backstory hook: usage: backstory hook session-start|post-tool-use [--harness codex]")
+	if sub != "session-start" && sub != "post-tool-use" && sub != "post-tool-use-failure" {
+		_, _ = fmt.Fprintln(stderr, "backstory hook: usage: backstory hook session-start|post-tool-use|post-tool-use-failure [--harness codex]")
 		return 0
 	}
 
@@ -72,6 +73,8 @@ func runHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	switch sub {
 	case "session-start":
 		return runSessionStartHook(stdin, stdout, stderr, harness)
+	case "post-tool-use-failure":
+		return runPostToolUseFailureHook(stdin, stderr, harness)
 	default:
 		return runPostToolUseHook(stdin, stderr, harness)
 	}
@@ -231,6 +234,58 @@ type postToolUsePayload struct {
 	ToolUseID      string          `json:"tool_use_id"`
 	ToolInput      json.RawMessage `json:"tool_input"`
 	ToolResponse   json.RawMessage `json:"tool_response"`
+	// Error and IsInterrupt are the PostToolUseFailure payload's own fields:
+	// Claude Code reports a failed tool call with the error text instead of
+	// a tool_response.
+	Error       string `json:"error"`
+	IsInterrupt bool   `json:"is_interrupt"`
+}
+
+// failureExitPattern reads the exit code Claude Code prefixes a failed Bash
+// call's error text with ("Exit code 1\n<output>").
+var failureExitPattern = regexp.MustCompile(`^\s*Exit code (\d+)`)
+
+// buildPostToolUseFailureParams normalises one PostToolUseFailure payload:
+// the same Path/Command extraction as a successful call, IsError always set,
+// Exit only when the error text states one, and the error text as the output
+// the daemon redacts and excerpts exactly like a Bash result's.
+func buildPostToolUseFailureParams(p postToolUsePayload) mcp.PostToolUseParams {
+	params := buildPostToolUseParams(p)
+	params.IsError = true
+	params.Interrupted = p.IsInterrupt
+	params.Output = payload.ElideMiddle(p.Error, payload.ToolOutputWireMaxRunes)
+	if m := failureExitPattern.FindStringSubmatch(p.Error); m != nil {
+		if n, err := strconv.Atoi(m[1]); err == nil {
+			params.Exit = &n
+		}
+	}
+	return params
+}
+
+// runPostToolUseFailureHook is `backstory hook post-tool-use-failure`: the
+// failure twin of runPostToolUseHook, with the same never-fail guarantees.
+// Only Claude reports failures this way; a Codex payload records nothing.
+func runPostToolUseFailureHook(stdin io.Reader, stderr io.Writer, harness string) int {
+	if off, err := captureOff(); err != nil {
+		_, _ = fmt.Fprintln(stderr, "backstory hook: check capture-off flag:", err)
+		return 0
+	} else if off || harness == harnessCodex {
+		return 0
+	}
+	var payload postToolUsePayload
+	if err := json.NewDecoder(stdin).Decode(&payload); err != nil {
+		_, _ = fmt.Fprintln(stderr, "backstory hook: decode post-tool-use-failure payload:", err)
+		return 0
+	}
+	if payload.ToolName == "" {
+		_, _ = fmt.Fprintln(stderr, "backstory hook: post-tool-use-failure payload missing tool_name")
+		return 0
+	}
+	params := buildPostToolUseFailureParams(payload)
+	if _, err := callDaemon(payload.SessionID, mcp.DaemonMethodPostToolUse, params); err != nil {
+		_, _ = fmt.Fprintln(stderr, "backstory hook:", err)
+	}
+	return 0
 }
 
 // postToolUseFileTools is the tool_input field name PostToolUse extracts a

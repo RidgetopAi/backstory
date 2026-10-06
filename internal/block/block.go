@@ -454,7 +454,9 @@ func joinLines(lines ...string) string {
 	return strings.Join(kept, "\n")
 }
 
-// failure is the newest non-zero exit since the handoff.
+// failure is the newest uncleared failure since the handoff. exit is 0 when
+// the failure was reported without an exit code (a tool.result with
+// is_error and no exit).
 type failure struct {
 	found bool
 	cmd   string
@@ -462,48 +464,86 @@ type failure struct {
 	ts    time.Time
 }
 
-// lastFailure finds the newest non-zero exit in events (already restricted
-// to those since the handoff, ordered by id): shell `command` events always
-// carry an exit, and a tool.result carries one when the harness reported it
-// (its command is read back from the matching tool.use). It is observed
-// evidence only — a later passing command does not clear it, since a
-// different command passing says nothing about the one that failed.
+// lastFailure finds the newest uncleared failure in events (already
+// restricted to those since the handoff, ordered by id): a shell `command`
+// event with a non-zero exit, or a tool.result that is_error or carries a
+// non-zero exit (its command is read back from the matching tool.use). A
+// later result for the same subject clears it: the same Bash command text, or
+// the same tool and path, coming back as a non-error tool.result or a shell
+// event with exit 0. A different command passing says nothing about the one
+// that failed, so it clears nothing.
 func lastFailure(events []store.TimelineEvent) failure {
-	toolCmd := map[string]string{}
-	var out failure
+	type subject struct{ key, cmd string }
+	toolSubject := map[string]subject{}
+	var open []failure
+	var keys []string
+	clear := func(key string) {
+		kept, keptKeys := open[:0], keys[:0]
+		for i, f := range open {
+			if keys[i] != key {
+				kept = append(kept, f)
+				keptKeys = append(keptKeys, keys[i])
+			}
+		}
+		open, keys = kept, keptKeys
+	}
 	for _, e := range events {
 		switch e.Kind {
 		case payload.KindToolUse:
 			var tu payload.ToolUse
 			if json.Unmarshal([]byte(e.Payload), &tu) == nil && tu.ToolUseID != "" {
-				cmd := tu.Command
-				if cmd == "" {
-					cmd = tu.Name
+				sub := subject{cmd: tu.Command, key: "cmd:" + tu.Command}
+				if tu.Command == "" {
+					sub.cmd = tu.Name
+					sub.key = "tool:" + tu.Name + ":" + tu.Path
 				}
-				toolCmd[tu.ToolUseID] = cmd
+				toolSubject[tu.ToolUseID] = sub
 			}
 		case payload.KindToolResult:
 			var tr payload.ToolResult
-			if json.Unmarshal([]byte(e.Payload), &tr) != nil || tr.Exit == nil || *tr.Exit == 0 {
+			if json.Unmarshal([]byte(e.Payload), &tr) != nil {
 				continue
 			}
-			cmd := toolCmd[tr.ToolUseID]
-			if cmd == "" {
-				cmd = "(command not recorded)"
+			sub, known := toolSubject[tr.ToolUseID]
+			failed := tr.IsError || (tr.Exit != nil && *tr.Exit != 0)
+			if !failed {
+				if known {
+					clear(sub.key)
+				}
+				continue
 			}
-			out = failure{found: true, cmd: cmd, exit: *tr.Exit, ts: e.TS}
+			if !known {
+				sub = subject{cmd: "(command not recorded)", key: "result:" + tr.ToolUseID}
+			}
+			clear(sub.key)
+			exit := 0
+			if tr.Exit != nil {
+				exit = *tr.Exit
+			}
+			open = append(open, failure{found: true, cmd: sub.cmd, exit: exit, ts: e.TS})
+			keys = append(keys, sub.key)
 		case payload.KindShellCommand:
 			var sc payload.ShellCommand
-			if json.Unmarshal([]byte(e.Payload), &sc) != nil || sc.Exit == 0 {
+			if json.Unmarshal([]byte(e.Payload), &sc) != nil {
 				continue
 			}
-			out = failure{found: true, cmd: sc.Cmd, exit: sc.Exit, ts: e.TS}
+			key := "cmd:" + sc.Cmd
+			clear(key)
+			if sc.Exit == 0 {
+				continue
+			}
+			open = append(open, failure{found: true, cmd: sc.Cmd, exit: sc.Exit, ts: e.TS})
+			keys = append(keys, key)
 		}
 	}
-	return out
+	if len(open) == 0 {
+		return failure{}
+	}
+	return open[len(open)-1]
 }
 
-// line renders `Last failure: <cmd> exit N (<age>)`, or "" when none.
+// line renders `Last failure: <cmd> exit N (<age>)` (`failed` when no exit
+// was reported), or "" when none.
 func (f failure) line(now time.Time) string {
 	if !f.found {
 		return ""
@@ -512,7 +552,11 @@ func (f failure) line(now time.Time) string {
 	if r := []rune(cmd); len(r) > maxFailureCmdRunes {
 		cmd = string(r[:maxFailureCmdRunes]) + "…"
 	}
-	return fmt.Sprintf("Last failure: %s exit %d (%s)", cmd, f.exit, formatAge(now.Sub(f.ts)))
+	outcome := "failed"
+	if f.exit != 0 {
+		outcome = fmt.Sprintf("exit %d", f.exit)
+	}
+	return fmt.Sprintf("Last failure: %s %s (%s)", cmd, outcome, formatAge(now.Sub(f.ts)))
 }
 
 // formatAge renders d as a coarse age: "just now", "5m ago", "3h ago", "2d ago".
