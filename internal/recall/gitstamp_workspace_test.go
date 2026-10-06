@@ -42,7 +42,7 @@ func TestWorkspaceHomedHandoffReportsGitDrift(t *testing.T) {
 		t.Fatal(err)
 	}
 	repo := filepath.Join(ws, "r")
-	if err := os.Mkdir(repo, 0o755); err != nil {
+	if err := os.Mkdir(repo, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	gitInDir(t, repo, "init", "-q")
