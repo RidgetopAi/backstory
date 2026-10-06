@@ -3,6 +3,10 @@ package project
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -52,7 +56,92 @@ func (RealGit) State(cwd string) (State, bool) {
 	// A repo with no commit yet has no HEAD to resolve; that is an observed
 	// "", not a failure.
 	head, _ := gitOutput(cwd, "rev-parse", "--verify", "-q", "HEAD")
-	return State{Branch: branch, Uncommitted: len(lines), Head: head, Paths: porcelainPaths(lines)}, true
+	paths := porcelainPaths(lines)
+	top, _ := gitOutput(cwd, "rev-parse", "--show-toplevel")
+	return State{Branch: branch, Uncommitted: len(lines), Head: head, Paths: paths, Hashes: pathHashes(top, paths)}, true
+}
+
+// Sentinels for a path whose working-tree content is not a readable file.
+const (
+	hashAbsent     = "absent"
+	hashUnreadable = "unreadable"
+)
+
+// pathHashes maps each repo-relative path to a hash of its working-tree
+// content. A deleted path hashes to hashAbsent; a directory (git lists a wholly
+// untracked directory as "dir/") hashes every file beneath it. Only hashes are
+// returned — file content never leaves this function. An empty top (the
+// toplevel could not be resolved) yields nil: no fingerprint, path-set only.
+func pathHashes(top string, paths []string) map[string]string {
+	if top == "" {
+		return nil
+	}
+	out := make(map[string]string, len(paths))
+	for _, p := range paths {
+		// A rename line is "old -> new"; the new name is what exists on disk.
+		name := p
+		if i := strings.LastIndex(p, " -> "); i >= 0 {
+			name = p[i+len(" -> "):]
+		}
+		out[p] = hashTreePath(filepath.Join(top, filepath.FromSlash(name)))
+	}
+	return out
+}
+
+func hashTreePath(abs string) string {
+	info, err := os.Lstat(abs)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return hashAbsent
+		}
+		return hashUnreadable
+	}
+	h := sha256.New()
+	if info.IsDir() {
+		err = filepath.WalkDir(abs, func(path string, d fs.DirEntry, werr error) error {
+			if werr != nil {
+				return werr
+			}
+			if d.IsDir() {
+				return nil
+			}
+			rel, _ := filepath.Rel(abs, path)
+			_, _ = io.WriteString(h, rel+"\x00")
+			sum, herr := hashFile(path)
+			_, _ = io.WriteString(h, sum+"\x00")
+			return herr
+		})
+	} else {
+		var sum string
+		sum, err = hashFile(abs)
+		_, _ = io.WriteString(h, sum)
+	}
+	if err != nil {
+		return hashUnreadable
+	}
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// hashFile hashes a regular file's bytes, or a symlink's target text.
+func hashFile(path string) (string, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return "", err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t, err := os.Readlink(path)
+		return "link:" + t, err
+	}
+	f, err := os.Open(path) //nolint:gosec // path is under the session's own git working tree
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = f.Close() }()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // porcelainPaths extracts the sorted, de-duplicated paths from `git status

@@ -57,7 +57,8 @@ func handleStopCheck(st *store.Store, git project.Git, sessionID string, capture
 
 // gitChangedSinceStart is how many paths the session's own cwd changed
 // between the session-start git observation and now: the symmetric
-// difference of the two uncommitted-path sets, and at least 1 when HEAD
+// difference of the two uncommitted-path sets plus the paths in both whose
+// content hash changed, and at least 1 when HEAD
 // moved (a commit made during the session). It is 0 — the tool rule alone
 // decides — when there is no start observation, either observation is
 // could-not-observe, or nothing differs.
@@ -85,6 +86,11 @@ func gitChangedSinceStart(st *store.Store, git project.Git, sessionID string) in
 	if now.CouldNotObserve {
 		return 0
 	}
+	// A path counts when it is in only one of the two sets, or — with a content
+	// fingerprint on both sides — in both but with a different hash (an
+	// already-dirty file edited again). Without both fingerprints (an older
+	// start observation) only the path sets are compared.
+	fingerprinted := start.Hashes != nil && now.Hashes != nil
 	before := map[string]bool{}
 	for _, p := range start.Paths {
 		before[p] = true
@@ -93,7 +99,7 @@ func gitChangedSinceStart(st *store.Store, git project.Git, sessionID string) in
 	n := 0
 	for _, p := range now.Paths {
 		after[p] = true
-		if !before[p] {
+		if !before[p] || (fingerprinted && start.Hashes[p] != now.Hashes[p]) {
 			n++
 		}
 	}

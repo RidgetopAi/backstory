@@ -258,7 +258,7 @@ func observeGitState(git project.Git, cwd, phase string) payload.SessionGitState
 	if state, ok := git.State(cwd); cwd != "" && ok {
 		count := state.Uncommitted
 		return payload.SessionGitState{Phase: phase, Branch: state.Branch, UncommittedCount: &count,
-			Head: state.Head, Paths: state.Paths}
+			Head: state.Head, Paths: state.Paths, Hashes: state.Hashes}
 	}
 	return payload.SessionGitState{Phase: phase, CouldNotObserve: true}
 }

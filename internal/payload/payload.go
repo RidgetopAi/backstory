@@ -59,14 +59,18 @@ type SessionEnd struct {
 // the observation taken when the session began, which exists only so the Stop
 // hook can tell what changed since (task 8efad0ce) and which the end-state
 // readers (the block's Repo line, This Week's Attention) must skip. Head and
-// Paths (sorted uncommitted paths) carry the observation the Stop hook diffs.
+// Paths (sorted uncommitted paths) carry the observation the Stop hook diffs;
+// Hashes maps each of those paths to a hash of its working-tree content — the
+// fingerprint, never the content — so a re-edit of an already-dirty file is
+// visible (task 53bd4866).
 type SessionGitState struct {
-	Phase            string   `json:"phase,omitempty"`
-	Branch           string   `json:"branch,omitempty"`
-	UncommittedCount *int     `json:"uncommitted_count,omitempty"`
-	Head             string   `json:"head,omitempty"`
-	Paths            []string `json:"paths,omitempty"`
-	CouldNotObserve  bool     `json:"could_not_observe,omitempty"`
+	Phase            string            `json:"phase,omitempty"`
+	Branch           string            `json:"branch,omitempty"`
+	UncommittedCount *int              `json:"uncommitted_count,omitempty"`
+	Head             string            `json:"head,omitempty"`
+	Paths            []string          `json:"paths,omitempty"`
+	Hashes           map[string]string `json:"hashes,omitempty"`
+	CouldNotObserve  bool              `json:"could_not_observe,omitempty"`
 }
 
 // GitStatePhaseStart is SessionGitState.Phase for the session-start observation.

@@ -29,12 +29,15 @@ type Repo struct {
 // Head and Paths are the finer evidence the Stop hook diffs between a
 // session's start and its stop: the HEAD commit sha ("" in a repo with no
 // commit yet) and the sorted, de-duplicated paths `git status --porcelain`
-// lists.
+// lists. Hashes maps each of those paths to a hash of its working-tree
+// content (never the content itself), so the Stop hook can tell that an
+// already-dirty file was edited again (task 53bd4866).
 type State struct {
 	Branch      string
 	Uncommitted int
 	Head        string
 	Paths       []string
+	Hashes      map[string]string
 }
 
 // Git resolves git facts for a working directory. Tests inject a fake; the
