@@ -60,6 +60,12 @@ harness ── spawns ──▶ `backstory mcp` (stdio shim)
   from the model. A chat's later location-less calls follow the folder its plugin last
   reported for that harness session id. `backstory install hermes` rewrites the plugin, so
   reinstalling picks this up.
+- **Trust model: one user, one machine.** A process is accepted as a harness when its
+  process name (`/proc/<pid>/status` `Name:`) is in the known-harness table
+  (`ident.KnownHarnesses`: claude, codex, copilot, hermes, opencode, pi). Nothing
+  authenticates it beyond that and the uid, so any same-user process named like a harness
+  is accepted as that harness. That is acceptable for a single-user laptop and is not a
+  defence against a hostile process running as you.
 - Identity is an observation in the timeline tier — the same epistemics Q1/Q2 chose. The
   provenance tiers are only as trustworthy as the attribution under them.
 
@@ -96,8 +102,9 @@ subdirectory and Claude's dashed-cwd transcript slug are all the same repository
 
 "What's the backstory on this file" is the query the name sells. Q1's anchors (time,
 session, window) do not include a file, so every ledger record carries `about: [paths]` —
-declared by the agent, or inferred from the session's observed file writes (PostToolUse
-payloads) or from `git diff` of the session's branch. It is in the v0 schema
+declared by the agent. Inferring it from observed file writes or a branch diff is not
+implemented in V1 (observed writes are used only to decide which repo a workspace-session
+note is filed under, below). It is in the v0 schema
 (`SCHEMA.md §records`) because retrofitting anchors is the expensive kind of migration.
 
 ## The five tools
@@ -109,7 +116,7 @@ descriptions carry the contract. No delete. No settings.
 
 | Tool | Contract |
 |---|---|
-| `recall` | anchor (project, path, ref, id, or free text) → ordered, trust-annotated narrative at an altitude, under a token budget; the `recall_thread` model |
+| `recall` | anchor (the caller's project, a record id or unique id prefix, or free text; paths and git refs are not anchors) → ordered, trust-annotated narrative at an altitude, under a token budget; the `recall_thread` model |
 | `note` | the one write; returns the record id and its provenance tier |
 | `timeline` | events for my session / this project / since `<t>`, filtered — the observed truth an agent cites as evidence |
 | `confirm` | promote a draft, flag a contradiction with evidence, mark supersession, or affirm a target still true (`affirm`) — kept separate from `note` so the never-list is enforceable per tool |
@@ -142,10 +149,12 @@ note({ kind: decision | outcome | handoff | note | claim,  text })
 - **Tier is set by the daemon from the caller's identity, never from a parameter.** A note
   from an agent process is `agent-declared`. `human-declared` is reachable only from the
   panel/CLI.
-- Adoption is measured from day one: **% of sessions with ≥1 declared record** is the
-  number that says whether the skill works. It is visible in `status` (`PLAN.md §Phase 5`).
+- Adoption — **% of sessions with ≥1 declared record**, the number that says whether the
+  skill works — is planned, not shipped: `status` has no such field in V1 (`PLAN.md §Phase 5`).
 
-## Outcomes are three-state; contradiction only on positive evidence
+## Outcomes: cite evidence; contradiction only on positive evidence
+
+(Earlier titled "Outcomes are three-state"; code comments may still cite that name.)
 
 Q2's own example — "the agent writes 'tests green' but the timeline shows no test process
 ran → flagged" — commits the C1 three-state bug. Absence of an event is not evidence of
@@ -153,16 +162,22 @@ absence: a test run inside a container, over ssh, or from a harness without Post
 invisible to the daemon. A flag that is often wrong trains the user to ignore the flags
 that are right.
 
-- An outcome is **`true`**, **`false`**, or **`could-not-observe`**. The third is its own
-  state with its own value, never folded into `false`.
-- The daemon **contradicts only on positive evidence**: a test process ran and exited
-  non-zero; a deploy exited 1. Absence is `could-not-observe`, never a contradiction.
-- Observed outcomes come from PostToolUse capture (Tier A: Claude Code, Codex, Copilot) and
-  from the bash preexec/precmd integration emitting `{cmd, cwd, exit, duration}`
-  (`PLAN.md §Phase 3`). Until both exist for a session, the daemon records
-  `could-not-observe`, never "no test ran".
+What V1 does, and does not, do:
+
+- The rule is **absence is not evidence of absence**: never treat "no test process in the
+  timeline" as "tests did not run" or as a contradiction. The principle is the design; the
+  mechanism is partial.
+- **Only the session git-state check is truly three-state in V1**: a `session.git_state`
+  event is an observed uncommitted count, or `could_not_observe` (its own value, never
+  folded into `0`). Nothing writes `records.outcome`, and the daemon does not flag
+  contradictions itself in V1: a `contradicts` edge exists only when an agent or human
+  files one with evidence via `confirm`.
+- The daemon records what it observed: PostToolUse capture (Claude Code, Codex) and the
+  bash preexec/precmd integration emit `{cmd, cwd, exit, duration}` timeline events, and a
+  live session end records its git state.
 - The agent's side of proof is `note({kind:'outcome', evidence:[event_id]})`; `timeline`
-  exists so it can cite the id. A claim without evidence is recorded as a claim.
+  exists so it can cite the id, and the daemon rejects an evidence id that is not a real
+  timeline event. A claim without evidence is recorded as a claim.
 
 ## Claims are advisory, expire, and are never enforced
 
@@ -188,9 +203,9 @@ offered to call `recall` to fetch it — the exact re-fetch the next rule forbid
 against the budget below like every slot, but is the **last thing dropped, never the
 first**: at a budget too small to fit any slot, the header is what survives.
 
-Then five fixed slots, in order, each optional, under a **user-set budget** (default
-~1,500 tokens, per-agent override). The budget is not the agent's choice and not
-hard-coded; the industry range is narrow (Hermes ~2,200 chars, omp 5,000 tokens, Claude
+Then five fixed slots, in order, each optional, under a token budget (default
+1,500 tokens, `block.DefaultBudgetTokens`; V1 has no command to set it, so it is **not yet
+user-settable**). The budget is not the agent's choice; the industry range is narrow (Hermes ~2,200 chars, omp 5,000 tokens, Claude
 auto-memory 200 lines / 25 KB).
 
 1. **Resume pointer** — the latest `handoff` for THIS project, rendered as `Resume: (id
@@ -260,8 +275,9 @@ with a mutation probe in the store package (`PLAN.md §First three punches`).
    enrollment.
 6. **Never exceed the write rate/size cap.** An agent in a loop can write ten thousand
    notes in an hour; the cap is enforced and surfaced in `status`.
-7. **Never store a secret.** Daemon-side redaction on write (token/key patterns), because
-   the ledger is permanent while Claude sweeps transcripts after 30 days — Backstory would
+7. **Never store a secret.** Daemon-side redaction on write, of exactly these shapes: a bearer token (`Bearer <token>`), an Anthropic/OpenAI-style `sk-…` key, a GitHub token (`ghp_`/`gho_`/`ghu_`/`ghs_`/`ghr_`, `github_pat_`), a Slack token (`xox[abprs]-`), a JWT, an AWS access key id (`AKIA…`), a PEM block (`-----BEGIN … -----END-----`), `password=<value>`, and the value of an env-style assignment whose name ends in KEY, TOKEN, SECRET or PASSWORD. Anything else (a bare hex string, a password in prose, a
+   database URL) is stored as written. The reason: the
+   ledger is permanent while Claude sweeps transcripts after 30 days — Backstory would
    otherwise extend the life of everything in a transcript indefinitely.
 8. **Never read another user's store.** Moot on a single-user laptop; kept moot by design.
 
@@ -304,12 +320,13 @@ Four things only the human can do, through the panel or CLI, never through a too
 - **`AGENTS.md` — expose the convention, do not own it.** One line per global instruction
   file pointing at the skill and the tool; adopt `~/.agents/{skills,mcp.json}` as the
   generic location. No "Backstory AGENTS.md standard".
-- **claude-mem — read its store, never write its format.** If `~/.claude-mem/` exists,
-  ingest it as an inferred-tier source. Do not compete for Claude-session memory; absorb it.
+- **claude-mem — read its store, never write its format.** (Planned; not implemented in
+  V1. The `inferred` tier is reserved: nothing produces an inferred record yet.) If
+  `~/.claude-mem/` exists, ingest it as an inferred-tier source. Do not compete for Claude-session memory; absorb it.
 - **Markdown mirror export.** A daemon-written, per-project `MEMORY.md`-shaped export that
   Claude auto-memory (relocatable `autoMemoryDirectory`), Hermes `MEMORY.md` and OpenClaw
   `memory/imports/` load natively — warm context even where hooks are inert.
-- **Ingest as inferred tier with `possibly_supersedes`:** Claude auto-memory, Codex
+- **Planned, not in V1 — ingest as inferred tier with `possibly_supersedes`:** Claude auto-memory, Codex
   `~/.codex/memories/`, omp local memory, Hermes `MEMORY.md`/`USER.md`. Copilot Memory is
   server-side; nothing to do.
 - **Omarchy's own contracts:** a usage record at
