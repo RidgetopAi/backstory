@@ -56,3 +56,18 @@ func TestMultiLineCommandGetsTestsLine(t *testing.T) {
 		t.Errorf("multi-line command should produce a Tests line:\n%s", out)
 	}
 }
+
+// The failure and the later piped exit 0 share a commandKey, so the failure
+// is a clearing candidate: only the unobserved-exit guard keeps it open.
+func TestSamePipedCommandExitZeroDoesNotClearItsOwnFailure(t *testing.T) {
+	out := renderAfterHandoff(t, func(s func(string, any)) {
+		s(payload.KindShellCommand, payload.ShellCommand{Cmd: pipedUnittest, Exit: 1})
+		s(payload.KindShellCommand, payload.ShellCommand{Cmd: pipedUnittest, Exit: 0})
+	})
+	if !strings.Contains(out, "Last failure: "+pipedUnittest+" exit 1") {
+		t.Errorf("piped exit 0 cleared a same-key failure:\n%s", out)
+	}
+	if strings.Contains(out, "last exit 0") {
+		t.Errorf("Tests line claims exit 0 for a piped run:\n%s", out)
+	}
+}
