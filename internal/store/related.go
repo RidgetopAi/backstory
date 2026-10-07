@@ -1,7 +1,9 @@
 package store
 
 import (
+	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"unicode"
 )
@@ -39,7 +41,7 @@ func (s *Store) RelatedDecisions(projectKey string, excludeIDs, about []string, 
 		exclude[id] = true
 	}
 
-	const current = `r.kind = 'decision' AND r.tombstoned_at IS NULL AND r.project_key = ?
+	const currentDecision = `r.kind = 'decision' AND r.tombstoned_at IS NULL AND r.project_key = ?
 		AND NOT EXISTS (SELECT 1 FROM edges e WHERE e.to_id = r.id AND e.type = 'supersedes')`
 
 	var ids []string
@@ -52,26 +54,47 @@ func (s *Store) RelatedDecisions(projectKey string, excludeIDs, about []string, 
 	}
 
 	if len(about) > 0 {
-		marks := strings.TrimSuffix(strings.Repeat("?,", len(about)), ",")
-		args := []any{projectKey}
+		want := make(map[string]bool, len(about))
 		for _, a := range about {
-			args = append(args, a)
+			want[a] = true
 		}
-		args = append(args, args[1:]...)
-		rows, err := s.db.Query(`SELECT r.id FROM records r
-			WHERE `+current+` AND r.about IS NOT NULL
-			AND EXISTS (SELECT 1 FROM json_each(r.about) j WHERE j.value IN (`+marks+`))
-			ORDER BY (SELECT COUNT(DISTINCT j.value) FROM json_each(r.about) j WHERE j.value IN (`+marks+`)) DESC, r.ts DESC`,
-			args...)
+		rows, err := s.db.Query(`SELECT r.id, r.about FROM records r WHERE `+currentDecision+` AND r.about IS NOT NULL ORDER BY r.ts DESC`, projectKey)
 		if err != nil {
 			return nil, fmt.Errorf("store: related decisions by about: %w", err)
 		}
-		got, err := scanIDs(rows)
+		type hit struct {
+			id      string
+			overlap int
+		}
+		var hits []hit
+		for rows.Next() {
+			var id, aboutJSON string
+			if err := rows.Scan(&id, &aboutJSON); err != nil {
+				_ = rows.Close()
+				return nil, fmt.Errorf("store: related decisions by about: %w", err)
+			}
+			var paths []string
+			if json.Unmarshal([]byte(aboutJSON), &paths) != nil {
+				continue
+			}
+			n := 0
+			for _, p := range paths {
+				if want[p] {
+					n++
+				}
+			}
+			if n > 0 {
+				hits = append(hits, hit{id, n})
+			}
+		}
+		err = rows.Err()
+		_ = rows.Close()
 		if err != nil {
 			return nil, fmt.Errorf("store: related decisions by about: %w", err)
 		}
-		for _, id := range got {
-			add(id)
+		sort.SliceStable(hits, func(i, j int) bool { return hits[i].overlap > hits[j].overlap })
+		for _, h := range hits {
+			add(h.id)
 		}
 	}
 
@@ -79,7 +102,7 @@ func (s *Store) RelatedDecisions(projectKey string, excludeIDs, about []string, 
 		if q := relatedFTSQuery(text); q != "" {
 			rows, err := s.db.Query(`SELECT r.id FROM records_fts
 				JOIN records r ON r.rowid = records_fts.rowid
-				WHERE records_fts MATCH ? AND `+current+`
+				WHERE records_fts MATCH ? AND `+currentDecision+`
 				ORDER BY rank, r.ts DESC LIMIT ?`, q, projectKey, relatedFTSFetch)
 			if err != nil {
 				return nil, fmt.Errorf("store: related decisions by text: %w", err)
