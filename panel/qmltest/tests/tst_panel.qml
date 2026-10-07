@@ -115,6 +115,28 @@ TestCase {
     }
   }
 
+  // Needs You's Dismiss on a stale-handoff row runs `backstory affirm <id>`
+  // for THAT handoff (and only that row has the button).
+  function test_needs_you_dismiss_runs_affirm_for_that_handoff() {
+    openWith(JSON.stringify({
+      attention: [
+        { kind: "possibly-stale-handoff", project_key: "wobble-party", reason: "wobble-party: handoff possibly stale \u2014 cargo test failed (exit 101) after it", handoff_id: "h-wobble", evidence_ids: ["7"] },
+        { kind: "expired-claim", project_key: "wobble-party", reason: "claim c1 expired with no outcome recorded", evidence_ids: ["c1"] }
+      ],
+      where_left_off: [], week: []
+    }))
+    var buttons = TestUtil.findAll(panel.testContentItem, function (n) { return n.objectName === "attentionDismiss" && n.visible })
+    compare(buttons.length, 1)
+    ProcessController.reset()
+    ProcessController.respond(Launchers.thisWeekCommand(), { stdout: emptyArraysPayload, stderr: "", exitCode: 0 })
+    buttons[0].clicked()
+    var ran = ProcessController.runs.map(function (r) { return JSON.stringify(r.command) })
+    verify(ran.indexOf(JSON.stringify(Launchers.affirmCommand("h-wobble"))) >= 0, "affirm not run; ran " + ran.join(" | "))
+    compare(JSON.stringify(Launchers.affirmCommand("h-wobble")), JSON.stringify(["backstory", "affirm", "h-wobble"]))
+    tryCompare(panel, "loading", false, 2000)
+    compare(panel.attentionItems.length, 0)
+  }
+
   function test_handles_empty_object_payload() {
     openWith("{}")
     compare(panel.attentionItems.length, 0)

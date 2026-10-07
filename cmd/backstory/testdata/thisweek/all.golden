@@ -1,5 +1,5 @@
 Attention:
-- [possibly-stale-handoff] acme-week-main: handoff possibly stale: later-record, later-activity (ids decision-0001,2)
+- [possibly-stale-handoff] acme-week-main: handoff possibly stale — later-record; later-activity (ids decision-0001,2)
 - [uncommitted-at-session-end] acme-week-main: session ended with 2 uncommitted change(s) on branch main (ids 4)
 - [contradiction] acme-week-contradiction: record outcome1 is contradicted by confirm1 (ids 5)
 - [expired-claim] acme-week-claim: claim claim001 expired with no outcome recorded (ids claim001)

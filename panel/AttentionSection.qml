@@ -1,8 +1,10 @@
 import QtQuick
+import Quickshell.Io
 import qs.Ui
 import qs.Commons
 import "js/model.js" as Model
 import "js/glyphs.js" as Glyphs
+import "js/launchers.js" as Launchers
 
 // Attention: positive evidence only, rendered only when non-empty — an
 // empty attention array is itself "nothing to flag this week", not the
@@ -13,6 +15,23 @@ Column {
   id: root
 
   property var items: []
+
+  // Emitted once `backstory affirm <handoff-id>` has run, so the host can
+  // refresh and the dismissed item disappears.
+  signal dismissed()
+
+  // Dismiss on a stale-handoff row: the human's own "this is still true",
+  // run through the CLI (the only route to a human-declared affirm).
+  function dismiss(handoffId) {
+    if (!handoffId) return
+    affirmProcess.command = Launchers.affirmCommand(handoffId)
+    affirmProcess.running = true
+  }
+
+  Process {
+    id: affirmProcess
+    onExited: (exitCode, exitStatus) => root.dismissed()
+  }
   width: parent ? parent.width : Style.space(360)
   spacing: Style.spacing.labelGap
 
@@ -41,8 +60,16 @@ Column {
         font.family: Style.font.family
         font.pixelSize: Style.font.bodySmall
         color: Color.foreground
-        width: itemRow.width - Style.space(24)
+        width: itemRow.width - Style.space(24) - (dismissButton.visible ? dismissButton.width + itemRow.spacing : 0)
         wrapMode: Text.WordWrap
+      }
+
+      LabelButton {
+        id: dismissButton
+        objectName: "attentionDismiss"
+        visible: Model.attentionHandoffId(itemRow.modelData) !== ""
+        label: "Dismiss"
+        onClicked: root.dismiss(Model.attentionHandoffId(itemRow.modelData))
       }
     }
   }

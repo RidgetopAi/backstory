@@ -35,7 +35,11 @@ func renderAttention(items []AttentionItem) string {
 	lines := make([]string, 0, len(items)+1)
 	lines = append(lines, "Attention:")
 	for _, it := range items {
+		// A stale-handoff reason already leads with the project label.
 		line := fmt.Sprintf("- [%s] %s: %s", it.Kind, it.ProjectKey, it.Reason)
+		if it.HandoffID != "" {
+			line = fmt.Sprintf("- [%s] %s", it.Kind, it.Reason)
+		}
 		if len(it.EvidenceIDs) > 0 {
 			line += " (ids " + strings.Join(it.EvidenceIDs, ",") + ")"
 		}

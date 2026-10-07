@@ -40,6 +40,8 @@ function bareSummary(projectKey, displayName, cwd) {
 function attentionKind(item) { return item.kind }
 function attentionProjectKey(item) { return item.project_key }
 function attentionReason(item) { return item.reason }
+// Set only on a possibly-stale-handoff item: the id `backstory affirm` takes.
+function attentionHandoffId(item) { return item.handoff_id || "" }
 function attentionEvidenceIds(item) { return item.evidence_ids || [] }
 
 // Where you left off — one row is either `{project}` (standalone) or

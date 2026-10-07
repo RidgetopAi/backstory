@@ -418,7 +418,7 @@ Item {
               spacing: Style.spacing.labelGap
 
               PanelSectionHeader { text: "NEEDS YOU"; foreground: Color.popups.text }
-              AttentionSection { items: root.attentionItems; width: parent.width }
+              AttentionSection { items: root.attentionItems; width: parent.width; onDismissed: root.refresh() }
             }
 
             Column {
