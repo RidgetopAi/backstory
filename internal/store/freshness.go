@@ -175,7 +175,7 @@ func (s *Store) laterFailureEvents(projectKey string, sessionIDs []string, since
 			}
 		case payload.KindToolResult:
 			var tr payload.ToolResult
-			if json.Unmarshal([]byte(e.Payload), &tr) != nil || !(tr.IsError || (tr.Exit != nil && *tr.Exit != 0)) {
+			if json.Unmarshal([]byte(e.Payload), &tr) != nil || (!tr.IsError && (tr.Exit == nil || *tr.Exit == 0)) {
 				continue
 			}
 			d := FailureDetail{EventID: e.ID, Exit: tr.Exit}
