@@ -97,3 +97,20 @@ func TestCodexRoundTripPreservesUserTrustState(t *testing.T) {
 		t.Errorf("config.toml changed:\n%s\nwant:\n%s", got, seed)
 	}
 }
+
+// Option A: Backstory never writes Codex's hooks.state trust entries.
+func TestInstallCodexNeverWritesHooksState(t *testing.T) {
+	for name, toml := range map[string]string{"fresh": "", "existing": codexFixtureTOML} {
+		p := codexFixture(t, toml)
+		if err := InstallCodex(p, Options{}); err != nil {
+			t.Fatal(err)
+		}
+		if err := InstallCodex(p, Options{}); err != nil {
+			t.Fatal(err)
+		}
+		cfg := readFile(t, p.ConfigTOML)
+		if strings.Contains(cfg, "hooks.state") || strings.Contains(cfg, "trusted_hash") {
+			t.Errorf("%s: install codex wrote trust state:\n%s", name, cfg)
+		}
+	}
+}

@@ -74,7 +74,7 @@ const (
 	codexEventPostToolUse  = "post_tool_use"
 
 	// CodexTrustNotice is the one line printed after `install codex`.
-	CodexTrustNotice = "codex: action needed: start codex and approve the Backstory hooks (SessionStart, PostToolUse); until then Codex 0.151 will not run them, and `backstory install --check` reports them as not-trusted"
+	CodexTrustNotice = "codex: action needed: open codex once, trust the directory, and choose \"Trust all and continue\" to approve the Backstory hooks (SessionStart, PostToolUse); until then Codex 0.151 will not run them, and `backstory install --check` reports them as not-trusted"
 )
 
 // ErrForeignConflict marks an item whose slot is occupied by something
@@ -535,6 +535,22 @@ func CodexHooksTrusted(home string, opts Options) bool {
 		}
 	}
 	return true
+}
+
+// CodexHooksUnapproved reports whether Backstory's hooks are installed in
+// Codex but at least one lacks a trusted_hash. False when Codex or the hooks
+// are not installed.
+func CodexHooksUnapproved(home string, opts Options) bool {
+	items, err := CheckCodex(DefaultCodexPaths(home), opts)
+	if err != nil {
+		return false
+	}
+	for _, it := range items {
+		if (it.Name == ItemSessionStartHook || it.Name == ItemPostToolUseHook) && it.Status == StatusNotTrusted {
+			return true
+		}
+	}
+	return false
 }
 
 var (
