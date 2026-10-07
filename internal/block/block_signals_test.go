@@ -33,8 +33,9 @@ func TestPossiblyStaleOnLaterNonZeroExit(t *testing.T) {
 	mustUpsertProject(t, st, testProjectKey)
 	self := mustStartSession(t, st, "claude", "/proj", 100)
 	handoff := mustInsertHandoff(t, st, self, "tests pass")
-	id := mustAppendEvent(t, st, self, payload.KindShellCommand, handoff.TS.Add(time.Second),
-		payload.ShellCommand{Cmd: "python -m unittest", Exit: 1})
+	exit1 := 1
+	id := mustAppendEvent(t, st, self, payload.KindToolResult, handoff.TS.Add(time.Second),
+		payload.ToolResult{ToolUseID: "t1", IsError: true, Exit: &exit1})
 	out := mustRender(t, st, fakeProcFS{}, self)
 	if !strings.Contains(out, "⚠ possibly stale:") || !strings.Contains(out, "later non-zero exit(s) (ids "+strconv.FormatInt(id, 10)+")") {
 		t.Errorf("failing exit after handoff must mark it possibly stale citing event %d:\n%s", id, out)

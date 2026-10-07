@@ -41,6 +41,22 @@ type FreshnessReason struct {
 	Kind      FreshnessReasonKind
 	RecordIDs []string
 	EventIDs  []int64
+	// Failures describes each FreshnessLaterFailure event in EventIDs order:
+	// what failed, so a reader can say so instead of citing a bare id.
+	Failures []FailureDetail
+}
+
+// FailureDetail is one agent failure behind a FreshnessLaterFailure reason.
+type FailureDetail struct {
+	EventID int64
+	// Tool is the tool name of the matching tool.use (e.g. "Bash"); empty
+	// when no tool.use for the result's tool_use_id was observed.
+	Tool string
+	// Command is the tool.use's command, else its path; empty when neither
+	// was recorded.
+	Command string
+	// Exit is the tool.result's exit code when one was observed.
+	Exit *int
 }
 
 // HandoffFreshness reports every reason h is possibly stale (decision
@@ -103,39 +119,74 @@ func (s *Store) HandoffFreshness(h Record, workspaces []string) ([]FreshnessReas
 		reasons = append(reasons, FreshnessReason{Kind: FreshnessLaterActivity, EventIDs: laterEventIDs})
 	}
 
-	failureIDs, err := s.laterFailureEvents(sessionIDs, boundaryEventCursor)
+	failures, err := s.laterFailureEvents(h.ProjectKey, sessionIDs, boundaryEventCursor)
 	if err != nil {
 		return nil, err
 	}
-	if len(failureIDs) > 0 {
-		reasons = append(reasons, FreshnessReason{Kind: FreshnessLaterFailure, EventIDs: failureIDs})
+	if len(failures) > 0 {
+		ids := make([]int64, len(failures))
+		for i, f := range failures {
+			ids[i] = f.EventID
+		}
+		reasons = append(reasons, FreshnessReason{Kind: FreshnessLaterFailure, EventIDs: ids, Failures: failures})
 	}
 
 	return reasons, nil
 }
 
-// laterFailureEvents returns, ascending by id, the ids of command events with
-// a non-zero exit and tool.result events that are is_error or carry a
-// non-zero exit, from one of sessionIDs after sinceEventCursor. Unlike
-// laterEventsTouchingAbout it needs no about[] path.
-func (s *Store) laterFailureEvents(sessionIDs []string, sinceEventCursor int64) ([]int64, error) {
-	events, err := s.eventsSinceIDForSessions(sessionIDs, sinceEventCursor)
+// laterFailureEvents returns, ascending by id, the AGENT tool.result
+// events that are is_error or carry a non-zero exit, from a session of
+// sessionIDs whose own project key is projectKey, after sinceEventCursor.
+// Human shell-capture command events never count (typos, an ssh session
+// ending, grep finding nothing stay on the timeline only), and neither does
+// an agent failure located in another project: a tool.result carries no cwd,
+// so its location is its session's folder, i.e. the session's project key —
+// which for a workspace-homed handoff means only failures at the workspace
+// itself, never at a repo under it. Unlike laterEventsTouchingAbout it
+// needs no about[] path.
+func (s *Store) laterFailureEvents(projectKey string, sessionIDs []string, sinceEventCursor int64) ([]FailureDetail, error) {
+	var own []string
+	for _, id := range sessionIDs {
+		sess, err := s.getSession(id)
+		if err != nil {
+			return nil, fmt.Errorf("store: session %s for later failures: %w", id, err)
+		}
+		if sess.ProjectKey == projectKey {
+			own = append(own, id)
+		}
+	}
+	events, err := s.eventsSinceIDForSessions(own, sinceEventCursor)
 	if err != nil {
 		return nil, err
 	}
-	var out []int64
+	// tool.use events by (session, tool_use_id), so a failed result can say
+	// which command or tool it was; the use precedes its result, and the
+	// events list is every event after the cursor, so a use from before the
+	// cursor is simply not named.
+	type useKey struct{ session, id string }
+	uses := map[useKey]payload.ToolUse{}
+	var out []FailureDetail
 	for _, e := range events {
 		switch e.Kind {
-		case payload.KindShellCommand:
-			var sc payload.ShellCommand
-			if json.Unmarshal([]byte(e.Payload), &sc) == nil && sc.Exit != 0 {
-				out = append(out, e.ID)
+		case payload.KindToolUse:
+			var tu payload.ToolUse
+			if json.Unmarshal([]byte(e.Payload), &tu) == nil && tu.ToolUseID != "" {
+				uses[useKey{e.SessionID, tu.ToolUseID}] = tu
 			}
 		case payload.KindToolResult:
 			var tr payload.ToolResult
-			if json.Unmarshal([]byte(e.Payload), &tr) == nil && (tr.IsError || (tr.Exit != nil && *tr.Exit != 0)) {
-				out = append(out, e.ID)
+			if json.Unmarshal([]byte(e.Payload), &tr) != nil || (!tr.IsError && (tr.Exit == nil || *tr.Exit == 0)) {
+				continue
 			}
+			d := FailureDetail{EventID: e.ID, Exit: tr.Exit}
+			if tu, ok := uses[useKey{e.SessionID, tr.ToolUseID}]; ok {
+				d.Tool = tu.Name
+				d.Command = tu.Command
+				if d.Command == "" {
+					d.Command = tu.Path
+				}
+			}
+			out = append(out, d)
 		}
 	}
 	return out, nil

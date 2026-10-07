@@ -9,6 +9,7 @@
 //   - `backstory this-week --json` / `backstory group ...`: the plugin's
 //     one data source and its one write path, never the store directly
 //     (PLAN.md Phase 4 "Human look": "it never reads the store").
+//   - `backstory affirm <handoff-id>`: the Needs You Dismiss action.
 //   - `xdg-terminal-exec --dir=<cwd>`: the freedesktop terminal-launch
 //     primitive Omarchy's own `omarchy-launch-terminal` wraps, called here
 //     with an explicit `--dir` (a row's `cwd`, not the caller's own) since
@@ -38,6 +39,12 @@ function thisWeekCommand() {
 
 function barToggleCommand() {
   return ["omarchy-shell", "shell", "toggle", "backstory.this-week", "{}"]
+}
+
+// affirmCommand dismisses a stale handoff's Needs You row: the CLI writes a
+// human-declared affirm the freshness boundary honours (decision 6caaac1d).
+function affirmCommand(handoffId) {
+  return ["backstory", "affirm", handoffId]
 }
 
 function groupListCommand() {

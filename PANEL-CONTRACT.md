@@ -77,6 +77,7 @@ window (the same set Where-you-left-off lists).
 | `kind`         | string enum | yes | One of the kinds below. |
 | `project_key`  | string     | yes | The project the item is about. |
 | `reason`       | string     | yes | One human-readable line. |
+| `handoff_id`   | string     | only on `possibly-stale-handoff` | The stale handoff's record id: what `backstory affirm <handoff-id>` takes — the panel's Needs You Dismiss action runs it. |
 | `evidence_ids` | string[]   | yes (never `null`, may be empty) | Record ids and/or timeline event ids (event ids as decimal strings) that are this item's positive evidence. |
 
 `kind` is one of:
@@ -84,7 +85,13 @@ window (the same set Where-you-left-off lists).
 - `possibly-stale-handoff` — the project's latest handoff has positive evidence against it
   (a contradiction, a later same-project record, or a later timeline event touching a path
   it names — `store.HandoffFreshness`, decision `bcc9fa54`). `evidence_ids` are the record
-  and/or event ids `store.HandoffFreshness` cited.
+  and/or event ids `store.HandoffFreshness` cited. `reason` leads with the project label and,
+  for a later failure, names the failed command/tool (truncated) and its exit code, e.g.
+  `wobble-party: handoff possibly stale — cargo test failed (exit 101) after it`. A later
+  failure counts only an AGENT `tool.result` (`is_error` / non-zero exit) located in the
+  handoff's own project — human shell-capture commands and other repos never do. A handoff
+  appears at most once; `backstory affirm <handoff-id>` (human-only) clears it until new
+  evidence arrives.
 - `uncommitted-at-session-end` — a `session.git_state` event this week observed the session's
   repo with `uncommitted_count > 0` at session end. A `could-not-observe` git-state event
   (the repo could not be read, or was not a git working tree) NEVER produces this item —

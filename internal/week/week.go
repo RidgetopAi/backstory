@@ -100,6 +100,11 @@ type AttentionItem struct {
 	ProjectKey string
 	// Reason is a one-line, human-readable explanation.
 	Reason string
+	// HandoffID is the handoff a AttentionPossiblyStaleHandoff item is
+	// about (empty for every other kind): what `backstory affirm` takes to
+	// dismiss it, and the key two membership paths to the same handoff are
+	// deduplicated by.
+	HandoffID string
 	// EvidenceIDs is the positive evidence this item cites: record ids and
 	// timeline event ids (formatted as decimal strings), in the same mixed
 	// list shape block.staleMarker and recall's status labels already use
@@ -315,6 +320,7 @@ func Build(p Params) (Result, error) {
 	sortWeekGrid(weekGrid)
 
 	attention = append(attention, p.ExtraAttention...)
+	attention = dedupeStaleHandoffs(attention)
 	sortAttention(attention)
 
 	// Empty, never nil: every list marshals as [] (PANEL-CONTRACT.md).
@@ -453,12 +459,7 @@ func buildProject(st *store.Store, projectKey string, since, now time.Time, git 
 		}
 		if len(reasons) > 0 {
 			summary.HandoffStale = true
-			attention = append(attention, AttentionItem{
-				Kind:        AttentionPossiblyStaleHandoff,
-				ProjectKey:  projectKey,
-				Reason:      "handoff possibly stale: " + freshnessReasonSummary(reasons),
-				EvidenceIDs: freshnessEvidenceIDs(reasons),
-			})
+			attention = append(attention, staleHandoffItem(projectKey, summary.DisplayName, handoff.ID, reasons))
 		}
 	}
 
@@ -724,12 +725,7 @@ func buildHomeLabelProject(st *store.Store, since, now time.Time, loc store.Acti
 		}
 		if len(reasons) > 0 {
 			summary.HandoffStale = true
-			attention = append(attention, AttentionItem{
-				Kind:        AttentionPossiblyStaleHandoff,
-				ProjectKey:  summary.ProjectKey,
-				Reason:      "handoff possibly stale: " + freshnessReasonSummary(reasons),
-				EvidenceIDs: freshnessEvidenceIDs(reasons),
-			})
+			attention = append(attention, staleHandoffItem(summary.ProjectKey, summary.DisplayName, handoff.ID, reasons))
 		}
 	}
 
@@ -909,16 +905,78 @@ func DisplayName(st *store.Store, projectKey string, workspaces []string) (strin
 	return project.WorkspaceRelativeName(proj.Toplevel, workspaces), nil
 }
 
-// freshnessReasonSummary renders reasons as "<kind>, <kind>, ..." — This
-// Week's compact form, distinct from block.staleMarker's more verbose,
-// chat-context prose (block renders for an agent to read once; this is a
-// data field a panel re-renders every time).
-func freshnessReasonSummary(reasons []store.FreshnessReason) string {
-	kinds := make([]string, len(reasons))
-	for i, r := range reasons {
-		kinds[i] = string(r.Kind)
+// failureTextMaxRunes bounds the failed command/tool text an Attention reason
+// quotes: a long command line must not blow up a one-line Needs You row.
+const failureTextMaxRunes = 60
+
+// staleHandoffItem builds the AttentionPossiblyStaleHandoff item for
+// handoffID: its reason leads with the project label (so two distinct
+// handoffs are told apart) and says what failed instead of a bare kind slug.
+func staleHandoffItem(projectKey, label, handoffID string, reasons []store.FreshnessReason) AttentionItem {
+	return AttentionItem{
+		Kind:        AttentionPossiblyStaleHandoff,
+		ProjectKey:  projectKey,
+		HandoffID:   handoffID,
+		Reason:      label + ": handoff possibly stale — " + freshnessReasonSummary(reasons),
+		EvidenceIDs: freshnessEvidenceIDs(reasons),
 	}
-	return strings.Join(kinds, ", ")
+}
+
+// dedupeStaleHandoffs keeps the first AttentionPossiblyStaleHandoff item per
+// handoff id: the same handoff can be reached through more than one
+// membership path (its repo's own row and a workspace home label's row).
+func dedupeStaleHandoffs(items []AttentionItem) []AttentionItem {
+	seen := map[string]bool{}
+	out := items[:0:0]
+	for _, it := range items {
+		if it.Kind == AttentionPossiblyStaleHandoff && it.HandoffID != "" {
+			if seen[it.HandoffID] {
+				continue
+			}
+			seen[it.HandoffID] = true
+		}
+		out = append(out, it)
+	}
+	return out
+}
+
+// freshnessReasonSummary renders reasons as a compact "; "-joined clause list
+// — This Week's form, distinct from block.staleMarker's more verbose,
+// chat-context prose. A later-failure reason names the failed command/tool
+// and its exit code.
+func freshnessReasonSummary(reasons []store.FreshnessReason) string {
+	clauses := make([]string, len(reasons))
+	for i, r := range reasons {
+		clauses[i] = string(r.Kind)
+		if r.Kind == store.FreshnessLaterFailure && len(r.Failures) > 0 {
+			clauses[i] = failureClause(r.Failures)
+		}
+	}
+	return strings.Join(clauses, "; ")
+}
+
+// failureClause describes the most recent failure and counts the rest.
+func failureClause(failures []store.FailureDetail) string {
+	f := failures[len(failures)-1]
+	what := f.Command
+	if what == "" {
+		what = f.Tool
+	}
+	if what == "" {
+		what = "a tool call"
+	}
+	if r := []rune(what); len(r) > failureTextMaxRunes {
+		what = string(r[:failureTextMaxRunes]) + "…"
+	}
+	out := what + " failed"
+	if f.Exit != nil {
+		out += fmt.Sprintf(" (exit %d)", *f.Exit)
+	}
+	out += " after it"
+	if len(failures) > 1 {
+		out += fmt.Sprintf(" (+%d more)", len(failures)-1)
+	}
+	return out
 }
 
 // freshnessEvidenceIDs flattens every reason's record and event ids into

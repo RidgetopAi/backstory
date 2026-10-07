@@ -93,9 +93,12 @@ func runThisWeek(args []string, stdout, stderr io.Writer) int {
 // attentionItemJSON is one item in `backstory this-week --json`'s
 // attention array (PANEL-CONTRACT.md §Attention).
 type attentionItemJSON struct {
-	Kind        string   `json:"kind"`
-	ProjectKey  string   `json:"project_key"`
-	Reason      string   `json:"reason"`
+	Kind       string `json:"kind"`
+	ProjectKey string `json:"project_key"`
+	Reason     string `json:"reason"`
+	// HandoffID is set only on a possibly-stale-handoff item: the id
+	// `backstory affirm` takes to dismiss it.
+	HandoffID   string   `json:"handoff_id,omitempty"`
 	EvidenceIDs []string `json:"evidence_ids"`
 }
 
@@ -184,6 +187,7 @@ func printThisWeekJSON(stdout io.Writer, result week.Result, here *hereJSON, win
 			Kind:        string(it.Kind),
 			ProjectKey:  it.ProjectKey,
 			Reason:      it.Reason,
+			HandoffID:   it.HandoffID,
 			EvidenceIDs: it.EvidenceIDs,
 		})
 	}
