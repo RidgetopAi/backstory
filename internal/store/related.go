@@ -1,0 +1,147 @@
+package store
+
+import (
+	"encoding/json"
+	"fmt"
+	"sort"
+	"strings"
+	"unicode"
+)
+
+// Tunables for RelatedDecisions' full-text side. Named here, never inlined.
+const (
+	// RelatedMinTermRunes is the shortest term used for the full-text match:
+	// shorter words ("to", "the", "use") are noise that would make every
+	// decision a candidate.
+	RelatedMinTermRunes = 4
+	// RelatedMaxTerms caps how many distinct terms of the new text feed the
+	// full-text query.
+	RelatedMaxTerms = 12
+	// relatedFTSFetch is how many full-text hits are read before the
+	// current/other filters are applied in Go-visible SQL; the SQL itself
+	// filters, so this only bounds the scan.
+	relatedFTSFetch = 50
+)
+
+// RelatedDecisions returns up to limit CURRENT decisions in projectKey that
+// are likely about the same thing as a decision being written: those sharing
+// an about[] path (most shared paths first, then newest), then those matching
+// the text's distinctive terms by full text (best bm25 first). Current means
+// not tombstoned and not the to_id of any supersedes edge; excludeIDs (the new
+// record itself, a record it already supersedes) are skipped. It only reads:
+// no edge is ever written. Any text is safe — terms are reduced to letters
+// and digits and quoted as FTS5 literals.
+func (s *Store) RelatedDecisions(projectKey string, excludeIDs, about []string, text string, limit int) ([]Record, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	projectKey = s.canonicalizeProjectKey(projectKey)
+	exclude := make(map[string]bool, len(excludeIDs))
+	for _, id := range excludeIDs {
+		exclude[id] = true
+	}
+
+	const currentDecision = `r.kind = 'decision' AND r.tombstoned_at IS NULL AND r.project_key = ?
+		AND NOT EXISTS (SELECT 1 FROM edges e WHERE e.to_id = r.id AND e.type = 'supersedes')`
+
+	var ids []string
+	seen := map[string]bool{}
+	add := func(id string) {
+		if !exclude[id] && !seen[id] {
+			seen[id] = true
+			ids = append(ids, id)
+		}
+	}
+
+	if len(about) > 0 {
+		want := make(map[string]bool, len(about))
+		for _, a := range about {
+			want[a] = true
+		}
+		rows, err := s.db.Query(`SELECT r.id, r.about FROM records r WHERE `+currentDecision+` AND r.about IS NOT NULL ORDER BY r.ts DESC`, projectKey)
+		if err != nil {
+			return nil, fmt.Errorf("store: related decisions by about: %w", err)
+		}
+		type hit struct {
+			id      string
+			overlap int
+		}
+		var hits []hit
+		for rows.Next() {
+			var id, aboutJSON string
+			if err := rows.Scan(&id, &aboutJSON); err != nil {
+				_ = rows.Close()
+				return nil, fmt.Errorf("store: related decisions by about: %w", err)
+			}
+			var paths []string
+			if json.Unmarshal([]byte(aboutJSON), &paths) != nil {
+				continue
+			}
+			n := 0
+			for _, p := range paths {
+				if want[p] {
+					n++
+				}
+			}
+			if n > 0 {
+				hits = append(hits, hit{id, n})
+			}
+		}
+		err = rows.Err()
+		_ = rows.Close()
+		if err != nil {
+			return nil, fmt.Errorf("store: related decisions by about: %w", err)
+		}
+		sort.SliceStable(hits, func(i, j int) bool { return hits[i].overlap > hits[j].overlap })
+		for _, h := range hits {
+			add(h.id)
+		}
+	}
+
+	if len(ids) < limit {
+		if q := relatedFTSQuery(text); q != "" {
+			rows, err := s.db.Query(`SELECT r.id FROM records_fts
+				JOIN records r ON r.rowid = records_fts.rowid
+				WHERE records_fts MATCH ? AND `+currentDecision+`
+				ORDER BY rank, r.ts DESC LIMIT ?`, q, projectKey, relatedFTSFetch)
+			if err != nil {
+				return nil, fmt.Errorf("store: related decisions by text: %w", err)
+			}
+			got, err := scanIDs(rows)
+			if err != nil {
+				return nil, fmt.Errorf("store: related decisions by text: %w", err)
+			}
+			for _, id := range got {
+				add(id)
+			}
+		}
+	}
+
+	if len(ids) > limit {
+		ids = ids[:limit]
+	}
+	return s.getRecords(ids)
+}
+
+// relatedFTSQuery reduces arbitrary text to an OR of quoted distinctive terms
+// ("" when none): letters/digits runs of at least RelatedMinTermRunes, lower-
+// cased, deduplicated, at most RelatedMaxTerms. Because only letters and
+// digits survive, no FTS5 operator or quote can reach the parser.
+func relatedFTSQuery(text string) string {
+	words := strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
+	var terms []string
+	seen := map[string]bool{}
+	for _, w := range words {
+		if len([]rune(w)) < RelatedMinTermRunes || seen[w] {
+			continue
+		}
+		seen[w] = true
+		terms = append(terms, `"`+w+`"`)
+		if len(terms) == RelatedMaxTerms {
+			break
+		}
+	}
+	return strings.Join(terms, " OR ")
+}

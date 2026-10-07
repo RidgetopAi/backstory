@@ -146,6 +146,9 @@ note({ kind: decision | outcome | handoff | note | claim,  text })
   nothing applies the same rule to the note's `about[]` paths. Zero or several locations,
   or only non-git folders, keep the workspace key. Handoffs always stay homed on the
   workspace. The result's additive `project_key` field reports where the record landed.
+  A `decision` note's result may also carry additive `related_decisions` (up to 3 current
+  decisions in the project sharing an `about[]` path or distinctive terms) and a `message`;
+  the lookup only reports and never writes an edge.
 - **Tier is set by the daemon from the caller's identity, never from a parameter.** A note
   from an agent process is `agent-declared`. `human-declared` is reachable only from the
   panel/CLI.
@@ -246,8 +249,8 @@ In the file, line 1 is the YAML frontmatter block (`name: backstory` and the
 5. claim "done" only with `note outcome` pointing at a `timeline` event id; a claim without
    evidence is recorded as a claim.
 6. end with `note handoff`: what is true now, what is next, what still must not be done. Do not carry forward instructions that applied only to the current session ("don't start X now" when X is the next step); `next` is an action the next session can start, with a precondition only if it is real and unmet. Put the single next step in the handoff's optional `next` (one line, at most 200 characters; handoff only) so the panel can show it. Set
-   `supersedes` to the Resume slot's id when it showed one; whenever any record replaces or
-   corrects an earlier one, set `supersedes` to its id (or `confirm supersede`).
+   `supersedes` to the id of the record this replaces or corrects (the Resume slot's, or one in a
+   decision note's `related_decisions`), or `confirm supersede`.
 7. inferred records are hints; declared records are claims; the timeline is fact.
 8. never put a secret in a note.
 

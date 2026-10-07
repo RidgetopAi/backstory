@@ -85,6 +85,51 @@ type NoteResult struct {
 	// handoff "might not be found". Empty for every other record.
 	VisibleAt string `json:"visible_at,omitempty"`
 	Message   string `json:"message,omitempty"`
+	// RelatedDecisions is additive: for a kind=decision note only, the
+	// current decisions in the same project it may replace (task 9fa4a9f9),
+	// so the agent decides supersedes while writing. Report-only: the lookup
+	// never writes an edge.
+	RelatedDecisions []RelatedDecision `json:"related_decisions,omitempty"`
+}
+
+// RelatedDecision is one candidate NoteResult.RelatedDecisions names.
+type RelatedDecision struct {
+	ID   string `json:"id"`
+	Text string `json:"text"`
+	TS   string `json:"ts"`
+}
+
+// Tunables for the declare-path lookup.
+const (
+	// MaxRelatedDecisions caps how many candidates a decision note returns.
+	MaxRelatedDecisions = 3
+	// RelatedTextRunes is the length a candidate's text is truncated to.
+	RelatedTextRunes = 160
+)
+
+// relatedMessage is the one line telling the agent what to do with the
+// candidates.
+const relatedMessage = "these current decisions may be about the same thing: if this one replaces one of them, call confirm supersede (or re-note with supersedes); otherwise ignore"
+
+// relatedDecisions looks up the candidates for a just-written decision.
+func relatedDecisions(st *store.Store, rec store.Record, supersedes string) ([]RelatedDecision, error) {
+	exclude := []string{rec.ID}
+	if supersedes != "" {
+		exclude = append(exclude, supersedes)
+	}
+	found, err := st.RelatedDecisions(rec.ProjectKey, exclude, rec.About, rec.Text, MaxRelatedDecisions)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]RelatedDecision, 0, len(found))
+	for _, r := range found {
+		text := r.Text
+		if rs := []rune(text); len(rs) > RelatedTextRunes {
+			text = string(rs[:RelatedTextRunes]) + "…"
+		}
+		out = append(out, RelatedDecision{ID: r.ID, Text: text, TS: r.TS.UTC().Format(time.RFC3339)})
+	}
+	return out, nil
 }
 
 // NoteEdge is one edge NoteResult.Edges echoes back: the edge's type and
@@ -232,7 +277,18 @@ func handleNote(st *store.Store, git project.Git, identity store.Identity, sessi
 		noteEdges[i] = NoteEdge{Type: string(e.Type), OtherID: e.OtherID}
 	}
 
-	result, err := json.Marshal(NoteResult{ID: id, Tier: string(rec.Tier), ProjectKey: rec.ProjectKey, Edges: noteEdges, VisibleAt: visibleAt, Message: visibleMessage(visibleAt)})
+	nr := NoteResult{ID: id, Tier: string(rec.Tier), ProjectKey: rec.ProjectKey, Edges: noteEdges, VisibleAt: visibleAt, Message: visibleMessage(visibleAt)}
+	if kind == store.KindDecision {
+		related, err := relatedDecisions(st, rec, p.Supersedes)
+		if err != nil {
+			return errResponse("internal", err.Error())
+		}
+		if len(related) > 0 {
+			nr.RelatedDecisions = related
+			nr.Message = relatedMessage
+		}
+	}
+	result, err := json.Marshal(nr)
 	if err != nil {
 		return errResponse("internal", err.Error())
 	}

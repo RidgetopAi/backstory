@@ -186,7 +186,7 @@ func TestInstallWritesEmbeddedWhenPackagedPathAbsent(t *testing.T) {
 // corrects an earlier one, not only for the Resume handoff.
 func TestEmbeddedSkillInstructsSupersedeOnReplacement(t *testing.T) {
 	s := string(skill.Embedded)
-	for _, want := range []string{"replaces or corrects an earlier one", "`supersedes`", "`confirm supersede`"} {
+	for _, want := range []string{"replaces or corrects", "`related_decisions`", "`supersedes`", "`confirm supersede`"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("embedded skill missing %q", want)
 		}
@@ -324,7 +324,7 @@ func TestEmbeddedSkillHasFrontmatter(t *testing.T) {
 
 // The rule lines that followed the old prose header survive byte-for-byte.
 func TestEmbeddedSkillKeepsRuleLinesVerbatim(t *testing.T) {
-	before := pastSkills[len(pastSkills)-2] // 462e93f: the version before the frontmatter
+	before := pastSkills[len(pastSkills)-3] // 462e93f: the version before the frontmatter
 	_, wantRules, ok := strings.Cut(before.body, "\n")
 	if !ok {
 		t.Fatal("462e93f test data has no first line")
