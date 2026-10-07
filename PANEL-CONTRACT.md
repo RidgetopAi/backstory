@@ -74,7 +74,7 @@ window (the same set Where-you-left-off lists).
 
 | Field          | Type       | Always present | Meaning |
 |----------------|------------|-----------------|---------|
-| `kind`         | string enum | yes | One of the four kinds below. |
+| `kind`         | string enum | yes | One of the kinds below. |
 | `project_key`  | string     | yes | The project the item is about. |
 | `reason`       | string     | yes | One human-readable line. |
 | `evidence_ids` | string[]   | yes (never `null`, may be empty) | Record ids and/or timeline event ids (event ids as decimal strings) that are this item's positive evidence. |
@@ -97,6 +97,9 @@ window (the same set Where-you-left-off lists).
 - `expired-claim` — a non-tombstoned `claim` record whose `expires_at` has passed, with no
   `produced_outcome` edge touching it (nothing has recorded an outcome for it).
   `evidence_ids` is the claim's own record id.
+- `codex-hooks-not-approved` — Backstory's hooks are installed in `~/.codex/hooks.json` but
+  Codex has no `trusted_hash` for them. Not project evidence: `project_key` is `codex`,
+  `evidence_ids` is empty. Absent when Codex or its hooks are not installed.
 
 ## Where you left off — `WhereLeftOffRow`
 

@@ -60,6 +60,9 @@ type Params struct {
 	// Now is the reference instant for the window and every "possibly
 	// stale" / "expired" check. Zero means time.Now().
 	Now time.Time
+	// ExtraAttention are caller-computed items (state outside the store)
+	// merged into Attention before sorting.
+	ExtraAttention []AttentionItem
 }
 
 // AttentionKind is the kind of positive evidence an AttentionItem reports
@@ -71,6 +74,11 @@ const (
 	AttentionUncommittedAtSessionEnd AttentionKind = "uncommitted-at-session-end"
 	AttentionContradiction           AttentionKind = "contradiction"
 	AttentionExpiredClaim            AttentionKind = "expired-claim"
+	// AttentionCodexHooksNotApproved is environment state, not project
+	// evidence: Codex has the Backstory hooks installed but the user has not
+	// approved them, so Codex runs none of them. Supplied by the caller
+	// (Params.ExtraAttention); ProjectKey is "codex".
+	AttentionCodexHooksNotApproved AttentionKind = "codex-hooks-not-approved"
 )
 
 // attentionKindOrder fixes AttentionItem's sort order across kinds — the
@@ -81,6 +89,7 @@ var attentionKindOrder = map[AttentionKind]int{
 	AttentionUncommittedAtSessionEnd: 1,
 	AttentionContradiction:           2,
 	AttentionExpiredClaim:            3,
+	AttentionCodexHooksNotApproved:   4,
 }
 
 // AttentionItem is one item in the Attention section: positive evidence
@@ -305,6 +314,7 @@ func Build(p Params) (Result, error) {
 	weekGrid = append(weekGrid, homeWeekGrid...)
 	sortWeekGrid(weekGrid)
 
+	attention = append(attention, p.ExtraAttention...)
 	sortAttention(attention)
 
 	// Empty, never nil: every list marshals as [] (PANEL-CONTRACT.md).

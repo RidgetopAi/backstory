@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/RidgetopAi/backstory/internal/install"
 	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/store"
 	"github.com/RidgetopAi/backstory/internal/week"
@@ -53,7 +54,7 @@ func runThisWeek(args []string, stdout, stderr io.Writer) int {
 	// (task 482b2320, decision f3fa04c7's clause 7).
 	workspaceDirs := resolveWorkspaceDirs()
 
-	result, err := week.Build(week.Params{Store: st, Git: project.RealGit{}, WorkspaceDirs: workspaceDirs, Locations: thisWeekLocations(), Now: thisWeekNow()})
+	result, err := week.Build(week.Params{Store: st, Git: project.RealGit{}, WorkspaceDirs: workspaceDirs, Locations: thisWeekLocations(), Now: thisWeekNow(), ExtraAttention: codexApprovalAttention()})
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory this-week:", err)
 		return 1
@@ -266,4 +267,18 @@ func thisWeekLocations() week.LocationRules {
 		home = filepath.Clean(home)
 	}
 	return week.DefaultLocationRules(home, roots...)
+}
+
+// codexApprovalReason is the Attention line for installed-but-unapproved
+// Codex hooks. Backstory never writes Codex's trust entry itself.
+const codexApprovalReason = "Codex hooks are not approved, so Codex gets no warm block and nothing is captured: open codex, trust the directory, and choose \"Trust all and continue\""
+
+// codexApprovalAttention is the Attention item for Backstory hooks installed
+// in Codex but not yet approved there; nil when approved or not installed.
+func codexApprovalAttention() []week.AttentionItem {
+	home, err := os.UserHomeDir()
+	if err != nil || !install.CodexHooksUnapproved(home, install.Options{}) {
+		return nil
+	}
+	return []week.AttentionItem{{Kind: week.AttentionCodexHooksNotApproved, ProjectKey: "codex", Reason: codexApprovalReason, EvidenceIDs: []string{}}}
 }

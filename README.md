@@ -97,7 +97,12 @@ to `~/.bashrc`.
   start, and the `note`, `recall`, `timeline` (plus `confirm`, `status`) MCP tools with no
   header, id, or config line beyond the installer's.
 - **Codex**: `backstory install codex` registers the MCP server and SessionStart/PostToolUse
-  hooks under `~/.codex` and adds an `AGENTS.md` stub.
+  hooks under `~/.codex` and adds an `AGENTS.md` stub. **One manual step:** open `codex` once
+  in a project, trust the directory, and choose "Trust all and continue" to approve the
+  Backstory hooks. Until then Codex gets no warm block and nothing is captured;
+  `backstory install --check` shows the hooks as not-trusted and `backstory this-week` lists
+  an Attention item. Backstory never writes Codex's trust entry itself, and an upgrade that
+  changes a hook may ask again.
 - **Hermes**: `backstory install hermes` installs a memory-provider plugin and the backstory skill under `$HERMES_HOME`
   (default `~/.hermes`).
 - **Pi**: `backstory install pi` installs an extension under `~/.pi/agent`.
