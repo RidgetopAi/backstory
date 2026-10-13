@@ -53,8 +53,9 @@ func runThisWeek(args []string, stdout, stderr io.Writer) int {
 	// Resolved once here, at the process entry, never inside internal/week
 	// (task 482b2320, decision f3fa04c7's clause 7).
 	workspaceDirs := resolveWorkspaceDirs()
+	projectRoots := project.DefaultProjectRoots()
 
-	result, err := week.Build(week.Params{Store: st, Git: project.RealGit{}, WorkspaceDirs: workspaceDirs, Locations: thisWeekLocations(), Now: thisWeekNow(), ExtraAttention: codexApprovalAttention()})
+	result, err := week.Build(week.Params{Store: st, Git: project.RealGit{}, WorkspaceDirs: workspaceDirs, ProjectRoots: projectRoots, Locations: thisWeekLocations(), Now: thisWeekNow(), ExtraAttention: codexApprovalAttention()})
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory this-week:", err)
 		return 1
@@ -65,6 +66,7 @@ func runThisWeek(args []string, stdout, stderr io.Writer) int {
 		var windows map[string]windowRef
 		if *hereFlag != "" {
 			r := hereResolver{git: project.RealGit{}, workspaces: workspaceDirs, result: result,
+				inScope: func(key, dir string) bool { return projectOrDirInScope(st, projectRoots, key, dir) },
 				displayName: func(key, dir string) string {
 					if proj, ok, err := st.GetProject(key); err == nil && ok {
 						if name, err := week.DisplayName(st, key, workspaceDirs); err == nil && proj.Toplevel != "" {
@@ -285,4 +287,20 @@ func codexApprovalAttention() []week.AttentionItem {
 		return nil
 	}
 	return []week.AttentionItem{{Kind: week.AttentionCodexHooksNotApproved, ProjectKey: "codex", Reason: codexApprovalReason, EvidenceIDs: []string{}}}
+}
+
+// projectOrDirInScope is BACKSTORY_PROJECT_ROOTS scoping for a folder dir
+// whose project key is key: the stored project's toplevel (or workspace dir)
+// when the store knows it, else the folder itself. True with no roots.
+func projectOrDirInScope(st *store.Store, roots []string, key, dir string) bool {
+	if len(roots) == 0 {
+		return true
+	}
+	if _, ws := project.WorkspaceDirOf(key); !ws {
+		if proj, ok, err := st.GetProject(key); err != nil || !ok || proj.Toplevel == "" {
+			return project.InRoots(roots, dir)
+		}
+	}
+	in, err := week.ProjectInScope(st, key, roots)
+	return err == nil && in
 }

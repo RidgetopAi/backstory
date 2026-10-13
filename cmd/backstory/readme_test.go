@@ -228,3 +228,16 @@ func TestInstallDocsTellUserToEnablePanelPlugin(t *testing.T) {
 		t.Error("PKGBUILD does not wire in backstory.install")
 	}
 }
+
+func TestReadmeDocumentsProjectRoots(t *testing.T) {
+	b, err := os.ReadFile("../../README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sec := readmeSection(t, string(b), "Project roots")
+	for _, want := range []string{"BACKSTORY_PROJECT_ROOTS=~/Code", "BACKSTORY_WORKSPACE_DIRS"} {
+		if !strings.Contains(sec, want) {
+			t.Errorf("Project roots section lacks %q", want)
+		}
+	}
+}

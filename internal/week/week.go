@@ -53,6 +53,11 @@ type Params struct {
 	// is: Build then finds no active project_key resolves inside a
 	// workspace.
 	WorkspaceDirs []string
+	// ProjectRoots is the caller's already-resolved BACKSTORY_PROJECT_ROOTS
+	// list (like WorkspaceDirs, never read from the environment here): when
+	// non-empty, only projects whose folder is a root or under one are
+	// listed in any section. Empty means everything is in scope.
+	ProjectRoots []string
 	// Locations is the excluded-location rule set (LocationRules, rule R2),
 	// resolved by the caller from $HOME and the environment. The zero value
 	// excludes nothing.
@@ -237,7 +242,7 @@ func Build(p Params) (Result, error) {
 	}
 	since := windowStart(now)
 
-	repoKeys, homeKeys, err := partitionActiveProjectKeys(p.Store, since, p.Locations)
+	repoKeys, homeKeys, err := partitionActiveProjectKeys(p.Store, since, p.Locations, p.ProjectRoots)
 	if err != nil {
 		return Result{}, err
 	}
@@ -285,7 +290,7 @@ func Build(p Params) (Result, error) {
 			return Result{}, fmt.Errorf("week: active home labels for %s: %w", home, err)
 		}
 		for _, loc := range locs {
-			if coveredLabels[loc.Label] || p.Locations.Excluded(loc.Dir) {
+			if coveredLabels[loc.Label] || p.Locations.Excluded(loc.Dir) || !project.InRoots(p.ProjectRoots, loc.Dir) {
 				continue
 			}
 			coveredLabels[loc.Label] = true
@@ -342,7 +347,7 @@ func Build(p Params) (Result, error) {
 //
 // Only keys with real work (RealWork, rule R1) are considered, and repo keys
 // whose location is excluded (rules, R2) are dropped — read-side only.
-func partitionActiveProjectKeys(st *store.Store, since time.Time, rules LocationRules) (repoKeys, homeKeys []string, err error) {
+func partitionActiveProjectKeys(st *store.Store, since time.Time, rules LocationRules, roots []string) (repoKeys, homeKeys []string, err error) {
 	all, err := st.RealWorkProjectKeys(since, RealWork)
 	if err != nil {
 		return nil, nil, fmt.Errorf("week: active project keys: %w", err)
@@ -357,6 +362,11 @@ func partitionActiveProjectKeys(st *store.Store, since time.Time, rules Location
 			return nil, nil, err
 		}
 		if rules.Excluded(dir) {
+			continue
+		}
+		if in, err := ProjectInScope(st, k, roots); err != nil {
+			return nil, nil, err
+		} else if !in {
 			continue
 		}
 		repoKeys = append(repoKeys, k)
@@ -1062,4 +1072,29 @@ func projectDir(st *store.Store, key string) (string, error) {
 		return proj.Toplevel, nil
 	}
 	return key, nil
+}
+
+// ProjectInScope reports whether the project key is in scope for roots
+// (BACKSTORY_PROJECT_ROOTS): its folder — the projects row's toplevel, the
+// workspace dir for a workspace: key, else its latest session's cwd — is a
+// root or under one. Empty roots: always true, without touching the store.
+func ProjectInScope(st *store.Store, key string, roots []string) (bool, error) {
+	if len(roots) == 0 {
+		return true, nil
+	}
+	if ws, ok := project.WorkspaceDirOf(key); ok {
+		return project.InRoots(roots, ws), nil
+	}
+	proj, ok, err := st.GetProject(key)
+	if err != nil {
+		return false, fmt.Errorf("week: project %s: %w", key, err)
+	}
+	if ok && proj.Toplevel != "" {
+		return project.InRoots(roots, proj.Toplevel), nil
+	}
+	dir, err := projectDir(st, key)
+	if err != nil {
+		return false, err
+	}
+	return project.InRoots(roots, dir), nil
 }

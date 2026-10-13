@@ -241,3 +241,83 @@ func WorkspaceDirOf(key string) (string, bool) {
 	}
 	return strings.TrimPrefix(key, workspaceKeyPrefix), true
 }
+
+// projectRootsEnvVar names the optional display-side scope: when set, only
+// projects whose folder is one of these roots or under one count as
+// projects in This Week and the panel's current project. Same shape as
+// workspaceDirsEnvVar (os.PathListSeparator-joined absolute paths), plus
+// `~` expansion. Capture, recall and the store never read it.
+const projectRootsEnvVar = "BACKSTORY_PROJECT_ROOTS"
+
+// ProjectRootsEnvVar is projectRootsEnvVar's name, for messages that tell a
+// user which setting scoped a folder out.
+const ProjectRootsEnvVar = projectRootsEnvVar
+
+// DefaultProjectRoots resolves $BACKSTORY_PROJECT_ROOTS: nil when unset or
+// empty (everything in scope), else each entry with a leading `~` expanded
+// to the home dir and cleaned (a trailing slash is dropped). Entries that
+// are empty or still relative after expansion are skipped; a value with no
+// usable entry yields nil, the same as unset.
+func DefaultProjectRoots() []string {
+	v := os.Getenv(projectRootsEnvVar)
+	if v == "" {
+		return nil
+	}
+	home, _ := os.UserHomeDir()
+	return ParseProjectRoots(v, home)
+}
+
+// ParseProjectRoots is DefaultProjectRoots' pure core: list is a
+// PathListSeparator-joined value, home the directory `~` expands to.
+func ParseProjectRoots(list, home string) []string {
+	var roots []string
+	for _, r := range filepath.SplitList(list) {
+		if r == "~" || strings.HasPrefix(r, "~/") {
+			if home == "" {
+				continue
+			}
+			r = filepath.Join(home, strings.TrimPrefix(r, "~"))
+		}
+		if !filepath.IsAbs(r) {
+			continue
+		}
+		roots = append(roots, filepath.Clean(r))
+	}
+	return roots
+}
+
+// InRoots reports whether dir is one of roots or inside one, comparing whole
+// path components (a sibling whose name merely starts with a root's name is
+// outside). With no roots everything is in scope.
+func InRoots(roots []string, dir string) bool {
+	if len(roots) == 0 {
+		return true
+	}
+	dir = filepath.Clean(dir)
+	for _, r := range roots {
+		rel, err := filepath.Rel(r, dir)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+// ScopeDir is the folder a project is scoped by: the workspace dir for a
+// workspace: key, else toplevel (the projects row's), else the key itself
+// (a bare-cwd key).
+func ScopeDir(key, toplevel string) string {
+	if ws, ok := WorkspaceDirOf(key); ok {
+		return ws
+	}
+	if toplevel != "" {
+		return toplevel
+	}
+	return key
+}
+
+// KeyInRoots reports whether the project (key, toplevel) is in scope.
+func KeyInRoots(roots []string, key, toplevel string) bool {
+	return InRoots(roots, ScopeDir(key, toplevel))
+}

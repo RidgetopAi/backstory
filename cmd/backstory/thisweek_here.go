@@ -328,10 +328,18 @@ type hereResolver struct {
 	workspaces  []string
 	result      week.Result
 	displayName func(key, dir string) string
+	// inScope reports whether the project (key) of folder dir is in scope for
+	// BACKSTORY_PROJECT_ROOTS; nil means everything is.
+	inScope func(key, dir string) bool
 }
 
 func (r hereResolver) key(dir string) string {
 	return project.Key(dir, r.git, r.workspaces)
+}
+
+// scoped reports whether dir's project is in scope (always, with no roots).
+func (r hereResolver) scoped(dir string) bool {
+	return r.inScope == nil || r.inScope(r.key(dir), dir)
 }
 
 func (r hereResolver) here(dir, source string) hereJSON {
@@ -360,19 +368,29 @@ func (r hereResolver) resolveHere(arg string) (*hereJSON, error) {
 		if err != nil {
 			return nil, fmt.Errorf("resolve --here %q: %w", arg, err)
 		}
-		h := r.here(abs, hereSourceArg)
-		return &h, nil
+		if r.scoped(abs) {
+			h := r.here(abs, hereSourceArg)
+			return &h, nil
+		}
+		return r.recent(), nil
 	}
 	if w, err := hyprActiveWindow(); err == nil {
-		if dir, ok := folderOfWindowPID(w.PID); ok {
+		if dir, ok := folderOfWindowPID(w.PID); ok && r.scoped(dir) {
 			h := r.here(dir, hereSourceFocused)
 			return &h, nil
 		}
 	}
+	return r.recent(), nil
+}
+
+// recent is the most recently active where-you-left-off project, which Build
+// has already limited to in-scope projects: an out-of-scope folder, focused
+// or named, never becomes the current project.
+func (r hereResolver) recent() *hereJSON {
 	if p, ok := firstProject(r.result); ok {
-		return &hereJSON{ProjectKey: p.ProjectKey, DisplayName: p.DisplayName, CWD: p.CWD, Source: hereSourceRecent}, nil
+		return &hereJSON{ProjectKey: p.ProjectKey, DisplayName: p.DisplayName, CWD: p.CWD, Source: hereSourceRecent}
 	}
-	return &hereJSON{Source: hereSourceRecent}, nil
+	return &hereJSON{Source: hereSourceRecent}
 }
 
 // tmuxPaneSep separates the fields of the tmux list-panes format below; a

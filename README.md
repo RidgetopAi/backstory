@@ -142,6 +142,29 @@ to `~/.bashrc`.
   daemon round trip required; `backstory export` writes a per-project markdown mirror for
   another tool's memory file (Claude auto-memory, Hermes `MEMORY.md`, OpenClaw imports).
 
+## Project roots
+
+By default every folder an agent works in can show up as a project in the
+panel, the menubar and This Week. To keep scratch folders, an agent's own
+install directory and config-tweak sessions out of those views, name the
+folders your real projects live under:
+
+```bash
+BACKSTORY_PROJECT_ROOTS=~/Code
+```
+
+The value is a colon-separated list of absolute paths (`~` is expanded, a
+trailing slash is fine), read the same way as `BACKSTORY_WORKSPACE_DIRS`. A
+project is in scope when its folder is one of the roots or under one; a
+sibling that merely starts with a root's name (`~/Code2`) is not. Unset, every
+project is in scope, exactly as before.
+
+This only changes what the panel, the menubar and `backstory this-week` list:
+the current project is always the most recent in-scope one. Capture, recall
+and the store are untouched, so a session outside the roots still gets its own
+memory, `backstory status` run there says the folder is outside
+`BACKSTORY_PROJECT_ROOTS`, and nothing is lost if you change the setting later.
+
 ## Uninstall
 
 `make uninstall` does all of this for you except the store and the line in your
