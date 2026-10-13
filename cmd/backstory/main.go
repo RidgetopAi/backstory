@@ -23,13 +23,14 @@ commands:
   install    install or remove a harness integration ("install claude|codex|hermes|pi|agents"), or shell capture ("install bash")
   backfill   import transcripts from another tool (e.g. "backfill claude", "backfill codex")
   delete     tombstone a record by id (human-only; "delete <id> [--yes]")
-  purge      erase captured activity by session (human-only; "purge --session ID | --project KEY [--since T] [--until T] [--dry-run] [--yes]")
+  purge      erase captured activity by session (human-only; "purge --session ID | --project KEY [--since T] [--until T] [--dry-run] [--yes]"; find KEY with "backstory projects")
   edit       correct a record: a new human-declared record supersedes it (human-only; "edit <id> [--file PATH | --stdin]")
   affirm     dismiss a handoff's "possibly stale" flag (human-only; "affirm <handoff-id>")
   capture    pause or resume capture ("capture off|on|status")
   recall     print a project's trust-annotated ledger narrative, read-only
   timeline   print a project's observed events, read-only
   records    list what Backstory saved for a project, with status and tier, read-only
+  projects   list known projects with the KEY purge/records/recall/timeline take, read-only ("projects --json")
   group      set/clear/list project groups (human-only; "group set|clear|list")
   export     write a project's markdown mirror for another tool to read
   tools      print the agent tools' names and descriptions ("tools --json")
@@ -78,6 +79,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runTimeline(args[1:], stdout, stderr)
 	case "records":
 		return runRecords(args[1:], stdout, stderr)
+	case "projects":
+		return runProjects(args[1:], stdout, stderr)
 	case "group":
 		return runGroup(args[1:], stdout, stderr)
 	case "export":

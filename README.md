@@ -116,6 +116,9 @@ to `~/.bashrc`.
   events so the first recall isn't empty.
 - **This Week**: `backstory this-week` on the CLI, and the same view in the Omarchy Quickshell
   panel (`panel/`) — Attention, Where you left off, and The week.
+- **Projects**: `backstory projects [--json]` lists every known project — label, exact KEY, last
+  activity, session and record counts, newest first — so you can find the KEY that `purge
+  --project`, `records`, `recall` and `timeline` take.
 - **Groups**: `backstory group set|clear|list` groups related projects into one row in This
   Week and the panel.
 - **Records**: `backstory records [--project KEY|--here] [--location DIR] [--kind K] [--history] [--json]` lists
