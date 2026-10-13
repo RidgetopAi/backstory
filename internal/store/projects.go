@@ -295,3 +295,48 @@ func (s *Store) SessionHasRealWork(sess Session, since time.Time, c RealWorkCrit
 	}
 	return n > 0, nil
 }
+
+// ProjectSummary is one projects row with its activity rollup, as
+// `backstory projects` lists it.
+type ProjectSummary struct {
+	Key          string
+	LastActivity time.Time // latest session start; zero when the project has no sessions
+	Sessions     int
+	Records      int // every record row under the key, whatever its status
+}
+
+// ProjectSummaries returns one summary per projects row, newest last
+// activity first; projects with no sessions come last, ties broken by key.
+// Read-only.
+func (s *Store) ProjectSummaries() ([]ProjectSummary, error) {
+	rows, err := s.db.Query(`
+		SELECT p.key,
+			(SELECT MAX(started_at) FROM sessions WHERE project_key = p.key) AS last_ts,
+			(SELECT COUNT(*) FROM sessions WHERE project_key = p.key),
+			(SELECT COUNT(*) FROM records WHERE project_key = p.key)
+		FROM projects p
+		ORDER BY last_ts IS NULL, last_ts DESC, p.key`)
+	if err != nil {
+		return nil, fmt.Errorf("store: project summaries: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := []ProjectSummary{}
+	for rows.Next() {
+		var (
+			ps   ProjectSummary
+			last sql.NullInt64
+		)
+		if err := rows.Scan(&ps.Key, &last, &ps.Sessions, &ps.Records); err != nil {
+			return nil, fmt.Errorf("store: scan project summary: %w", err)
+		}
+		if last.Valid {
+			ps.LastActivity = tsFromNanos(last.Int64)
+		}
+		out = append(out, ps)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: project summaries: %w", err)
+	}
+	return out, nil
+}
