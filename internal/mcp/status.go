@@ -55,9 +55,15 @@ func handleStatus(st *store.Store, id ident.Identity, sessionID string, captureO
 		return errResponse("internal", err.Error())
 	}
 
+	// The key a note will be written under: a long-lived connection's
+	// observed key may have been re-keyed by another process since.
+	projectKey := id.ProjectKey
+	if projectKey != "" {
+		projectKey = st.CanonicalProjectKey(projectKey)
+	}
 	others := []LiveSession{}
-	if id.ProjectKey != "" {
-		sessions, err := st.LiveSessionsInProject(id.ProjectKey)
+	if projectKey != "" {
+		sessions, err := st.LiveSessionsInProject(projectKey)
 		if err != nil {
 			return errResponse("internal", err.Error())
 		}
@@ -81,7 +87,7 @@ func handleStatus(st *store.Store, id ident.Identity, sessionID string, captureO
 	result, err := json.Marshal(StatusResult{
 		Kind:                id.Kind.String(),
 		Harness:             id.Harness,
-		ProjectKey:          id.ProjectKey,
+		ProjectKey:          projectKey,
 		Session:             sessionID,
 		OtherLiveSessions:   others,
 		RemainingBudget:     remaining,

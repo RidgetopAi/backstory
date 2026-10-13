@@ -113,6 +113,7 @@ func (s *Store) mergeRepoIdentities(git project.Git) error {
 	for _, m := range merges {
 		s.legacyToCanonical[filepath.Clean(m.legacy)] = m.canonical
 	}
-	log.Printf("store: repo identity: merged %d legacy project key(s) onto their git common dir", len(merges))
+	log.Printf("store: repo identity: merged %d legacy project key(s) onto their git common dir (backup %s, run by %s)",
+		len(merges), backupPath, processName())
 	return nil
 }

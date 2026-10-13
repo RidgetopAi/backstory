@@ -168,7 +168,7 @@ func (s *Store) InsertRecordWithEdges(p InsertRecordParams, edges []EdgeSpec) (s
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(id), 0) FROM timeline_events), ?, ?)`,
 		id, tsToNanos(time.Now()), string(p.Kind), string(tier), Redact(p.Text), about,
 		nullable(p.SessionID), nullable(p.ProjectKey), evidence, outcome, nullable(p.Promoter), nullableTS(p.ExpiresAt), nullable(p.GitHead), nullable(Redact(p.Next))); err != nil {
-		return "", fmt.Errorf("store: insert record: %w", err)
+		return "", fmt.Errorf("store: insert record (project_key=%q session_id=%q): %w", p.ProjectKey, p.SessionID, err)
 	}
 
 	for _, evID := range p.Evidence {
