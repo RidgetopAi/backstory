@@ -446,6 +446,8 @@ Item {
         textFormat: Text.PlainText
         objectName: "forgetHeading"
         text: "Forget activity and saved records"
+        wrapMode: Text.WordWrap
+        width: parent.width
         font.family: Style.font.family
         font.pixelSize: Style.font.body
         font.bold: true
