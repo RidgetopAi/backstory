@@ -341,3 +341,10 @@ func TestHermesRemoveDeletesOwnSkill(t *testing.T) {
 		t.Errorf("own skill not removed: %v", err)
 	}
 }
+
+func TestHermesInstallNoticeTellsUserToRestart(t *testing.T) {
+	n := (hermesAdapter{}).InstallNotice(t.TempDir(), Options{})
+	if !strings.Contains(n, "restart Hermes") || strings.Contains(n, "\n") {
+		t.Errorf("hermes notice = %q, want one line saying to restart Hermes", n)
+	}
+}

@@ -265,3 +265,27 @@ func TestReadmeDocumentsBackstoryOff(t *testing.T) {
 		}
 	}
 }
+
+func TestReadmeInstallWording(t *testing.T) {
+	b, err := os.ReadFile("../../README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	readme := string(b)
+	i := strings.Index(readme, "- **Hermes**")
+	if i < 0 {
+		t.Fatal("README.md has no Hermes bullet")
+	}
+	bullet := readme[i:]
+	if j := strings.Index(bullet, "\n- "); j >= 0 {
+		bullet = bullet[:j]
+	}
+	if !strings.Contains(bullet, "Restart Hermes") {
+		t.Errorf("Hermes bullet does not say to restart Hermes: %q", bullet)
+	}
+	a := strings.Index(readme, "Trust and Continue")
+	c := strings.Index(readme, "Trust all and continue")
+	if a < 0 || c < 0 || a >= c {
+		t.Error("README Codex trust instruction must name \"Trust and Continue\" before \"Trust all and continue\"")
+	}
+}

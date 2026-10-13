@@ -114,3 +114,11 @@ func TestInstallCodexNeverWritesHooksState(t *testing.T) {
 		}
 	}
 }
+
+func TestCodexTrustNoticeNamesBothPromptsInOrder(t *testing.T) {
+	a := strings.Index(CodexTrustNotice, "Trust and Continue")
+	b := strings.Index(CodexTrustNotice, "Trust all and continue")
+	if a < 0 || b < 0 || a >= b {
+		t.Errorf("notice must name \"Trust and Continue\" before \"Trust all and continue\": %q", CodexTrustNotice)
+	}
+}
