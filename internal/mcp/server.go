@@ -66,6 +66,31 @@ type Server struct {
 	daemonConn   net.Conn
 	daemonReader *bufio.Reader
 	noSession    bool
+	off          bool
+}
+
+// OffEnv is the per-session opt-out: a harness launched with it set to any
+// non-empty value other than "0" gets no session history and writes nothing.
+// It is read from the process environment of `backstory mcp` and every
+// `backstory hook`, which inherit it from the harness that spawned them. It
+// can only reduce what a session gets, never raise it.
+const OffEnv = "BACKSTORY_OFF"
+
+// OffMessage is the text every tool call returns while Backstory is off.
+const OffMessage = "Backstory is off for this session (BACKSTORY_OFF is set): no history was read and nothing was recorded."
+
+// EnvOff reports whether the OffEnv opt-out is in force: set, non-empty, and
+// not "0".
+func EnvOff(getenv func(string) string) bool {
+	v := getenv(OffEnv)
+	return v != "" && v != "0"
+}
+
+// WithOff makes every tools/call answer OffMessage as a normal text result
+// without touching the daemon; initialize and tools/list are unchanged.
+func (s *Server) WithOff() *Server {
+	s.off = true
+	return s
 }
 
 // WithoutSession makes the shim's status calls ask the daemon not to mint a
@@ -168,6 +193,9 @@ func (s *Server) dispatchToolsCall(raw json.RawMessage) rpcResponse {
 	var p toolsCallParams
 	if err := json.Unmarshal(raw, &p); err != nil {
 		return rpcResponse{Error: &RPCError{Code: CodeInvalidParams, Message: "invalid tools/call params: " + err.Error()}}
+	}
+	if s.off {
+		return rpcResponse{Result: mustMarshal(CallToolResult{Content: []ContentBlock{{Type: "text", Text: OffMessage}}})}
 	}
 	result, rerr := s.CallTool(p.Name, p.Arguments)
 	if rerr != nil {

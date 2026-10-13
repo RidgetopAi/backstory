@@ -64,6 +64,12 @@ func runHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 0
 	}
 
+	// BACKSTORY_OFF: this harness process opted out. Return before reading
+	// stdin or touching the daemon, so nothing is injected and nothing written.
+	if mcp.EnvOff(os.Getenv) {
+		return 0
+	}
+
 	harness, err := parseHookHarness(args[1:])
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory hook:", err)

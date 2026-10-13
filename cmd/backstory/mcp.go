@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 
 	"github.com/RidgetopAi/backstory/internal/mcp"
 )
@@ -25,6 +26,9 @@ func runMCP(_ []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 	srv := mcp.NewServer(func() (net.Conn, error) { return net.Dial("unix", sockPath) })
 	defer func() { _ = srv.Close() }()
+	if mcp.EnvOff(os.Getenv) {
+		srv.WithOff()
+	}
 
 	if err := srv.Serve(stdin, stdout); err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory mcp:", err)
