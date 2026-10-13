@@ -716,7 +716,7 @@ echo "omarchy $* [plugin-dir $d]" >> "$FAKE_LOG"`)
 func (f *installFixture) withoutOmarchy() {
 	var keep []string
 	for _, d := range filepath.SplitList(os.Getenv("PATH")) {
-		if _, err := os.Stat(filepath.Join(d, "omarchy")); err != nil {
+		if _, err := os.Stat(filepath.Join(d, "omarchy")); err != nil { //nolint:gosec // PATH entries of the test process
 			keep = append(keep, d)
 		}
 	}
