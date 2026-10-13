@@ -428,73 +428,102 @@ Item {
       }
     }
 
-    Text {
-      textFormat: Text.PlainText
-      text: "Forget activity and saved records"
-      font.family: Style.font.family
-      font.pixelSize: Style.font.caption
-      font.bold: true
-      color: Qt.darker(Color.foreground, 1.3)
-    }
-
-    Flow {
+    Rectangle {
+      objectName: "forgetDivider"
       width: parent.width
-      spacing: Style.spacing.controlGap
-
-      Repeater {
-        model: Memory.FORGET_SCOPES
-        delegate: MemoryButton {
-          required property var modelData
-          label: modelData.label
-          enabled: !root.busy
-          onClicked: root.previewPurge(modelData)
-        }
-      }
-    }
-
-    Text {
-      id: noteLabel
-      visible: root.purgeNote !== ""
-      textFormat: Text.PlainText
-      text: root.purgeNote
-      wrapMode: Text.WordWrap
-      width: parent.width
-      font.family: Style.font.family
-      font.pixelSize: Style.font.caption
-      color: Qt.darker(Color.foreground, 1.3)
+      height: 1
+      color: Qt.darker(Color.foreground, 2.5)
     }
 
     Column {
-      id: purgeConfirm
-      visible: root.pendingPurge !== null
+      id: forgetSection
+      objectName: "forgetSection"
       width: parent.width
+      topPadding: Style.spacing.panelGap
       spacing: Style.spacing.labelGap
 
       Text {
         textFormat: Text.PlainText
-        text: root.pendingPurge
-          ? Memory.forgetConfirmText(root.pendingPurge, root.displayName)
-          : ""
+        objectName: "forgetHeading"
+        text: "Forget activity and saved records"
+        font.family: Style.font.family
+        font.pixelSize: Style.font.body
+        font.bold: true
+        color: Color.foreground
+      }
+
+      Text {
+        objectName: "forgetHelper"
+        textFormat: Text.PlainText
+        text: "Erases captured activity and saved records for this project."
         wrapMode: Text.WordWrap
         width: parent.width
         font.family: Style.font.family
         font.pixelSize: Style.font.caption
-        color: Color.urgent
+        color: Qt.darker(Color.foreground, 1.3)
       }
 
-      Row {
+      Flow {
+        width: parent.width
         spacing: Style.spacing.controlGap
 
-        MemoryButton {
-          label: "Forget"
-          foreground: Color.urgent
-          hoverColor: Color.urgent
-          onClicked: root.confirmPurge()
+        Repeater {
+          model: Memory.FORGET_SCOPES
+          delegate: MemoryButton {
+            required property var modelData
+            label: modelData.label
+            enabled: !root.busy
+            onClicked: root.previewPurge(modelData)
+          }
+        }
+      }
+
+      Text {
+        id: noteLabel
+        objectName: "forgetNote"
+        visible: root.purgeNote !== ""
+        textFormat: Text.PlainText
+        text: root.purgeNote
+        wrapMode: Text.WordWrap
+        width: parent.width
+        font.family: Style.font.family
+        font.pixelSize: Style.font.caption
+        color: Qt.darker(Color.foreground, 1.3)
+      }
+
+      Column {
+        id: purgeConfirm
+        objectName: "forgetConfirm"
+        visible: root.pendingPurge !== null
+        width: parent.width
+        spacing: Style.spacing.labelGap
+
+        Text {
+          textFormat: Text.PlainText
+          text: root.pendingPurge
+            ? Memory.forgetConfirmText(root.pendingPurge, root.displayName)
+            : ""
+          wrapMode: Text.WordWrap
+          width: parent.width
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
+          color: Color.urgent
         }
 
-        MemoryButton {
-          label: "Cancel"
-          onClicked: root.cancelPurge()
+        Row {
+          spacing: Style.spacing.controlGap
+
+          MemoryButton {
+            label: "Forget"
+            foreground: Color.urgent
+            hoverColor: Color.urgent
+            onClicked: root.confirmPurge()
+          }
+
+          MemoryButton {
+            label: "Cancel"
+            onClicked: root.cancelPurge()
+          }
         }
       }
     }

@@ -463,4 +463,110 @@ TestCase {
     }, 2000, "delete confirm never scrolled into view")
     assertInViewport(confirm, "the delete confirm")
   }
+
+  // ---- Forget reads as its own section (task e8c5afaf) ----
+
+  // Every descendant of root, visible or not: the purge note and the
+  // purge-confirm block only show after a dry-run, but still belong to the
+  // forget section.
+  function allNodes(root) {
+    var out = []
+    var stack = [root]
+    while (stack.length > 0) {
+      var n = stack.pop()
+      out.push(n)
+      var kids = TestUtil.childrenOf(n)
+      for (var i = 0; i < kids.length; i++) stack.push(kids[i])
+    }
+    return out
+  }
+
+  function byName(name) {
+    var hits = allNodes(panel.testContentItem).filter(function (n) { return n.objectName === name })
+    compare(hits.length, 1, "expected exactly one " + name)
+    return hits[0]
+  }
+
+  function isDescendant(node, ancestor) {
+    for (var p = node.parent; p; p = p.parent) if (p === ancestor) return true
+    return false
+  }
+
+  function test_forget_is_one_section_with_divider() {
+    openMemory(readFixture(recordsGolden))
+    var section = byName("forgetSection")
+    var heading = byName("forgetHeading")
+    verify(isDescendant(heading, section), "heading outside the forget section")
+
+    var buttons = TestUtil.findAll(section, function (n) { return n.label !== undefined && n.clicked !== undefined })
+    var labels = buttons.filter(function (b) { return b.label !== "Forget" && b.label !== "Cancel" }).map(function (b) { return b.label })
+    compare(labels, MemoryJs.FORGET_SCOPES.map(function (s) { return s.label }))
+    var all = allNodes(panel.testContentItem)
+    var scopeButtons = all.filter(function (n) { return n.label !== undefined && labels.indexOf(n.label) !== -1 && n.clicked !== undefined })
+    compare(scopeButtons.length, labels.length)
+    for (var i = 0; i < scopeButtons.length; i++) verify(isDescendant(scopeButtons[i], section), scopeButtons[i].label + " outside the forget section")
+
+    var note = all.filter(function (n) { return n.objectName === "forgetNote" })
+    compare(note.length, 1)
+    verify(isDescendant(note[0], section), "purge note outside the forget section")
+    var confirm = all.filter(function (n) { return n.objectName === "forgetConfirm" })
+    compare(confirm.length, 1)
+    verify(isDescendant(confirm[0], section), "purge confirm outside the forget section")
+
+    // The divider is a sibling between the records block and the section.
+    var divider = byName("forgetDivider")
+    compare(divider.parent, section.parent)
+    var sibs = section.parent.children
+    var di = -1, si = -1, ri = -1
+    for (var k = 0; k < sibs.length; k++) {
+      if (sibs[k] === divider) di = k
+      if (sibs[k] === section) si = k
+      if (sibs[k].rid !== undefined) ri = k
+    }
+    verify(ri >= 0 && di > ri, "divider must come after the records list")
+    compare(si, di + 1, "divider must sit immediately above the forget section")
+    verify(divider.height > 0 && divider.visible)
+  }
+
+  function test_forget_heading_matches_section_heading_style() {
+    cleanup()
+    ProcessController.reset()
+    ProcessController.respond(Launchers.thisWeekCommand(), {
+      stdout: JSON.stringify({
+        attention: [], week: [],
+        where_left_off: [{ group: "Work", children: [{ project_key: projectKey, display_name: "acme", cwd: cwd, last_activity: "2026-01-01T00:00:00Z" }] }]
+      }), stderr: "", exitCode: 0
+    })
+    loader = panelComponent.createObject(testCase)
+    tryCompare(loader, "status", Loader.Ready, 2000)
+    panel = loader.item
+    panel.testContentItem.parent = loader
+    panel.open("{}")
+    tryCompare(panel, "loading", false, 2000)
+    wait(20)
+    var header = allNodes(panel.testContentItem).filter(function (n) { return n.text === "Work (1)" })
+    compare(header.length, 1, "no group section heading")
+    var wantSize = header[0].font.pixelSize
+    var wantColor = header[0].color
+
+    // Open the child's Memory (expand the group first).
+    var memory = TestUtil.findFirst(panel.testContentItem, function (n) { return n.tooltipText === "Memory" })
+    if (memory === null) {
+      mouseClick(header[0])
+      wait(20)
+    }
+    clickByTooltip("Memory")
+    verify(panel.memoryOpen)
+    var heading = byName("forgetHeading")
+    compare(heading.font.pixelSize, wantSize)
+    compare(heading.color, wantColor)
+    verify(heading.font.bold)
+  }
+
+  function test_forget_helper_says_this_project() {
+    openMemory(readFixture(recordsGolden))
+    var helper = byName("forgetHelper")
+    verify(isDescendant(helper, byName("forgetSection")))
+    verify(helper.text.indexOf("this project") !== -1, helper.text)
+  }
 }
