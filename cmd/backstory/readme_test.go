@@ -196,3 +196,35 @@ func TestReadmeInstallAndUpdateCommands(t *testing.T) {
 		t.Error("Install section lacks a bare `make install` line")
 	}
 }
+
+// TestInstallDocsTellUserToEnablePanelPlugin: copying the plugin does not turn
+// it on, so the by-hand block and the AUR package must say how.
+func TestInstallDocsTellUserToEnablePanelPlugin(t *testing.T) {
+	const enable = "plugin enable backstory.this-week"
+	b, err := os.ReadFile("../../README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	section := readmeSection(t, string(b), "Install from source")
+	i := strings.Index(section, "To do it by hand")
+	if i < 0 {
+		t.Fatal("README has no by-hand install block")
+	}
+	if !strings.Contains(section[i:], enable) {
+		t.Errorf("README by-hand install block lacks %q", enable)
+	}
+	msg, err := os.ReadFile("../../ops/aur/backstory.install")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(msg), enable) {
+		t.Errorf("AUR install script lacks %q", enable)
+	}
+	pkg, err := os.ReadFile("../../ops/aur/PKGBUILD")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(pkg), "install=backstory.install") {
+		t.Error("PKGBUILD does not wire in backstory.install")
+	}
+}

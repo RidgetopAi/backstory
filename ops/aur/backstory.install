@@ -1,0 +1,8 @@
+post_install() {
+	echo "==> Backstory: a package cannot enable a per-user plugin. To show the bar panel, run as your user:"
+	echo "      omarchy plugin enable backstory.this-week"
+}
+
+post_upgrade() {
+	post_install
+}

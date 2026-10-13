@@ -29,7 +29,8 @@ The repo has no release tags yet, so this builds `main`; `backstory version` pri
 
 `make install` builds the binary and installs it to `~/.local/bin/backstory`, installs and
 starts the `systemd --user` unit, installs the panel plugin into
-`~/.config/omarchy/plugins/backstory.this-week` (restarting the Omarchy shell if your session
+`~/.config/omarchy/plugins/backstory.this-week` and enables it with
+`omarchy plugin enable backstory.this-week` (if the `omarchy` CLI isn't on PATH it prints that command for you to run), (restarting the Omarchy shell if your session
 is unlocked; if it is locked it tells you to run `omarchy restart shell`), installs the
 Hyprland file `~/.config/hypr/backstory.lua`, then runs `backstory install` and prints
 `backstory version`, and checks the daemon answers (it prints `backstory <version> installed`
@@ -55,6 +56,7 @@ install -Dm644 ops/backstory.service ~/.config/systemd/user/backstory.service
 systemctl --user daemon-reload
 systemctl --user enable --now backstory
 cp -r panel ~/.config/omarchy/plugins/backstory.this-week
+omarchy plugin enable backstory.this-week
 install -Dm644 ops/hyprland/backstory.lua ~/.config/hypr/backstory.lua
 omarchy restart shell
 backstory install

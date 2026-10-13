@@ -39,6 +39,12 @@ HEALTH_ATTEMPT_TIMEOUT="${BACKSTORY_HEALTH_ATTEMPT_TIMEOUT:-2}"
 BACKSTORY_NO_SESSION=1
 export BACKSTORY_NO_SESSION
 
+# The Omarchy CLI, and the exact command that turns the panel on: copying the
+# plugin directory does not enable it.
+OMARCHY_CLI="${BACKSTORY_OMARCHY_CLI:-omarchy}"
+ENABLE_CMD="$OMARCHY_CLI plugin enable $PLUGIN_ID"
+DISABLE_CMD="$OMARCHY_CLI plugin disable $PLUGIN_ID"
+
 # The panel keybind, as users are told about it.
 PANEL_BIND="CTRL+SHIFT+B"
 
@@ -107,6 +113,19 @@ check_panel_target() {
 	fi
 }
 
+# plugin_toggle ENABLE|DISABLE: run the Omarchy plugin command. A missing CLI
+# or a failing command never fails the install; it prints the command to run.
+plugin_toggle() {
+	if [ "$1" = enable ]; then cmd="$ENABLE_CMD"; else cmd="$DISABLE_CMD"; fi
+	if ! command -v "$OMARCHY_CLI" >/dev/null 2>&1; then
+		echo "backstory: the '$OMARCHY_CLI' CLI is not on PATH; run this yourself: $cmd"
+	elif $cmd; then
+		echo "plugin $1d: $PLUGIN_ID"
+	else
+		echo "backstory: \`$cmd\` failed; run it yourself"
+	fi
+}
+
 do_install() {
 	built="$1"
 	[ -x "$built" ] || { echo "backstory: built binary $built not found" >&2; exit 1; }
@@ -155,6 +174,7 @@ do_install() {
 	mkdir -p "$PANEL"
 	cp -a "$SRC/panel/manifest.json" "$SRC"/panel/*.qml "$SRC/panel/js" "$PANEL/"
 	echo "installed $PANEL"
+	plugin_toggle enable
 
 	# New QML types need a shell restart, which must not happen over a
 	# locked session.
@@ -198,6 +218,7 @@ do_uninstall() {
 		if [ -L "$PANEL" ] || ! is_backstory_panel "$PANEL"; then
 			echo "backstory: leaving $PANEL — it is not a Backstory panel" >&2
 		else
+			plugin_toggle disable
 			rm -rf "$PANEL"
 		fi
 	fi
