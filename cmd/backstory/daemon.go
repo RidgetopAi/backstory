@@ -77,6 +77,9 @@ func usageInterval() (time.Duration, error) {
 // identity of every connection, and exits on SIGTERM/SIGINT.
 func runDaemon(_ []string, stdout, stderr io.Writer) int {
 	logger := log.New(stdout, "", log.LstdFlags)
+	// store.Open's sweep/merge log lines use the standard logger: route them
+	// into the daemon's log when the daemon is the process that runs them.
+	log.SetOutput(stdout)
 
 	sockPath, err := socketPath()
 	if err != nil {

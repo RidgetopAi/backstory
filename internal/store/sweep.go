@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -35,6 +36,10 @@ func (s *Store) canonicalizeProjectKey(key string) string {
 	if canon, ok := s.legacyToCanonical[filepath.Clean(key)]; ok {
 		return canon
 	}
+	// A rename another Store (process) made since this one opened.
+	if canon, ok := s.persistedAlias(key); ok {
+		return canon
+	}
 	// A pre-029485ae "<common-dir>|<remote>" spelling names the same repo as
 	// its bare common dir.
 	if dir, ok := project.LegacyRemoteKeyCommonDir(key); ok {
@@ -42,6 +47,34 @@ func (s *Store) canonicalizeProjectKey(key string) string {
 	}
 	return key
 }
+
+// maxAliasHops bounds persistedAlias's chain walk (a key re-keyed twice).
+const maxAliasHops = 8
+
+// persistedAlias resolves key through project_key_aliases, the cross-process
+// record of sweeps and merges. An alias is ignored while a projects row
+// exists under key itself: that spelling is live again (a repo's .git was
+// removed and the plain dir re-registered), so it must not be redirected.
+// A read error reads as "no alias": canonicalization has no error path, and
+// the write that follows reports any real database failure itself.
+func (s *Store) persistedAlias(key string) (string, bool) {
+	cur, found := key, false
+	for i := 0; i < maxAliasHops; i++ {
+		var canon string
+		err := s.db.QueryRow(`SELECT canonical_key FROM project_key_aliases
+			WHERE legacy_key = ? AND NOT EXISTS (SELECT 1 FROM projects WHERE key = ?)`,
+			cur, cur).Scan(&canon)
+		if err != nil || canon == cur {
+			break
+		}
+		cur, found = canon, true
+	}
+	return cur, found
+}
+
+// CanonicalProjectKey is the key a write under key lands on: key itself
+// unless a sweep or merge (in any process) renamed it.
+func (s *Store) CanonicalProjectKey(key string) string { return s.canonicalizeProjectKey(key) }
 
 // sweepLegacyWorkspaceKeys merges every target's legacy rows into its
 // canonical spelling across all four tables, in one transaction, backing up
@@ -85,8 +118,14 @@ func (s *Store) sweepLegacyWorkspaceKeys(targets map[string]string) error {
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("store: sweep: commit: %w", err)
 	}
+	log.Printf("store: sweep: merged legacy workspace key(s) (backup %s, run by %s)", backupPath, processName())
 	return nil
 }
+
+// processName is the running command's name, for the sweep/merge log lines:
+// the daemon logs to its own log, a CLI command to its stderr, and either way
+// the line says which process ran it.
+func processName() string { return filepath.Base(os.Args[0]) }
 
 // sweepOneTarget merges legacy into canonical inside tx. Every statement is
 // scoped by `WHERE project_key = legacy`, so a target with no legacy row is
@@ -99,6 +138,10 @@ func (s *Store) sweepLegacyWorkspaceKeys(targets map[string]string) error {
 // the repo-identity merge (task 029485ae), where canonical is the repo's git
 // common dir and the legacy row's remote_url and toplevel carry over.
 func sweepOneTarget(tx *sql.Tx, legacy, canonical string, repoIdentity bool) error {
+	var legacyRows int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM projects WHERE key = ?`, legacy).Scan(&legacyRows); err != nil {
+		return fmt.Errorf("check legacy project row: %w", err)
+	}
 	// Upsert the canonical row, first_seen sourced from the legacy row and
 	// kept at whichever of the two is earlier.
 	upsert := `INSERT INTO projects (key, git_common_dir, remote_url, toplevel, first_seen)
@@ -146,6 +189,19 @@ func sweepOneTarget(tx *sql.Tx, legacy, canonical string, repoIdentity bool) err
 	}
 	if _, err := tx.Exec(`DELETE FROM projects WHERE key = ?`, legacy); err != nil {
 		return fmt.Errorf("delete legacy project row: %w", err)
+	}
+	if legacyRows == 0 {
+		return nil // nothing was renamed, so nothing to record or log
+	}
+	// Record the rename for other processes' Stores, and repoint aliases that
+	// targeted the legacy key (a chain) at the new canonical.
+	if _, err := tx.Exec(`UPDATE project_key_aliases SET canonical_key = ? WHERE canonical_key = ?`, canonical, legacy); err != nil {
+		return fmt.Errorf("repoint aliases: %w", err)
+	}
+	if _, err := tx.Exec(`INSERT INTO project_key_aliases (legacy_key, canonical_key, created_at) VALUES (?, ?, ?)
+		ON CONFLICT(legacy_key) DO UPDATE SET canonical_key = excluded.canonical_key, created_at = excluded.created_at`,
+		legacy, canonical, tsToNanos(time.Now())); err != nil {
+		return fmt.Errorf("record alias: %w", err)
 	}
 
 	log.Printf("store: sweep %s -> %s: projects=1 sessions=%d records=%d project_groups=%d",

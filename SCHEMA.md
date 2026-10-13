@@ -170,6 +170,18 @@ CREATE TABLE settings (
   value  TEXT NOT NULL
 );
 
+-- Schema v15 (migration 0015, task 725021e4): every workspace sweep / repo-identity
+-- merge records the legacy -> canonical rename here in the same transaction that
+-- deletes the legacy projects row, so ANOTHER process's long-lived Store (the
+-- daemon) resolves the old spelling to the canonical key instead of failing the
+-- records.project_key foreign key. canonicalizeProjectKey consults it after its
+-- in-memory map; an alias is ignored while a projects row exists under legacy_key.
+CREATE TABLE project_key_aliases (
+  legacy_key     TEXT PRIMARY KEY,
+  canonical_key  TEXT NOT NULL REFERENCES projects(key) ON DELETE CASCADE,
+  created_at     INTEGER NOT NULL           -- unix nanoseconds, UTC
+);
+
 CREATE TABLE project_groups (
   project_key  TEXT PRIMARY KEY REFERENCES projects(key), -- a project is in at most one group
   group_name   TEXT NOT NULL,
