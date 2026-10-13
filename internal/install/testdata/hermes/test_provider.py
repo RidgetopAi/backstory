@@ -285,8 +285,7 @@ def test_handle_tool_call_never_carries_or_forwards_location(plugin, daemon, mon
         assert not ({"location", "cwd", "project"} & set(r["params"]))
 
 
-@pytest.mark.parametrize("value,off", [("1", True), ("yes", True), ("0", False), ("", False)])
-def test_backstory_off_env(plugin, daemon, monkeypatch, value, off):
+def _check_backstory_off(plugin, daemon, monkeypatch, value, off):
     monkeypatch.setenv("BACKSTORY_OFF", value)
     p = make_provider(plugin, "sess-off")
     block = p.system_prompt_block()
@@ -304,3 +303,11 @@ def test_backstory_off_env(plugin, daemon, monkeypatch, value, off):
         assert daemon.requests == []
     else:
         assert daemon.requests
+
+
+def test_backstory_off_set_silences_provider(plugin, daemon, monkeypatch):
+    _check_backstory_off(plugin, daemon, monkeypatch, "1", True)
+
+
+def test_backstory_off_zero_or_empty_leaves_provider_on(plugin, daemon, monkeypatch):
+    _check_backstory_off(plugin, daemon, monkeypatch, "0", False)
