@@ -5,14 +5,14 @@ import (
 	"testing"
 )
 
-// TestMigrationV15AddsProjectKeyAliases (task 725021e4): a v14 store gains an
+// TestMigrationV15AddsProjectKeyAliases (task 725021e4): a pre-hook (v9) store, migrated through v14 and on, gains an
 // empty project_key_aliases table, keeps its rows, and reaches SchemaVersion.
 func TestMigrationV15AddsProjectKeyAliases(t *testing.T) {
 	if SchemaVersion < 15 {
 		t.Fatalf("SchemaVersion = %d, want >= 15", SchemaVersion)
 	}
-	rawPath := filepath.Join(t.TempDir(), "v14fixture.db")
-	db := buildFixtureThroughVersion(t, rawPath, 14)
+	rawPath := filepath.Join(t.TempDir(), "v9fixture.db")
+	db := buildFixtureThroughVersion(t, rawPath, 9)
 	if _, err := db.Exec(`INSERT INTO projects (key, toplevel, first_seen) VALUES ('/p', '/p', 1)`); err != nil {
 		t.Fatal(err)
 	}
