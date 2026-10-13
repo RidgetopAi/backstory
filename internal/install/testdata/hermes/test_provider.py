@@ -283,3 +283,31 @@ def test_handle_tool_call_never_carries_or_forwards_location(plugin, daemon, mon
     assert len(calls) == 2
     for r in calls:
         assert not ({"location", "cwd", "project"} & set(r["params"]))
+
+
+def _check_backstory_off(plugin, daemon, monkeypatch, value, off):
+    monkeypatch.setenv("BACKSTORY_OFF", value)
+    p = make_provider(plugin, "sess-off")
+    block = p.system_prompt_block()
+    out = json.loads(p.handle_tool_call("status", {}))
+    msgs = [
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "o1", "function": {"name": "terminal", "arguments": json.dumps({"command": "ls"})}}]},
+        {"role": "tool", "tool_call_id": "o1", "content": json.dumps({"output": "x", "exit_code": 0})},
+    ]
+    p.sync_turn("u", "a", session_id="sess-off", messages=msgs)
+    assert p.flush()
+    if off:
+        assert block == ""
+        assert "off for this session" in out["result"]
+        assert daemon.requests == []
+    else:
+        assert daemon.requests
+
+
+def test_backstory_off_set_silences_provider(plugin, daemon, monkeypatch):
+    _check_backstory_off(plugin, daemon, monkeypatch, "1", True)
+
+
+def test_backstory_off_zero_or_empty_leaves_provider_on(plugin, daemon, monkeypatch):
+    _check_backstory_off(plugin, daemon, monkeypatch, "0", False)

@@ -24,6 +24,8 @@ PROVIDER_NAME = "backstory"
 
 # Tunables.
 SOCKET_ENV = "BACKSTORY_SOCKET"
+OFF_ENV = "BACKSTORY_OFF"
+OFF_MESSAGE = "Backstory is off for this session (BACKSTORY_OFF is set): no history was read and nothing was recorded."
 DIAL_TIMEOUT_SECONDS = 2.0
 CALL_TIMEOUT_SECONDS = 10.0
 AVAILABLE_PROBE_TIMEOUT_SECONDS = 0.5
@@ -62,6 +64,12 @@ def chat_location():
         return os.getcwd()
     except OSError:
         return ""
+
+
+def backstory_off():
+    """True when BACKSTORY_OFF is set to anything non-empty other than "0"."""
+    value = os.environ.get(OFF_ENV, "")
+    return value != "" and value != "0"
 
 
 class BackstoryError(Exception):
@@ -180,6 +188,8 @@ class BackstoryProvider(MemoryProvider):
         return [dict(s) for s in TOOL_SCHEMAS]
 
     def _warm_block(self):
+        if backstory_off():
+            return ""
         if self._block is None:
             try:
                 result = call_daemon(METHOD_BLOCK, {LOCATION_PARAM: chat_location()}, self._session_id)
@@ -195,6 +205,8 @@ class BackstoryProvider(MemoryProvider):
         return self._warm_block()
 
     def handle_tool_call(self, tool_name, args, **kwargs):
+        if backstory_off():
+            return json.dumps({"result": OFF_MESSAGE})
         keys = _tool_arg_keys(tool_name)
         if keys is None:
             return json.dumps({"error": "unknown tool " + str(tool_name)})
@@ -254,6 +266,8 @@ class BackstoryProvider(MemoryProvider):
         return events
 
     def _enqueue(self, params, session):
+        if backstory_off():
+            return
         with self._lock:
             if self._worker is None or not self._worker.is_alive():
                 self._worker = threading.Thread(target=self._drain, name="backstory-sync", daemon=True)

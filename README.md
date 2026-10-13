@@ -114,6 +114,15 @@ to `~/.bashrc`.
 - **Shell capture**: `backstory install bash` wires bash's preexec/precmd command capture into
   `~/.bashrc`. To keep a folder (and everything under it) out of shell capture, put an empty
   `.backstory-ignore` file in it; this repo ships one so a fresh clone is never captured.
+- **Pausing and per-session opt-out**: `backstory capture off` pauses capture for every harness
+  until `backstory capture on`. To keep one harness instance out of Backstory without touching
+  anything else, launch it with `BACKSTORY_OFF=1`, e.g. `BACKSTORY_OFF=1 codex` for a review
+  session that should not see Claude Code's history. Any non-empty value other than `0` turns it
+  off. That session gets no ledger or handoff at start, its hooks and `backstory mcp` never reach
+  the daemon (nothing is recorded, and the tools answer that Backstory is off for this session),
+  and the Hermes plugin honours the same variable from its own environment. It affects only that
+  process tree: other sessions and harnesses, and the same harness launched without it, are
+  unchanged.
 - **Backfill**: `backstory backfill claude` imports existing Claude transcripts as timeline
   events so the first recall isn't empty.
 - **This Week**: `backstory this-week` on the CLI, and the same view in the Omarchy Quickshell

@@ -241,3 +241,27 @@ func TestReadmeDocumentsProjectRoots(t *testing.T) {
 		}
 	}
 }
+
+// BACKSTORY_OFF is documented next to `capture off`, with the one-off example
+// and the scope note that it leaves other sessions alone.
+func TestReadmeDocumentsBackstoryOff(t *testing.T) {
+	b, err := os.ReadFile("../../README.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	readme := string(b)
+	i := strings.Index(readme, "`backstory capture off`")
+	if i < 0 {
+		t.Fatal("README.md does not document `backstory capture off`")
+	}
+	end := i + 1500
+	if end > len(readme) {
+		end = len(readme)
+	}
+	near := readme[i:end]
+	for _, want := range []string{"BACKSTORY_OFF=1 codex", "BACKSTORY_OFF", "other sessions and harnesses", "Hermes"} {
+		if !strings.Contains(near, want) {
+			t.Errorf("README.md near `capture off` lacks %q", want)
+		}
+	}
+}
