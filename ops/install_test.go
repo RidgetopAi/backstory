@@ -702,3 +702,58 @@ func assertPanelRuntimeOnly(t *testing.T, dir string) {
 		}
 	}
 }
+
+const enableCall = "omarchy plugin enable backstory.this-week"
+
+// fakeOmarchy records each call and whether the plugin directory existed then.
+func (f *installFixture) fakeOmarchy() {
+	f.fake("omarchy", `if [ -d "$XDG_CONFIG_HOME/omarchy/plugins/backstory.this-week" ]; then d=present; else d=absent; fi
+echo "omarchy $* [plugin-dir $d]" >> "$FAKE_LOG"`)
+}
+
+// withoutOmarchy puts a PATH on the make environment that has the fakes and no
+// directory holding a real omarchy CLI.
+func (f *installFixture) withoutOmarchy() {
+	var keep []string
+	for _, d := range filepath.SplitList(os.Getenv("PATH")) {
+		if _, err := os.Stat(filepath.Join(d, "omarchy")); err != nil {
+			keep = append(keep, d)
+		}
+	}
+	f.extra = append(f.extra, "PATH="+f.fakes+string(os.PathListSeparator)+strings.Join(keep, string(os.PathListSeparator)))
+}
+
+func TestInstallEnablesPanelPluginBeforeShellRestart(t *testing.T) {
+	f := newInstallFixture(t)
+	f.fakeOmarchy()
+	f.mustMake("install")
+	calls := f.calls()
+	en := strings.Index(calls, enableCall+" [plugin-dir present]")
+	if en < 0 {
+		t.Fatalf("no enable call after the plugin directory existed:\n%s", calls)
+	}
+	rs := strings.Index(calls, "omarchy-restart-shell")
+	if rs < 0 || en > rs {
+		t.Errorf("enable must come before the shell restart:\n%s", calls)
+	}
+}
+
+func TestInstallTwiceEnablesEachTime(t *testing.T) {
+	f := newInstallFixture(t)
+	f.fakeOmarchy()
+	f.mustMake("install")
+	f.flag("active", true)
+	f.mustMake("install")
+	if n := strings.Count(f.calls(), enableCall); n != 2 {
+		t.Errorf("enable recorded %d times, want 2:\n%s", n, f.calls())
+	}
+}
+
+func TestInstallWithoutOmarchyCLIStillSucceedsAndNamesCommand(t *testing.T) {
+	f := newInstallFixture(t)
+	f.withoutOmarchy()
+	out := f.mustMake("install")
+	if !strings.Contains(out, "plugin enable backstory.this-week") {
+		t.Errorf("output does not name the enable command:\n%s", out)
+	}
+}

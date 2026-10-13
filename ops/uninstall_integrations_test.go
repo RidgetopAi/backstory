@@ -80,3 +80,25 @@ func backstoryReferences(t *testing.T, home string) []string {
 	}
 	return refs
 }
+
+// TestUninstallDisablesPanelPluginBeforeRemovingIt: the disable call is made
+// while the plugin directory still exists, and a missing CLI is tolerated.
+func TestUninstallDisablesPanelPluginBeforeRemovingIt(t *testing.T) {
+	f := newInstallFixture(t)
+	f.fakeOmarchy()
+	f.mustMake("install")
+	f.resetCalls()
+	f.mustMake("uninstall")
+	if !strings.Contains(f.calls(), "omarchy plugin disable backstory.this-week [plugin-dir present]") {
+		t.Errorf("no disable call made before the plugin directory was removed:\n%s", f.calls())
+	}
+	mustNotExist(t, f.panelDir())
+
+	g := newInstallFixture(t)
+	g.withoutOmarchy()
+	g.mustMake("install")
+	out := g.mustMake("uninstall")
+	if !strings.Contains(out, "plugin disable backstory.this-week") {
+		t.Errorf("missing CLI: output does not name the disable command:\n%s", out)
+	}
+}
