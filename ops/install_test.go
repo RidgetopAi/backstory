@@ -53,7 +53,7 @@ func newInstallFixture(t *testing.T) *installFixture {
 	// installed daemon detached (unless FAKE_NODAEMON), as systemd would.
 	f.fake("systemctl", `echo "systemctl $*" >> "$FAKE_LOG"
 pids="$FAKE_LOG.daemon-pids"
-stopdaemon() { [ -f "$pids" ] && while read -r p; do kill "$p" 2>/dev/null; done < "$pids"; : > "$pids"; }
+stopdaemon() { [ -f "$pids" ] && while read -r p; do kill "$p" 2>/dev/null; n=0; while kill -0 "$p" 2>/dev/null && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n+1)); done; done < "$pids"; : > "$pids"; }
 case "$*" in
 *is-active*) [ -e "$FAKE_ACTIVE" ]; exit ;;
 *"enable --now"*|*restart*)
