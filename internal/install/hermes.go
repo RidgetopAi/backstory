@@ -116,6 +116,13 @@ func (hermesAdapter) Install(home string, opts Options) error {
 	return InstallHermes(DefaultHermesPaths(home), opts)
 }
 
+// HermesRestartNotice is the one line printed after `install hermes`: a
+// running Hermes does not load a newly installed memory-provider plugin.
+const HermesRestartNotice = "hermes: restart Hermes to load the Backstory plugin; a running Hermes does not pick up a newly installed memory provider"
+
+// InstallNotice is printed by the CLI after a successful install.
+func (hermesAdapter) InstallNotice(home string, opts Options) string { return HermesRestartNotice }
+
 func (hermesAdapter) Remove(home string, opts Options) error {
 	return RemoveHermes(DefaultHermesPaths(home), opts)
 }

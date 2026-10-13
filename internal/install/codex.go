@@ -74,7 +74,7 @@ const (
 	codexEventPostToolUse  = "post_tool_use"
 
 	// CodexTrustNotice is the one line printed after `install codex`.
-	CodexTrustNotice = "codex: action needed: open codex once, trust the directory, and choose \"Trust all and continue\" to approve the Backstory hooks (SessionStart, PostToolUse); until then Codex 0.151 will not run them, and `backstory install --check` reports them as not-trusted"
+	CodexTrustNotice = "codex: action needed: open codex once, choose \"Trust and Continue\" to trust the directory, then \"Trust all and continue\" to approve the Backstory hooks (SessionStart, PostToolUse); until then Codex 0.151 will not run them, and `backstory install --check` reports them as not-trusted"
 )
 
 // ErrForeignConflict marks an item whose slot is occupied by something
