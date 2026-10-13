@@ -69,6 +69,18 @@ TestCase {
     compare(label.text, "foo")
   }
 
+  // With BACKSTORY_PROJECT_ROOTS set, `backstory this-week --json --here auto`
+  // answers `recent` with the most recent IN-SCOPE project (cmd/backstory's
+  // TestHereNamesMostRecentInScopeProject) even when a newer out-of-scope
+  // session exists; the bar widget shows that name.
+  function test_shows_most_recent_in_scope_project_name() {
+    var widget = start(fixture(function (d) {
+      d.here = { project_key: "scoped-key", display_name: "projects/scoped", cwd: "/home/brian/projects/scoped", source: "recent" }
+    }))
+    var label = TestUtil.findFirst(widget, function (n) { return n.objectName === "barLabel" })
+    compare(label.text, "scoped")
+  }
+
   function test_attention_dot_iff_attention_non_empty() {
     var widget = start(fixture())
     verify(dot(widget) !== null, "dot should be visible with attention")

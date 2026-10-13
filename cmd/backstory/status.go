@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 
 	"github.com/RidgetopAi/backstory/internal/mcp"
+	"github.com/RidgetopAi/backstory/internal/project"
 )
 
 // noSessionEnv, when set, makes the SessionStart hook ask the daemon not to
@@ -53,15 +55,40 @@ func runStatus(_ []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	project := result.ProjectKey
-	if project == "" {
-		project = "(none)"
+	projectName := result.ProjectKey
+	if projectName == "" {
+		projectName = "(none)"
 	}
 	captureState := "on"
 	if !result.CaptureOn {
 		captureState = "off"
 	}
 	_, _ = fmt.Fprintf(stdout, "project: %s\ncapture: %s\nbudget remaining: %d\n",
-		project, captureState, result.RemainingBudget)
+		projectName, captureState, result.RemainingBudget)
+	if cwd, err := os.Getwd(); err == nil {
+		if note := outsideProjectRootsNote(cwd, project.DefaultProjectRoots()); note != "" {
+			_, _ = fmt.Fprintln(stdout, note)
+		}
+	}
 	return 0
+}
+
+// outsideProjectRootsNote is the status line for a folder that
+// BACKSTORY_PROJECT_ROOTS scopes out of the panel and This Week: "" when no
+// roots are set or the folder's repo (or the folder itself, outside git) is
+// in scope. It is a display-side note only: capture and recall for the
+// folder work as always.
+func outsideProjectRootsNote(cwd string, roots []string) string {
+	if len(roots) == 0 {
+		return ""
+	}
+	dir := cwd
+	if repo, ok := (project.RealGit{}).Repo(cwd); ok && repo.Toplevel != "" {
+		dir = repo.Toplevel
+	}
+	if project.InRoots(roots, dir) {
+		return ""
+	}
+	return fmt.Sprintf("scope: %s is outside %s; it is not shown as a project in the panel or This Week (capture and recall still work here)",
+		dir, project.ProjectRootsEnvVar)
 }
