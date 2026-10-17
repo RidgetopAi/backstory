@@ -300,9 +300,9 @@ func (s *Store) SessionHasRealWork(sess Session, since time.Time, c RealWorkCrit
 // `backstory projects` lists it.
 type ProjectSummary struct {
 	Key          string
-	LastActivity time.Time // latest session start; zero when the project has no sessions
-	Sessions     int
-	Records      int // every record row under the key, whatever its status
+	LastActivity time.Time // latest unpurged session start; zero when the project has no live sessions
+	Sessions     int       // unpurged sessions
+	Records      int       // every non-tombstoned record under the key, whatever its status (superseded still counts)
 }
 
 // ProjectSummaries returns one summary per projects row, newest last
@@ -311,9 +311,9 @@ type ProjectSummary struct {
 func (s *Store) ProjectSummaries() ([]ProjectSummary, error) {
 	rows, err := s.db.Query(`
 		SELECT p.key,
-			(SELECT MAX(started_at) FROM sessions WHERE project_key = p.key) AS last_ts,
-			(SELECT COUNT(*) FROM sessions WHERE project_key = p.key),
-			(SELECT COUNT(*) FROM records WHERE project_key = p.key)
+			(SELECT MAX(started_at) FROM sessions WHERE project_key = p.key AND purged_at IS NULL) AS last_ts,
+			(SELECT COUNT(*) FROM sessions WHERE project_key = p.key AND purged_at IS NULL),
+			(SELECT COUNT(*) FROM records WHERE project_key = p.key AND tombstoned_at IS NULL)
 		FROM projects p
 		ORDER BY last_ts IS NULL, last_ts DESC, p.key`)
 	if err != nil {
