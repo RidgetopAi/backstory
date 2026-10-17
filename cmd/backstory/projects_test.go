@@ -201,3 +201,49 @@ func TestProjectsUsageAndReadme(t *testing.T) {
 		t.Error("README.md command list does not contain `backstory projects`")
 	}
 }
+
+// TestProjectsFullyPurgedProjectShowsNever: a project purged in full stays
+// listed with 0 sessions, 0 records and last activity never / null.
+func TestProjectsFullyPurgedProjectShowsNever(t *testing.T) {
+	dataDir := t.TempDir()
+	buildProjectsFixtureStore(t, dataDir)
+	st, err := store.Open(filepath.Join(dataDir, "backstory", "backstory.db"), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PurgeSessions(store.PurgeScope{ProjectKey: projectsGitKey}, store.Identity{Kind: store.IdentityHuman}); err != nil {
+		t.Fatal(err)
+	}
+	_ = st.Close()
+
+	stdout, stderr, code := runProjectsCLI(t, dataDir)
+	if code != 0 {
+		t.Fatalf("exit %d (stderr: %s)", code, stderr)
+	}
+	var row string
+	for _, l := range strings.Split(stdout, "\n") {
+		if strings.Contains(l, projectsGitKey) {
+			row = l
+		}
+	}
+	f := strings.Fields(row)
+	if row == "" || !strings.Contains(row, "never") || f[len(f)-2] != "0" || f[len(f)-1] != "0" {
+		t.Fatalf("purged row = %q, want never / 0 sessions / 0 records in:\n%s", row, stdout)
+	}
+
+	jout, _, _ := runProjectsCLI(t, dataDir, "--json")
+	var got []struct {
+		Key          string  `json:"key"`
+		LastActivity *string `json:"last_activity"`
+		Sessions     int     `json:"sessions"`
+		Records      int     `json:"records"`
+	}
+	if err := json.Unmarshal([]byte(jout), &got); err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range got {
+		if g.Key == projectsGitKey && (g.LastActivity != nil || g.Sessions != 0 || g.Records != 0) {
+			t.Errorf("json row = %+v, want null last_activity, 0 sessions", g)
+		}
+	}
+}
