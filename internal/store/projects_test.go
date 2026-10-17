@@ -135,6 +135,8 @@ func TestProjectSummariesPartialPurgeCountsRemainder(t *testing.T) {
 	}
 	old := mustInsertProjectRecord(t, s, "proj-p", "old")
 	mustInsertProjectRecord(t, s, "proj-p", "new", EdgeSpec{OtherID: old, Type: EdgeSupersedes, DeclaredBy: "seed"})
+	older := mustInsertProjectRecord(t, s, "proj-p", "older")
+	mustInsertProjectRecord(t, s, "proj-p", "newer", EdgeSpec{OtherID: older, Type: EdgeSupersedes, DeclaredBy: "seed"})
 	doomed := mustInsertProjectRecord(t, s, "proj-p", "doomed")
 	if _, err := s.PurgeSessions(PurgeScope{SessionID: ids[2]}, human); err != nil {
 		t.Fatal(err)
@@ -144,7 +146,7 @@ func TestProjectSummariesPartialPurgeCountsRemainder(t *testing.T) {
 	}
 	got := summaryFor(t, s, "proj-p")
 	want := time.Date(2026, 1, 3, 9, 0, 0, 0, time.UTC)
-	if got.Sessions != 2 || got.Records != 2 || !got.LastActivity.Equal(want) {
-		t.Errorf("summary = %+v, want 2 sessions, 2 records (superseded counts), last %s", got, want)
+	if got.Sessions != 2 || got.Records != 4 || !got.LastActivity.Equal(want) {
+		t.Errorf("summary = %+v, want 2 sessions, 4 records (superseded counts), last %s", got, want)
 	}
 }
