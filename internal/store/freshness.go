@@ -35,7 +35,10 @@ const (
 	// FreshnessLaterUnrecordedWork is reason (e): a session in the handoff's
 	// home, other than the handoff's own, did observed file edits after the
 	// boundary and wrote no live record since — the Stop nudge's purpose,
-	// at zero tokens. Needs no about[] path.
+	// at zero tokens. A record of any kind (handoff, outcome, note or
+	// decision) written by that later session clears it; all are written with
+	// the `note` tool, which is why the rendered clause says "wrote no note".
+	// Needs no about[] path.
 	FreshnessLaterUnrecordedWork FreshnessReasonKind = "later-unrecorded-work"
 )
 
@@ -85,13 +88,13 @@ type FailureDetail struct {
 }
 
 // HandoffFreshness reports every reason h is possibly stale (decision
-// bcc9fa54), in a fixed order (contradicted, later-record, later-activity):
-// positive evidence only, arising after h's own event_cursor and after the
+// bcc9fa54), in a fixed order (contradicted, later-record, later-activity,
+// later-failure, later-unrecorded-work): positive evidence only, arising after h's own event_cursor and after the
 // latest `confirm affirm` record informing h, if any — never from elapsed
-// time and never from the mere absence of later activity. A handoff with no
-// about[] can only ever be flagged by FreshnessContradicted: the other two
-// reasons require an about[] path in common, which is impossible against an
-// empty set. A nil/empty return means h is fresh.
+// time and never from the mere absence of later activity. Only later-record
+// and later-activity require an about[] path in common with h, so a handoff
+// with no about[] can never be flagged by those two; contradicted,
+// later-failure and later-unrecorded-work need no about[]. A nil/empty return means h is fresh.
 //
 // workspaces is the caller's already-resolved workspace directory list
 // (task 482b2320, decision f3fa04c7's clause 7): the store package never

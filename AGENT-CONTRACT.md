@@ -222,8 +222,12 @@ auto-memory 200 lines / 25 KB).
    <id>) <text>` so the id is available verbatim for `note`'s `supersedes`, its MODE line
    if present, and a `⚠ possibly stale: ...` marker naming its reasons and evidence ids
    when later positive evidence — a contradiction, a later record or timeline event
-   touching a path it names — flags it and no later `confirm affirm` on it has arrived
-   since (decision bcc9fa54)
+   touching a path it names, a later failed command, or a later session in the same
+   project home that edited files and wrote no record — flags it and no later
+   `confirm affirm` on it has arrived since (decision bcc9fa54). The last reason,
+   `later-unrecorded-work` ("since then N sessions edited M files and wrote no note"), is
+   cleared by a record of any kind (handoff, outcome, note or decision) written by that
+   later session; all are written with the `note` tool
 2. **Delta** — timeline since that handoff, compressed to "N sessions, files touched, last
    exit codes"
 3. **Coordination** — "another session is live in this repo on branch X" (pid alive in
