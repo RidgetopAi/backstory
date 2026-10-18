@@ -71,6 +71,7 @@ func TestBudgetKeepsNextWithResumeWhenOnlySlotOneFits(t *testing.T) {
 	mustInsertDraft(t, s, self, "", nil) // slot 4 present, so something must be cut
 	other := mustStartSession(t, s, "codex", "/elsewhere", 200)
 	mustAppendToolUse(t, s, other, h.TS.Add(1), "f.go") // slot 2 present
+	mustInsertNote(t, s, other, "edited f.go")          // its own account: resume stays unflagged
 
 	slot1 := "Resume: (id " + h.ID + ") did the first part\nNext (start here): NEXTMARK add the thing"
 	budget := block.EstimateTokens(block.HeaderLine + "\n\n" + slot1 + "\n\n" + block.FinalLineFor(h.ID))

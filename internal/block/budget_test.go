@@ -33,6 +33,8 @@ func overflowingScenario(t *testing.T) (*store.Store, string) {
 		ts := handoff.TS.Add(time.Duration(i+1) * time.Second)
 		mustAppendToolUse(t, s, other, ts, "file"+itoa(i)+".go")
 		mustAppendToolResult(t, s, other, ts, 0)
+		// the session left its own account, so the resume slot stays unflagged
+		mustInsertNote(t, s, other, "worked on file"+itoa(i))
 	}
 
 	mustInsertDraft(t, s, self, "", nil)

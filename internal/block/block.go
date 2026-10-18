@@ -420,6 +420,8 @@ func staleReasonClause(r store.FreshnessReason) string {
 		return fmt.Sprintf("%d later edit(s) to files it names (ids %s)", len(r.EventIDs), idList)
 	case store.FreshnessLaterFailure:
 		return fmt.Sprintf("%d later non-zero exit(s) (ids %s)", len(r.EventIDs), idList)
+	case store.FreshnessLaterUnrecordedWork:
+		return r.UnrecordedWorkClause()
 	default:
 		return fmt.Sprintf("%s (ids %s)", r.Kind, idList)
 	}
