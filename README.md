@@ -97,7 +97,13 @@ to `~/.bashrc`.
 
 - **Claude Code**: `backstory install claude` gets a warm SessionStart block on every session
   start, and the `note`, `recall`, `timeline` (plus `confirm`, `status`) MCP tools with no
-  header, id, or config line beyond the installer's.
+  header, id, or config line beyond the installer's. After a session's first `git commit`
+  that moves HEAD, a PostToolUse hook adds one short line of context asking for an outcome
+  `note` (skipped if trivial). It asks at most once per session, only if the session has
+  written no note yet, and never blocks or costs an extra model turn. Commits made by
+  other agents, pulls, and failed commits never trigger it. `backstory hook stop` is a
+  silent no-op: older installs registered a Stop nudge, and `backstory install` removes it
+  (your own Stop hooks are left byte-identical).
 - **Codex**: `backstory install codex` registers the MCP server and SessionStart/PostToolUse
   hooks under `~/.codex` and adds an `AGENTS.md` stub. **One manual step:** open `codex` once
   in a project, choose "Trust and Continue" to trust the directory, then "Trust all and continue" to approve the

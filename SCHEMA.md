@@ -264,6 +264,7 @@ thousands of tool events rendered "0 files touched".
 | `session.start`    | `payload.SessionStart`      | `prompt`, `version?`, `git_branch?`                       |
 | `session.end`      | `payload.SessionEnd`        | `reason?`                                                 |
 | `session.git_state`| `payload.SessionGitState`   | `branch?`, `uncommitted_count?`, `could_not_observe?`     |
+| `session.head`     | `payload.SessionHead`       | `head`, `asked?` (daemon bookkeeping for the post-commit ask: the HEAD a session last saw, written when it changes) |
 | `tool.use`         | `payload.ToolUse`           | `tool_use_id?`, `name`, `path?` (file tools), `command?` (Bash) |
 | `tool.result`      | `payload.ToolResult`        | `tool_use_id?`, `is_error?`, `exit?`, `content?`, `interrupted?` |
 

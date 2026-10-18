@@ -80,11 +80,11 @@ func runHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "session-start":
 		return runSessionStartHook(stdin, stdout, stderr, harness)
 	case "stop":
-		return runStopHook(stdin, stdout, stderr, harness)
+		return runStopHook()
 	case "post-tool-use-failure":
 		return runPostToolUseFailureHook(stdin, stderr, harness)
 	default:
-		return runPostToolUseHook(stdin, stderr, harness)
+		return runPostToolUseHook(stdin, stdout, stderr, harness)
 	}
 }
 
@@ -451,15 +451,28 @@ func buildPostToolUseParams(p postToolUsePayload) mcp.PostToolUseParams {
 	return params
 }
 
-// runPostToolUseHook is `backstory hook post-tool-use`. It never prints to
-// stdout: a PostToolUse hook's stdout is not injected as context the way
-// SessionStart's is, so there is nothing to render. Every failure path —
-// capture-off, no daemon socket, a decode or daemon error — writes at most
-// one line to stderr and exits 0 (a hook must never break a harness boot,
+// postToolUseEnvelope is the Claude PostToolUse stdout shape that injects
+// additionalContext into the model's context without blocking or forcing a
+// model turn.
+type postToolUseEnvelope struct {
+	HookSpecificOutput postToolUseHookSpecificOutput `json:"hookSpecificOutput"`
+}
+
+type postToolUseHookSpecificOutput struct {
+	HookEventName     string `json:"hookEventName"`
+	AdditionalContext string `json:"additionalContext"`
+}
+
+// runPostToolUseHook is `backstory hook post-tool-use`. It records the call
+// and, for Claude only, prints the daemon's post-commit outcome ask — once
+// per session — as PostToolUse additionalContext (never a block decision).
+// Every other path prints nothing. Every failure path — capture-off, no
+// daemon socket, a decode or daemon error — writes at most one line to
+// stderr and exits 0 (a hook must never break a harness boot,
 // AGENT-CONTRACT.md §The SessionStart block); with the capture-off flag file
 // present it returns before decoding stdin at all, so a slow or malformed
 // payload can never delay it.
-func runPostToolUseHook(stdin io.Reader, stderr io.Writer, harness string) int {
+func runPostToolUseHook(stdin io.Reader, stdout, stderr io.Writer, harness string) int {
 	if off, err := captureOff(); err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory hook: check capture-off flag:", err)
 		return 0
@@ -482,10 +495,26 @@ func runPostToolUseHook(stdin io.Reader, stderr io.Writer, harness string) int {
 	}
 
 	params := buildPostToolUseParams(payload)
-	if _, err := callDaemon(payload.SessionID, mcp.DaemonMethodPostToolUse, params); err != nil {
+	// The installer's verification run (BACKSTORY_NO_SESSION) must never
+	// settle or print the ask.
+	params.CommitAsk = os.Getenv(noSessionEnv) == ""
+	resp, err := callDaemon(payload.SessionID, mcp.DaemonMethodPostToolUse, params)
+	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory hook:", err)
 		return 0
 	}
+	var result mcp.PostToolUseResult
+	if json.Unmarshal(resp.Result, &result) != nil || result.AdditionalContext == "" {
+		return 0
+	}
+	b, err := json.Marshal(postToolUseEnvelope{HookSpecificOutput: postToolUseHookSpecificOutput{
+		HookEventName: "PostToolUse", AdditionalContext: result.AdditionalContext,
+	}})
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "backstory hook: marshal post-tool-use envelope:", err)
+		return 0
+	}
+	_, _ = fmt.Fprintln(stdout, string(b))
 	return 0
 }
 

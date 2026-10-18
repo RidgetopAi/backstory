@@ -24,6 +24,7 @@ const (
 	KindSessionStart    = "session.start"
 	KindSessionEnd      = "session.end"
 	KindSessionGitState = "session.git_state"
+	KindSessionHead     = "session.head"
 	KindToolUse         = "tool.use"
 	KindToolResult      = "tool.result"
 	KindShellCommand    = "command"
@@ -71,6 +72,15 @@ type SessionGitState struct {
 	Paths            []string          `json:"paths,omitempty"`
 	Hashes           map[string]string `json:"hashes,omitempty"`
 	CouldNotObserve  bool              `json:"could_not_observe,omitempty"`
+}
+
+// SessionHead is the session.head event payload: the HEAD the session's cwd
+// last showed when a Bash call finished, written only when it changed. It is
+// the "before" the post-commit ask compares against. Asked is set on the
+// event that settled the once-per-session ask (fired or not).
+type SessionHead struct {
+	Head  string `json:"head"`
+	Asked bool   `json:"asked,omitempty"`
 }
 
 // GitStatePhaseStart is SessionGitState.Phase for the session-start observation.

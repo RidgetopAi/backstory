@@ -46,8 +46,8 @@ func TestInstallCodexSaysStopNudgeIsClaudeOnly(t *testing.T) {
 	if code := runInstall([]string{"codex", "--no-verify"}, &out, &errb); code != 0 {
 		t.Fatalf("install codex: %d\n%s%s", code, out.String(), errb.String())
 	}
-	if n := strings.Count(out.String(), "Stop nudge is Claude-only"); n != 1 {
-		t.Fatalf("want one Claude-only Stop note line, got %d:\n%s", n, out.String())
+	if n := strings.Count(out.String(), "post-commit outcome ask is Claude-only"); n != 1 {
+		t.Fatalf("want one Claude-only note line, got %d:\n%s", n, out.String())
 	}
 }
 
