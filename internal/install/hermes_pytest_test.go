@@ -98,3 +98,43 @@ func TestHermesPytestCatchesMissingLocation(t *testing.T) {
 		t.Fatalf("mutated plugin without a block location passed pytest:\n%s", out)
 	}
 }
+
+func mutateOnce(t *testing.T, old, repl string) func(string) string {
+	return func(src string) string {
+		if !containsStr(src, old) {
+			t.Fatalf("%q not found to mutate", old)
+		}
+		return replaceOnce(src, old, repl)
+	}
+}
+
+// The suite must catch each way the post-commit ask path can break.
+func TestHermesPytestCatchesCommitAskMutations(t *testing.T) {
+	cases := map[string][2]string{
+		"sync_turn sends commit_ask": {
+			`            events.append(params)`,
+			`            params["commit_ask"] = True
+            events.append(params)`},
+		"hook does not mark forwarded": {
+			`                self._forwarded.add(tool_call_id)`,
+			`                pass`},
+		"hook returns unchanged output instead of None": {
+			`        except Exception:  # never break the agent's terminal call
+            pass
+        return None`,
+			`        except Exception:  # never break the agent's terminal call
+            pass
+        return _content_text(output)`},
+		"missing register_hook breaks registration": {
+			`    except Exception:
+        pass`,
+			`    except Exception:
+        raise`},
+	}
+	for name, c := range cases {
+		out, err := runHermesPytest(t, mutateOnce(t, c[0], c[1]))
+		if err == nil {
+			t.Errorf("%s: mutation passed pytest:\n%s", name, out)
+		}
+	}
+}

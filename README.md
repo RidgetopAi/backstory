@@ -115,7 +115,8 @@ to `~/.bashrc`.
   changes a hook may ask again.
 - **Hermes**: `backstory install hermes` installs a memory-provider plugin and the backstory skill under `$HERMES_HOME`
   (default `~/.hermes`). Restart Hermes after installing: a running Hermes does not load a newly
-  installed memory-provider plugin.
+  installed memory-provider plugin. Hermes gets the one post-commit outcome ask through a
+  `transform_terminal_output` hook the plugin registers (an older Hermes without hooks gets none).
 - **Pi**: `backstory install pi` installs an extension under `~/.pi/agent`.
 - **Local models**: Pi with any local OpenAI-compatible provider (e.g. ollama, a llama.cpp server) is
   captured and recalled like a hosted one; Codex transcripts with a custom `model_provider` import

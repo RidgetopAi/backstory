@@ -93,8 +93,11 @@ class FakeDaemon:
                     continue  # availability probe: connect and close
                 req = json.loads(buf.split(b"\n", 1)[0])
                 self.requests.append(req)
-                reply = self.replies.get(req["method"], {"result": {}})
+                reply = self.reply_for(req)
                 conn.sendall(json.dumps(reply).encode() + b"\n")
+
+    def reply_for(self, req):
+        return self.replies.get(req["method"], {"result": {}})
 
     def close(self):
         self.srv.close()
@@ -311,3 +314,179 @@ def test_backstory_off_set_silences_provider(plugin, daemon, monkeypatch):
 
 def test_backstory_off_zero_or_empty_leaves_provider_on(plugin, daemon, monkeypatch):
     _check_backstory_off(plugin, daemon, monkeypatch, "0", False)
+
+
+# --- post-commit ask via transform_terminal_output ---
+
+ASK = "Backstory: you committed. If this finished something, `note` an outcome."
+
+
+def _git(repo, *args):
+    import subprocess
+
+    subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *args],
+                   check=True, capture_output=True)
+
+
+def _head(repo):
+    import subprocess
+
+    return subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], check=True,
+                          capture_output=True, text=True).stdout.strip()
+
+
+class CommitDaemon(FakeDaemon):
+    """Mirrors the daemon's commit ask: per session, the first opted-in
+    `git commit` that exits 0 and moved the location's HEAD earns one ask."""
+
+    def __init__(self, path):
+        self.heads = {}
+        self.asked = set()
+        super().__init__(path)
+
+    def reply_for(self, req):
+        if req["method"] != "post_tool_use":
+            return super().reply_for(req)
+        p, sess = req["params"], req.get("session", "")
+        if not p.get("commit_ask") or p.get("tool_name") != "Bash":
+            return {"result": {"events_recorded": 2}}
+        head = _head(p["location"])
+        last = self.heads.get(sess, "")
+        self.heads[sess] = head
+        commit = p.get("exit") == 0 and p["command"].startswith("git commit") and last not in ("", head)
+        if commit and sess not in self.asked:
+            self.asked.add(sess)
+            return {"result": {"events_recorded": 2, "additional_context": ASK}}
+        return {"result": {"events_recorded": 2}}
+
+
+@pytest.fixture()
+def commit_env(plugin, sock_path, tmp_path, monkeypatch):
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    _git(repo, "init", "-q")
+    _git(repo, "commit", "-q", "--allow-empty", "-m", "seed")
+    _stub_runtime_cwd(monkeypatch, lambda: str(repo))
+    d = CommitDaemon(sock_path)
+    yield types.SimpleNamespace(repo=repo, daemon=d, plugin=plugin)
+    d.close()
+
+
+def _hook(p, command, repo, rc=0, call_id="t1", out="done"):
+    return p.transform_terminal_output(command=command, output=out, returncode=rc,
+                                       task_id="x", env_type="local", tool_call_id=call_id)
+
+
+def _prime(p, env):
+    # the first observed call seeds the session's last-seen HEAD
+    assert _hook(p, "ls", env.repo, call_id="seed") is None
+
+
+def _commit(env, n):
+    _git(env.repo, "commit", "-q", "--allow-empty", "-m", "c%d" % n)
+
+
+def test_register_registers_terminal_hook(plugin):
+    mem, hooks = [], {}
+    ctx = types.SimpleNamespace(register_memory_provider=mem.append,
+                                register_hook=lambda name, fn: hooks.setdefault(name, fn))
+    plugin.register(ctx)
+    assert len(mem) == 1 and "transform_terminal_output" in hooks
+
+
+def test_hook_asks_once_per_session_and_again_in_a_fresh_one(commit_env):
+    env = commit_env
+    p = make_provider(env.plugin, "s-a")
+    _prime(p, env)
+    _commit(env, 1)
+    got = _hook(p, "git commit -m x", env.repo, call_id="k1")
+    assert got.startswith("done\n") and "outcome" in got.splitlines()[-1]
+    _commit(env, 2)
+    assert _hook(p, "git commit -m y", env.repo, call_id="k2") is None
+    q = make_provider(env.plugin, "s-b")
+    _prime(q, env)
+    _commit(env, 3)
+    assert "outcome" in _hook(q, "git commit -m z", env.repo, call_id="k3")
+
+
+def test_hooked_call_is_not_sent_again_by_sync_turn(commit_env):
+    env = commit_env
+    p = make_provider(env.plugin, "s-c")
+    _prime(p, env)
+    _commit(env, 1)
+    _hook(p, "git commit -m x", env.repo, call_id="k1")
+    msgs = [
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "k1", "function": {"name": "terminal", "arguments": json.dumps({"command": "git commit -m x"})}},
+            {"id": "w1", "function": {"name": "write_file", "arguments": json.dumps({"path": "/a"})}}]},
+        {"role": "tool", "tool_call_id": "k1", "content": json.dumps({"output": "x", "exit_code": 0})},
+        {"role": "tool", "tool_call_id": "w1", "content": "wrote"},
+    ]
+    p.sync_turn("u", "a", session_id="s-c", messages=msgs)
+    assert p.flush()
+    events = [r["params"] for r in env.daemon.requests if r["method"] == "post_tool_use"]
+    assert [e["tool_use_id"] for e in events].count("k1") == 1
+    assert [e for e in events if e["tool_use_id"] == "w1"]
+    assert all("commit_ask" not in e for e in events if e["tool_use_id"] == "w1")
+    assert next(e for e in events if e["tool_use_id"] == "k1")["commit_ask"] is True
+
+
+def test_sync_turn_never_sends_commit_ask(commit_env):
+    env = commit_env
+    p = make_provider(env.plugin, "s-d")
+    msgs = [
+        {"role": "assistant", "content": "", "tool_calls": [
+            {"id": "u1", "function": {"name": "terminal", "arguments": json.dumps({"command": "git commit -m x"})}}]},
+        {"role": "tool", "tool_call_id": "u1", "content": json.dumps({"output": "x", "exit_code": 0})},
+    ]
+    p.sync_turn("u", "a", session_id="s-d", messages=msgs)
+    assert p.flush()
+    events = [r["params"] for r in env.daemon.requests if r["method"] == "post_tool_use"]
+    assert len(events) == 1 and "commit_ask" not in events[0]
+
+
+def test_hook_returns_none_and_settles_nothing_then_real_commit_still_asks(commit_env, monkeypatch):
+    env = commit_env
+    p = make_provider(env.plugin, "s-e")
+    _prime(p, env)
+    _commit(env, 1)
+    n = len(env.daemon.requests)
+    assert _hook(p, "git commit -m x", env.repo, rc=None, call_id="bg") is None  # background output
+    monkeypatch.setenv("BACKSTORY_OFF", "1")
+    assert _hook(p, "git commit -m x", env.repo, call_id="off") is None
+    monkeypatch.setenv("BACKSTORY_OFF", "0")
+    assert len(env.daemon.requests) == n  # nothing reached the daemon
+    # a non-commit command never asks, and does not settle the ask
+    assert _hook(p, "ls", env.repo, call_id="ls1") is None
+    _commit(env, 2)
+    assert "outcome" in _hook(p, "git commit -m y", env.repo, call_id="real")
+
+
+def test_hook_none_without_daemon_and_on_timeout(plugin, sock_path, tmp_path, monkeypatch):
+    p = make_provider(plugin, "s-f")
+    assert _hook(p, "git commit -m x", tmp_path) is None  # no daemon
+    assert "t1" not in p._forwarded  # unhandled: sync_turn still forwards it
+    srv = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    srv.bind(sock_path)
+    srv.listen(1)  # accepts into the backlog, never replies
+    saved = plugin.HOOK_TIMEOUT_SECONDS
+    plugin.HOOK_TIMEOUT_SECONDS = 0.2
+    try:
+        assert _hook(p, "git commit -m x", tmp_path) is None
+    finally:
+        plugin.HOOK_TIMEOUT_SECONDS = saved
+        srv.close()
+    assert "t1" not in p._forwarded
+
+
+def test_register_without_register_hook_or_when_it_raises(plugin):
+    mem = []
+    plugin.register(types.SimpleNamespace(register_memory_provider=mem.append))
+    assert len(mem) == 1 and mem[0].name == "backstory"
+
+    def boom(name, fn):
+        raise RuntimeError("older hermes")
+
+    mem2 = []
+    plugin.register(types.SimpleNamespace(register_memory_provider=mem2.append, register_hook=boom))
+    assert len(mem2) == 1 and mem2[0].name == "backstory"

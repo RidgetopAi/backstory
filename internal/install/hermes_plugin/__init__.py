@@ -28,6 +28,9 @@ OFF_ENV = "BACKSTORY_OFF"
 OFF_MESSAGE = "Backstory is off for this session (BACKSTORY_OFF is set): no history was read and nothing was recorded."
 DIAL_TIMEOUT_SECONDS = 2.0
 CALL_TIMEOUT_SECONDS = 10.0
+# The transform_terminal_output hook blocks a terminal call, so its daemon
+# round trip is bounded tighter than a normal call.
+HOOK_TIMEOUT_SECONDS = 2.0
 AVAILABLE_PROBE_TIMEOUT_SECONDS = 0.5
 FLUSH_TIMEOUT_SECONDS = 5.0
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
@@ -35,6 +38,7 @@ OUTPUT_CAP_CHARS = 65536
 
 METHOD_BLOCK = "block"
 METHOD_POST_TOOL_USE = "post_tool_use"
+HOOK_TERMINAL_OUTPUT = "transform_terminal_output"
 LOCATION_PARAM = "location"
 
 # Hermes tool name -> the tool name Backstory's capture knows (Bash gets a
@@ -86,7 +90,7 @@ def socket_path():
     return os.path.join(os.path.expanduser("~"), ".local", "state", "backstory", "sock")
 
 
-def call_daemon(method, params=None, session=""):
+def call_daemon(method, params=None, session="", timeout=CALL_TIMEOUT_SECONDS):
     """Send one request line, return the decoded result (or raise BackstoryError)."""
     req = {"method": method}
     if session:
@@ -97,7 +101,7 @@ def call_daemon(method, params=None, session=""):
     try:
         sock.settimeout(DIAL_TIMEOUT_SECONDS)
         sock.connect(socket_path())
-        sock.settimeout(CALL_TIMEOUT_SECONDS)
+        sock.settimeout(timeout)
         sock.sendall(json.dumps(req).encode("utf-8") + b"\n")
         buf = b""
         while b"\n" not in buf:
@@ -219,6 +223,46 @@ class BackstoryProvider(MemoryProvider):
             return json.dumps({"error": str(exc)})
         return json.dumps(result)
 
+    # --- post-commit ask: the one path that can show a line to the model ---
+
+    def transform_terminal_output(self, command=None, output=None, returncode=None,
+                                  tool_call_id=None, **kwargs):
+        """Hermes' transform_terminal_output hook. MemoryProvider has no
+        per-tool-call method and sync_turn runs after the turn, so this is the
+        only place the post-commit ask can reach the model in the same tool
+        result. Returns the output plus the daemon's ask line, or None (the
+        unchanged-output answer that never competes with another plugin) on
+        every other path: background output (returncode None), Backstory off,
+        no daemon or a timeout, no ask. A call the daemon recorded is marked
+        forwarded so sync_turn never sends it a second time."""
+        try:
+            if backstory_off() or not isinstance(returncode, int) or isinstance(returncode, bool):
+                return None
+            if not isinstance(command, str):
+                return None
+            text = _content_text(output)
+            params = {
+                "tool_name": TOOL_NAME_ALIASES["terminal"],
+                "command": command,
+                "output": text[:OUTPUT_CAP_CHARS],
+                "exit": returncode,
+                "commit_ask": True,
+            }
+            if tool_call_id:
+                params["tool_use_id"] = str(tool_call_id)
+            location = chat_location()
+            if location:
+                params[LOCATION_PARAM] = location
+            result = call_daemon(METHOD_POST_TOOL_USE, params, self._session_id, timeout=HOOK_TIMEOUT_SECONDS)
+            if tool_call_id:
+                self._forwarded.add(tool_call_id)
+            ask = (result or {}).get("additional_context")
+            if isinstance(ask, str) and ask:
+                return text + "\n" + ask
+        except Exception:  # never break the agent's terminal call
+            pass
+        return None
+
     # --- turn sync: tool results as observed events ---
 
     def sync_turn(self, user_content, assistant_content, *, session_id="", messages=None):
@@ -313,4 +357,11 @@ class BackstoryProvider(MemoryProvider):
 
 
 def register(ctx):
-    ctx.register_memory_provider(BackstoryProvider())
+    provider = BackstoryProvider()
+    ctx.register_memory_provider(provider)
+    # An older Hermes (or a ctx without hooks) keeps the provider working
+    # exactly as before; sync_turn never sends commit_ask either way.
+    try:
+        ctx.register_hook(HOOK_TERMINAL_OUTPUT, provider.transform_terminal_output)
+    except Exception:
+        pass
