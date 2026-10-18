@@ -103,7 +103,9 @@ to `~/.bashrc`.
   written no note yet, and never blocks or costs an extra model turn. Commits made by
   other agents, pulls, and failed commits never trigger it. `backstory hook stop` is a
   silent no-op: older installs registered a Stop nudge, and `backstory install` removes it
-  (your own Stop hooks are left byte-identical).
+  (your own Stop hooks are left byte-identical). Codex gets the same once-per-session ask
+  through its PostToolUse hook, and Pi through its extension (a bash result gains one text
+  line); both are silent whenever the line could not be shown.
 - **Codex**: `backstory install codex` registers the MCP server and SessionStart/PostToolUse
   hooks under `~/.codex` and adds an `AGENTS.md` stub. **One manual step:** open `codex` once
   in a project, choose "Trust and Continue" to trust the directory, then "Trust all and continue" to approve the

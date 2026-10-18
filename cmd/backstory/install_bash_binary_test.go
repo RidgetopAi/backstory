@@ -37,8 +37,8 @@ func TestInstallBashBinaryWritesAbsolutePath(t *testing.T) {
 	}
 }
 
-// TestInstallCodexSaysStopNudgeIsClaudeOnly is task 8dac3c1d's codex nit.
-func TestInstallCodexSaysStopNudgeIsClaudeOnly(t *testing.T) {
+// TestInstallCodexDoesNotClaimAskIsClaudeOnly: the post-commit ask now reaches Codex, so install must not say otherwise.
+func TestInstallCodexDoesNotClaimAskIsClaudeOnly(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("CODEX_HOME", "")
@@ -46,8 +46,8 @@ func TestInstallCodexSaysStopNudgeIsClaudeOnly(t *testing.T) {
 	if code := runInstall([]string{"codex", "--no-verify"}, &out, &errb); code != 0 {
 		t.Fatalf("install codex: %d\n%s%s", code, out.String(), errb.String())
 	}
-	if n := strings.Count(out.String(), "post-commit outcome ask is Claude-only"); n != 1 {
-		t.Fatalf("want one Claude-only note line, got %d:\n%s", n, out.String())
+	if strings.Contains(out.String(), "Claude-only") {
+		t.Fatalf("install codex still claims the ask is Claude-only:\n%s", out.String())
 	}
 }
 

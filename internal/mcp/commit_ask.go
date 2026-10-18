@@ -10,7 +10,7 @@ import (
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
-// CommitAskText is the one line the Claude PostToolUse hook hands back as
+// CommitAskText is the one line the PostToolUse hooks hand back as
 // additionalContext after a session's first commit. It is context, never a
 // block decision, so it costs no extra model turn.
 const CommitAskText = "Backstory: you committed. If this finished something, `note` an outcome (one or two lines; skip if trivial)."
@@ -85,7 +85,7 @@ func sessionLastHead(st *store.Store, sessionID string) (head string, asked bool
 // additionalContext line, or "" — and "" on every error, since the ask is
 // never worth failing a tool call over.
 //
-// Only a caller that opted in (p.CommitAsk, set only by the Claude hook, and
+// Only a caller that opted in (p.CommitAsk, set only by a hook that can show the line, and
 // only on a Bash call) runs this at all: a caller that cannot show the ask
 // must not move the session's last-seen HEAD either.
 //

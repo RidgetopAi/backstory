@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Fake `backstory` for the Pi extension test. FAKE_LOG is a JSONL file every
 // invocation appends to; FAKE_HOOK_FAIL=1 makes every `hook` call exit 1.
+// FAKE_HOOK_STDOUT is printed by `hook post-tool-use`; FAKE_HOOK_SLEEP_MS delays it.
 import { appendFileSync } from "node:fs";
 
 const args = process.argv.slice(2);
@@ -42,5 +43,9 @@ if (args[0] === "mcp") {
       process.exit(1);
     }
     if (args[1] === "session-start") process.stdout.write("BACKSTORY WARM BLOCK\n");
+    if (args[1] === "post-tool-use" && process.env.FAKE_HOOK_STDOUT) {
+      const ms = Number(process.env.FAKE_HOOK_SLEEP_MS || 0);
+      setTimeout(() => process.stdout.write(process.env.FAKE_HOOK_STDOUT + "\n"), ms);
+    }
   });
 }

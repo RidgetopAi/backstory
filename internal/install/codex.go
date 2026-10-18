@@ -124,13 +124,6 @@ func (codexAdapter) InstallNotice(home string, opts Options) string {
 	return CodexTrustNotice
 }
 
-// CodexStopNote is the one line install codex prints saying the post-commit
-// outcome ask does not exist there.
-const CodexStopNote = "note: the post-commit outcome ask is Claude-only; Codex sessions are not asked for an outcome after a commit"
-
-// InstallNote is a second line printed after InstallNotice.
-func (codexAdapter) InstallNote() string { return CodexStopNote }
-
 func (codexAdapter) Remove(home string, opts Options) error {
 	return RemoveCodex(DefaultCodexPaths(home), opts)
 }
