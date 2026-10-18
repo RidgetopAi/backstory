@@ -14,6 +14,7 @@ flow and its approval gates.
 ### Changed
 
 - The every-turn Stop handoff nudge is replaced by one post-commit ask per session (task de47659e). `install claude` no longer registers a Stop hook and removes the Backstory Stop entry an older install wrote, leaving user Stop hooks byte-identical; `--check` no longer lists it; `backstory hook stop` stays as a silent exit-0 no-op so a stale registration is harmless. Instead, the Claude PostToolUse hook returns one line of `additionalContext` (not a block, no extra model turn) asking for an outcome `note` after the session's own first `git commit` that moved HEAD, only if the session has written no record, at most once per session. HEAD moving without the session's own commit never triggers it. The daemon records `session.head` events as bookkeeping. The `install codex` note now says the post-commit ask is Claude-only.
+- Hermes gets the same post-commit ask (task 9a4fce0f) through a `transform_terminal_output` hook the memory provider registers: the hook calls the daemon synchronously (2s bound) with `commit_ask` and appends the ask line to that terminal result; `sync_turn` never sends `commit_ask` and skips calls the hook already recorded. An older Hermes without `register_hook` works as before, with no ask.
 
 ## [1.0.0] - 2026-10-06
 

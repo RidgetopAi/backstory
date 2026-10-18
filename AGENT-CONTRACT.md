@@ -59,7 +59,9 @@ harness ── spawns ──▶ `backstory mcp` (stdio shim)
   a model tool call (note, recall, ...) is never read: location comes from the harness, never
   from the model. A chat's later location-less calls follow the folder its plugin last
   reported for that harness session id. `backstory install hermes` rewrites the plugin, so
-  reinstalling picks this up.
+  reinstalling picks this up. The Hermes plugin is also the one caller that gets the post-commit
+  outcome ask (`commit_ask`), through a `transform_terminal_output` hook it registers; `sync_turn`
+  never sends `commit_ask`, because the ask must reach the model in the same tool result.
 - **Trust model: one user, one machine.** A process is accepted as a harness when its
   process name (`/proc/<pid>/status` `Name:`) is in the known-harness table
   (`ident.KnownHarnesses`: claude, codex, copilot, hermes, opencode, pi). Nothing
