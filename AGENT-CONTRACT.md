@@ -178,6 +178,13 @@ What V1 does, and does not, do:
 - The daemon records what it observed: PostToolUse capture (Claude Code, Codex) and the
   bash preexec/precmd integration emit `{cmd, cwd, exit, duration}` timeline events, and a
   live session end records its git state.
+- Claude Code only: after the session's own first `git commit` that moved the cwd's HEAD
+  (a Bash PostToolUse whose command runs `git commit`, HEAD differing from the last one the
+  session saw, exit not failing), the PostToolUse hook returns one line of
+  `additionalContext` asking for an outcome `note` — once per session, and only if the
+  session has written no record. It is context, never a block decision. HEAD moving without
+  the session's own commit (another agent, a pull) never triggers it. There is no Stop
+  hook nudge; `backstory hook stop` is a silent exit-0 no-op kept for stale registrations.
 - The agent's side of proof is `note({kind:'outcome', evidence:[event_id]})`; `timeline`
   exists so it can cite the id, and the daemon rejects an evidence id that is not a real
   timeline event. A claim without evidence is recorded as a claim.

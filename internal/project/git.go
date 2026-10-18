@@ -37,6 +37,13 @@ func (RealGit) Repo(cwd string) (Repo, bool) {
 	return Repo{CommonDir: common, RemoteURL: remote, Toplevel: top}, true
 }
 
+// Head reports cwd's current HEAD commit with a single git call — the cheap
+// lookup the post-commit trigger runs on every Bash call. ok is false when
+// cwd is not a working tree, git failed, or the repo has no commit yet.
+func (RealGit) Head(cwd string) (string, bool) {
+	return gitOutputBounded(cwd, "rev-parse", "--verify", "-q", "HEAD")
+}
+
 // State implements Git by running git rev-parse/status in cwd. ok is false
 // when cwd is not inside a git working tree, or either git invocation
 // failed — the caller must never fall back to Uncommitted == 0 in that case.

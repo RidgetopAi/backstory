@@ -312,9 +312,7 @@ func dispatchDaemonRequest(line []byte, st *store.Store, procfs ident.ProcFS, id
 	case DaemonMethodBlock:
 		return handleBlock(st, procfs, id, sessionID, git, workspaces)
 	case DaemonMethodPostToolUse:
-		return handlePostToolUse(st, sessionID, req.Params, captureOff)
-	case DaemonMethodStopCheck:
-		return handleStopCheck(st, git, sessionID, captureOff)
+		return handlePostToolUse(st, git, sessionID, req.Params, captureOff)
 	case DaemonMethodShellEmit:
 		return handleShellEmit(st, sessionID, id.CWD, req.Params, captureOff)
 	default:

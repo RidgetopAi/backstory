@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/RidgetopAi/backstory/internal/payload"
+	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
@@ -61,6 +62,10 @@ type PostToolUseParams struct {
 	// by the hook from that call's tool_response (task d0c8c84b). The hook
 	// only sets it for Backstory's own note tool.
 	RecordID string `json:"record_id,omitempty"`
+	// CommitAsk is set only by the Claude PostToolUse hook, the one caller
+	// that can hand additionalContext back to its model. Without it the
+	// daemon still tracks HEAD but never settles or fires the commit ask.
+	CommitAsk bool `json:"commit_ask,omitempty"`
 }
 
 // PostToolUseResult is post_tool_use's return value: how many timeline
@@ -72,6 +77,10 @@ type PostToolUseParams struct {
 // (status, a panel) something to read without a wire change.
 type PostToolUseResult struct {
 	EventsRecorded int `json:"events_recorded"`
+	// AdditionalContext is the one-per-session post-commit outcome ask
+	// (CommitAskText); the Claude hook prints it as PostToolUse
+	// additionalContext. Empty almost always.
+	AdditionalContext string `json:"additional_context,omitempty"`
 }
 
 // handlePostToolUse records one PostToolUse hook invocation as observed
@@ -89,7 +98,7 @@ type PostToolUseResult struct {
 // daemon, but post_tool_use is reachable from any socket peer just like
 // note — the daemon itself, the only writer of timeline_events (invariant
 // 4), must refuse it too rather than trust the client's own check.
-func handlePostToolUse(st *store.Store, sessionID string, raw json.RawMessage, captureOff func() (bool, error)) DaemonResponse {
+func handlePostToolUse(st *store.Store, git project.Git, sessionID string, raw json.RawMessage, captureOff func() (bool, error)) DaemonResponse {
 	if off, err := captureOff(); err != nil {
 		return errResponse("internal", err.Error())
 	} else if off {
@@ -138,7 +147,11 @@ func handlePostToolUse(st *store.Store, sessionID string, raw json.RawMessage, c
 		n++
 	}
 
-	result, err := json.Marshal(PostToolUseResult{EventsRecorded: n})
+	res := PostToolUseResult{EventsRecorded: n}
+	if p.ToolName == bashToolName && p.CommitAsk {
+		res.AdditionalContext = commitAsk(st, git, sessionID, p)
+	}
+	result, err := json.Marshal(res)
 	if err != nil {
 		return errResponse("internal", err.Error())
 	}

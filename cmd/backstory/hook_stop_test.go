@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/RidgetopAi/backstory/internal/store"
 )
 
 // stopShellDone ends every command's output in the harness shell below.
@@ -125,10 +123,10 @@ func (f *stopFixture) edit(sessionID, toolUseID, file string) {
 
 // stop runs the stop hook and returns its stdout with the trailing exit
 // status line split off.
-func (f *stopFixture) stop(sessionID string, active bool, envPrefix string) (stdout string, exit string) {
+func (f *stopFixture) stop(sessionID string, envPrefix string) (stdout string, exit string) {
 	f.t.Helper()
 	out := f.hook("stop", envPrefix, map[string]any{
-		"session_id": sessionID, "cwd": f.projectDir, "hook_event_name": "Stop", "stop_hook_active": active,
+		"session_id": sessionID, "cwd": f.projectDir, "hook_event_name": "Stop", "stop_hook_active": false,
 	})
 	i := strings.LastIndex(out, "exit=")
 	if i < 0 {
@@ -137,111 +135,24 @@ func (f *stopFixture) stop(sessionID string, active bool, envPrefix string) (std
 	return out[:i], strings.TrimSpace(out[i:])
 }
 
-// writeHandoff inserts a handoff record carrying the session's id, the way
-// the note tool does for a live session.
-func (f *stopFixture) writeHandoff(sessionID string) {
-	f.t.Helper()
-	s := mustOpenTestStore(f.t, f.dbPath)
-	var id string
-	if err := s.DB().QueryRow(`SELECT id FROM sessions WHERE harness_session_id = ? AND origin = 'live'`, sessionID).Scan(&id); err != nil {
-		f.t.Fatalf("find session %s: %v", sessionID, err)
-	}
-	if _, err := s.InsertRecord(store.InsertRecordParams{
-		Identity: store.Identity{Kind: store.IdentityAgent}, Kind: store.KindHandoff,
-		Text: "did the thing", SessionID: id,
-	}); err != nil {
-		f.t.Fatal(err)
-	}
-}
-
-// TestHookStopFourCases is the punch's clause 1: edits and no handoff block
-// once naming the count; a handoff silences it; stop_hook_active silences it;
-// a session with no edits and no failures is silent.
-func TestHookStopFourCases(t *testing.T) {
-	t.Run("two edits no handoff blocks, then handoff silences", func(t *testing.T) {
-		f := newStopFixture(t)
-		f.edit("s-edit", "toolu_1", "a.go")
-		f.edit("s-edit", "toolu_2", "b.go")
-
-		stdout, exit := f.stop("s-edit", false, "")
-		if exit != "exit=0" {
-			t.Fatalf("%s", exit)
-		}
-		var d struct{ Decision, Reason string }
-		if err := json.Unmarshal([]byte(stdout), &d); err != nil {
-			t.Fatalf("stdout %q is not a JSON decision: %v", stdout, err)
-		}
-		if d.Decision != "block" || !strings.Contains(d.Reason, "2 file(s)") || !strings.Contains(d.Reason, "note handoff") {
-			t.Errorf("decision = %+v, want block naming 2 file(s) and note handoff", d)
-		}
-
-		f.writeHandoff("s-edit")
-		stdout, exit = f.stop("s-edit", false, "")
-		if exit != "exit=0" || stdout != "" {
-			t.Errorf("after handoff: stdout %q %s, want silent exit 0", stdout, exit)
-		}
-	})
-
-	t.Run("stop_hook_active is silent", func(t *testing.T) {
-		f := newStopFixture(t)
-		f.edit("s-active", "toolu_1", "a.go")
-		if stdout, exit := f.stop("s-active", true, ""); exit != "exit=0" || stdout != "" {
-			t.Errorf("stdout %q %s, want silent exit 0", stdout, exit)
-		}
-	})
-
-	t.Run("no edits and no failures is silent", func(t *testing.T) {
-		f := newStopFixture(t)
-		if stdout, exit := f.stop("s-readonly", false, ""); exit != "exit=0" || stdout != "" {
-			t.Errorf("stdout %q %s, want silent exit 0", stdout, exit)
-		}
-	})
-
-	t.Run("failed commands alone block and are named", func(t *testing.T) {
-		f := newStopFixture(t)
-		out := f.hook("post-tool-use-failure", "", map[string]any{
-			"session_id": "s-fail", "hook_event_name": "PostToolUseFailure", "tool_name": "Bash",
-			"tool_use_id": "toolu_f", "tool_input": map[string]any{"command": "false"}, "error": "Exit code 1\nboom",
-		})
-		if strings.TrimSpace(out) != "exit=0" {
-			t.Fatalf("failure hook output %q", out)
-		}
-		stdout, _ := f.stop("s-fail", false, "")
-		if !strings.Contains(stdout, "1 failed command(s)") || !strings.Contains(stdout, `"decision":"block"`) {
-			t.Errorf("stdout = %q, want a block naming 1 failed command(s)", stdout)
-		}
-	})
-}
-
-// TestHookStopSilentWhenDisabledOrUnreachable is clause 2: BACKSTORY_NO_SESSION,
-// capture off, and no daemon each print nothing and exit 0 — even for a
-// session that would otherwise be blocked.
-func TestHookStopSilentWhenDisabledOrUnreachable(t *testing.T) {
+// TestHookStopIsSilentNoOp: the Stop handoff nudge is retired. A session with
+// edits and failed commands and no handoff — exactly what used to be blocked
+// at the end of every turn — now prints nothing and exits 0, so a stale
+// registration left by an older install is harmless.
+func TestHookStopIsSilentNoOp(t *testing.T) {
 	f := newStopFixture(t)
-	f.edit("s-silent", "toolu_1", "a.go")
-	if stdout, _ := f.stop("s-silent", false, ""); !strings.Contains(stdout, "block") {
-		t.Fatalf("control: stdout %q, want a block before any silencing", stdout)
+	f.edit("s-stop", "toolu_1", "a.go")
+	f.edit("s-stop", "toolu_2", "b.go")
+	out := f.hook("post-tool-use-failure", "", map[string]any{
+		"session_id": "s-stop", "hook_event_name": "PostToolUseFailure", "tool_name": "Bash",
+		"tool_use_id": "toolu_f", "tool_input": map[string]any{"command": "false"}, "error": "Exit code 1\nboom",
+	})
+	if strings.TrimSpace(out) != "exit=0" {
+		t.Fatalf("failure hook output %q", out)
 	}
-
-	silent := func(name, envPrefix string) {
-		t.Helper()
-		if stdout, exit := f.stop("s-silent", false, envPrefix); exit != "exit=0" || stdout != "" {
-			t.Errorf("%s: stdout %q %s, want silent exit 0", name, stdout, exit)
-		}
+	if stdout, exit := f.stop("s-stop", ""); exit != "exit=0" || stdout != "" {
+		t.Errorf("stop: stdout %q %s, want silent exit 0", stdout, exit)
 	}
-
-	silent("BACKSTORY_NO_SESSION", noSessionEnv+"=1")
-
-	flag := filepath.Join(f.runtimeDir, "backstory", "capture-off")
-	if err := os.WriteFile(flag, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
-	silent("capture off", "")
-	if err := os.Remove(flag); err != nil {
-		t.Fatal(err)
-	}
-
-	silent("no daemon", "XDG_RUNTIME_DIR='"+t.TempDir()+"'")
 }
 
 // gitInitProject makes the fixture's project dir a git repo with one commit
@@ -258,59 +169,4 @@ func (f *stopFixture) gitInitProject() {
 			f.t.Skipf("git %v: %v: %s", args, err, out)
 		}
 	}
-}
-
-// TestHookStopSeesBashEditsViaGitState is task 8efad0ce: a file changed through
-// Bash (no Edit/Write tool event) is edit evidence when the repo's observed
-// state differs from the session-start observation; an unchanged repo is
-// silent; a non-git cwd falls back to the tool rule.
-func TestHookStopSeesBashEditsViaGitState(t *testing.T) {
-	t.Run("file changed with no tool edit blocks naming 1 file", func(t *testing.T) {
-		f := newStopFixture(t)
-		f.gitInitProject()
-		// The first hook connection starts the session and records its
-		// session-start git state; an untouched repo is silent.
-		if stdout, exit := f.stop("s-bash", false, ""); exit != "exit=0" || stdout != "" {
-			t.Fatalf("unchanged repo: stdout %q %s, want silent exit 0", stdout, exit)
-		}
-		f.sh("printf 'hello\\n' > notes.txt") // a shell write: no Edit/Write tool event
-		stdout, exit := f.stop("s-bash", false, "")
-		if exit != "exit=0" {
-			t.Fatalf("%s", exit)
-		}
-		var d struct{ Decision, Reason string }
-		if err := json.Unmarshal([]byte(stdout), &d); err != nil {
-			t.Fatalf("stdout %q is not a JSON decision: %v", stdout, err)
-		}
-		if d.Decision != "block" || !strings.Contains(d.Reason, "1 file(s)") || !strings.Contains(d.Reason, "note handoff") {
-			t.Errorf("decision = %+v, want block naming 1 file(s) and note handoff", d)
-		}
-	})
-
-	t.Run("a file already dirty at session start is not evidence", func(t *testing.T) {
-		f := newStopFixture(t)
-		f.gitInitProject()
-		f.sh("echo pre > preexisting.txt")
-		if stdout, exit := f.stop("s-dirty", false, ""); exit != "exit=0" || stdout != "" {
-			t.Fatalf("stdout %q %s, want silent exit 0", stdout, exit)
-		}
-		if stdout, exit := f.stop("s-dirty", false, ""); exit != "exit=0" || stdout != "" {
-			t.Errorf("second stop: stdout %q %s, want silent exit 0", stdout, exit)
-		}
-	})
-
-	t.Run("non-git cwd falls back to the tool rule", func(t *testing.T) {
-		f := newStopFixture(t)
-		if stdout, _ := f.stop("s-nogit", false, ""); stdout != "" {
-			t.Fatalf("stdout %q, want silent", stdout)
-		}
-		f.sh("echo x > bash-written.txt")
-		if stdout, exit := f.stop("s-nogit", false, ""); exit != "exit=0" || stdout != "" {
-			t.Errorf("bash write in non-git cwd: stdout %q %s, want silent exit 0", stdout, exit)
-		}
-		f.edit("s-nogit", "toolu_1", "a.go")
-		if stdout, _ := f.stop("s-nogit", false, ""); !strings.Contains(stdout, "1 file(s)") {
-			t.Errorf("stdout %q, want a block from the tool rule", stdout)
-		}
-	})
 }

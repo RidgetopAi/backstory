@@ -28,10 +28,8 @@ const (
 	// ItemPostToolUseFailureHook is Claude's PostToolUseFailure hook: Claude
 	// Code reports a failed tool call under that event, never PostToolUse.
 	ItemPostToolUseFailureHook = "post-tool-use-failure-hook"
-	// ItemStopHook is Claude's Stop hook: the once-only handoff nudge.
-	ItemStopHook     = "stop-hook"
-	ItemSkill        = "skill"
-	ItemClaudeMDStub = "claude-md-stub"
+	ItemSkill                  = "skill"
+	ItemClaudeMDStub           = "claude-md-stub"
 )
 
 // ItemStatus is a --check item's reported state: present, absent, outdated
@@ -192,10 +190,9 @@ func Install(paths Paths, opts Options) error {
 		return err
 	}
 
-	stopChanged, err := mergeHookEntry(settingsRoot, "Stop", wantStopEntry(opts), subStop, opts)
-	if err != nil {
-		return err
-	}
+	// The Stop handoff nudge is retired: an install over an older one removes
+	// the Backstory Stop entry it wrote and registers none.
+	stopChanged := removeHookEntry(settingsRoot, "Stop", subStop, opts)
 
 	if mcpChanged {
 		if err := writeJSONAtomic(paths.ClaudeJSON, claudeRoot, claudeMode); err != nil {
@@ -247,13 +244,11 @@ func Check(paths Paths, opts Options) ([]Item, error) {
 	startSt, startBin, _ := hookEntryStatus(settingsRoot, "SessionStart", wantSessionStartEntry(opts), subSessionStart, opts)
 	postSt, postBin, _ := hookEntryStatus(settingsRoot, "PostToolUse", wantPostToolUseEntry(opts), subPostToolUse, opts)
 	failSt, failBin, _ := hookEntryStatus(settingsRoot, "PostToolUseFailure", wantPostToolUseFailureEntry(opts), subPostToolUseFailure, opts)
-	stopSt, stopBin, _ := hookEntryStatus(settingsRoot, "Stop", wantStopEntry(opts), subStop, opts)
 	items := []Item{
 		{Name: ItemMCPServer, Status: mcpSt, Binary: mcpBin},
 		{Name: ItemSessionStartHook, Status: startSt, Binary: startBin},
 		{Name: ItemPostToolUseHook, Status: postSt, Binary: postBin},
 		{Name: ItemPostToolUseFailureHook, Status: failSt, Binary: failBin},
-		{Name: ItemStopHook, Status: stopSt, Binary: stopBin},
 		{Name: ItemSkill, Status: install2checkStatus(skill.CheckStatus(paths.SkillPath, opts.Prefix))},
 		{Name: ItemClaudeMDStub, Status: stubStatus(paths.ClaudeMD)},
 	}
@@ -384,12 +379,6 @@ func wantPostToolUseEntry(opts Options) map[string]any {
 
 func wantPostToolUseFailureEntry(opts Options) map[string]any {
 	return hookEntry(HookMatcherPostToolUse, opts.hookCommand(subPostToolUseFailure), opts.timeoutSeconds())
-}
-
-// wantStopEntry is the Stop hook group. Stop takes no matcher, so it carries
-// the same empty one the PostToolUse groups do.
-func wantStopEntry(opts Options) map[string]any {
-	return hookEntry(HookMatcherPostToolUse, opts.hookCommand(subStop), opts.timeoutSeconds())
 }
 
 func hookEntry(matcher, command string, timeoutSeconds int) map[string]any {
