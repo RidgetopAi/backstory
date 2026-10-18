@@ -203,9 +203,6 @@ func runInstallInstall(adapters []install.Adapter, home string, opts install.Opt
 					_, _ = fmt.Fprintln(stdout, msg)
 				}
 			}
-			if n, ok := o.Adapter.(interface{ InstallNote() string }); ok {
-				_, _ = fmt.Fprintln(stdout, n.InstallNote())
-			}
 		case o.Conflict:
 			skipped = append(skipped, name)
 			if detected {

@@ -62,8 +62,9 @@ type PostToolUseParams struct {
 	// by the hook from that call's tool_response (task d0c8c84b). The hook
 	// only sets it for Backstory's own note tool.
 	RecordID string `json:"record_id,omitempty"`
-	// CommitAsk is set only by the Claude PostToolUse hook, the one caller
-	// that can hand additionalContext back to its model. Without it the
+	// CommitAsk is set only by a PostToolUse hook that can hand
+	// additionalContext back to its model (Claude, Codex, and Pi when its
+	// extension opts in). Without it the
 	// daemon still tracks HEAD but never settles or fires the commit ask.
 	CommitAsk bool `json:"commit_ask,omitempty"`
 }

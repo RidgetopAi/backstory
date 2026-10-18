@@ -49,18 +49,22 @@ type sessionStartPayload struct {
 // already refuses to trust.
 const harnessCodex = "codex"
 
+// harnessPi is the `--harness` value the Pi extension passes. Pi sets
+// CommitAsk only when the payload opts in (postToolUsePayload.BackstoryCommitAsk).
+const harnessPi = "pi"
+
 // A hook must never break a harness boot (AGENT-CONTRACT.md §The
 // SessionStart block): every failure path here — an unknown subcommand, an
 // unreadable payload, no daemon socket, a daemon error — prints nothing to
 // stdout, writes at most one line to stderr, and still exits 0.
 func runHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		_, _ = fmt.Fprintln(stderr, "backstory hook: usage: backstory hook session-start|post-tool-use|post-tool-use-failure|stop [--harness codex]")
+		_, _ = fmt.Fprintln(stderr, "backstory hook: usage: backstory hook session-start|post-tool-use|post-tool-use-failure|stop [--harness codex|pi]")
 		return 0
 	}
 	sub := args[0]
 	if sub != "session-start" && sub != "post-tool-use" && sub != "post-tool-use-failure" && sub != "stop" {
-		_, _ = fmt.Fprintln(stderr, "backstory hook: usage: backstory hook session-start|post-tool-use|post-tool-use-failure|stop [--harness codex]")
+		_, _ = fmt.Fprintln(stderr, "backstory hook: usage: backstory hook session-start|post-tool-use|post-tool-use-failure|stop [--harness codex|pi]")
 		return 0
 	}
 
@@ -242,6 +246,10 @@ type postToolUsePayload struct {
 	ToolUseID      string          `json:"tool_use_id"`
 	ToolInput      json.RawMessage `json:"tool_input"`
 	ToolResponse   json.RawMessage `json:"tool_response"`
+	// BackstoryCommitAsk is the explicit opt-in a caller sets when it can
+	// show the post-commit ask to the model (the Pi extension's tool_result
+	// handler). Claude and Codex show it by construction and need no field.
+	BackstoryCommitAsk bool `json:"backstory_commit_ask"`
 	// Error and IsInterrupt are the PostToolUseFailure payload's own fields:
 	// Claude Code reports a failed tool call with the error text instead of
 	// a tool_response.
@@ -464,7 +472,7 @@ type postToolUseHookSpecificOutput struct {
 }
 
 // runPostToolUseHook is `backstory hook post-tool-use`. It records the call
-// and, for Claude only, prints the daemon's post-commit outcome ask — once
+// and, for Claude, Codex and an opted-in Pi, prints the daemon's post-commit outcome ask — once
 // per session — as PostToolUse additionalContext (never a block decision).
 // Every other path prints nothing. Every failure path — capture-off, no
 // daemon socket, a decode or daemon error — writes at most one line to
@@ -491,14 +499,25 @@ func runPostToolUseHook(stdin io.Reader, stdout, stderr io.Writer, harness strin
 	}
 
 	if harness == harnessCodex {
-		return runCodexPostToolUseHook(payload, stderr)
+		return runCodexPostToolUseHook(payload, stdout, stderr)
 	}
 
 	params := buildPostToolUseParams(payload)
 	// The installer's verification run (BACKSTORY_NO_SESSION) must never
-	// settle or print the ask.
-	params.CommitAsk = os.Getenv(noSessionEnv) == ""
-	resp, err := callDaemon(payload.SessionID, mcp.DaemonMethodPostToolUse, params)
+	// settle or print the ask. Only a caller that can show the line sets
+	// CommitAsk: Pi must opt in, because its fire-and-forget path throws
+	// stdout away and the ask would be settled unseen.
+	params.CommitAsk = os.Getenv(noSessionEnv) == "" && (harness != harnessPi || payload.BackstoryCommitAsk)
+	return callAndPrintAsk(payload.SessionID, params, stdout, stderr)
+}
+
+// callAndPrintAsk sends one PostToolUse to the daemon and prints the ask it
+// returns, if any, as the PostToolUse additionalContext envelope — the only
+// object printed, with no decision, reason or suppressOutput (Codex's output
+// schema has additionalProperties:false). Failures write at most one stderr
+// line and return 0.
+func callAndPrintAsk(sessionID string, params mcp.PostToolUseParams, stdout, stderr io.Writer) int {
+	resp, err := callDaemon(sessionID, mcp.DaemonMethodPostToolUse, params)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory hook:", err)
 		return 0
@@ -568,7 +587,7 @@ func parseApplyPatchPaths(patch string) []string {
 // mapping does not yet know — records NOTHING and never dials the daemon at
 // all (DONE WHEN clause 3): never guess at a wire shape this hook has not
 // been told the meaning of.
-func runCodexPostToolUseHook(p postToolUsePayload, stderr io.Writer) int {
+func runCodexPostToolUseHook(p postToolUsePayload, stdout, stderr io.Writer) int {
 	switch p.ToolName {
 	case codexApplyPatchTool:
 		patch := inputStringField(p.ToolInput, "command")
@@ -581,10 +600,10 @@ func runCodexPostToolUseHook(p postToolUsePayload, stderr io.Writer) int {
 		}
 	case bashToolNameLiteral:
 		params := buildPostToolUseParams(p)
-		if _, err := callDaemon(p.SessionID, mcp.DaemonMethodPostToolUse, params); err != nil {
-			_, _ = fmt.Fprintln(stderr, "backstory hook:", err)
-			return 0
-		}
+		// Codex honors PostToolUse additionalContext, so the post-commit ask
+		// is shown; the installer's verification run must not settle it.
+		params.CommitAsk = os.Getenv(noSessionEnv) == ""
+		return callAndPrintAsk(p.SessionID, params, stdout, stderr)
 	}
 	return 0
 }

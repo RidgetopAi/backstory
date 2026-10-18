@@ -110,6 +110,89 @@ async function assertNoLeak(label) {
 }
 process.env.FAKE_HOOK_FAIL = "1";
 await assertNoLeak("failing hook");
+process.env.FAKE_HOOK_FAIL = "";
+
+// (4) bash tool_result: the hook is awaited, opted in, and its additionalContext
+// is appended to the result the model sees.
+const LINE = "Backstory: you committed. note an outcome";
+const envelope = JSON.stringify({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: LINE } });
+const hookCalls = () => log().filter((r) => r.argv[0] === "hook" && r.argv[1] === "post-tool-use");
+const fireResult = async (id, extra = {}) => {
+  const event = {
+    toolCallId: id,
+    toolName: "bash",
+    input: { command: "git commit -m x" },
+    content: [{ type: "text", text: "[main abc] x" }],
+    structuredContent: { exit_code: 0, marker: "keep" },
+    isError: false,
+    ...extra,
+  };
+  const out = (await pi.fire("tool_result", event, ctxFor("s2")))[0];
+  return { event, out };
+};
+const endFor = async (id) => {
+  const before = hookCalls().length;
+  await pi.fire("tool_execution_end", { toolCallId: id, toolName: "bash", result: { content: [] }, isError: false }, ctxFor("s2"));
+  await sleep(400);
+  return hookCalls().length - before;
+};
+
+process.env.FAKE_HOOK_STDOUT = envelope;
+{
+  const before = hookCalls().length;
+  const { event, out } = await fireResult("r1");
+  assert.deepEqual(out.content, [...event.content, { type: "text", text: LINE }], "clause 3: original content plus one text item");
+  assert.deepEqual(out.structuredContent, event.structuredContent, "clause 3: structuredContent preserved");
+  const calls = hookCalls().slice(before);
+  assert.equal(calls.length, 1);
+  const p = JSON.parse(calls[0].stdin);
+  assert.equal(p.backstory_commit_ask, true, "tool_result opts in to the ask");
+  assert.equal(p.tool_response.exit_code, 0, "numeric exit_code reaches the hook");
+  assert.equal(p.tool_input.command, "git commit -m x");
+  assert.equal(await endFor("r1"), 0, "clause 3: bash call not forwarded again from tool_execution_end");
+}
+// no numeric exit_code: none is sent.
+for (const sc of [undefined, {}, { exit_code: "0" }, { exit_code: null }]) {
+  const before = hookCalls().length;
+  await fireResult("r2", { structuredContent: sc });
+  const p = JSON.parse(hookCalls().slice(before)[0].stdin);
+  assert.equal("exit_code" in p.tool_response, false, `no exit_code invented for ${JSON.stringify(sc)}`);
+  await endFor("r2");
+}
+// a non-zero numeric exit code is forwarded as is.
+{
+  const before = hookCalls().length;
+  await fireResult("r3", { structuredContent: { exit_code: 2 } });
+  assert.equal(JSON.parse(hookCalls().slice(before)[0].stdin).tool_response.exit_code, 2);
+  await endFor("r3");
+}
+// silent hook, failing hook, timeout: the original result is returned unchanged.
+process.env.FAKE_HOOK_STDOUT = "";
+assert.equal((await fireResult("r4")).out, undefined, "silent hook leaves the result unchanged");
+assert.equal(await endFor("r4"), 0, "silent hook: still not forwarded twice");
+process.env.FAKE_HOOK_STDOUT = "not json";
+assert.equal((await fireResult("r4b")).out, undefined, "non-envelope output leaves the result unchanged");
+await endFor("r4b");
+process.env.FAKE_HOOK_STDOUT = envelope;
+process.env.FAKE_HOOK_FAIL = "1";
+assert.equal((await fireResult("r5")).out, undefined, "failing hook leaves the result unchanged");
+assert.equal(await endFor("r5"), 0, "failing hook: not forwarded again");
+process.env.FAKE_HOOK_FAIL = "";
+process.env.FAKE_HOOK_SLEEP_MS = "4000";
+{
+  const t0 = Date.now();
+  assert.equal((await fireResult("r6")).out, undefined, "timed-out hook leaves the result unchanged");
+  assert.ok(Date.now() - t0 < 3500, "the result hook is bounded");
+  assert.equal(await endFor("r6"), 0, "timed-out hook: not forwarded again");
+}
+process.env.FAKE_HOOK_SLEEP_MS = "";
+process.env.FAKE_HOOK_STDOUT = "";
+// non-bash tools keep the fire-and-forget path and are not touched by tool_result.
+{
+  const out = (await pi.fire("tool_result", { toolCallId: "n1", toolName: "read", content: [], isError: false }, ctxFor("s2")))[0];
+  assert.equal(out, undefined);
+  assert.equal(await endFor("n1"), 1, "a call tool_result did not handle still takes the fire-and-forget path");
+}
 await pi.fire("session_shutdown", { reason: "quit" }, ctxFor("s2"));
 console.log("PI EXTENSION OK");
 }

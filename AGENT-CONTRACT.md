@@ -185,6 +185,13 @@ What V1 does, and does not, do:
   session has written no record. It is context, never a block decision. HEAD moving without
   the session's own commit (another agent, a pull) never triggers it. There is no Stop
   hook nudge; `backstory hook stop` is a silent exit-0 no-op kept for stale registrations.
+- The ask is opt-in: only a caller that can show the line to the model sends `commit_ask`,
+  and a caller that cannot must not settle it or move the session's last-seen HEAD. Claude
+  and Codex (`--harness codex`, Bash only) print the same `hookSpecificOutput`
+  `additionalContext` envelope and nothing else. Pi (`--harness pi`) sets it only when the
+  payload carries `backstory_commit_ask: true`; the Pi extension's `tool_result` handler
+  does, awaits the hook for at most 2 s, and appends the line to the bash result. An older
+  Pi extension without the field records exactly as before and never settles the ask.
 - The agent's side of proof is `note({kind:'outcome', evidence:[event_id]})`; `timeline`
   exists so it can cite the id, and the daemon rejects an evidence id that is not a real
   timeline event. A claim without evidence is recorded as a claim.
