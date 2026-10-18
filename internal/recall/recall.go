@@ -581,6 +581,10 @@ func statusLabel(item Item) string {
 func staleReasonSummary(reasons []store.FreshnessReason) string {
 	parts := make([]string, len(reasons))
 	for i, r := range reasons {
+		if r.Kind == store.FreshnessLaterUnrecordedWork {
+			parts[i] = r.UnrecordedWorkClause()
+			continue
+		}
 		ids := make([]string, 0, len(r.RecordIDs)+len(r.EventIDs))
 		for _, id := range r.RecordIDs {
 			ids = append(ids, shortID(id))

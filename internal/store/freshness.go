@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/RidgetopAi/backstory/internal/payload"
@@ -31,6 +32,11 @@ const (
 	// the handoff's "it works" no longer holds, whoever ran it and whether or
 	// not any file was edited.
 	FreshnessLaterFailure FreshnessReasonKind = "later-failure"
+	// FreshnessLaterUnrecordedWork is reason (e): a session in the handoff's
+	// home, other than the handoff's own, did observed file edits after the
+	// boundary and wrote no live record since — the Stop nudge's purpose,
+	// at zero tokens. Needs no about[] path.
+	FreshnessLaterUnrecordedWork FreshnessReasonKind = "later-unrecorded-work"
 )
 
 // FreshnessReason is one reason HandoffFreshness flagged a handoff, with the
@@ -44,6 +50,25 @@ type FreshnessReason struct {
 	// Failures describes each FreshnessLaterFailure event in EventIDs order:
 	// what failed, so a reader can say so instead of citing a bare id.
 	Failures []FailureDetail
+	// Sessions and Files summarize a FreshnessLaterUnrecordedWork reason: the
+	// number of such sessions and the total distinct edited paths.
+	Sessions int
+	Files    int
+}
+
+// UnrecordedWorkClause is the one-clause summary of a
+// FreshnessLaterUnrecordedWork reason shared by the block, recall, export and
+// week renderers: "since then 1 session edited 2 files and wrote no note".
+func (r FreshnessReason) UnrecordedWorkClause() string {
+	return fmt.Sprintf("since then %d %s edited %d %s and wrote no note",
+		r.Sessions, pluralize(r.Sessions, "session", "sessions"), r.Files, pluralize(r.Files, "file", "files"))
+}
+
+func pluralize(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
 }
 
 // FailureDetail is one agent failure behind a FreshnessLaterFailure reason.
@@ -131,7 +156,78 @@ func (s *Store) HandoffFreshness(h Record, workspaces []string) ([]FreshnessReas
 		reasons = append(reasons, FreshnessReason{Kind: FreshnessLaterFailure, EventIDs: ids, Failures: failures})
 	}
 
+	unrecorded, err := s.laterUnrecordedWork(h, sessionIDs, boundaryID, boundaryEventCursor)
+	if err != nil {
+		return nil, err
+	}
+	if unrecorded.Sessions > 0 {
+		reasons = append(reasons, unrecorded)
+	}
+
 	return reasons, nil
+}
+
+// laterUnrecordedWork builds the FreshnessLaterUnrecordedWork reason: among
+// sessionIDs (the home scope), every session other than h's own with at
+// least one mutating file tool.use after boundaryEventCursor and no live
+// decision/note/outcome/handoff record inserted after boundaryID. The
+// evidence is the sessions' own tool events, never repo git state. Zero
+// Sessions means no reason.
+func (s *Store) laterUnrecordedWork(h Record, sessionIDs []string, boundaryID string, boundaryEventCursor int64) (FreshnessReason, error) {
+	reason := FreshnessReason{Kind: FreshnessLaterUnrecordedWork}
+	var others []string
+	for _, id := range sessionIDs {
+		if id != h.SessionID {
+			others = append(others, id)
+		}
+	}
+	events, err := s.eventsSinceIDForSessions(others, boundaryEventCursor)
+	if err != nil {
+		return reason, err
+	}
+	paths := map[string]map[string]bool{} // session -> distinct edited paths
+	eventIDs := map[string][]int64{}      // session -> its mutating tool.use ids
+	for _, e := range events {
+		if e.Kind != payload.KindToolUse {
+			continue
+		}
+		var tu payload.ToolUse
+		if json.Unmarshal([]byte(e.Payload), &tu) != nil || !payload.IsMutatingFileTool(tu.Name) {
+			continue
+		}
+		if paths[e.SessionID] == nil {
+			paths[e.SessionID] = map[string]bool{}
+		}
+		if tu.Path != "" {
+			paths[e.SessionID][filepath.Clean(tu.Path)] = true
+		}
+		eventIDs[e.SessionID] = append(eventIDs[e.SessionID], e.ID)
+	}
+	allPaths := map[string]bool{}
+	for _, id := range others {
+		ps, edited := paths[id]
+		if !edited {
+			continue
+		}
+		var recorded int
+		if err := s.db.QueryRow(`SELECT COUNT(*) FROM records
+			WHERE session_id = ? AND kind IN (?, ?, ?, ?) AND tombstoned_at IS NULL
+			AND rowid > (SELECT rowid FROM records WHERE id = ?)`,
+			id, string(KindHandoff), string(KindOutcome), string(KindNote), string(KindDecision), boundaryID).Scan(&recorded); err != nil {
+			return reason, fmt.Errorf("store: records of session %s after %s: %w", id, boundaryID, err)
+		}
+		if recorded > 0 {
+			continue
+		}
+		reason.Sessions++
+		reason.EventIDs = append(reason.EventIDs, eventIDs[id]...)
+		for p := range ps {
+			allPaths[p] = true
+		}
+	}
+	reason.Files = len(allPaths)
+	sort.Slice(reason.EventIDs, func(i, j int) bool { return reason.EventIDs[i] < reason.EventIDs[j] })
+	return reason, nil
 }
 
 // laterFailureEvents returns, ascending by id, the AGENT tool.result

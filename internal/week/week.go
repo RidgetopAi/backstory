@@ -961,6 +961,9 @@ func freshnessReasonSummary(reasons []store.FreshnessReason) string {
 		if r.Kind == store.FreshnessLaterFailure && len(r.Failures) > 0 {
 			clauses[i] = failureClause(r.Failures)
 		}
+		if r.Kind == store.FreshnessLaterUnrecordedWork {
+			clauses[i] = r.UnrecordedWorkClause()
+		}
 	}
 	return strings.Join(clauses, "; ")
 }

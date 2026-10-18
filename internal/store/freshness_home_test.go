@@ -61,8 +61,10 @@ func TestHandoffFreshnessScopesToHomeAcrossRepos(t *testing.T) {
 	if err != nil {
 		t.Fatalf("HandoffFreshness: %v", err)
 	}
-	if len(reasons) != 1 {
-		t.Fatalf("HandoffFreshness = %+v, want exactly 1 reason (the cross-repo later edit)", reasons)
+	// The omarcade session also did unrecorded work in the home, so
+	// later-unrecorded-work rides after later-activity in the fixed order.
+	if len(reasons) != 2 || reasons[1].Kind != FreshnessLaterUnrecordedWork {
+		t.Fatalf("HandoffFreshness = %+v, want later-activity then later-unrecorded-work", reasons)
 	}
 	if reasons[0].Kind != FreshnessLaterActivity {
 		t.Fatalf("reason kind = %q, want %q", reasons[0].Kind, FreshnessLaterActivity)

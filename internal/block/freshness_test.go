@@ -168,3 +168,23 @@ func TestRenderUnflaggedHandoffRendersExactlyAsBefore(t *testing.T) {
 // "" { line += "\n" + marker }` block -> RED
 // (TestRenderResumeSlotShowsPossiblyStaleMarkerAndAttentionCountsIt: "⚠
 // possibly stale:" is missing from the Resume slot); restore it -> GREEN.
+
+// DONE WHEN (4): the SessionStart block shows a handoff with an empty about[]
+// as possibly stale when a later session edited files and wrote nothing.
+func TestRenderResumeSlotShowsUnrecordedWorkClause(t *testing.T) {
+	s := newTestStore(t)
+	mustUpsertProject(t, s, testProjectKey)
+	a := mustStartSession(t, s, "claude", "/proj", 100)
+	handoff := mustInsertHandoffAbout(t, s, a, "resume", nil)
+	b := mustStartSession(t, s, "claude", "/proj", 101)
+	ts := handoff.TS.Add(time.Minute)
+	mustAppendToolUseNamed(t, s, b, ts, "Edit", "/proj/a.go")
+	mustAppendToolUseNamed(t, s, b, ts, "Write", "/proj/b.go")
+	mustAppendToolUseNamed(t, s, b, ts, "Edit", "/proj/a.go")
+	self := mustStartSession(t, s, "claude", "/proj", 102)
+
+	out := mustRender(t, s, fakeProcFS{}, self)
+	if !strings.Contains(out, "⚠ possibly stale: since then 1 session edited 2 files and wrote no note") {
+		t.Errorf("missing unrecorded-work clause; got:\n%s", out)
+	}
+}
