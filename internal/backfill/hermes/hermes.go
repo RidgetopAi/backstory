@@ -40,7 +40,7 @@ const (
 	// importer writes: SCHEMA.md enumerates it as `backfill` and retention
 	// keys on it. The importer identity ("hermes") is the cursor key only,
 	// never the event source.
-	EventSource = "backfill"
+	EventSource = store.SourceBackfill
 	// Agent is store.Session.Agent for every session this importer creates.
 	Agent = "hermes"
 
@@ -461,6 +461,12 @@ func importSession(st *store.Store, db *sql.DB, git project.Git, workspaces []st
 		if paused, err := capture.StartedInPause(st, hs.StartedAt); err != nil {
 			return err
 		} else if paused {
+			return nil
+		}
+		// A live-captured session the human purged must not come back.
+		if purged, err := capture.RefusePurgedRun(st, Source, cursorPath, hs.ID); err != nil {
+			return err
+		} else if purged {
 			return nil
 		}
 		// The match ignores ended state (task a757b754).

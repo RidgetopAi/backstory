@@ -82,3 +82,66 @@ func TestImportSkipsPurgedSessionWithNoCursor(t *testing.T) {
 		t.Errorf("non-purged session sess-c has no events")
 	}
 }
+
+func liveClaudeSession(t *testing.T, st *store.Store) string {
+	t.Helper()
+	if err := st.UpsertProject(store.Project{Key: "/home/alice/my-app", Toplevel: "/home/alice/my-app"}); err != nil {
+		t.Fatal(err)
+	}
+	id, err := st.StartSession(store.StartSessionParams{
+		Agent: Agent, HarnessSessionID: "sess-a-uuid", CWD: "/home/alice/my-app",
+		ProjectKey: "/home/alice/my-app", StartedAt: mustParseRFC3339(t, "2026-01-01T00:00:00Z"), Origin: store.OriginLive,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+func countWhere(t *testing.T, st *store.Store, q string, args ...any) int {
+	t.Helper()
+	var n int
+	if err := st.DB().QueryRow(q, args...).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+// Purged live session: two backfill runs add no events and mint no session.
+//
+// RA-MUTATION-PROBE: the HarnessSessionPurged check removed -> RED.
+func TestBackfillDoesNotReimportPurgedLiveSessionTwice(t *testing.T) {
+	st := mustOpenStore(t)
+	root := filepath.Join("testdata", "import", "projects")
+	id := liveClaudeSession(t, st)
+	if _, err := st.PurgeSessions(store.PurgeScope{SessionID: id}, purgeHuman); err != nil {
+		t.Fatal(err)
+	}
+	for run := 1; run <= 2; run++ {
+		if _, err := Import(st, Options{Root: root, Git: fakeGit{}}); err != nil {
+			t.Fatal(err)
+		}
+		if n := countWhere(t, st, `SELECT COUNT(*) FROM timeline_events WHERE session_id = ?`, id); n != 0 {
+			t.Errorf("run %d: purged session has %d events", run, n)
+		}
+		if n := countWhere(t, st, `SELECT COUNT(*) FROM sessions WHERE harness_session_id = 'sess-a-uuid'`); n != 1 {
+			t.Errorf("run %d: %d sessions for H, want 1", run, n)
+		}
+	}
+}
+
+// Positive control: without the purge the live session is attached and filled.
+func TestBackfillAttachesToUnpurgedLiveSession(t *testing.T) {
+	st := mustOpenStore(t)
+	root := filepath.Join("testdata", "import", "projects")
+	id := liveClaudeSession(t, st)
+	if _, err := Import(st, Options{Root: root, Git: fakeGit{}}); err != nil {
+		t.Fatal(err)
+	}
+	if n := countWhere(t, st, `SELECT COUNT(*) FROM timeline_events WHERE session_id = ?`, id); n == 0 {
+		t.Errorf("unpurged live session got no events")
+	}
+	if n := countWhere(t, st, `SELECT COUNT(*) FROM sessions WHERE harness_session_id = 'sess-a-uuid'`); n != 1 {
+		t.Errorf("%d sessions for H, want 1", n)
+	}
+}

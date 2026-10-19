@@ -67,3 +67,20 @@ func FillTimes(ts []*time.Time) bool {
 	}
 	return true
 }
+
+// RefusePurgedRun reports whether the run carrying harnessSessionID was
+// purged (a live-captured session the human erased). When it was, the
+// refusal is recorded as a cursor on the purged session, keyed on
+// source+path, so later runs short-circuit on the cursor instead of
+// re-deciding every time; nothing is written to the session itself. Call it
+// only when no cursor exists yet.
+func RefusePurgedRun(st *store.Store, source, path, harnessSessionID string) (bool, error) {
+	id, ok, err := st.PurgedSessionByHarnessSessionID(harnessSessionID)
+	if err != nil || !ok {
+		return false, err
+	}
+	if err := st.SetBackfillCursor(source, path, store.BackfillCursor{SessionID: id}); err != nil {
+		return false, err
+	}
+	return true, nil
+}

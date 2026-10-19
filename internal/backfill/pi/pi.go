@@ -31,7 +31,7 @@ const (
 	// importer writes (SCHEMA.md enumerates it as `backfill`, matching
 	// internal/backfill/claude.EventSource — the importer identity ("pi")
 	// is the cursor key only, never the event source).
-	EventSource = "backfill"
+	EventSource = store.SourceBackfill
 	// Agent is store.Session.Agent for every session this importer creates.
 	Agent = "pi"
 
@@ -245,6 +245,13 @@ func importFile(st *store.Store, git project.Git, workspaces []string, path stri
 	if paused, err := capture.StartedInPause(st, root.Timestamp); err != nil {
 		return fileStats{}, err
 	} else if paused {
+		return fileStats{}, nil
+	}
+
+	// A live-captured session the human purged must not come back.
+	if purged, err := capture.RefusePurgedRun(st, Source, path, root.ID); err != nil {
+		return fileStats{}, err
+	} else if purged {
 		return fileStats{}, nil
 	}
 
