@@ -11,6 +11,12 @@ import (
 	"github.com/RidgetopAi/backstory/internal/payload"
 )
 
+// SourceBackfill is the timeline_events.source every backfill importer writes.
+const SourceBackfill = "backfill"
+
+// ErrSessionPurged is returned when a backfill append targets a purged session.
+var ErrSessionPurged = errors.New("store: session is purged; backfill may not write to it")
+
 // Event is a row to append to timeline_events. Only the daemon ever calls
 // AppendEvent (AGENT-CONTRACT.md §The never-list, item 4) — the socket API
 // exposes no event write.
@@ -29,7 +35,20 @@ type Event struct {
 // Payload is redacted before storage (redact.go), the same rule
 // InsertRecord applies to records.text (SCHEMA.md invariant 6: redaction on
 // every payload, not just the ledger).
+//
+// A backfill-source event for a purged session is refused with
+// ErrSessionPurged: purge is a human erase that backfill must never undo
+// (AGENT-CONTRACT.md), so the gate lives here and a future importer cannot
+// forget it. Live and daemon appends are not gated — a purged session only
+// ever receives them from a capture that is still running.
 func (s *Store) AppendEvent(e Event) (int64, error) {
+	if e.Source == SourceBackfill && e.SessionID != "" {
+		if purged, err := s.SessionPurged(e.SessionID); err != nil {
+			return 0, err
+		} else if purged {
+			return 0, fmt.Errorf("%w: %s", ErrSessionPurged, e.SessionID)
+		}
+	}
 	res, err := s.db.Exec(`INSERT INTO timeline_events (ts, kind, session_id, source, payload, workspace, window)
 		VALUES (?, ?, ?, ?, ?, ?, ?)`,
 		tsToNanos(e.TS), e.Kind, nullable(e.SessionID), e.Source, Redact(e.Payload),

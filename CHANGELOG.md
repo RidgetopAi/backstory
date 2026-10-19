@@ -11,6 +11,10 @@ flow and its approval gates.
 
 ## [Unreleased]
 
+### Fixed
+
+- Backfill no longer re-imports into a purged live session (task 3a28a070). Codex and Hermes checked purge only when a backfill cursor existed, and Pi not at all, so the first backfill of a live-captured session that was then purged attached to it and wrote its events back. Every importer now refuses a purged run whether or not a cursor exists and records a cursor on the purged session so it is not re-decided each run; the store also refuses any `source=backfill` event for a purged session (`ErrSessionPurged`), so a future importer cannot forget it. Live appends are unaffected.
+
 ### Changed
 
 - The post-commit outcome ask now reaches Codex and Pi (task 8626f7ca). The Codex PostToolUse hook prints the same `additionalContext` envelope for a Bash `git commit` that moved HEAD (hooks.json is unchanged, so existing trust entries stay valid). `--harness pi` sets the ask only when the payload carries `backstory_commit_ask: true`; before, a Pi session's first commit silently used up its ask because the extension discarded the hook's stdout. The Pi extension's new `tool_result` handler for bash awaits the hook (2 s bound) and appends the line to the result, does not forward that call again from `tool_execution_end`, and sends the exit code Pi reports (`structuredContent.exit_code`) only when it is a number. The `install codex` "Claude-only" note is removed.

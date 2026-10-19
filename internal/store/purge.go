@@ -271,21 +271,28 @@ func (s *Store) SessionPurged(id string) (bool, error) {
 	return true, nil
 }
 
-// HarnessSessionPurged reports whether a session with this
-// harness_session_id was purged — a transcript never imported (no cursor)
-// but whose live-captured session was purged must not come back either.
-func (s *Store) HarnessSessionPurged(harnessSessionID string) (bool, error) {
+// PurgedSessionByHarnessSessionID returns the id of a purged session with
+// this harness_session_id — a transcript never imported (no cursor) but
+// whose live-captured session was purged must not come back either.
+func (s *Store) PurgedSessionByHarnessSessionID(harnessSessionID string) (string, bool, error) {
 	if harnessSessionID == "" {
-		return false, nil
+		return "", false, nil
 	}
-	var n int
-	err := s.db.QueryRow(`SELECT 1 FROM sessions WHERE harness_session_id = ? AND purged_at IS NOT NULL LIMIT 1`,
-		harnessSessionID).Scan(&n)
+	var id string
+	err := s.db.QueryRow(`SELECT id FROM sessions WHERE harness_session_id = ? AND purged_at IS NOT NULL LIMIT 1`,
+		harnessSessionID).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
+		return "", false, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("store: harness session purged %s: %w", harnessSessionID, err)
+		return "", false, fmt.Errorf("store: harness session purged %s: %w", harnessSessionID, err)
 	}
-	return true, nil
+	return id, true, nil
+}
+
+// HarnessSessionPurged reports whether a session with this
+// harness_session_id was purged.
+func (s *Store) HarnessSessionPurged(harnessSessionID string) (bool, error) {
+	_, ok, err := s.PurgedSessionByHarnessSessionID(harnessSessionID)
+	return ok, err
 }

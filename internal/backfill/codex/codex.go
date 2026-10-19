@@ -27,7 +27,7 @@ const (
 	// importer writes: SCHEMA.md enumerates it as `backfill` and retention
 	// keys on it. The importer identity ("codex") is the cursor key only,
 	// never the event source.
-	EventSource = "backfill"
+	EventSource = store.SourceBackfill
 	// Agent is store.Session.Agent for every session this importer creates.
 	Agent = "codex"
 
@@ -294,6 +294,12 @@ func importFile(st *store.Store, git project.Git, workspaces []string, path, par
 		if paused, err := capture.StartedInPause(st, firstTS); err != nil {
 			return fileStats{}, err
 		} else if paused {
+			return fileStats{}, nil
+		}
+		// A live-captured session the human purged must not come back.
+		if purged, err := capture.RefusePurgedRun(st, Source, path, firstHarnessSessionID(parsedLines)); err != nil {
+			return fileStats{}, err
+		} else if purged {
 			return fileStats{}, nil
 		}
 		// The same run already recorded (cursor lost, or another copy of

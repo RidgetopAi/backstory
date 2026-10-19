@@ -175,3 +175,35 @@ func TestPurgeMixedScopeSelectsOnlyUnpurged(t *testing.T) {
 		t.Error("fresh session not purged")
 	}
 }
+
+// A backfill-source append to a purged session is refused; a live-source
+// append to the same session, and a backfill append to an unpurged one, are
+// not. (Live capture of a purged session is the daemon's own decision; the
+// gate exists because backfill replays history the human erased.)
+func TestAppendEventRefusesBackfillOnPurgedSession(t *testing.T) {
+	s := mustOpen(t, filepath.Join(t.TempDir(), "backstory.db"))
+	mk := func(h string) string {
+		id, err := s.StartSession(StartSessionParams{Agent: "codex", HarnessSessionID: h, CWD: "/w", StartedAt: time.Now(), Origin: OriginLive})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	purged, other := mk("p"), mk("o")
+	if _, err := s.PurgeSessions(PurgeScope{SessionID: purged}, Identity{Kind: IdentityHuman, Actor: "human"}); err != nil {
+		t.Fatal(err)
+	}
+	ev := func(sid, src string) error {
+		_, err := s.AppendEvent(Event{TS: time.Now(), Kind: "tool.use", SessionID: sid, Source: src, Payload: "{}"})
+		return err
+	}
+	if err := ev(purged, SourceBackfill); !errors.Is(err, ErrSessionPurged) {
+		t.Errorf("backfill append to purged = %v, want ErrSessionPurged", err)
+	}
+	if err := ev(purged, "posttooluse"); err != nil {
+		t.Errorf("live append to purged session refused: %v", err)
+	}
+	if err := ev(other, SourceBackfill); err != nil {
+		t.Errorf("backfill append to unpurged session refused: %v", err)
+	}
+}

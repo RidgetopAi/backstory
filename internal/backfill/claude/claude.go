@@ -27,7 +27,7 @@ const (
 	// EventSource is the timeline_events.source value for everything this importer
 	// writes: SCHEMA.md enumerates it as `backfill` and retention keys on it. The
 	// importer identity ("claude") is the cursor key only, never the event source.
-	EventSource = "backfill"
+	EventSource = store.SourceBackfill
 	// Agent is store.Session.Agent for every session this importer creates.
 	Agent = "claude"
 
@@ -260,7 +260,7 @@ func importFile(st *store.Store, git project.Git, workspaces []string, path stri
 		}
 		// A transcript never imported whose session was purged (a live
 		// session the human erased) must not come back either.
-		if purged, err := st.HarnessSessionPurged(firstHarnessSessionID(parsedLines)); err != nil {
+		if purged, err := capture.RefusePurgedRun(st, Source, path, firstHarnessSessionID(parsedLines)); err != nil {
 			return fileStats{}, err
 		} else if purged {
 			return fileStats{}, nil
