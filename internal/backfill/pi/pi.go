@@ -282,7 +282,7 @@ func importFile(st *store.Store, git project.Git, workspaces []string, path stri
 		return fileStats{}, err
 	}
 	if !hasStart {
-		if _, err := st.AppendEvent(store.Event{
+		if appended, err := capture.AppendBackfill(st, store.Event{
 			TS:        root.Timestamp,
 			Kind:      EventSessionStart,
 			SessionID: sessionID,
@@ -290,8 +290,9 @@ func importFile(st *store.Store, git project.Git, workspaces []string, path stri
 			Payload:   sessionStartPayload(order),
 		}); err != nil {
 			return fileStats{}, err
+		} else if appended {
+			stats.events++
 		}
-		stats.events++
 	}
 
 	n, err := appendToolEvents(st, sessionID, order[1:])
@@ -314,13 +315,14 @@ func importFile(st *store.Store, git project.Git, workspaces []string, path stri
 		if err != nil {
 			return fileStats{}, err
 		}
-		if _, err := st.AppendEvent(store.Event{
+		if appended, err := capture.AppendBackfill(st, store.Event{
 			TS: lastTS, Kind: EventSessionEnd, SessionID: sessionID,
 			Source: EventSource, Payload: string(endPayload),
 		}); err != nil {
 			return fileStats{}, err
+		} else if appended {
+			stats.events++
 		}
-		stats.events++
 
 		if err := st.EndSession(sessionID, lastTS, "backfill"); err != nil {
 			return fileStats{}, err
@@ -421,13 +423,14 @@ func appendToolEvents(st *store.Store, sessionID string, lines []treeLine) (int,
 				if err != nil {
 					return n, err
 				}
-				if _, err := st.AppendEvent(store.Event{
+				if appended, err := capture.AppendBackfill(st, store.Event{
 					TS: l.Timestamp, Kind: EventToolUse, SessionID: sessionID,
 					Source: EventSource, Payload: string(payloadBytes),
 				}); err != nil {
 					return n, err
+				} else if appended {
+					n++
 				}
-				n++
 			}
 		case l.Type == "toolResult":
 			if l.ToolCallID == "" {
@@ -446,13 +449,14 @@ func appendToolEvents(st *store.Store, sessionID string, lines []treeLine) (int,
 			if err != nil {
 				return n, err
 			}
-			if _, err := st.AppendEvent(store.Event{
+			if appended, err := capture.AppendBackfill(st, store.Event{
 				TS: l.Timestamp, Kind: EventToolResult, SessionID: sessionID,
 				Source: EventSource, Payload: string(payloadBytes),
 			}); err != nil {
 				return n, err
+			} else if appended {
+				n++
 			}
-			n++
 		}
 	}
 	return n, nil

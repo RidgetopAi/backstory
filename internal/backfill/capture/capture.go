@@ -6,6 +6,7 @@
 package capture
 
 import (
+	"errors"
 	"time"
 
 	"github.com/RidgetopAi/backstory/internal/store"
@@ -80,6 +81,21 @@ func RefusePurgedRun(st *store.Store, source, path, harnessSessionID string) (bo
 		return false, err
 	}
 	if err := st.SetBackfillCursor(source, path, store.BackfillCursor{SessionID: id}); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// AppendBackfill appends a backfill event, reporting whether it was actually
+// written. The store refuses a backfill append to a purged session with
+// store.ErrSessionPurged; that refusal is not an error for an importer (the
+// human erased the session) and must not be counted as a created event, so
+// it returns (false, nil).
+func AppendBackfill(st *store.Store, e store.Event) (bool, error) {
+	if _, err := st.AppendEvent(e); err != nil {
+		if errors.Is(err, store.ErrSessionPurged) {
+			return false, nil
+		}
 		return false, err
 	}
 	return true, nil

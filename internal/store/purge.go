@@ -64,19 +64,21 @@ type purgeQuerier interface {
 	QueryRow(query string, args ...any) *sql.Row
 }
 
-// purgeSelection resolves the scope to session ids (skipping sessions already
-// tombstoned by an earlier purge, so a re-check reports nothing left) and the WHERE clause (with
-// args) matching the events to delete.
-func (s *Store) purgeSelection(q purgeQuerier, sc PurgeScope) (ids []string, evWhere string, evArgs []any, err error) {
+// purgeSelection resolves the scope to session ids and the WHERE clause (with
+// args) matching the events to delete. Sessions already purged are selected
+// too, so a re-purge erases events still attached to them (a leak from before
+// the backfill purge gate); they keep their purged_at and are not counted in
+// fresh, the number of sessions this purge newly stamps.
+func (s *Store) purgeSelection(q purgeQuerier, sc PurgeScope) (ids []string, fresh int, evWhere string, evArgs []any, err error) {
 	var rows *sql.Rows
 	switch {
 	case sc.SessionID != "" && sc.ProjectKey == "":
-		rows, err = q.Query(`SELECT id FROM sessions WHERE id = ? AND purged_at IS NULL`, sc.SessionID)
+		rows, err = q.Query(`SELECT id FROM sessions WHERE id = ?`, sc.SessionID)
 	case sc.ProjectKey != "" && sc.SessionID == "":
-		query := `SELECT id FROM sessions WHERE project_key = ? AND purged_at IS NULL`
+		query := `SELECT id FROM sessions WHERE project_key = ?`
 		args := []any{s.canonicalizeProjectKey(sc.ProjectKey)}
 		if sc.Location != nil {
-			query, args = `SELECT id FROM sessions WHERE purged_at IS NULL`, nil
+			query, args = `SELECT id FROM sessions WHERE 1 = 1`, nil
 		}
 		if !sc.Since.IsZero() {
 			query += ` AND started_at >= ?`
@@ -88,14 +90,14 @@ func (s *Store) purgeSelection(q purgeQuerier, sc PurgeScope) (ids []string, evW
 		}
 		rows, err = q.Query(query, args...)
 	default:
-		return nil, "", nil, errors.New("store: purge: scope needs exactly one of session id or project key")
+		return nil, 0, "", nil, errors.New("store: purge: scope needs exactly one of session id or project key")
 	}
 	if err != nil {
-		return nil, "", nil, fmt.Errorf("store: purge: select sessions: %w", err)
+		return nil, 0, "", nil, fmt.Errorf("store: purge: select sessions: %w", err)
 	}
 	ids, err = scanIDs(rows)
 	if err != nil {
-		return nil, "", nil, fmt.Errorf("store: purge: select sessions: %w", err)
+		return nil, 0, "", nil, fmt.Errorf("store: purge: select sessions: %w", err)
 	}
 	if sc.Location != nil {
 		kept := ids[:0]
@@ -105,6 +107,17 @@ func (s *Store) purgeSelection(q purgeQuerier, sc PurgeScope) (ids []string, evW
 			}
 		}
 		ids = kept
+	}
+
+	if len(ids) > 0 {
+		marks := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+		args := make([]any, len(ids))
+		for i, id := range ids {
+			args[i] = id
+		}
+		if err := q.QueryRow(`SELECT COUNT(*) FROM sessions WHERE purged_at IS NULL AND id IN (`+marks+`)`, args...).Scan(&fresh); err != nil { //nolint:gosec // marks is only "?" placeholders
+			return nil, 0, "", nil, fmt.Errorf("store: purge: count sessions: %w", err)
+		}
 	}
 
 	var clauses []string
@@ -130,9 +143,9 @@ func (s *Store) purgeSelection(q purgeQuerier, sc PurgeScope) (ids []string, evW
 		clauses = append(clauses, "("+c+")")
 	}
 	if len(clauses) == 0 {
-		return ids, "", nil, nil
+		return ids, fresh, "", nil, nil
 	}
-	return ids, strings.Join(clauses, " OR "), evArgs, nil
+	return ids, fresh, strings.Join(clauses, " OR "), evArgs, nil
 }
 
 func countEvents(q purgeQuerier, where string, args []any) (int, error) {
@@ -178,7 +191,7 @@ func (s *Store) purgeRecordIDs(q purgeQuerier, sc PurgeScope) ([]string, error) 
 // PurgePreview reports the exact counts PurgeSessions would remove for sc,
 // writing nothing.
 func (s *Store) PurgePreview(sc PurgeScope) (PurgeCounts, error) {
-	ids, where, args, err := s.purgeSelection(s.db, sc)
+	_, fresh, where, args, err := s.purgeSelection(s.db, sc)
 	if err != nil {
 		return PurgeCounts{}, err
 	}
@@ -190,7 +203,7 @@ func (s *Store) PurgePreview(sc PurgeScope) (PurgeCounts, error) {
 	if err != nil {
 		return PurgeCounts{}, err
 	}
-	return PurgeCounts{Sessions: len(ids), Events: n, Records: len(recIDs)}, nil
+	return PurgeCounts{Sessions: fresh, Events: n, Records: len(recIDs)}, nil
 }
 
 // PurgeSessions erases the timeline events of the sessions sc selects, in
@@ -211,7 +224,7 @@ func (s *Store) PurgeSessions(sc PurgeScope, identity Identity) (PurgeCounts, er
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	ids, where, args, err := s.purgeSelection(tx, sc)
+	ids, fresh, where, args, err := s.purgeSelection(tx, sc)
 	if err != nil {
 		return PurgeCounts{}, err
 	}
@@ -246,7 +259,7 @@ func (s *Store) PurgeSessions(sc PurgeScope, identity Identity) (PurgeCounts, er
 		}
 	}
 	if _, err := tx.Exec(`INSERT INTO purge_log (ts, scope, sessions, events, records) VALUES (?, ?, ?, ?, ?)`,
-		now, sc.String(), len(ids), n, len(recIDs)); err != nil {
+		now, sc.String(), fresh, n, len(recIDs)); err != nil {
 		return PurgeCounts{}, fmt.Errorf("store: purge: log: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
@@ -255,7 +268,7 @@ func (s *Store) PurgeSessions(sc PurgeScope, identity Identity) (PurgeCounts, er
 	if err := s.checkpointTruncate(); err != nil {
 		return PurgeCounts{}, err
 	}
-	return PurgeCounts{Sessions: len(ids), Events: n, Records: len(recIDs)}, nil
+	return PurgeCounts{Sessions: fresh, Events: n, Records: len(recIDs)}, nil
 }
 
 // SessionPurged reports whether session id carries purged_at.
