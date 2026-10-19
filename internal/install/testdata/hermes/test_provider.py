@@ -100,6 +100,15 @@ class FakeDaemon:
         return self.replies.get(req["method"], {"result": {}})
 
     def close(self):
+        # Wake the serve thread's blocked accept() and join it BEFORE closing
+        # the fd. Closing under a live accept() lets the next test's listener
+        # reuse the same fd number, and the stale thread's accept() then steals
+        # that test's connections into this (dead) daemon's requests list.
+        try:
+            self.srv.shutdown(socket.SHUT_RDWR)
+        except OSError:
+            pass
+        self.thread.join(5)
         self.srv.close()
         if os.path.exists(self.path):
             os.unlink(self.path)
