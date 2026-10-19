@@ -23,9 +23,8 @@ git clone https://github.com/RidgetopAi/backstory && cd backstory
 make install
 ```
 
-The repo has no release tags yet, so this builds `main`; `backstory version` prints a commit
-(from `git describe`) until a version is tagged. Once a release tag exists, run
-`git checkout <tag>` before `make install`.
+This builds `main`, and `backstory version` prints a commit from `git describe`. To install a
+release instead, run `git checkout <tag>` (for example `v1.1.0`) before `make install`.
 
 `make install` builds the binary and installs it to `~/.local/bin/backstory`, installs and
 starts the `systemd --user` unit, installs the panel plugin into
@@ -67,14 +66,14 @@ backstory install bash
 
 ```
 git fetch --tags
-git checkout <new tag>   # if a release tag exists; otherwise `git pull` on main
+git checkout <new tag>   # e.g. v1.1.0; or `git pull` to follow main
 make install
 backstory version
 ```
 
 `make install` keeps the previous binary as `~/.local/bin/backstory.prev`, restarts the
 running daemon, and backs up the previous panel beside itself. `backstory version` should
-print the new tag (or, until a version is tagged, the new commit).
+print the new tag (or, on main, the new commit).
 
 `make build` writes `bin/backstory`; `make check` (fmt + vet + lint + race tests + the
 Quickshell panel's QML suite) is the gate CI runs on every push.

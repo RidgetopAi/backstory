@@ -4,17 +4,18 @@ All notable changes to Backstory are documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 are [Semantic Versioning](https://semver.org/) (`vMAJOR.MINOR.PATCH`).
 
-v1.0.0 was cut on 2026-10-06 (decision `2deb6c91`, superseding `262cf929`). The
-measurement on a machine that is not Brian's now gates the AUR push and the
-marketplace submission rather than the tag. See `RELEASING.md` for the release
-flow and its approval gates.
+v1.0.0 was cut on 2026-10-06 (decision `2deb6c91`, superseding `262cf929`), and
+v1.1.0 on 2026-10-19 on the same terms. The measurement on a machine that is not
+Brian's now gates the AUR push and the marketplace submission rather than the tag.
+See `RELEASING.md` for the release flow and its approval gates.
 
 ## [Unreleased]
+
+## [1.1.0] - 2026-10-19
 
 ### Fixed
 - `backstory purge` on an already-purged session (or a project containing one) now erases events still attached to it, e.g. leaked by a backfill before task 3a28a070. The session keeps its original `purged_at`; the "purged N sessions, M events" line counts it as 0 sessions but M events, and `--dry-run` reports the same (task bb1080ad).
 - Backfill importers no longer count events the purge gate refused as created, and a refused append no longer aborts the import (task bb1080ad).
-
 - Backfill no longer re-imports into a purged live session (task 3a28a070). Codex and Hermes checked purge only when a backfill cursor existed, and Pi not at all, so the first backfill of a live-captured session that was then purged attached to it and wrote its events back. Every importer now refuses a purged run whether or not a cursor exists and records a cursor on the purged session so it is not re-decided each run; the store also refuses any `source=backfill` event for a purged session (`ErrSessionPurged`), so a future importer cannot forget it. Live appends are unaffected.
 
 ### Changed
