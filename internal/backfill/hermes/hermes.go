@@ -486,7 +486,7 @@ func importSession(st *store.Store, db *sql.DB, git project.Git, workspaces []st
 		}
 		res.SessionsCreated++
 
-		if _, err := st.AppendEvent(store.Event{
+		if appended, err := capture.AppendBackfill(st, store.Event{
 			TS:        hs.StartedAt,
 			Kind:      EventSessionStart,
 			SessionID: sessionID,
@@ -494,8 +494,9 @@ func importSession(st *store.Store, db *sql.DB, git project.Git, workspaces []st
 			Payload:   sessionStartPayload(hs, active),
 		}); err != nil {
 			return err
+		} else if appended {
+			res.EventsCreated++
 		}
-		res.EventsCreated++
 	}
 
 	n, err := appendToolEvents(st, sessionID, active)
@@ -516,7 +517,7 @@ func importSession(st *store.Store, db *sql.DB, git project.Git, workspaces []st
 	}
 	if !ended && !attachedEnded && endedAt != nil && origin != store.OriginLive {
 		endPayload, _ := json.Marshal(payload.SessionEnd{Reason: "eof"})
-		if _, err := st.AppendEvent(store.Event{
+		if appended, err := capture.AppendBackfill(st, store.Event{
 			TS:        *endedAt,
 			Kind:      EventSessionEnd,
 			SessionID: sessionID,
@@ -524,8 +525,9 @@ func importSession(st *store.Store, db *sql.DB, git project.Git, workspaces []st
 			Payload:   string(endPayload),
 		}); err != nil {
 			return err
+		} else if appended {
+			res.EventsCreated++
 		}
-		res.EventsCreated++
 
 		if err := st.EndSession(sessionID, *endedAt, "backfill"); err != nil {
 			return err
@@ -637,13 +639,14 @@ func appendToolEvents(st *store.Store, sessionID string, active []hermesMessage)
 				if err != nil {
 					return n, err
 				}
-				if _, err := st.AppendEvent(store.Event{
+				if appended, err := capture.AppendBackfill(st, store.Event{
 					TS: m.Timestamp, Kind: EventToolUse, SessionID: sessionID,
 					Source: EventSource, Payload: string(payloadBytes),
 				}); err != nil {
 					return n, err
+				} else if appended {
+					n++
 				}
-				n++
 			}
 		case m.Role == "tool" && m.ToolCallID != "":
 			tr := payload.ToolResult{
@@ -661,13 +664,14 @@ func appendToolEvents(st *store.Store, sessionID string, active []hermesMessage)
 			if err != nil {
 				return n, err
 			}
-			if _, err := st.AppendEvent(store.Event{
+			if appended, err := capture.AppendBackfill(st, store.Event{
 				TS: m.Timestamp, Kind: EventToolResult, SessionID: sessionID,
 				Source: EventSource, Payload: string(payloadBytes),
 			}); err != nil {
 				return n, err
+			} else if appended {
+				n++
 			}
-			n++
 		}
 	}
 	return n, nil

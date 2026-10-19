@@ -12,6 +12,8 @@ flow and its approval gates.
 ## [Unreleased]
 
 ### Fixed
+- `backstory purge` on an already-purged session (or a project containing one) now erases events still attached to it, e.g. leaked by a backfill before task 3a28a070. The session keeps its original `purged_at`; the "purged N sessions, M events" line counts it as 0 sessions but M events, and `--dry-run` reports the same (task bb1080ad).
+- Backfill importers no longer count events the purge gate refused as created, and a refused append no longer aborts the import (task bb1080ad).
 
 - Backfill no longer re-imports into a purged live session (task 3a28a070). Codex and Hermes checked purge only when a backfill cursor existed, and Pi not at all, so the first backfill of a live-captured session that was then purged attached to it and wrote its events back. Every importer now refuses a purged run whether or not a cursor exists and records a cursor on the purged session so it is not re-decided each run; the store also refuses any `source=backfill` event for a purged session (`ErrSessionPurged`), so a future importer cannot forget it. Live appends are unaffected.
 

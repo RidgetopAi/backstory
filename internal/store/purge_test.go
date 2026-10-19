@@ -207,3 +207,104 @@ func TestAppendEventRefusesBackfillOnPurgedSession(t *testing.T) {
 		t.Errorf("backfill append to unpurged session refused: %v", err)
 	}
 }
+
+// leakEvents appends n events to a (purged) session by a direct store
+// append that bypasses the backfill gate (source "daemon"), simulating the
+// leak a pre-3a28a070 backfill left behind.
+func leakEvents(t *testing.T, s *Store, id string, n int) {
+	t.Helper()
+	for i := 0; i < n; i++ {
+		if _, err := s.AppendEvent(Event{TS: time.Now(), Kind: "leak", SessionID: id, Source: "daemon", Payload: `{}`}); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func sessionEvents(t *testing.T, s *Store, id string) int {
+	t.Helper()
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM timeline_events WHERE session_id = ?`, id).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	return n
+}
+
+func purgedAt(t *testing.T, s *Store, id string) int64 {
+	t.Helper()
+	var at int64
+	if err := s.db.QueryRow(`SELECT purged_at FROM sessions WHERE id = ?`, id).Scan(&at); err != nil {
+		t.Fatal(err)
+	}
+	return at
+}
+
+// Re-purging an already-purged session erases events still attached to it
+// (leaked before the backfill gate), counts 0 sessions but M events, keeps
+// the original purged_at; --dry-run reports the same and erases nothing.
+//
+// RA-MUTATION-PROBE: purgeSelection selects only purged_at IS NULL -> RED.
+func TestRepurgeSessionErasesLeakedEvents(t *testing.T) {
+	human := Identity{Kind: IdentityHuman}
+	s := mustOpen(t, filepath.Join(t.TempDir(), "backstory.db"))
+	id := seedPurgeSession(t, s, 2)
+	if _, err := s.PurgeSessions(PurgeScope{SessionID: id}, human); err != nil {
+		t.Fatal(err)
+	}
+	at := purgedAt(t, s, id)
+	leakEvents(t, s, id, 3)
+
+	sc := PurgeScope{SessionID: id}
+	prev, err := s.PurgePreview(sc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if prev != (PurgeCounts{Sessions: 0, Events: 3}) {
+		t.Fatalf("dry-run = %+v, want 0 sessions 3 events", prev)
+	}
+	if n := sessionEvents(t, s, id); n != 3 {
+		t.Fatalf("dry-run erased events: %d left, want 3", n)
+	}
+	got, err := s.PurgeSessions(sc, human)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != prev {
+		t.Errorf("purge = %+v, want %+v", got, prev)
+	}
+	if n := sessionEvents(t, s, id); n != 0 {
+		t.Errorf("%d leaked events remain", n)
+	}
+	if got := purgedAt(t, s, id); got != at {
+		t.Errorf("purged_at changed %d -> %d", at, got)
+	}
+}
+
+// A project purge also erases leaked events in already-purged in-scope
+// sessions, and leaves out-of-scope sessions untouched.
+//
+// RA-MUTATION-PROBE: purgeSelection selects only purged_at IS NULL -> RED.
+func TestRepurgeProjectErasesLeaksInScopeOnly(t *testing.T) {
+	human := Identity{Kind: IdentityHuman}
+	s := mustOpen(t, filepath.Join(t.TempDir(), "backstory.db"))
+	in := seedProjectPurgeSession(t, s, "proj-in", 1)
+	out := seedProjectPurgeSession(t, s, "proj-out", 1)
+	for _, id := range []string{in, out} {
+		if _, err := s.PurgeSessions(PurgeScope{SessionID: id}, human); err != nil {
+			t.Fatal(err)
+		}
+		leakEvents(t, s, id, 2)
+	}
+	got, err := s.PurgeSessions(PurgeScope{ProjectKey: "proj-in"}, human)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Sessions != 0 || got.Events != 2 {
+		t.Errorf("purge = %+v, want 0 sessions 2 events", got)
+	}
+	if n := sessionEvents(t, s, in); n != 0 {
+		t.Errorf("in-scope leak: %d events remain", n)
+	}
+	if n := sessionEvents(t, s, out); n != 2 {
+		t.Errorf("out-of-scope session has %d events, want 2 untouched", n)
+	}
+}

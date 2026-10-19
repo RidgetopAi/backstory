@@ -293,7 +293,7 @@ func importFile(st *store.Store, git project.Git, workspaces []string, path stri
 			return fileStats{}, err
 		}
 		if !hasStart {
-			if _, err := st.AppendEvent(store.Event{
+			if appended, err := capture.AppendBackfill(st, store.Event{
 				TS:        firstTS,
 				Kind:      EventSessionStart,
 				SessionID: sessionID,
@@ -301,8 +301,9 @@ func importFile(st *store.Store, git project.Git, workspaces []string, path stri
 				Payload:   sessionStartPayload(parsedLines),
 			}); err != nil {
 				return fileStats{}, err
+			} else if appended {
+				stats.events++
 			}
-			stats.events++
 		}
 	}
 
@@ -334,7 +335,7 @@ func importFile(st *store.Store, git project.Git, workspaces []string, path stri
 		// line — the transcript may still be growing, and each run's
 		// session.end/ended_at reflects what had been written as of that run.
 		sessionEndPayload, _ := json.Marshal(payload.SessionEnd{Reason: "eof"})
-		if _, err := st.AppendEvent(store.Event{
+		if appended, err := capture.AppendBackfill(st, store.Event{
 			TS:        lastTS,
 			Kind:      EventSessionEnd,
 			SessionID: sessionID,
@@ -342,8 +343,9 @@ func importFile(st *store.Store, git project.Git, workspaces []string, path stri
 			Payload:   string(sessionEndPayload),
 		}); err != nil {
 			return fileStats{}, err
+		} else if appended {
+			stats.events++
 		}
-		stats.events++
 
 		if err := st.EndSession(sessionID, lastTS, "backfill"); err != nil {
 			return fileStats{}, err
@@ -515,13 +517,14 @@ func appendToolEvents(st *store.Store, sessionID, agentID string, lines []transc
 				if err != nil {
 					return n, err
 				}
-				if _, err := st.AppendEvent(store.Event{
+				if appended, err := capture.AppendBackfill(st, store.Event{
 					TS: l.Timestamp, Kind: EventToolUse, SessionID: sessionID,
 					Source: EventSource, Payload: string(payloadBytes),
 				}); err != nil {
 					return n, err
+				} else if appended {
+					n++
 				}
-				n++
 			case "tool_result":
 				text := blockText(b.Content)
 				tr := payload.ToolResult{
@@ -544,13 +547,14 @@ func appendToolEvents(st *store.Store, sessionID, agentID string, lines []transc
 				if err != nil {
 					return n, err
 				}
-				if _, err := st.AppendEvent(store.Event{
+				if appended, err := capture.AppendBackfill(st, store.Event{
 					TS: l.Timestamp, Kind: EventToolResult, SessionID: sessionID,
 					Source: EventSource, Payload: string(payloadBytes),
 				}); err != nil {
 					return n, err
+				} else if appended {
+					n++
 				}
-				n++
 			}
 		}
 	}
