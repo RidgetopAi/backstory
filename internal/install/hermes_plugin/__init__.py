@@ -11,6 +11,7 @@ runs one process for every chat, so the daemon's /proc cwd alone cannot say
 which project a chat belongs to. The daemon validates it; a model's tool
 arguments are never forwarded as one.
 """
+import collections
 import json
 import os
 import queue
@@ -159,6 +160,7 @@ class BackstoryProvider(MemoryProvider):
         self._session_id = ""
         self._block = None
         self._forwarded = set()
+        self._pending_hooked = collections.deque()
         self._queue = queue.Queue()
         self._worker = None
         self._lock = threading.Lock()
@@ -187,6 +189,8 @@ class BackstoryProvider(MemoryProvider):
         self._session_id = session_id or ""
         self._block = None
         self._forwarded = set()
+        with self._lock:
+            self._pending_hooked.clear()
 
     def get_tool_schemas(self):
         return [dict(s) for s in TOOL_SCHEMAS]
@@ -256,6 +260,11 @@ class BackstoryProvider(MemoryProvider):
             result = call_daemon(METHOD_POST_TOOL_USE, params, self._session_id, timeout=HOOK_TIMEOUT_SECONDS)
             if tool_call_id:
                 self._forwarded.add(tool_call_id)
+            else:
+                # Older Hermes passes no tool_call_id: remember a fingerprint
+                # so sync_turn can recognise this call and not send it again.
+                with self._lock:
+                    self._pending_hooked.append((command, returncode))
             ask = (result or {}).get("additional_context")
             if isinstance(ask, str) and ask:
                 return text + "\n" + ask
@@ -266,8 +275,26 @@ class BackstoryProvider(MemoryProvider):
     # --- turn sync: tool results as observed events ---
 
     def sync_turn(self, user_content, assistant_content, *, session_id="", messages=None):
-        for event in self._new_tool_events(messages or []):
+        try:
+            events = self._new_tool_events(messages or [])
+        finally:
+            # A fingerprint no call matched must not suppress a later turn.
+            with self._lock:
+                self._pending_hooked.clear()
+        for event in events:
             self._enqueue(event, session_id or self._session_id)
+
+    def _consume_hooked(self, name, args, content):
+        """True when this terminal call is the oldest one the hook already
+        recorded without an id (matched on command + exit code only: the
+        output text differs between the hook and Hermes' JSON wrapper)."""
+        if TOOL_NAME_ALIASES.get(name) != "Bash" or not isinstance(args.get("command"), str):
+            return False
+        with self._lock:
+            if self._pending_hooked and self._pending_hooked[0] == (args["command"], _exit_code(content)):
+                self._pending_hooked.popleft()
+                return True
+        return False
 
     def _new_tool_events(self, messages):
         calls = {}
@@ -294,6 +321,8 @@ class BackstoryProvider(MemoryProvider):
             if not isinstance(args, dict):
                 args = {}
             content = _content_text(msg.get("content"))
+            if self._consume_hooked(name, args, content):
+                continue
             params = {"tool_name": TOOL_NAME_ALIASES.get(name, name), "output": content[:OUTPUT_CAP_CHARS]}
             if call_id:
                 params["tool_use_id"] = str(call_id)
