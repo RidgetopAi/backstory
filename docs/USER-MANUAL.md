@@ -572,7 +572,38 @@ folders.
   A session started in such a folder itself, rather than inside one of its projects, is kept as
   one "workspace" row.
 
-See [Project roots](../README.md#project-roots) in the README for the details.
+### Where to set them
+
+On Omarchy, desktop-wide settings go in a small file that's read when you log in. Create it once:
+
+```
+mkdir -p ~/.config/uwsm/env.d
+nano ~/.config/uwsm/env.d/50-backstory
+```
+
+Put this line in it, with your own folders, then save (`Ctrl + O`, `Enter`, `Ctrl + X`):
+
+```
+export BACKSTORY_PROJECT_ROOTS="$HOME/projects:$HOME/work"
+```
+
+**Then log out and back in.** The setting now reaches the panel and every terminal. To check it:
+
+```
+echo "$BACKSTORY_PROJECT_ROOTS"
+```
+
+**Can't log out right now?** This reaches the panel only, until your next login. Add this
+line at the end of `~/.config/hypr/hyprland.lua`:
+
+```
+hl.env("BACKSTORY_PROJECT_ROOTS", os.getenv("HOME") .. "/projects")
+```
+
+Then run `hyprctl reload` and `omarchy restart shell`.
+
+See [Project roots](../README.md#project-roots) in the README for exactly what counts as in
+scope.
 
 ---
 

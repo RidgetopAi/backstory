@@ -176,6 +176,16 @@ fine), read the same way as `BACKSTORY_WORKSPACE_DIRS`. A project is in scope wh
 is one of the roots or under one; a sibling that merely starts with a root's name (`~/Code2`)
 is not. Unset, every project is in scope.
 
+On Omarchy, set it for your whole desktop in `~/.config/uwsm/env.d/50-backstory` (create the
+folder with `mkdir -p ~/.config/uwsm/env.d`), as a shell line:
+
+```sh
+export BACKSTORY_PROJECT_ROOTS="$HOME/projects"
+```
+
+then log out and back in, so the panel and every terminal get it. The
+[User Manual](docs/USER-MANUAL.md#where-to-set-them) has a no-logout alternative for the panel.
+
 This only changes what the panel, the bar and `backstory this-week` list: the current project
 is always the most recent in-scope one. Recording, recall and the store are untouched, so a
 session outside the roots still gets its own memory, `backstory status` run there says the
