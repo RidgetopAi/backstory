@@ -11,6 +11,14 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 ## [Unreleased]
 
+### Added
+
+- `docs/USER-MANUAL.md`: a plain-language user manual covering the five note kinds with examples, the panel and its keys, every command with examples, privacy controls, settings and troubleshooting. `TestManualCoversEveryCommand` fails if a user-facing command has no manual entry or the manual names a command that doesn't exist.
+
+### Changed
+
+- README rewritten as a short front page for people new to Linux: a three-step install, what `make install` does, and links into the manual. All install, update, uninstall and privacy facts are kept.
+
 ## [1.1.0] - 2026-10-19
 
 ### Fixed
