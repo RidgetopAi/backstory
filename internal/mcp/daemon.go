@@ -112,7 +112,7 @@ func ServeDaemonConn(id ident.Identity, conn net.Conn, st *store.Store, procfs i
 		} else if off {
 			return "", errCaptureOff
 		}
-		sessionID, err := startSession(st, id)
+		sessionID, err := startSession(st, git, id)
 		// A shell session is a running record of commands, not agent work: it
 		// has no Stop to compare against.
 		if err == nil && id.Harness != ident.HarnessShell {
@@ -337,13 +337,11 @@ func dispatchDaemonRequest(line []byte, st *store.Store, procfs ident.ProcFS, id
 // on the importer's side (internal/backfill/claude.Store.
 // LiveSessionByHarnessSessionID): a transcript whose harness_session_id
 // still matches a live session minted here attaches to it instead.
-func startSession(st *store.Store, id ident.Identity) (string, error) {
+func startSession(st *store.Store, git project.Git, id ident.Identity) (string, error) {
 	if id.ProjectKey != "" {
-		if err := st.UpsertProject(store.Project{
-			Key:       id.ProjectKey,
-			Toplevel:  id.CWD,
-			FirstSeen: time.Now(),
-		}); err != nil {
+		p := store.Project{Key: id.ProjectKey, Toplevel: id.CWD, FirstSeen: time.Now()}
+		observeRepo(&p, git, id.CWD)
+		if err := st.UpsertProject(p); err != nil {
 			return "", err
 		}
 	}

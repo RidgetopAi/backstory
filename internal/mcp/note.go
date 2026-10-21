@@ -351,6 +351,22 @@ func ensureHomeProject(st *store.Store, home string) error {
 	return st.UpsertProject(store.Project{Key: home, Toplevel: dir, FirstSeen: time.Now()})
 }
 
+// observeRepo fills p's GitCommonDir and RemoteURL from the repo containing
+// dir, through the same project.Git the key came from — once per session
+// start, never per event. Only a repo whose common dir IS p.Key is recorded:
+// a workspace key (or a key the repo does not own) keeps both empty, which
+// UpsertProject treats as "not observed", never as "cleared".
+func observeRepo(p *store.Project, git project.Git, dir string) {
+	if git == nil || dir == "" {
+		return
+	}
+	repo, ok := git.Repo(dir)
+	if !ok || filepath.Clean(repo.CommonDir) != filepath.Clean(p.Key) {
+		return
+	}
+	p.GitCommonDir, p.RemoteURL = repo.CommonDir, repo.RemoteURL
+}
+
 // inferRepoKey is the daemon's project inference for a non-handoff note
 // written by a session whose own key is a workspace key (task fd14c6cc): when
 // the session's edited-file locations (store.SessionEditedDirs — the same
@@ -385,7 +401,9 @@ func inferRepoKey(st *store.Store, git project.Git, sessionID string, about, wor
 		if _, isRepo := git.Repo(dir); !isRepo {
 			return "", false, nil
 		}
-		if err := st.UpsertProject(store.Project{Key: key, Toplevel: dir, FirstSeen: time.Now()}); err != nil {
+		p := store.Project{Key: key, Toplevel: dir, FirstSeen: time.Now()}
+		observeRepo(&p, git, dir)
+		if err := st.UpsertProject(p); err != nil {
 			return "", false, err
 		}
 		return key, true, nil
