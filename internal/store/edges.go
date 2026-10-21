@@ -163,3 +163,12 @@ func (s *Store) ContradictionsSince(projectKey string, since time.Time) ([]Contr
 	}
 	return out, nil
 }
+
+// IsSuperseded reports whether any supersedes edge points at id.
+func (s *Store) IsSuperseded(id string) (bool, error) {
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM edges WHERE to_id = ? AND type = ?`, id, string(EdgeSupersedes)).Scan(&n); err != nil {
+		return false, fmt.Errorf("store: superseded check %s: %w", id, err)
+	}
+	return n > 0, nil
+}

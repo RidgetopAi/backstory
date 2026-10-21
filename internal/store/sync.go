@@ -696,12 +696,14 @@ func (im *syncImporter) record(r *SyncRecord, tombstone bool) error {
 	if r.ExpiresAt != nil {
 		expires = *r.ExpiresAt
 	}
-	// tier and origin_device are the change's own (SCHEMA.md invariant 2 is
+	// event_cursor is this device's timeline position at import (SCHEMA.md
+	// invariant 10), so the delta after an imported handoff is the local
+	// timeline since the import. tier and origin_device are the change's own (SCHEMA.md invariant 2 is
 	// kept by the origin store; the importer never re-derives a tier).
 	if _, err := im.tx.Exec(`INSERT INTO records
 		(id, ts, kind, tier, text, about, session_id, project_key, evidence, outcome, promoter, expires_at,
 		 tombstoned_at, event_cursor, git_head, next, origin_device)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, ?, ?, 0, ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, ?, ?, (SELECT COALESCE(MAX(id), 0) FROM timeline_events), ?, ?, ?)`,
 		r.ID, r.TS, r.Kind, r.Tier, text, about, session, project, outcome, promoter, expires,
 		tombAt, nullable(r.GitHead), next, im.origin(r.OriginDevice)); err != nil {
 		return fmt.Errorf("insert record %s: %w", r.ID, err)
