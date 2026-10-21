@@ -64,6 +64,7 @@ func runDelete(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 	_, _ = fmt.Fprintln(stdout, "tombstoned", id)
+	printAlsoForgotten(st, stdout, stderr)
 	return 0
 }
 

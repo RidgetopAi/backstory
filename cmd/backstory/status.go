@@ -6,9 +6,11 @@ import (
 	"io"
 	"net"
 	"os"
+	"strings"
 
 	"github.com/RidgetopAi/backstory/internal/mcp"
 	"github.com/RidgetopAi/backstory/internal/project"
+	"github.com/RidgetopAi/backstory/internal/store"
 )
 
 // noSessionEnv, when set, makes the SessionStart hook ask the daemon not to
@@ -143,5 +145,34 @@ func printSyncLines(stdout, stderr io.Writer) {
 			last = "removed"
 		}
 		_, _ = fmt.Fprintf(stdout, "sync: %s: last ok %s, last result %s\n", r.Peer.Label(), lastOK, last)
+		if !r.Peer.Enabled {
+			continue
+		}
+		if n, err := st.PendingForgets(r.Peer.DeviceID); err != nil {
+			_, _ = fmt.Fprintln(stderr, "backstory status: sync:", err)
+		} else if n > 0 {
+			_, _ = fmt.Fprintf(stdout, "sync: %d forget(s) waiting to reach %s\n", n, r.Peer.Label())
+		}
+	}
+}
+
+// printAlsoForgotten prints the one line that tells a person their delete or
+// purge will also reach the paired machines at the next sync. It prints
+// nothing without an enabled peer; a store that cannot be read is reported on
+// stderr and does not fail the command that already succeeded.
+func printAlsoForgotten(st *store.Store, stdout, stderr io.Writer) {
+	peers, err := st.SyncPeers()
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "backstory: sync peers:", err)
+		return
+	}
+	var names []string
+	for _, p := range peers {
+		if p.Enabled {
+			names = append(names, p.Label())
+		}
+	}
+	if len(names) > 0 {
+		_, _ = fmt.Fprintf(stdout, "will also be forgotten on %s at next sync\n", strings.Join(names, ", "))
 	}
 }

@@ -246,7 +246,10 @@ CREATE TABLE sync_changes (
 Append-only (update and delete are refused). Triggers write it in the same transaction as
 the change: a record insert, a record's `tombstoned_at` NULL -> value (so a tombstone of an
 already-synced record is its own change), an edge insert, a session insert or its
-`ended_at` change. The feed holds no content: what crosses is read from the row at serve
+`ended_at` or `purged_at` change (migration 0020; the stub carries `purged_at_ns`, a peer
+stamps its copy once and never clears it). A project purge's tombstoned records cross as
+their own tombstones; a `--session` purge tombstones none. Import never restores text or
+clears `tombstoned_at` of a record already tombstoned here, from any device. The feed holds no content: what crosses is read from the row at serve
 time. A tombstoned record always crosses with empty text, next step and about, even if an
 old row still holds its text. Raw `timeline_events` are never served; a record's `evidence`
 (ids into this device's timeline) is not served either, and an imported record has
