@@ -41,6 +41,15 @@ usage: backstory install bash [--check] [--remove] [--binary P]
   --check      report whether the block is present; exit non-zero if absent
   --remove     remove exactly the marked block, leaving the rest of
                ~/.bashrc untouched
+
+"install sync" is opt-in and never part of a bare install: it installs and
+enables a systemd --user timer that runs "backstory sync --quiet" every few
+minutes. It needs a paired computer (see "backstory pair").
+
+usage: backstory install sync [--check] [--remove]
+
+  --check      report whether the timer is present, absent or inactive
+  --remove     disable the timer and remove both units
 `
 
 // runInstall is the `backstory install` subcommand. Harness names are the
@@ -52,6 +61,10 @@ usage: backstory install bash [--check] [--remove] [--binary P]
 func runInstall(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 && args[0] == "bash" {
 		return runInstallBash(args[1:], stdout, stderr)
+	}
+
+	if len(args) > 0 && args[0] == "sync" {
+		return runInstallSync(args[1:], stdout, stderr)
 	}
 
 	var harnessArgs, flagArgs []string
@@ -295,4 +308,65 @@ func runInstallBash(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stdout, "bashrc: shell command capture block added to %s\n", path)
 		return 0
 	}
+}
+
+// runInstallSync is `backstory install sync`: the optional systemd --user
+// timer that runs `backstory sync --quiet`. Never reached by a bare install.
+func runInstallSync(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("install sync", flag.ContinueOnError)
+	check := fs.Bool("check", false, "report whether the sync timer is present, absent or inactive")
+	remove := fs.Bool("remove", false, "disable the sync timer and remove its units")
+	fs.SetOutput(stderr)
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *check && *remove {
+		_, _ = fmt.Fprintln(stderr, "backstory install sync: --check and --remove are mutually exclusive")
+		return 2
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "backstory install sync:", err)
+		return 1
+	}
+	switch {
+	case *check:
+		status := install.SyncTimerStatus(home)
+		_, _ = fmt.Fprintf(stdout, "sync: %s: %s\n", install.SyncTimerName, status)
+		if status != install.StatusPresent {
+			return 1
+		}
+		return 0
+	case *remove:
+		if err := install.RemoveSyncTimer(home); err != nil {
+			_, _ = fmt.Fprintln(stderr, "backstory install sync --remove:", err)
+			return 1
+		}
+		_, _ = fmt.Fprintln(stdout, "sync: timer removed")
+		return 0
+	}
+	st, code := openStoreFor("install sync", stderr)
+	if st == nil {
+		return code
+	}
+	peers, err := st.SyncPeers()
+	_ = st.Close()
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "backstory install sync:", err)
+		return 1
+	}
+	paired := false
+	for _, p := range peers {
+		paired = paired || p.Enabled
+	}
+	if !paired {
+		_, _ = fmt.Fprintln(stderr, "backstory install sync: no paired computer; run `backstory pair <ssh-host>` first")
+		return 1
+	}
+	if err := install.InstallSyncTimer(home); err != nil {
+		_, _ = fmt.Fprintln(stderr, "backstory install sync:", err)
+		return 1
+	}
+	_, _ = fmt.Fprintf(stdout, "sync: %s enabled; `backstory sync --quiet` runs every 5 minutes\n", install.SyncTimerName)
+	return 0
 }

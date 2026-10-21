@@ -511,6 +511,7 @@ nothing changed moves nothing.
 backstory sync                                # every paired computer
 backstory sync laptop                         # just one
 backstory sync --dry-run                      # say how much would move; change nothing
+backstory sync --quiet                        # print nothing unless a computer fails (what the timer runs)
 ```
 
 Every attempt is recorded, and `backstory status` shows a `sync:` line per computer with
@@ -526,6 +527,12 @@ doubled.
 1. Install Backstory on both, and make sure `ssh <other-computer>` works with a key.
 2. On one of them, run `backstory pair <other-computer>`. Once is enough.
 3. Run `backstory sync` on either one whenever you want them to catch up.
+
+To sync automatically: `backstory install sync`. It needs a paired computer, and runs
+`backstory sync --quiet` every five minutes from a systemd user timer (`backstory install sync
+--check` reports it; `backstory install sync --remove` stops it). A plain `backstory install`
+never turns it on. If a sync is already running (yours or the timer's), the second reports
+`busy` and does nothing.
 
 Projects match across computers by their git remote; for a project with no remote, use
 [`link`](#link) on both. By default ssh runs in batch mode and never asks for a password;

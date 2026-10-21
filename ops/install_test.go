@@ -613,9 +613,20 @@ func TestMakeUninstall(t *testing.T) {
 	if err := os.WriteFile(db, []byte("memory"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// An opted-in sync timer (`backstory install sync`) is on disk too.
+	for _, n := range []string{"backstory-sync.service", "backstory-sync.timer"} {
+		if err := os.WriteFile(f.path(".config", "systemd", "user", n), []byte("[Unit]\n"), 0o644); err != nil { //nolint:gosec // fixture
+			t.Fatal(err)
+		}
+	}
 	f.resetCalls()
 	f.mustMake("uninstall")
 
+	mustNotExist(t, f.path(".config", "systemd", "user", "backstory-sync.service"))
+	mustNotExist(t, f.path(".config", "systemd", "user", "backstory-sync.timer"))
+	if !strings.Contains(f.calls(), "systemctl --user disable --now backstory-sync.timer") {
+		t.Errorf("sync timer not disabled:\n%s", f.calls())
+	}
 	mustNotExist(t, f.path(".local", "bin", "backstory"))
 	mustNotExist(t, f.path(".local", "bin", "backstory.prev"))
 	mustNotExist(t, f.path(".config", "systemd", "user", "backstory.service"))

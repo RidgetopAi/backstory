@@ -197,7 +197,9 @@ later.
 `make uninstall` does all of this for you except the store and the line in your
 `hyprland.lua`: it runs `backstory install --remove` and `backstory install bash --remove`
 first, stops, disables and removes the service, removes `~/.local/bin/backstory` and
-`backstory.prev`, removes `~/.config/hypr/backstory.lua`, and removes the panel plugin (and its
+`backstory.prev`, removes the optional sync timer and its service
+(`~/.config/systemd/user/backstory-sync.timer` and `backstory-sync.service`) when present,
+removes `~/.config/hypr/backstory.lua`, and removes the panel plugin (and its
 hidden `.backstory.this-week.prev` backup) if it is a Backstory panel. It leaves your memory
 alone and doesn't restart the Omarchy shell. Remove `require("hypr.backstory")` from your
 `hyprland.lua` yourself.
@@ -217,6 +219,8 @@ Then stop the service and remove it, the panel plugin, and the program:
 ```
 systemctl --user disable --now backstory
 rm ~/.config/systemd/user/backstory.service
+systemctl --user disable --now backstory-sync.timer   # only if you ran `backstory install sync`
+rm -f ~/.config/systemd/user/backstory-sync.timer ~/.config/systemd/user/backstory-sync.service
 systemctl --user daemon-reload
 rm -r ~/.config/omarchy/plugins/backstory.this-week
 rm -rf ~/.config/omarchy/plugins/.backstory.this-week.prev

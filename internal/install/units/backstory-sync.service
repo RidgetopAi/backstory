@@ -1,0 +1,7 @@
+[Unit]
+Description=Backstory sync with paired computers
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/backstory sync --quiet
+NoNewPrivileges=yes
