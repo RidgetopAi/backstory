@@ -79,11 +79,9 @@ TestCase {
     tryCompare(panel, "loading", false, 2000)
     // Column/Row (QtQuick's positioners) recompute implicitWidth/Height
     // via a deferred polish pass, not synchronously on every child change
-    // — proven empirically while building this harness: reading
-    // testImplicitHeight immediately after a data change saw a stale
-    // pre-data height. wait() pumps the event loop long enough for that
-    // polish pass (and Repeater delegate creation) to actually run.
-    wait(20)
+    // (a read right after a data change saw a stale pre-data height), so
+    // wait for the rendered texts and height to stop changing.
+    act.quiescent(function () { return [TestUtil.collectVisibleTexts(panel.testContentItem), panel.testImplicitHeight] }, "panel never finished rendering")
   }
 
   function test_renders_golden_display_names() {
