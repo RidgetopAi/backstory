@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/RidgetopAi/backstory/internal/ident"
@@ -24,14 +25,22 @@ func locShellDaemon(t *testing.T, st *store.Store) (string, *shellProcFS) {
 	resolver := &ident.Resolver{ProcFS: procfs, ProjectKey: func(cwd string) string { return "key:" + cwd }}
 	sessions := NewSessionRegistry()
 	sockPath := filepath.Join(t.TempDir(), "sock")
+	// handlers tracks in-flight daemon connections: the store and its temp dir
+	// must not be torn down while one is still touching the database.
+	var handlers sync.WaitGroup
 	srv, err := socket.Listen(sockPath, resolver, func(id ident.Identity, conn net.Conn) {
+		handlers.Add(1)
+		defer handlers.Done()
 		defer func() { _ = conn.Close() }()
 		ServeDaemonConn(id, conn, st, procfs, fakeGit{}, nil, sessions, captureNeverOff, nil)
 	})
 	if err != nil {
 		t.Fatalf("socket.Listen: %v", err)
 	}
-	t.Cleanup(func() { _ = srv.Close() })
+	t.Cleanup(func() {
+		_ = srv.Close()
+		handlers.Wait()
+	})
 	go func() { _ = srv.Serve() }()
 	return sockPath, procfs
 }
