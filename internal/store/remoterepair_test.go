@@ -1,7 +1,9 @@
 package store
 
 import (
+	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -46,7 +48,13 @@ func TestUpsertProjectNeverClobbersRemote(t *testing.T) {
 func TestFillMissingRemotesRepairsNullRemotes(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "backstory.db")
 	s := mustOpen(t, path)
-	keys := []string{"/r/live/.git", "/r/noremote/.git", "/r/gone/.git"}
+	root := t.TempDir()
+	keys := []string{root + "/live/.git", root + "/noremote/.git", root + "/gone/.git"}
+	for _, k := range keys[:2] {
+		if err := os.MkdirAll(k, 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
 	for _, k := range keys {
 		if err := s.UpsertProject(Project{Key: k, Toplevel: filepath.Dir(k), FirstSeen: time.Now()}); err != nil {
 			t.Fatal(err)
@@ -57,9 +65,9 @@ func TestFillMissingRemotesRepairsNullRemotes(t *testing.T) {
 	}
 
 	git := repairGit{
-		"/r/live":     {CommonDir: "/r/live/.git", RemoteURL: "git@github.com:x/live.git", Toplevel: "/r/live"},
-		"/r/noremote": {CommonDir: "/r/noremote/.git", Toplevel: "/r/noremote"},
-		// /r/gone has vanished: git.Repo reports !ok.
+		root + "/live":     {CommonDir: root + "/live/.git", RemoteURL: "git@github.com:x/live.git", Toplevel: root + "/live"},
+		root + "/noremote": {CommonDir: root + "/noremote/.git", Toplevel: root + "/noremote"},
+		// gone has vanished: git.Repo reports !ok.
 	}
 	remotes := func() map[string]string {
 		s, err := Open(path, nil, git)
@@ -75,13 +83,13 @@ func TestFillMissingRemotesRepairsNullRemotes(t *testing.T) {
 			}
 			out[k] = p.RemoteURL
 		}
-		if id, _ := s.SyncIdentityOf("/r/live/.git"); id.ID != "github.com/x/live" {
+		if id, _ := s.SyncIdentityOf(root + "/live/.git"); id.ID != "github.com/x/live" {
 			t.Fatalf("repaired project has no sync identity: %+v", id)
 		}
 		return out
 	}
 	first := remotes()
-	if first["/r/live/.git"] != "git@github.com:x/live.git" || first["/r/noremote/.git"] != "" || first["/r/gone/.git"] != "" {
+	if first[root+"/live/.git"] != "git@github.com:x/live.git" || first[root+"/noremote/.git"] != "" || first[root+"/gone/.git"] != "" {
 		t.Fatalf("after repair: %v", first)
 	}
 	second := remotes()
@@ -89,5 +97,116 @@ func TestFillMissingRemotesRepairsNullRemotes(t *testing.T) {
 		if second[k] != v {
 			t.Fatalf("second repair changed %s: %q -> %q", k, v, second[k])
 		}
+	}
+}
+
+// countingGit wraps repairGit and counts Repo calls per cwd.
+type countingGit struct {
+	repairGit
+	mu    sync.Mutex
+	calls map[string]int
+}
+
+func (g *countingGit) Repo(cwd string) (project.Repo, bool) {
+	g.mu.Lock()
+	g.calls[cwd]++
+	g.mu.Unlock()
+	return g.repairGit.Repo(cwd)
+}
+
+func (g *countingGit) total() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	n := 0
+	for _, c := range g.calls {
+		n += c
+	}
+	return n
+}
+
+func seedProjects(t *testing.T, path string, keys ...string) {
+	t.Helper()
+	s := mustOpen(t, path)
+	for _, k := range keys {
+		if err := s.UpsertProject(Project{Key: k, GitCommonDir: k, Toplevel: filepath.Dir(k), FirstSeen: time.Now()}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func openCounting(t *testing.T, path string, git project.Git) {
+	t.Helper()
+	s, err := Open(path, nil, git)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestFillMissingRemotesDecidesEachProjectOnce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "backstory.db")
+	root := t.TempDir()
+	none, live := root+"/none/.git", root+"/live/.git"
+	for _, k := range []string{none, live} {
+		if err := os.MkdirAll(k, 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seedProjects(t, path, none, live)
+	git := &countingGit{calls: map[string]int{}, repairGit: repairGit{
+		root + "/none": {CommonDir: none, Toplevel: root + "/none"},
+		root + "/live": {CommonDir: live, RemoteURL: "git@github.com:x/live.git", Toplevel: root + "/live"},
+	}}
+	openCounting(t, path, git)
+	openCounting(t, path, git)
+	openCounting(t, path, git)
+	if git.calls[root+"/none"] != 1 {
+		t.Fatalf("remote-less project asked %d times over 3 Opens, want 1", git.calls[root+"/none"])
+	}
+	if git.calls[root+"/live"] != 1 {
+		t.Fatalf("project with a remote asked %d times, want 1", git.calls[root+"/live"])
+	}
+}
+
+func TestFillMissingRemotesSkipsVanishedCommonDir(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "backstory.db")
+	gone := t.TempDir() + "/gone/.git" // never created
+	seedProjects(t, path, gone)
+	git := &countingGit{calls: map[string]int{}, repairGit: repairGit{}}
+	openCounting(t, path, git)
+	openCounting(t, path, git)
+	if n := git.total(); n != 0 {
+		t.Fatalf("git ran %d times for a vanished common dir, want 0", n)
+	}
+}
+
+func TestRemoteCheckedMarkerDoesNotFreezeRemoteURL(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "backstory.db")
+	key := t.TempDir() + "/app/.git"
+	if err := os.MkdirAll(key, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	seedProjects(t, path, key)
+	git := &countingGit{calls: map[string]int{}, repairGit: repairGit{
+		filepath.Dir(key): {CommonDir: key, Toplevel: filepath.Dir(key)},
+	}}
+	openCounting(t, path, git) // checked, no remote: stamped
+
+	s := mustOpen(t, path)
+	defer func() { _ = s.Close() }()
+	if err := s.UpsertProject(Project{Key: key, GitCommonDir: key, RemoteURL: "https://github.com/x/app", Toplevel: filepath.Dir(key)}); err != nil {
+		t.Fatal(err)
+	}
+	p, _, err := s.GetProject(key)
+	if err != nil || p.RemoteURL != "https://github.com/x/app" {
+		t.Fatalf("a later observed remote was not recorded: %+v %v", p, err)
+	}
+	if id, _ := s.SyncIdentityOf(key); id.ID != "github.com/x/app" {
+		t.Fatalf("sync identity not derived: %+v", id)
 	}
 }
