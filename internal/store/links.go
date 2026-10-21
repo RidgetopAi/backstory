@@ -55,7 +55,11 @@ func (s *Store) SetProjectLink(identity Identity, syncID, projectKey string) err
 	} else if !found {
 		return fmt.Errorf("store: set project link: unknown project %q", projectKey)
 	}
-	_, err := s.db.Exec(`INSERT INTO project_links (local_key, sync_id, set_at)
+	before, err := s.SyncIdentityOf(projectKey)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(`INSERT INTO project_links (local_key, sync_id, set_at)
 		VALUES (?, ?, ?)
 		ON CONFLICT(local_key) DO UPDATE SET
 			sync_id = excluded.sync_id,
@@ -64,7 +68,7 @@ func (s *Store) SetProjectLink(identity Identity, syncID, projectKey string) err
 	if err != nil {
 		return fmt.Errorf("store: set project link %s -> %s: %w", projectKey, syncID, err)
 	}
-	return nil
+	return s.afterSyncIdentityChange(projectKey, before)
 }
 
 // ClearProjectLink removes projectKey's link; clearing an unlinked project is
