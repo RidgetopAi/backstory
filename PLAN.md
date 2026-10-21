@@ -252,6 +252,32 @@ human-led · ongoing
   launcher option
 - One PR: install script, Install › AI row, glyph. Never before it works elsewhere
 
+## Phase 8 — Cross-device sync
+
+lane · after v1.1.0 · built ahead of Phases 5–7 (decision `2ac4c54f`)
+
+**Done when:** on two Omarchy machines that share a git remote, a handoff written on one is the
+Resume line of the next session on the other; a record deleted or a project purged on either is
+gone from both after a sync; and with sync on, a failing sync is impossible to miss: `sync` exits
+non-zero, `status` says SYNC FAILING, NEEDS YOU shows it, the SessionStart block warns the agent,
+and one desktop notification fires.
+
+- Peer to peer over SSH: `backstory pair <ssh-host>`, then `backstory sync`, which runs
+  `ssh <peer> backstory sync-serve` and speaks versioned JSON lines over stdio. The daemon still
+  opens no network connections. No server, no new port; offline machines catch up later.
+- Projects match on the normalized git remote; a repo with no remote, or a workspace, matches only
+  through a human-only `backstory link`. Never guessed.
+- Records, edges, tombstones, purges and session stubs sync; raw timeline events stay local
+  (synced evidence ids dangle, which invariant 9 already tolerates).
+- Forgetting always wins: a tombstone is monotone, a tombstoned record crosses with no text, and a
+  purge or delete reaches the peer at the next sync.
+- Tier is kept from the origin device; import is human-run from a paired device only, never an
+  agent tool.
+- Two current handoffs: the newest is Resume, the other is shown as "also: <device> handoff".
+- Manual `sync` first, then an optional `systemd --user` timer. Capture off pauses imports.
+- Fail loudly when sync is on (D8): an error, an unreachable streak past a threshold (default 24h),
+  or an inactive timer is positive evidence, and each one reaches every surface listed above.
+
 ## Week one, the minimum
 
 ### By the end of week one: Brian's Claude wakes warm on his desktop from Backstory.
