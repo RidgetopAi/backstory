@@ -149,6 +149,20 @@ QtObject {
     if (o.until) settled(o.until, "no effect after clicking " + desc)
   }
 
+  // For a control the mouse cannot reach (scrolled out of the viewport):
+  // wait until it is ready, then fire its own `clicked` handler. The same
+  // readiness gate as clickWhenReady, minus the pointer.
+  function activateWhenReady(target, opts) {
+    var o = opts || {}
+    var item = null
+    testCase.tryVerify(function () {
+      item = typeof target === "function" ? target() : target
+      return item !== null && item !== undefined && item.visible === true && isEnabledChain(item) && typeof item.clicked === "function"
+    }, root.timeoutMs, "never became activatable (visible, enabled): " + (o.desc || "target"))
+    item.clicked()
+    if (o.until) settled(o.until, "no effect after activating " + (o.desc || "target"))
+  }
+
   // Look a target up by predicate over the visible tree under `root`, then
   // click it via clickWhenReady (re-finding on every poll).
   function clickFound(rootItem, find, opts) {

@@ -34,6 +34,8 @@ TestCase {
   property var loader: null
   property var panel: null
 
+  TestActions { id: act; testCase: testCase }
+
   function readFixture(url) {
     var xhr = new XMLHttpRequest()
     xhr.open("GET", url, false)
@@ -67,27 +69,54 @@ TestCase {
     ProcessController.respond(Launchers.recordsCommand(projectKey, cwd, !!history), { stdout: text, stderr: "", exitCode: 0 })
   }
 
-  function clickByTooltip(tooltipText) {
-    var button = TestUtil.findFirst(panel.testContentItem, function (node) { return node.tooltipText === tooltipText })
-    verify(button !== null, "no button with tooltipText " + JSON.stringify(tooltipText))
-    mouseClick(button, button.width / 2, button.height / 2)
-    wait(20)
+  function clickByTooltip(tooltipText, opts) {
+    act.clickWhenReady(function () {
+      return TestUtil.findFirst(panel.testContentItem, function (node) { return node.tooltipText === tooltipText })
+    }, Object.assign({ desc: "button with tooltipText " + JSON.stringify(tooltipText) }, opts))
   }
 
-  function clickByLabel(label) {
-    var button = TestUtil.findFirst(panel.testContentItem, function (node) { return node.label === label })
-    verify(button !== null, "no visible button labelled " + JSON.stringify(label))
-    mouseClick(button, button.width / 2, button.height / 2)
-    wait(20)
+  function clickByLabel(label, opts) {
+    act.clickWhenReady(function () {
+      return TestUtil.findFirst(panel.testContentItem, function (node) { return node.label === label })
+    }, Object.assign({ desc: "button labelled " + JSON.stringify(label) }, opts))
   }
 
+  function isRecordsRun(history) {
+    var key = ProcessController.keyFor(Launchers.recordsCommand(projectKey, cwd, !!history))
+    return function (r) { return ProcessController.keyFor(r.command) === key }
+  }
+
+  // Open the panel, click the row's Memory action, and wait for the view's
+  // `records --json` run to land and the rows to stop reflowing.
   function openMemory(recordsText) {
     respondRecords(recordsText)
     panel.open("{}")
     tryCompare(panel, "loading", false, 2000)
-    wait(20)
-    clickByTooltip("Memory")
-    verify(panel.memoryOpen)
+    clickByTooltip("Memory", { until: function () { return panel.memoryOpen } })
+    act.launchedNext(isRecordsRun(false), "memory records run")
+    act.quiescent(function () { return [texts(), panel.testImplicitHeight] }, "memory view never finished rendering")
+  }
+
+  function openedLabelRowMemoryReady() {
+    act.quiescent(function () { return [texts(), panel.testImplicitHeight] }, "memory view never finished rendering")
+  }
+
+  function expectNoOutOfBounds(label) {
+    var bad = []
+    act.settled(function () {
+      bad = TestUtil.collectOutOfBounds(panel.testContentItem, panel.testContentItem,
+        panel.testImplicitWidth, panel.testImplicitHeight)
+      return bad.length === 0
+    }, label + ": item(s) out of bounds: " + JSON.stringify(bad).slice(0, 2000))
+  }
+
+  function expectText(text) {
+    act.settled(function () { return texts().indexOf(text) !== -1 }, "text " + JSON.stringify(text) + " never rendered; got " + JSON.stringify(texts()))
+  }
+
+  function expectNoText(text) {
+    act.drain()
+    verify(texts().indexOf(text) === -1, "text " + JSON.stringify(text) + " rendered: " + JSON.stringify(texts()))
   }
 
   function pinClock() {
@@ -108,9 +137,11 @@ TestCase {
     var golden = JSON.parse(text)
     openMemory(text)
 
-    var rows = TestUtil.findAll(panel.testContentItem, function (n) { return n.rid !== undefined })
-    compare(rows.length, golden.records.length)
+    function recordRows() { return TestUtil.findAll(panel.testContentItem, function (n) { return n.rid !== undefined }) }
+    act.settled(function () { return recordRows().length === golden.records.length }, "expected " + golden.records.length + " record rows, have " + recordRows().length)
+    var rows = recordRows()
 
+    expectText("You")
     var t = texts()
     verify(t.indexOf("You") !== -1, "no You tier label: " + JSON.stringify(t))
     verify(t.indexOf("Agent") !== -1, "no Agent tier label")
@@ -121,9 +152,8 @@ TestCase {
     verify(t.indexOf("A current note.") !== -1)
     verify(t.indexOf("A current note.\nSecond line.") === -1)
     var last = rows[rows.length - 1]
-    mouseClick(last, last.width / 2, 4)
-    wait(20)
-    verify(texts().indexOf("A current note.\nSecond line.") !== -1, "click did not expand the full text")
+    act.clickWhenReady(last, { y: 4, desc: "last record row",
+      until: function () { return texts().indexOf("A current note.\nSecond line.") !== -1 } })
   }
 
   // The device chip shows for exactly the records whose origin_device_name
@@ -134,8 +164,9 @@ TestCase {
     var imported = golden.records.filter(function (r) { return r.origin_device_name !== null })
     compare(imported.length, 1)
     openMemory(text)
-    var chips = TestUtil.findAll(panel.testContentItem, function (n) { return n.objectName === "recordDeviceChip" && n.visible })
-    compare(chips.length, 1)
+    function deviceChips() { return TestUtil.findAll(panel.testContentItem, function (n) { return n.objectName === "recordDeviceChip" && n.visible }) }
+    act.settled(function () { return deviceChips().length === 1 }, "expected one record device chip")
+    var chips = deviceChips()
     var labels = TestUtil.findAll(chips[0], function (n) { return n.objectName === "deviceChipText" })
     compare(labels[0].text, "from " + imported[0].origin_device_name)
   }
@@ -145,30 +176,29 @@ TestCase {
     openMemory(readFixture(recordsGolden))
     respondRecords(text, true)
     clickByTooltip("Show history")
+    act.launchedCount(isRecordsRun(true), 1, "history records")
     compare(runsMatching(Launchers.recordsCommand(projectKey, cwd, true)).length, 1)
-    verify(texts().indexOf("deleted") !== -1, "deleted status mark missing under --history")
+    expectText("deleted")
   }
 
   function test_empty_state() {
     openMemory(JSON.stringify({ project_key: projectKey, records: [] }))
-    verify(texts().indexOf("Nothing saved for acme yet.") !== -1, JSON.stringify(texts()))
+    expectText("Nothing saved for acme yet.")
   }
 
   function test_records_error_shows_stderr() {
     ProcessController.respond(Launchers.recordsCommand(projectKey, cwd, false), { stdout: "", stderr: "store is locked", exitCode: 1 })
     panel.open("{}")
     tryCompare(panel, "loading", false, 2000)
-    wait(20)
-    clickByTooltip("Memory")
-    verify(texts().indexOf("store is locked") !== -1, JSON.stringify(texts()))
+    clickByTooltip("Memory", { until: function () { return panel.memoryOpen } })
+    expectText("store is locked")
   }
 
   function test_edit_records_detached_argv() {
     openMemory(readFixture(recordsGolden))
-    clickByTooltip("Edit")
-    var call = Quickshell.lastCall()
-    verify(call !== null, "no execDetached call")
     var id = JSON.parse(readFixture(recordsGolden)).records[0].id
+    clickByTooltip("Edit")
+    var call = act.detachedNext(function (c) { return JSON.stringify(c.command.slice(-3)) === JSON.stringify(["backstory", "edit", id]) }, "edit")
     compare(JSON.stringify(call.command.slice(-3)), JSON.stringify(["backstory", "edit", id]))
   }
 
@@ -176,22 +206,23 @@ TestCase {
     openMemory(readFixture(recordsGolden))
     var id = JSON.parse(readFixture(recordsGolden)).records[0].id
     clickByTooltip("Delete")
-    verify(texts().indexOf("Forget this record?") !== -1)
+    expectText("Forget this record?")
     compare(runsMatching(Launchers.deleteCommand(id)).length, 0, "delete ran before confirm")
     clickByLabel("Forget")
-    var runs = runsMatching(["backstory", "delete", id, "--yes"])
+    var runs = act.launchedCount(function (r) { return ProcessController.keyFor(r.command) === ProcessController.keyFor(["backstory", "delete", id, "--yes"]) }, 1, "delete --yes")
     compare(runs.length, 1)
     // the list is refreshed afterwards
-    verify(runsMatching(Launchers.recordsCommand(projectKey, cwd, false)).length >= 2)
+    act.launchedCount(isRecordsRun(false), 2, "list refresh")
   }
 
   function test_delete_cancel_records_no_delete() {
     openMemory(readFixture(recordsGolden))
     clickByTooltip("Delete")
+    expectText("Forget this record?")
     clickByLabel("Cancel")
+    act.settled(function () { return texts().indexOf("Forget this record?") === -1 }, "confirm never closed after Cancel")
     var deletes = ProcessController.runs.filter(function (r) { return r.command[1] === "delete" })
     compare(deletes.length, 0)
-    verify(texts().indexOf("Forget this record?") === -1)
   }
 
   function test_delete_failure_shows_stderr() {
@@ -200,8 +231,10 @@ TestCase {
     ProcessController.respond(Launchers.deleteCommand(id), { stdout: "", stderr: "no such record", exitCode: 1 })
     clickByTooltip("Delete")
     clickByLabel("Forget")
-    verify(texts().indexOf("no such record") !== -1, JSON.stringify(texts()))
+    expectText("no such record")
   }
+
+  function isPurgeRun(r) { return r.command[1] === "purge" }
 
   function purgeRuns() {
     return ProcessController.runs.filter(function (r) { return r.command[1] === "purge" })
@@ -215,8 +248,9 @@ TestCase {
       openMemory(readFixture(recordsGolden))
       pinClock()
       clickByLabel(scopes[i])
-      var dry = purgeRuns()
-      compare(dry.length, 1)
+      var dry = act.launchedCount(isPurgeRun, 1, "dry-run " + scopes[i])
+      act.drain()
+      compare(purgeRuns().length, 1)
       var argv = dry[0].command
       compare(argv[argv.length - 1], "--dry-run")
       compare(argv[3], projectKey)
@@ -230,11 +264,12 @@ TestCase {
       // No canned stdout was registered (unparseable); register it and redo.
       ProcessController.respond(argv, { stdout: "would purge 3 sessions, 42 events, 5 records\n", stderr: "", exitCode: 0 })
       clickByLabel(scopes[i])
-      verify(texts().indexOf("Forget 3 sessions (42 events) and 5 saved records from acme? This cannot be undone.") !== -1, JSON.stringify(texts()))
+      expectText("Forget 3 sessions (42 events) and 5 saved records from acme? This cannot be undone.")
       var yesArgv = argv.slice(0, argv.length - 1).concat(["--yes"])
       compare(runsMatching(yesArgv).length, 0, "--yes ran before confirm")
 
       clickByLabel("Forget")
+      act.launchedCount(function (r) { return ProcessController.keyFor(r.command) === ProcessController.keyFor(yesArgv) }, 1, "--yes run")
       compare(runsMatching(yesArgv).length, 1)
     }
   }
@@ -243,13 +278,14 @@ TestCase {
     openMemory(readFixture(recordsGolden))
     pinClock()
     clickByLabel("Everything here")
-    var argv = purgeRuns()[0].command
+    var argv = act.launchedCount(isPurgeRun, 1, "first dry-run")[0].command
     ProcessController.respond(argv, { stdout: "would purge 1 sessions, 5 events, 0 records\n", stderr: "", exitCode: 0 })
     clickByLabel("Everything here")
+    expectText("Forget 1 sessions (5 events) and 0 saved records from acme? This cannot be undone.")
     clickByLabel("Cancel")
+    act.settled(function () { return texts().indexOf("Forget 1 sessions (5 events) and 0 saved records from acme? This cannot be undone.") === -1 }, "confirm never closed after Cancel")
     var yes = purgeRuns().filter(function (r) { return r.command.indexOf("--yes") !== -1 })
     compare(yes.length, 0)
-    verify(texts().indexOf("Forget 1 sessions (5 events) and 0 saved records from acme? This cannot be undone.") === -1)
   }
 
   function test_kind_word_on_each_row() {
@@ -257,22 +293,20 @@ TestCase {
     golden.records.push({ id: "aaaa0009-0000-4000-8000-000000000009", ts: "2026-01-01T00:07:00Z", kind: "outcome",
       tier: "agent-declared", status: "current", text: "Swirl approved." })
     openMemory(JSON.stringify(golden))
+    expectText("Outcome")
     var t = texts()
     verify(t.indexOf("Outcome") !== -1, "no Outcome kind word: " + JSON.stringify(t))
     verify(t.indexOf("Decision") !== -1, "no Decision kind word")
     verify(t.indexOf("\uf11e") !== -1, "outcome row lacks the flag glyph")
-    var bad = TestUtil.collectOutOfBounds(panel.testContentItem, panel.testContentItem,
-      panel.testImplicitWidth, panel.testImplicitHeight)
-    verify(bad.length === 0, bad.length + " item(s) out of bounds: " + JSON.stringify(bad).slice(0, 2000))
+    expectNoOutOfBounds("kind word")
   }
 
   function test_layout_within_bounds() {
     openMemory(readFixture(recordsGolden))
     // exercise the taller states too: an open delete confirm.
     clickByTooltip("Delete")
-    var bad = TestUtil.collectOutOfBounds(panel.testContentItem, panel.testContentItem,
-      panel.testImplicitWidth, panel.testImplicitHeight)
-    verify(bad.length === 0, bad.length + " item(s) out of bounds: " + JSON.stringify(bad).slice(0, 2000))
+    expectText("Forget this record?")
+    expectNoOutOfBounds("delete confirm open")
   }
 
   // ---- Memory and Forget act on exactly the row (task a9a784ec) ----
@@ -293,10 +327,15 @@ TestCase {
     ProcessController.respond(Launchers.recordsCommand(wsKey, labelCwd, false), { stdout: recordsText, stderr: "", exitCode: 0 })
     panel.open("{}")
     tryCompare(panel, "loading", false, 2000)
-    wait(20)
-    clickByTooltip("Memory")
-    verify(panel.memoryOpen)
+    clickByTooltip("Memory", { until: function () { return panel.memoryOpen } })
+    act.launchedNext(isRecordsRun2(wsKey, labelCwd), "label row records run")
+    openedLabelRowMemoryReady()
     pinClock()
+  }
+
+  function isRecordsRun2(key, location) {
+    var want = ProcessController.keyFor(Launchers.recordsCommand(key, location, false))
+    return function (r) { return ProcessController.keyFor(r.command) === want }
   }
 
   function followedBy(argv, flag, value) {
@@ -314,7 +353,7 @@ TestCase {
     var scopes = ["Last hour", "Today", "Everything here"]
     for (var j = 0; j < scopes.length; j++) {
       clickByLabel(scopes[j])
-      var runs = purgeRuns()
+      var runs = act.launchedCount(isPurgeRun, j + 1, "purge " + scopes[j])
       var argv = runs[runs.length - 1].command
       verify(followedBy(argv, "--location", labelCwd), scopes[j] + " purge argv lacks --location <cwd>: " + JSON.stringify(argv))
       verify(followedBy(argv, "--project", wsKey), "purge argv lacks the project key")
@@ -329,16 +368,17 @@ TestCase {
     ProcessController.respond(Launchers.purgeCommand(wsKey, labelCwd, todaySince, true), { stdout: "would purge 1 sessions, 27 events, 2 records\n", stderr: "", exitCode: 0 })
 
     clickByLabel("Last hour")
-    verify(texts().indexOf("Nothing to forget for last hour.") !== -1, JSON.stringify(texts()))
+    expectText("Nothing to forget for last hour.")
     verify(texts().join("|").indexOf("This cannot be undone") === -1, "a confirm showed for 0/0/0")
 
     clickByLabel("Today")
     var want = "Forget 1 sessions (27 events) and 2 saved records from projects/backstory-feedback? This cannot be undone."
-    verify(texts().indexOf(want) !== -1, JSON.stringify(texts()))
-    verify(texts().indexOf("Nothing to forget for last hour.") === -1, "stale note left behind")
+    expectText(want)
+    act.settled(function () { return texts().indexOf("Nothing to forget for last hour.") === -1 }, "stale note left behind")
     var yesArgv = Launchers.purgeCommand(wsKey, labelCwd, todaySince, false)
     compare(runsMatching(yesArgv).length, 0, "--yes ran before confirm")
     clickByLabel("Forget")
+    act.launchedCount(function (r) { return ProcessController.keyFor(r.command) === ProcessController.keyFor(yesArgv) }, 1, "--yes run")
     compare(runsMatching(yesArgv).length, 1)
   }
 
@@ -347,7 +387,7 @@ TestCase {
     var since = MemoryJs.FORGET_SCOPES[0].since(pinnedNow)
     ProcessController.respond(Launchers.purgeCommand(wsKey, labelCwd, since, true), { stdout: "would purge 0 sessions, 0 events, 2 records\n", stderr: "", exitCode: 0 })
     clickByLabel("Last hour")
-    verify(texts().indexOf("Forget 0 sessions (0 events) and 2 saved records from projects/backstory-feedback? This cannot be undone.") !== -1, JSON.stringify(texts()))
+    expectText("Forget 0 sessions (0 events) and 2 saved records from projects/backstory-feedback? This cannot be undone.")
   }
 
   // ---- the result of a click is scrolled into view ----
@@ -386,23 +426,26 @@ TestCase {
     var f = flickable()
     verify(f.contentHeight > f.height * 1.5, "content is not long enough to need scrolling")
     f.contentY = 0
-    compare(f.contentY, 0)
+    act.settledEq(f, "contentY", 0)
   }
 
   function clickForgetOptionScrolledToTop(label) {
     scrollToTop()
-    var button = TestUtil.findFirst(panel.testContentItem, function (n) { return n.label === label })
-    verify(button !== null, "no " + label + " button")
     // Scrolled to the top the option is below the viewport, so the mouse
-    // cannot reach it: trigger the click handler itself.
-    button.clicked()
+    // cannot reach it: trigger the click handler itself, once it is ready.
+    act.activateWhenReady(function () {
+      return TestUtil.findFirst(panel.testContentItem, function (n) { return n.label === label })
+    }, { desc: label + " button" })
     settle()
   }
 
   // Lets the deferred reveal and the layout polish run, so a position read
   // afterwards is the settled one (an un-laid-out item reports y=0, which
-  // would satisfy any "in view" check vacuously).
-  function settle() { wait(150) }
+  // would satisfy any "in view" check vacuously): waits for the scroll
+  // position and content size to stop moving.
+  function settle() {
+    act.quiescent(function () { var f = flickable(); return [f.contentY, f.contentHeight, panel.testImplicitHeight] }, "view never stopped scrolling/reflowing")
+  }
 
   function findTextStarting(prefix) {
     return TestUtil.findFirst(panel.testContentItem, function (n) {
@@ -451,8 +494,7 @@ TestCase {
     // desk) the error is out of sight until the view scrolls up to it.
     var f = flickable()
     f.contentY = f.contentHeight - f.height
-    var button = TestUtil.findFirst(panel.testContentItem, function (n) { return n.label === "Last hour" })
-    mouseClick(button, button.width / 2, button.height / 2)
+    clickByLabel("Last hour")
     settle()
     tryVerify(function () { return findTextStarting("store is locked") !== null }, 2000)
     var err = findTextStarting("store is locked")
@@ -496,8 +538,11 @@ TestCase {
   }
 
   function byName(name) {
-    var hits = allNodes(panel.testContentItem).filter(function (n) { return n.objectName === name })
-    compare(hits.length, 1, "expected exactly one " + name)
+    var hits = []
+    act.settled(function () {
+      hits = allNodes(panel.testContentItem).filter(function (n) { return n.objectName === name })
+      return hits.length === 1
+    }, "expected exactly one " + name)
     return hits[0]
   }
 
@@ -557,20 +602,21 @@ TestCase {
     panel.testContentItem.parent = loader
     panel.open("{}")
     tryCompare(panel, "loading", false, 2000)
-    wait(20)
-    var header = allNodes(panel.testContentItem).filter(function (n) { return n.text === "Work (1)" })
-    compare(header.length, 1, "no group section heading")
+    function groupHeader() { return allNodes(panel.testContentItem).filter(function (n) { return n.text === "Work (1)" }) }
+    act.settled(function () { return groupHeader().length === 1 }, "no group section heading")
+    var header = groupHeader()
     var wantSize = header[0].font.pixelSize
     var wantColor = header[0].color
 
     // Open the child's Memory (expand the group first).
     var memory = TestUtil.findFirst(panel.testContentItem, function (n) { return n.tooltipText === "Memory" })
     if (memory === null) {
-      mouseClick(header[0])
-      wait(20)
+      act.clickWhenReady(function () { return groupHeader()[0] }, {
+        desc: "group heading",
+        until: function () { return TestUtil.findFirst(panel.testContentItem, function (n) { return n.tooltipText === "Memory" }) !== null }
+      })
     }
-    clickByTooltip("Memory")
-    verify(panel.memoryOpen)
+    clickByTooltip("Memory", { until: function () { return panel.memoryOpen } })
     var heading = byName("forgetHeading")
     compare(heading.font.pixelSize, wantSize)
     compare(heading.color, wantColor)
