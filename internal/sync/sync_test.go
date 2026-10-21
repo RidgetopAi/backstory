@@ -159,7 +159,8 @@ func TestTombstonesCrossWithNoText(t *testing.T) {
 	addProject(t, b, "/b/widgets", remoteURL)
 
 	synced := note(t, a, human, "/a/widgets", "", "uniqueword-synced then forgotten")
-	if _, _, err := link(t, b, human, a, human, bsync.Cursors{}); err != nil {
+	first, _, err := link(t, b, human, a, human, bsync.Cursors{})
+	if err != nil {
 		t.Fatal(err)
 	}
 	if hits, _ := b.SearchRecords("uniqueword", 10); len(hits) != 1 {
@@ -168,7 +169,8 @@ func TestTombstonesCrossWithNoText(t *testing.T) {
 	if err := a.TombstoneRecord(synced, human); err != nil {
 		t.Fatal(err)
 	}
-	rep, _, err := link(t, b, human, a, human, bsync.Cursors{})
+	// Resume from the cursors: the tombstone must be its own change.
+	rep, _, err := link(t, b, human, a, human, first.Cursors)
 	if err != nil {
 		t.Fatal(err)
 	}
