@@ -422,3 +422,56 @@ func TestBuildResumeSectionIncludesNext(t *testing.T) {
 		t.Fatalf("export Resume section lacks next:\n%s", got)
 	}
 }
+
+// TestBuildShowsFromDeviceForImportedRecords pins `from <device>` in both
+// places export renders it — the Resume line and a ledger item header — and
+// its absence on local records (critic T2 on task 0abc562f).
+func TestBuildShowsFromDeviceForImportedRecords(t *testing.T) {
+	st := newTestStore(t)
+	buildExportFixtureStore(t, st)
+	if err := st.PairSyncPeer("dev-laptop-0001", "laptop", "laptop.local"); err != nil {
+		t.Fatalf("PairSyncPeer: %v", err)
+	}
+	// records are append-only, so the imported rows are inserted, not updated.
+	const importedHandoffID = "60000000-0000-4000-8000-000000000006"
+	const importedDecisionID = "70000000-0000-4000-8000-000000000007"
+	base := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
+	for i, rec := range []struct {
+		id   string
+		kind store.RecordKind
+	}{{importedDecisionID, store.KindDecision}, {importedHandoffID, store.KindHandoff}} {
+		if _, err := st.DB().Exec(`INSERT INTO records
+			(id, ts, kind, tier, text, about, session_id, project_key, evidence, outcome, promoter, expires_at, tombstoned_at, origin_device)
+			VALUES (?, ?, ?, ?, ?, '[]', NULL, ?, '[]', NULL, NULL, NULL, NULL, ?)`,
+			rec.id, base.Add(time.Duration(10+i)*time.Minute).UnixNano(), string(rec.kind), string(store.TierHumanDeclared),
+			"imported "+string(rec.kind), exportFixtureProject, "dev-laptop-0001"); err != nil {
+			t.Fatalf("insert imported %s: %v", rec.kind, err)
+		}
+	}
+
+	got, err := Build(Params{Store: st, ProjectKey: exportFixtureProject, Altitude: AltitudeSummary, Now: exportFixtureNow})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if !strings.Contains(got, "(id "+importedHandoffID+", from laptop)") {
+		t.Errorf("Resume line missing \"from laptop\":\n%s", got)
+	}
+	var sawDecision, sawLocal bool
+	for _, line := range strings.Split(got, "\n") {
+		switch {
+		case strings.HasPrefix(line, "- "+importedDecisionID):
+			sawDecision = true
+			if !strings.HasSuffix(line, " · from laptop") {
+				t.Errorf("imported ledger line %q lacks \" · from laptop\"", line)
+			}
+		case strings.HasPrefix(line, "- "+fixtureLongNoteID):
+			sawLocal = true
+			if strings.Contains(line, "from ") {
+				t.Errorf("local ledger line %q must carry no device label", line)
+			}
+		}
+	}
+	if !sawDecision || !sawLocal {
+		t.Errorf("ledger lines not found (decision=%v local=%v):\n%s", sawDecision, sawLocal, got)
+	}
+}

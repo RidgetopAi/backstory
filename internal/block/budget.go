@@ -64,8 +64,8 @@ func readBudgetSetting(st *store.Store, key string) (int, bool, error) {
 	return n, true, nil
 }
 
-// assemble joins HeaderLine, the optional also line right after slot 1 (cut first of all), the four data slots, and the fixed final line
-// and, if the result exceeds budgetTokens, cuts slot 2 (delta) first, then
+// assemble joins HeaderLine, the optional also line right after slot 1 (cut
+// first of all), the four data slots, and the fixed final line and, if the result exceeds budgetTokens, cuts slot 2 (delta) first, then
 // slot 4 (attention), then slot 3 (coordination) — stopping as soon as the
 // result fits (AGENT-CONTRACT.md §The SessionStart block's ordering). Slot 1
 // (resume) is truncated, never dropped outright, when it alone together

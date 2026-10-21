@@ -616,3 +616,49 @@ func TestBuildTextAnchorNoMatchFallsBackToLatestHandoff(t *testing.T) {
 		}
 	}
 }
+
+// TestRenderedShowsFromDeviceForImportedRecordOnly pins the ` · from <device>`
+// header suffix at summary and full altitude: the imported record carries it,
+// the local one does not (critic T2 on task 0abc562f).
+func TestRenderedShowsFromDeviceForImportedRecordOnly(t *testing.T) {
+	st := newTestStore(t)
+	mustUpsertProject(t, st, "proj-dev")
+	sess := mustStartSession(t, st, "proj-dev")
+	localID := mustInsertRecord(t, st, sess, "proj-dev", store.KindNote, "written here")
+	if err := st.PairSyncPeer("dev-laptop-0001", "laptop", "laptop.local"); err != nil {
+		t.Fatalf("PairSyncPeer: %v", err)
+	}
+	importedID := "bbbb0001-0000-4000-8000-000000000001"
+	if _, err := st.DB().Exec(`INSERT INTO records
+		(id, ts, kind, tier, text, about, session_id, project_key, evidence, outcome, promoter, expires_at, tombstoned_at, origin_device)
+		VALUES (?, ?, ?, ?, ?, '[]', NULL, ?, '[]', NULL, NULL, NULL, NULL, ?)`,
+		importedID, time.Now().Add(time.Minute).UnixNano(), string(store.KindNote), string(store.TierAgentDeclared),
+		"written elsewhere", "proj-dev", "dev-laptop-0001"); err != nil {
+		t.Fatalf("insert imported record: %v", err)
+	}
+
+	for _, alt := range []Altitude{AltitudeSummary, AltitudeFull} {
+		res, err := Build(st, Anchor{Kind: AnchorProject, ProjectKey: "proj-dev"}, alt, testBudget, nil)
+		if err != nil {
+			t.Fatalf("Build %s: %v", alt, err)
+		}
+		var sawImported, sawLocal bool
+		for _, line := range strings.Split(res.Rendered, "\n") {
+			switch {
+			case strings.HasPrefix(line, shortID(importedID)):
+				sawImported = true
+				if !strings.Contains(line, " · from laptop") {
+					t.Errorf("%s: imported header %q lacks \"· from laptop\"", alt, line)
+				}
+			case strings.HasPrefix(line, shortID(localID)):
+				sawLocal = true
+				if strings.Contains(line, "from ") {
+					t.Errorf("%s: local header %q must carry no device label", alt, line)
+				}
+			}
+		}
+		if !sawImported || !sawLocal {
+			t.Errorf("%s: headers not found (imported=%v local=%v):\n%s", alt, sawImported, sawLocal, res.Rendered)
+		}
+	}
+}
