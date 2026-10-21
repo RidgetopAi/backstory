@@ -128,6 +128,9 @@ type ProjectSummary struct {
 	// handoff record at all.
 	HandoffID        string
 	HandoffFirstLine string
+	// HandoffOriginDevice names the paired device that wrote the handoff,
+	// "" when it was written here.
+	HandoffOriginDevice string
 	// HandoffNext is the handoff's one-line next step: its stored `next`
 	// when set, else its first line with leading boilerplate stripped
 	// (handoffNextFromText). "" when there is no handoff.
@@ -455,6 +458,7 @@ func buildProject(st *store.Store, projectKey string, since, now time.Time, git 
 	}
 	if hasHandoff {
 		summary.HandoffID = handoff.ID
+		summary.HandoffOriginDevice = handoff.OriginDeviceName
 		agent, err := st.SessionAgent(handoff.SessionID)
 		if err != nil {
 			return ProjectSummary{}, nil, err
@@ -721,6 +725,7 @@ func buildHomeLabelProject(st *store.Store, since, now time.Time, loc store.Acti
 	}
 	if hasHandoff {
 		summary.HandoffID = handoff.ID
+		summary.HandoffOriginDevice = handoff.OriginDeviceName
 		agent, err := st.SessionAgent(handoff.SessionID)
 		if err != nil {
 			return ProjectSummary{}, nil, err

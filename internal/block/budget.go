@@ -64,7 +64,7 @@ func readBudgetSetting(st *store.Store, key string) (int, bool, error) {
 	return n, true, nil
 }
 
-// assemble joins HeaderLine, the four data slots, and the fixed final line
+// assemble joins HeaderLine, the optional also line right after slot 1 (cut first of all), the four data slots, and the fixed final line
 // and, if the result exceeds budgetTokens, cuts slot 2 (delta) first, then
 // slot 4 (attention), then slot 3 (coordination) — stopping as soon as the
 // result fits (AGENT-CONTRACT.md §The SessionStart block's ordering). Slot 1
@@ -76,11 +76,14 @@ func readBudgetSetting(st *store.Store, key string) (int, bool, error) {
 // HeaderLine plus FinalLine alone still doesn't fit — so that a budget too
 // small for any slot still yields HeaderLine (task 6ae45e80's DONE WHEN
 // clause 2: the header is the last thing dropped, not the first).
-func assemble(slot1, slot2, slot3, slot4, final string, budgetTokens int) string {
+func assemble(also, slot1, slot2, slot3, slot4, final string, budgetTokens int) string {
 	slots := [5]string{slot1, slot2, slot3, slot4, final}
 	join := func() string {
 		parts := []string{HeaderLine}
-		for _, s := range slots {
+		for i, s := range slots {
+			if i == 1 && also != "" {
+				parts = append(parts, also) // directly after slot 1
+			}
 			if s != "" {
 				parts = append(parts, s)
 			}
@@ -90,6 +93,15 @@ func assemble(slot1, slot2, slot3, slot4, final string, budgetTokens int) string
 
 	if EstimateTokens(join()) <= budgetTokens {
 		return join()
+	}
+
+	// The also line is the first thing cut: it only points at a second
+	// handoff, and the Resume line itself must outlast it.
+	if also != "" {
+		also = ""
+		if EstimateTokens(join()) <= budgetTokens {
+			return join()
+		}
 	}
 
 	for _, i := range []int{1, 3, 2} { // slot2, slot4, slot3, in that cut priority

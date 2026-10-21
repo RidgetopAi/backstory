@@ -156,7 +156,11 @@ func writeResumeSection(b *strings.Builder, handoff recall.Item, hasHandoff, sta
 		b.WriteString("no handoff yet.\n\n")
 		return
 	}
-	fmt.Fprintf(b, "(id %s) %s\n", handoff.ID, handoff.Text)
+	idPart := "id " + handoff.ID
+	if handoff.OriginDeviceName != "" {
+		idPart += ", from " + handoff.OriginDeviceName
+	}
+	fmt.Fprintf(b, "(%s) %s\n", idPart, handoff.Text)
 	if handoff.Next != "" {
 		fmt.Fprintf(b, "Next: %s\n", handoff.Next)
 	}
@@ -215,7 +219,11 @@ func writeDecisionsAndNotesSection(b *strings.Builder, items []recall.Item, alti
 // true for a tombstoned item (recall.Item's own invariant): a tombstoned
 // record's text can never reach this mirror.
 func writeLedgerItem(b *strings.Builder, item recall.Item, altitude Altitude) {
-	fmt.Fprintf(b, "- %s · %s · %s · %s\n", item.ID, item.Kind, item.Tier, item.Status)
+	fmt.Fprintf(b, "- %s · %s · %s · %s", item.ID, item.Kind, item.Tier, item.Status)
+	if item.OriginDeviceName != "" {
+		fmt.Fprintf(b, " · from %s", item.OriginDeviceName)
+	}
+	b.WriteString("\n")
 	if item.Text == "" {
 		return
 	}

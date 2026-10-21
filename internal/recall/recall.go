@@ -129,6 +129,9 @@ type Item struct {
 	// anything else (PLAN.md §Phase 4: "never computed from anything but
 	// the stored tier").
 	Tier store.Tier
+	// OriginDeviceName names the paired device that wrote the record, ""
+	// for one written on this device.
+	OriginDeviceName string
 	// Text is the record's body, empty when Status is StatusTombstoned
 	// (SCHEMA.md invariant 1: recall omits a tombstoned record's text,
 	// keeps its edges).
@@ -393,13 +396,14 @@ func annotate(st *store.Store, rec store.Record, workspaces []string) (Item, err
 	}
 
 	item := Item{
-		ID:     rec.ID,
-		Kind:   rec.Kind,
-		Tier:   rec.Tier,
-		Text:   rec.Text,
-		Next:   rec.Next,
-		Status: StatusCurrent,
-		Edges:  edges,
+		ID:               rec.ID,
+		Kind:             rec.Kind,
+		Tier:             rec.Tier,
+		OriginDeviceName: rec.OriginDeviceName,
+		Text:             rec.Text,
+		Next:             rec.Next,
+		Status:           StatusCurrent,
+		Edges:            edges,
 	}
 	if rec.ExpiresAt != nil {
 		item.ExpiresAt = rec.ExpiresAt
@@ -511,6 +515,9 @@ const summaryBodyChars = 240
 // line can contain one), summary truncates the body, full does not.
 func renderItem(item Item, altitude Altitude) string {
 	header := fmt.Sprintf("%s · %s · %s · %s", shortID(item.ID), item.Kind, item.Tier, statusLabel(item))
+	if item.OriginDeviceName != "" {
+		header += " · from " + item.OriginDeviceName
+	}
 	if item.Git != nil {
 		header += " · " + gitLabel(item.Git)
 	}

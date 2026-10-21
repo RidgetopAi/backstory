@@ -126,6 +126,20 @@ TestCase {
     verify(texts().indexOf("A current note.\nSecond line.") !== -1, "click did not expand the full text")
   }
 
+  // The device chip shows for exactly the records whose origin_device_name
+  // is non-null (the golden's one imported note, from "laptop").
+  function test_device_chip_only_for_imported_records() {
+    var text = readFixture(recordsGolden)
+    var golden = JSON.parse(text)
+    var imported = golden.records.filter(function (r) { return r.origin_device_name !== null })
+    compare(imported.length, 1)
+    openMemory(text)
+    var chips = TestUtil.findAll(panel.testContentItem, function (n) { return n.objectName === "recordDeviceChip" && n.visible })
+    compare(chips.length, 1)
+    var labels = TestUtil.findAll(chips[0], function (n) { return n.objectName === "deviceChipText" })
+    compare(labels[0].text, "from " + imported[0].origin_device_name)
+  }
+
   function test_history_toggle_reruns_with_history_and_marks_deleted() {
     var text = readFixture(historyGolden)
     openMemory(readFixture(recordsGolden))

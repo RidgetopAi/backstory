@@ -253,6 +253,12 @@ const maxHandoffScanForLocation = 1000
 // building the whole scope: candidates are the handoffs filed under dir's
 // repo key and under its workspace home key, newest first.
 func (s *Store) LatestHandoffAt(dir string, git project.Git, workspaces []string) (Record, bool, error) {
+	return s.LatestHandoffAtFrom(dir, git, workspaces, OriginAny)
+}
+
+// LatestHandoffAtFrom is LatestHandoffAt restricted to records written on
+// this device (OriginLocal) or imported from a paired one (OriginImported).
+func (s *Store) LatestHandoffAtFrom(dir string, git project.Git, workspaces []string, from OriginFilter) (Record, bool, error) {
 	dir = filepath.Clean(dir)
 	m := locationMatcher{label: project.Label(dir, git, workspaces)}
 	var keys []any
@@ -289,6 +295,9 @@ func (s *Store) LatestHandoffAt(dir string, git project.Git, workspaces []string
 		return Record{}, false, fmt.Errorf("store: latest handoff at %s: %w", dir, err)
 	}
 	for _, h := range recs {
+		if !from.matches(h) {
+			continue
+		}
 		if m.repoKey != "" && h.ProjectKey == m.repoKey {
 			return h, true, nil
 		}

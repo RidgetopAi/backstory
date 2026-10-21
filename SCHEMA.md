@@ -256,6 +256,7 @@ old row still holds its text. Raw `timeline_events` are never served; a record's
 `evidence` `[]`. A record whose project has no sync identity is not served. The
 migration queues existing history once. Import (`store.ImportSyncChanges`, human identity
 only) is idempotent by id, keeps the change's own tier and `origin_device`, writes
+sets `event_cursor` to this device's `MAX(timeline_events.id)` at import (the delta after an imported handoff is the local timeline since the import), writes
 sessions as `origin = 'synced'` stubs (empty `cwd`, no pid), and files a record whose
 project this store lacks under a placeholder project keyed `sync:<sync_id>`, rehomed
 through `project_key_aliases` when a local project gains that identity. Capture off here:

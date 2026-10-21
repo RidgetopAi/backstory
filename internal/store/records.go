@@ -102,6 +102,12 @@ type Record struct {
 	GitHead string
 	// Next is the handoff's stored one-line next step, "" when NULL.
 	Next string
+	// OriginDevice is the id of the paired device that wrote this record,
+	// "" for a record written on this device (records.origin_device NULL).
+	OriginDevice string
+	// OriginDeviceName is OriginDevice's devices.name, or its first 8
+	// characters when that device has no row here; "" for a local record.
+	OriginDeviceName string
 }
 
 // InsertRecord appends a ledger record with no edges. It is a convenience
@@ -224,12 +230,16 @@ func (s *Store) GetRecord(id string) (Record, error) {
 		kind, tier, text, about, evid   string
 		sessionID, projectKey, promoter sql.NullString
 		outcome, gitHead, next          sql.NullString
+		originDevice, originName        sql.NullString
 		expiresAt, tombstonedAt         sql.NullInt64
 	)
-	err := s.db.QueryRow(`SELECT id, ts, kind, tier, text, about, session_id, project_key,
-		evidence, outcome, promoter, expires_at, tombstoned_at, event_cursor, git_head, next FROM records WHERE id = ?`, id).
+	err := s.db.QueryRow(`SELECT r.id, r.ts, r.kind, r.tier, r.text, r.about, r.session_id, r.project_key,
+		r.evidence, r.outcome, r.promoter, r.expires_at, r.tombstoned_at, r.event_cursor, r.git_head, r.next,
+		r.origin_device, d.name
+		FROM records r LEFT JOIN devices d ON d.id = r.origin_device WHERE r.id = ?`, id).
 		Scan(&r.ID, &ts, &kind, &tier, &text, &about, &sessionID, &projectKey,
-			&evid, &outcome, &promoter, &expiresAt, &tombstonedAt, &r.EventCursor, &gitHead, &next)
+			&evid, &outcome, &promoter, &expiresAt, &tombstonedAt, &r.EventCursor, &gitHead, &next,
+			&originDevice, &originName)
 	if err != nil {
 		return Record{}, fmt.Errorf("store: get record %s: %w", id, err)
 	}
@@ -253,6 +263,16 @@ func (s *Store) GetRecord(id string) (Record, error) {
 	r.Promoter = promoter.String
 	r.GitHead = gitHead.String
 	r.Next = next.String
+	if originDevice.Valid {
+		r.OriginDevice = originDevice.String
+		r.OriginDeviceName = originName.String
+		if r.OriginDeviceName == "" {
+			r.OriginDeviceName = originDevice.String
+			if len(r.OriginDeviceName) > 8 {
+				r.OriginDeviceName = r.OriginDeviceName[:8]
+			}
+		}
+	}
 	if expiresAt.Valid {
 		t := tsFromNanos(expiresAt.Int64)
 		r.ExpiresAt = &t
@@ -269,10 +289,47 @@ func (s *Store) GetRecord(id string) (Record, error) {
 // sequence, never ts" applies here too: ts is wall-clock and informational,
 // insertion order is not). found is false when no such record exists.
 func (s *Store) LatestRecord(projectKey string, kind RecordKind) (Record, bool, error) {
+	return s.LatestRecordFrom(projectKey, kind, OriginAny)
+}
+
+// OriginFilter restricts a latest-record lookup by where the record was
+// written: this device, a paired one, or either.
+type OriginFilter int
+
+const (
+	OriginAny OriginFilter = iota
+	OriginLocal
+	OriginImported
+)
+
+func (f OriginFilter) matches(r Record) bool {
+	switch f {
+	case OriginLocal:
+		return r.OriginDevice == ""
+	case OriginImported:
+		return r.OriginDevice != ""
+	}
+	return true
+}
+
+// sql is the origin clause for a records query ("" for OriginAny).
+func (f OriginFilter) sql() string {
+	switch f {
+	case OriginLocal:
+		return " AND origin_device IS NULL"
+	case OriginImported:
+		return " AND origin_device IS NOT NULL"
+	}
+	return ""
+}
+
+// LatestRecordFrom is LatestRecord restricted by origin.
+func (s *Store) LatestRecordFrom(projectKey string, kind RecordKind, from OriginFilter) (Record, bool, error) {
 	projectKey = s.canonicalizeProjectKey(projectKey)
 	var id string
+	//nolint:gosec // from.sql() is a fixed fragment, never caller text
 	err := s.db.QueryRow(`SELECT id FROM records
-		WHERE project_key = ? AND kind = ? AND tombstoned_at IS NULL
+		WHERE project_key = ? AND kind = ? AND tombstoned_at IS NULL`+from.sql()+`
 		ORDER BY rowid DESC LIMIT 1`, projectKey, string(kind)).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Record{}, false, nil

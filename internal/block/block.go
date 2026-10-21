@@ -126,10 +126,11 @@ func Render(p Params) (string, error) {
 		p.Now = time.Now()
 	}
 
-	handoff, hasHandoff, resumeLabel, pointer, err := resolveResumeHandoff(p.Store, p.ProjectKey, p.CWD, p.Git, p.WorkspaceDirs)
+	pick, err := pickResume(p)
 	if err != nil {
 		return "", fmt.Errorf("block: resolve resume handoff: %w", err)
 	}
+	handoff, hasHandoff, resumeLabel, pointer := pick.rec, pick.found, pick.label, pick.pointer
 	allEvents, err := p.Store.EventsSinceID(p.ProjectKey, 0)
 	if err != nil {
 		return "", fmt.Errorf("block: events: %w", err)
@@ -188,6 +189,14 @@ func Render(p Params) (string, error) {
 	if !hasHandoff {
 		slot1 = pointer
 	}
+	alsoLine := ""
+	if pick.also != nil {
+		self, err := p.Store.SelfDevice()
+		if err != nil {
+			return "", fmt.Errorf("block: self device: %w", err)
+		}
+		alsoLine = alsoLineFor(*pick.also, self.Name)
+	}
 	shellSessions, err := p.Store.ShellSessionIDs()
 	if err != nil {
 		return "", fmt.Errorf("block: shell sessions: %w", err)
@@ -217,7 +226,7 @@ func Render(p Params) (string, error) {
 	if hasHandoff {
 		resumeID = handoff.ID
 	}
-	return assemble(slot1, slot2, slot3, slot4, FinalLineFor(resumeID), budgetTokens), nil
+	return assemble(alsoLine, slot1, slot2, slot3, slot4, FinalLineFor(resumeID), budgetTokens), nil
 }
 
 // resumeSlot is slot 1: the latest handoff's record id, its text, plus its
@@ -233,7 +242,11 @@ func resumeSlot(rec store.Record, ok bool, staleReasons []store.FreshnessReason,
 	if !ok {
 		return ""
 	}
-	line := "Resume: (id " + rec.ID + ") " + authorClause + rec.Text
+	idPart := "(id " + rec.ID
+	if rec.OriginDeviceName != "" {
+		idPart += ", from " + rec.OriginDeviceName
+	}
+	line := "Resume: " + idPart + ") " + authorClause + rec.Text
 	if rec.Next != "" {
 		line += "\nNext (start here): " + rec.Next
 	}
@@ -248,6 +261,100 @@ func resumeSlot(rec store.Record, ok bool, staleReasons []store.FreshnessReason,
 	}
 	return line
 }
+
+// resumePick is the Resume handoff chosen across local and imported
+// records, with its location label, the workspace-root pointer when there is
+// none, and the runner-up from the other origin (nil when it is superseded
+// or absent) that the also line names.
+type resumePick struct {
+	rec     store.Record
+	found   bool
+	label   string
+	pointer string
+	also    *store.Record
+}
+
+// pickResume is the RESUME rule across devices (decision 2ac4c54f, D5): the
+// newest current handoff for the location, local and imported alike (imported
+// ones are homed on the local project), newest by ts then id. The loser, when
+// it is not superseded, becomes the also line. Each side is resolved by the
+// same location rule resolveResumeHandoff has always applied.
+func pickResume(p Params) (resumePick, error) {
+	loc, locOK, locLabel, pointer, err := resolveResumeHandoff(p.Store, p.ProjectKey, p.CWD, p.Git, p.WorkspaceDirs, store.OriginLocal)
+	if err != nil {
+		return resumePick{}, err
+	}
+	imp, impOK, impLabel, _, err := resolveResumeHandoff(p.Store, p.ProjectKey, p.CWD, p.Git, p.WorkspaceDirs, store.OriginImported)
+	if err != nil {
+		return resumePick{}, err
+	}
+	switch {
+	case !impOK:
+		return resumePick{rec: loc, found: locOK, label: locLabel, pointer: pointer}, nil
+	case !locOK:
+		return resumePick{rec: imp, found: true, label: impLabel}, nil
+	}
+	win, winLabel, lose := loc, locLabel, imp
+	if newerHandoff(imp, loc) {
+		win, winLabel, lose = imp, impLabel, loc
+	}
+	// A handoff that the other one supersedes is no longer current: it
+	// cannot be the Resume line, and it earns no also line.
+	loserSuperseded, err := p.Store.IsSuperseded(lose.ID)
+	if err != nil {
+		return resumePick{}, err
+	}
+	winnerSuperseded, err := p.Store.IsSuperseded(win.ID)
+	if err != nil {
+		return resumePick{}, err
+	}
+	if winnerSuperseded && !loserSuperseded {
+		win, winLabel, lose = lose, loseLabel(lose, locLabel, impLabel, loc), win
+		loserSuperseded = true
+	}
+	pk := resumePick{rec: win, found: true, label: winLabel}
+	if !loserSuperseded {
+		pk.also = &lose
+	}
+	return pk, nil
+}
+
+func loseLabel(r store.Record, locLabel, impLabel string, loc store.Record) string {
+	if r.ID == loc.ID {
+		return locLabel
+	}
+	return impLabel
+}
+
+// newerHandoff reports whether a is newer than b: later ts, then greater id.
+func newerHandoff(a, b store.Record) bool {
+	if !a.TS.Equal(b.TS) {
+		return a.TS.After(b.TS)
+	}
+	return a.ID > b.ID
+}
+
+// alsoLineFor is the one-line pointer to the handoff the Resume line did not
+// pick: `also: <device> handoff (id <id8>) <first line>`. A local record is
+// named by this device's own name.
+func alsoLineFor(r store.Record, self string) string {
+	dev := r.OriginDeviceName
+	if dev == "" {
+		dev = self
+	}
+	first := strings.TrimSpace(strings.SplitN(strings.TrimSpace(r.Text), "\n", 2)[0])
+	if rs := []rune(first); len(rs) > alsoFirstLineMax {
+		first = string(rs[:alsoFirstLineMax]) + "…"
+	}
+	id8 := r.ID
+	if len(id8) > 8 {
+		id8 = id8[:8]
+	}
+	return "also: " + dev + " handoff (id " + id8 + ") " + first
+}
+
+// alsoFirstLineMax caps the handoff text the also line quotes, in runes.
+const alsoFirstLineMax = 100
 
 // handoffAuthorClause names the harness that wrote the Resume handoff, so a
 // different harness reading it does not claim the work as its own (task
@@ -278,18 +385,18 @@ const maxPointerProjects = 3
 // workspace involved at all (cwd empty, or outside every configured
 // workspace), the pre-f3fa04c7 behavior — the newest handoff for
 // projectKey, unchanged, no label.
-func resolveResumeHandoff(st *store.Store, projectKey, cwd string, git project.Git, workspaces []string) (store.Record, bool, string, string, error) {
+func resolveResumeHandoff(st *store.Store, projectKey, cwd string, git project.Git, workspaces []string, from store.OriginFilter) (store.Record, bool, string, string, error) {
 	if cwd == "" {
-		h, ok, err := st.LatestRecord(projectKey, store.KindHandoff)
+		h, ok, err := st.LatestRecordFrom(projectKey, store.KindHandoff, from)
 		return h, ok, "", "", err
 	}
 	home, ok := project.WorkspaceHome(cwd, workspaces)
 	if !ok {
-		h, ok, err := st.LatestRecord(projectKey, store.KindHandoff)
+		h, ok, err := st.LatestRecordFrom(projectKey, store.KindHandoff, from)
 		return h, ok, "", "", err
 	}
 
-	h, found, err := st.LatestHandoffAt(cwd, git, workspaces)
+	h, found, err := st.LatestHandoffAtFrom(cwd, git, workspaces, from)
 	if err != nil {
 		return store.Record{}, false, "", "", fmt.Errorf("block: location handoff: %w", err)
 	}
@@ -304,13 +411,16 @@ func resolveResumeHandoff(st *store.Store, projectKey, cwd string, git project.G
 	// it carries the root's.
 	if !found {
 		if root, ok := workspaceRootOf(cwd, home, workspaces); ok && root != filepath.Clean(cwd) {
-			h, found, err = st.LatestHandoffAt(root, git, workspaces)
+			h, found, err = st.LatestHandoffAtFrom(root, git, workspaces, from)
 			if err != nil {
 				return store.Record{}, false, "", "", fmt.Errorf("block: root handoff: %w", err)
 			}
 		}
 	}
 	if !found {
+		if from == store.OriginImported {
+			return store.Record{}, false, "", "", nil
+		}
 		others, err := st.HandoffsByWriter(home)
 		if err != nil {
 			return store.Record{}, false, "", "", fmt.Errorf("block: root handoffs: %w", err)

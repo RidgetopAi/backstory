@@ -114,8 +114,11 @@ type projectSummaryJSON struct {
 	HandoffID        string `json:"handoff_id,omitempty"`
 	HandoffFirstLine string `json:"handoff_first_line,omitempty"`
 	HandoffStale     bool   `json:"handoff_stale,omitempty"`
-	HandoffNext      string `json:"handoff_next"`
-	LastAgent        string `json:"last_agent"`
+	// OriginDeviceName names the paired device that wrote the handoff;
+	// null when it was written on this device or there is no handoff.
+	OriginDeviceName *string `json:"origin_device_name"`
+	HandoffNext      string  `json:"handoff_next"`
+	LastAgent        string  `json:"last_agent"`
 	// Agents is every known harness active in the window, newest first;
 	// LastAgent is Agents[0].Agent. Never null.
 	Agents []agentSummaryJSON `json:"agents"`
@@ -240,6 +243,7 @@ func projectSummary(p week.ProjectSummary) projectSummaryJSON {
 		HandoffID:        p.HandoffID,
 		HandoffFirstLine: p.HandoffFirstLine,
 		HandoffStale:     p.HandoffStale,
+		OriginDeviceName: nullableDeviceName(p.HandoffOriginDevice),
 		HandoffNext:      p.HandoffNext,
 		LastAgent:        p.LastAgent,
 	}
@@ -303,4 +307,13 @@ func projectOrDirInScope(st *store.Store, roots []string, key, dir string) bool 
 	}
 	in, err := week.ProjectInScope(st, key, roots)
 	return err == nil && in
+}
+
+// nullableDeviceName is the JSON form of a record's origin device: nil (null)
+// for a record written here, the device name for an imported one.
+func nullableDeviceName(name string) *string {
+	if name == "" {
+		return nil
+	}
+	return &name
 }
