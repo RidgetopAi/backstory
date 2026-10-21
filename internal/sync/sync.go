@@ -55,6 +55,22 @@ const (
 type Options struct {
 	// BatchSize is the feed entries per pull or push; 0 means DefaultBatchSize.
 	BatchSize int
+	// DryRun makes Run count what it would pull and push, importing and
+	// sending nothing.
+	DryRun bool
+	// ExpectPeerID, when set, makes Run refuse (before anything is imported)
+	// a peer whose hello names another device: cursors belong to one peer.
+	ExpectPeerID string
+}
+
+// PeerIdentityError is returned when the device that answered is not the one
+// paired at that host.
+type PeerIdentityError struct {
+	Want, Got, GotName string
+}
+
+func (e *PeerIdentityError) Error() string {
+	return fmt.Sprintf("sync: the host now answers as device %q (%s), not the paired device %s", e.GotName, e.Got, e.Want)
 }
 
 func (o Options) batch() int {

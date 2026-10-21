@@ -295,6 +295,8 @@ no agent can run on your behalf through Backstory's tools.
 | [`group`](#group) | Group related projects into one row |
 | [`backfill`](#backfill) | Import past sessions from an agent's history |
 | [`export`](#export) | Write a project's memory to a markdown file |
+| [`pair`](#pair) | Pair with another computer over ssh |
+| [`sync`](#sync) | Share memory with your paired computers |
 | [`install`](#install) | Connect Backstory to your agents, or check or remove that |
 | [`tools`](#tools) | List the tools agents get |
 | [`version`](#version) | Print the installed version |
@@ -481,6 +483,52 @@ backstory link list                           # every project with its sync iden
 ```
 
 `backstory projects` shows the same identity in its SYNC column.
+
+### pair
+
+Pairs this computer with another one you can reach over ssh, so the two can share memory.
+You pair once; after that, [`sync`](#sync) does the work. The other computer needs Backstory
+installed and `ssh <host>` must work without a password prompt (use an ssh key).
+
+```
+backstory pair laptop                         # pair with the computer you reach as "laptop"
+backstory pair --remove laptop                # stop syncing with it (by its name or ssh host)
+```
+
+It prints the other computer's name. It refuses to pair a computer with itself, and a
+computer whose Backstory is too old to sync. `--remove` only stops syncing: everything the
+other computer already sent stays in your memory.
+
+### sync
+
+Shares memory with every paired computer: it pulls what the other one has that you don't,
+then pushes what you have that it doesn't. Run it whenever you like; running it again when
+nothing changed moves nothing.
+
+```
+backstory sync                                # every paired computer
+backstory sync laptop                         # just one
+backstory sync --dry-run                      # say how much would move; change nothing
+```
+
+Every attempt is recorded, and `backstory status` shows a `sync:` line per computer with
+when it last worked and what the latest attempt did: `ok`, `unreachable` (the computer
+could not be reached), `error` (it answered but something was wrong, such as no Backstory
+there, a version too old to sync, or ssh refusing your key) or `paused` (capture is off
+here, so nothing was imported). If any computer is not `ok`, `sync` prints one line saying
+which and why, and exits non-zero. A sync cut short is safe to repeat: nothing is lost or
+doubled.
+
+#### Sharing memory between two computers
+
+1. Install Backstory on both, and make sure `ssh <other-computer>` works with a key.
+2. On one of them, run `backstory pair <other-computer>`. Once is enough.
+3. Run `backstory sync` on either one whenever you want them to catch up.
+
+Projects match across computers by their git remote; for a project with no remote, use
+[`link`](#link) on both. By default ssh runs in batch mode and never asks for a password;
+to use another ssh command, set `BACKSTORY_SYNC_SSH` (it is run as
+`<command> <host> backstory sync-serve`).
 
 ### backfill
 
