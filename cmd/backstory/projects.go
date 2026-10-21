@@ -8,6 +8,7 @@ import (
 	"text/tabwriter"
 	"time"
 
+	"github.com/RidgetopAi/backstory/internal/store"
 	"github.com/RidgetopAi/backstory/internal/week"
 )
 
@@ -25,6 +26,10 @@ type projectRow struct {
 	LastActivity *string `json:"last_activity"`
 	Sessions     int     `json:"sessions"`
 	Records      int     `json:"records"`
+	// SyncID is the project's machine-independent sync identity ("" when it
+	// has none); SyncSource is "remote", "link" or "".
+	SyncID     string `json:"sync_id"`
+	SyncSource string `json:"sync_source"`
 }
 
 // runProjects is `backstory projects [--json]`: every known project, newest
@@ -59,6 +64,15 @@ func runProjects(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintln(stderr, "backstory projects:", err)
 		return 1
 	}
+	syncIDs, err := st.ListSyncIdentities()
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "backstory projects:", err)
+		return 1
+	}
+	syncByKey := make(map[string]store.SyncIdentity, len(syncIDs))
+	for _, id := range syncIDs {
+		syncByKey[id.ProjectKey] = id
+	}
 	workspaceDirs := resolveWorkspaceDirs()
 	rows := make([]projectRow, 0, len(summaries))
 	for _, ps := range summaries {
@@ -68,6 +82,8 @@ func runProjects(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		row := projectRow{Key: ps.Key, Label: label, Sessions: ps.Sessions, Records: ps.Records}
+		sid := syncByKey[ps.Key]
+		row.SyncID, row.SyncSource = sid.ID, string(sid.Source)
 		if !ps.LastActivity.IsZero() {
 			s := ps.LastActivity.UTC().Format(time.RFC3339)
 			row.LastActivity = &s
@@ -90,13 +106,17 @@ func runProjects(args []string, stdout, stderr io.Writer) int {
 		return 0
 	}
 	tw := tabwriter.NewWriter(stdout, 0, 4, 2, ' ', 0)
-	_, _ = fmt.Fprintln(tw, "LABEL\tKEY\tLAST ACTIVITY\tSESSIONS\tRECORDS")
+	_, _ = fmt.Fprintln(tw, "LABEL\tKEY\tSYNC\tLAST ACTIVITY\tSESSIONS\tRECORDS")
 	for i, r := range rows {
 		last := projectsNeverActive
 		if r.LastActivity != nil {
 			last = summaries[i].LastActivity.UTC().Format(projectsActivityLayout)
 		}
-		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%d\n", r.Label, r.Key, last, r.Sessions, r.Records)
+		syncID := r.SyncID
+		if syncID == "" {
+			syncID = linkNoneLabel
+		}
+		_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d\t%d\n", r.Label, r.Key, syncID, last, r.Sessions, r.Records)
 	}
 	_ = tw.Flush()
 	return 0

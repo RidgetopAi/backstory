@@ -464,6 +464,23 @@ backstory group clear --here                  # remove it from its group
 backstory group list                          # show groups, and projects with none
 ```
 
+### link
+
+Tells Backstory that a project here is the same project as one on another machine. Two
+checkouts of one git repository already match by their normalized remote, so you only need
+`link` for a project with no remote, or a workspace, or to override the remote. Human-only:
+no agent can set or clear a link. A project with no remote and no link has no sync identity
+and never matches anything.
+
+```
+backstory link set notes --here               # call the current project "notes" on every machine
+backstory link set notes KEY                  # or name a project by key
+backstory link clear --here                   # drop the link (the remote, if any, applies again)
+backstory link list                           # every project with its sync identity
+```
+
+`backstory projects` shows the same identity in its SYNC column.
+
 ### backfill
 
 Imports past sessions from an agent's own history, so memory isn't empty on day one. Safe to
