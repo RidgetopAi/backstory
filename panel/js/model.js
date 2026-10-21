@@ -43,6 +43,11 @@ function attentionReason(item) { return item.reason }
 // Set only on a possibly-stale-handoff item: the id `backstory affirm` takes.
 function attentionHandoffId(item) { return item.handoff_id || "" }
 function attentionEvidenceIds(item) { return item.evidence_ids || [] }
+// sync-failing: cross-device sync is on and not syncing (project_key "sync",
+// evidence_ids the sync_attempts row ids). Not project evidence, so it has
+// no handoff to dismiss; it clears when a sync succeeds.
+var ATTENTION_SYNC_FAILING = "sync-failing"
+function attentionIsSyncFailing(item) { return item.kind === ATTENTION_SYNC_FAILING }
 
 // Where you left off — one row is either `{project}` (standalone) or
 // `{group, children}` (group row); a caller branches on rowGroup(row)

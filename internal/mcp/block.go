@@ -7,6 +7,7 @@ import (
 	"github.com/RidgetopAi/backstory/internal/ident"
 	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/store"
+	bsync "github.com/RidgetopAi/backstory/internal/sync"
 )
 
 // BlockResult is DaemonMethodBlock's return value: the rendered
@@ -30,6 +31,7 @@ func handleBlock(st *store.Store, procfs ident.ProcFS, id ident.Identity, sessio
 		CWD:           id.CWD,
 		Git:           git,
 		WorkspaceDirs: workspaces,
+		SyncTimer:     SyncTimerObserver(),
 	})
 	if err != nil {
 		return errResponse("internal", err.Error())
@@ -40,3 +42,9 @@ func handleBlock(st *store.Store, procfs ident.ProcFS, id ident.Identity, sessio
 	}
 	return DaemonResponse{Result: result}
 }
+
+// SyncTimerObserver reports the optional sync timer's state for the
+// sync-failing warning. The binary's main package sets it (the installer, which
+// can observe the timer, imports this package); unset, the timer is absent
+// and never fails.
+var SyncTimerObserver = func() bsync.TimerState { return bsync.TimerAbsent }

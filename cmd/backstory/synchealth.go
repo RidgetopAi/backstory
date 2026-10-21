@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/RidgetopAi/backstory/internal/install"
+	"github.com/RidgetopAi/backstory/internal/mcp"
 	"github.com/RidgetopAi/backstory/internal/store"
 	bsync "github.com/RidgetopAi/backstory/internal/sync"
 )
@@ -30,6 +31,8 @@ func syncTimerState() bsync.TimerState {
 	}
 	return bsync.TimerInactive
 }
+
+func init() { mcp.SyncTimerObserver = syncTimerState }
 
 // syncHealth is sync.Health over st with the timer observed now.
 func syncHealth(st *store.Store, now time.Time) (bsync.HealthReport, error) {

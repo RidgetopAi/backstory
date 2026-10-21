@@ -107,6 +107,12 @@ window (the same set Where-you-left-off lists).
 - `codex-hooks-not-approved` — Backstory's hooks are installed in `~/.codex/hooks.json` but
   Codex has no `trusted_hash` for them. Not project evidence: `project_key` is `codex`,
   `evidence_ids` is empty. Absent when Codex or its hooks are not installed.
+- `sync-failing` — cross-device sync is on (an enabled paired peer) and not syncing, by
+  `sync.Health`: the peer's latest attempt is `error`, its recorded `unreachable` attempts
+  since the last `ok` span more than `sync_unreachable_hours` (default 24), or the sync timer
+  is installed but not active. Not project evidence: `project_key` is `sync`, `evidence_ids`
+  are the `sync_attempts` row ids (decimal strings; empty never, since a peer with no attempt
+  is not failing), and `reason` names the peer and the cause. One item per failing peer.
 
 ## Where you left off — `WhereLeftOffRow`
 

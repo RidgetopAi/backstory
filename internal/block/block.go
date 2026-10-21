@@ -17,6 +17,7 @@ import (
 	"github.com/RidgetopAi/backstory/internal/payload"
 	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/store"
+	bsync "github.com/RidgetopAi/backstory/internal/sync"
 )
 
 // HeaderLine opens every rendered block, populated or empty-state alike: it
@@ -118,6 +119,10 @@ type Params struct {
 	// Now is the reference time for expiry checks (slot 4) and the delta
 	// cutoff (slot 2). Zero means time.Now().
 	Now time.Time
+	// SyncTimer is the caller's observation of the optional sync timer, an
+	// input to the sync-failing warning (sync.Health rule (c)). The zero
+	// value, TimerAbsent, never fails.
+	SyncTimer bsync.TimerState
 }
 
 // Render builds the SessionStart block for p.ProjectKey.
@@ -214,8 +219,12 @@ func Render(p Params) (string, error) {
 	slot3 := coordinationSlot(liveSessions, allEvents, p.SessionID, p.ProcFS)
 	slot4 := attentionSlot(draftCount, contradictionCount, len(staleReasons) > 0, failure.found)
 
+	syncWarn, err := syncWarning(p)
+	if err != nil {
+		return "", err
+	}
 	if slot1 == "" && slot2 == "" && slot3 == "" && slot4 == "" {
-		return HeaderLine + "\n\n" + EmptyProjectLine, nil
+		return joinParts(HeaderLine, syncWarn, EmptyProjectLine), nil
 	}
 
 	budgetTokens, err := resolveBudget(p.Store, p.Harness)
@@ -226,7 +235,32 @@ func Render(p Params) (string, error) {
 	if hasHandoff {
 		resumeID = handoff.ID
 	}
-	return assemble(alsoLine, slot1, slot2, slot3, slot4, FinalLineFor(resumeID), budgetTokens), nil
+	return assemble(syncWarn, alsoLine, slot1, slot2, slot3, slot4, FinalLineFor(resumeID), budgetTokens), nil
+}
+
+// syncWarning is the sync-failing line(s) for every project while
+// sync.Health says a peer is failing ("" otherwise). It is the one line the
+// budget never drops (see assemble).
+func syncWarning(p Params) (string, error) {
+	rep, err := bsync.Check(p.Store, p.SyncTimer, p.Now)
+	if err != nil {
+		return "", fmt.Errorf("block: sync health: %w", err)
+	}
+	var lines []string
+	for _, f := range rep.Failing() {
+		lines = append(lines, f.BlockLine())
+	}
+	return strings.Join(lines, "\n"), nil
+}
+
+func joinParts(parts ...string) string {
+	var kept []string
+	for _, s := range parts {
+		if s != "" {
+			kept = append(kept, s)
+		}
+	}
+	return strings.Join(kept, "\n\n")
 }
 
 // resumeSlot is slot 1: the latest handoff's record id, its text, plus its
