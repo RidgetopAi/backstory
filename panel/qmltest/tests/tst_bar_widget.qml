@@ -28,6 +28,8 @@ TestCase {
 
   property var loader: null
 
+  TestActions { id: act; testCase: testCase }
+
   function fixture(mutate) {
     var xhr = new XMLHttpRequest()
     xhr.open("GET", fixtureUrl, false)
@@ -46,7 +48,8 @@ TestCase {
     loader = barWidgetComponent.createObject(testCase)
     tryCompare(loader, "status", Loader.Ready, 2000)
     verify(loader.item !== null, "BarWidget.qml failed to load: status=" + loader.status)
-    wait(20)
+    act.launchedNext(function (r) { return ProcessController.keyFor(r.command) === ProcessController.keyFor(Launchers.thisWeekCommand()) }, "initial this-week fetch")
+    act.drain()
     return loader.item
   }
 
@@ -59,14 +62,21 @@ TestCase {
     return ProcessController.runs.filter(function (r) { return r.command[0] === "backstory" })
   }
 
+  function barLabel(widget) {
+    return TestUtil.findFirst(widget, function (n) { return n.objectName === "barLabel" })
+  }
+
+  function labelShows(widget, text) {
+    act.settled(function () { var l = barLabel(widget); return l !== null && l.text === text }, "barLabel never showed " + JSON.stringify(text))
+  }
+
   function dot(widget) {
     return TestUtil.findFirst(widget, function (n) { return n.objectName === "attentionDot" })
   }
 
   function test_shows_here_project_name() {
     var widget = start(fixture())
-    var label = TestUtil.findFirst(widget, function (n) { return n.objectName === "barLabel" })
-    compare(label.text, "foo")
+    labelShows(widget, "foo")
   }
 
   // With BACKSTORY_PROJECT_ROOTS set, `backstory this-week --json --here auto`
@@ -77,46 +87,43 @@ TestCase {
     var widget = start(fixture(function (d) {
       d.here = { project_key: "scoped-key", display_name: "projects/scoped", cwd: "/home/brian/projects/scoped", source: "recent" }
     }))
-    var label = TestUtil.findFirst(widget, function (n) { return n.objectName === "barLabel" })
-    compare(label.text, "scoped")
+    labelShows(widget, "scoped")
   }
 
   function test_attention_dot_iff_attention_non_empty() {
     var widget = start(fixture())
-    verify(dot(widget) !== null, "dot should be visible with attention")
+    act.settled(function () { return dot(widget) !== null }, "dot should be visible with attention")
     cleanup()
     widget = start(fixture(function (d) { d.attention = [] }))
+    // Negative: the dot must stay absent once the data (the label) has rendered.
+    act.settled(function () { return barLabel(widget) !== null && barLabel(widget).text !== "" }, "label never rendered")
     compare(dot(widget), null)
   }
 
   function test_glyph_only_when_no_here() {
     var widget = start(fixture(function (d) { delete d.here }))
-    var label = TestUtil.findFirst(widget, function (n) { return n.objectName === "barLabel" })
-    verify(label.text !== "foo" && label.text !== "")
+    act.settled(function () { var l = barLabel(widget); return l !== null && l.text !== "foo" && l.text !== "" }, "glyph-only label never rendered")
   }
 
   function test_left_click_toggles_via_omarchy_shell() {
     var widget = start(fixture())
-    mouseClick(widget, widget.width / 2, widget.height / 2, Qt.LeftButton)
+    act.clickWhenReady(widget, { button: Qt.LeftButton, desc: "bar widget" })
 
-    var last = Quickshell.lastCall()
-    verify(last !== null, "expected a Quickshell.execDetached() call")
+    var last = act.detachedNext(function (c) { return JSON.stringify(c.command) === JSON.stringify(Launchers.barToggleCommand()) }, "left click toggle")
     compare(JSON.stringify(last.command), JSON.stringify(Launchers.barToggleCommand()))
     compare(JSON.stringify(last.command), JSON.stringify(["omarchy-shell", "shell", "toggle", "backstory.this-week", "{}"]))
   }
 
   function test_label_drops_projects_prefix() {
     var widget = start(fixture())
-    var label = TestUtil.findFirst(widget, function (n) { return n.objectName === "barLabel" })
-    verify(label !== null, "barLabel missing")
-    compare(label.text, "foo")
+    labelShows(widget, "foo")
   }
 
   function test_right_click_is_continue_on_here() {
     var widget = start(fixture())
-    mouseClick(widget, widget.width / 2, widget.height / 2, Qt.RightButton)
+    act.clickWhenReady(widget, { button: Qt.RightButton, desc: "bar widget (right)" })
+    var run = act.launchedNext(function (r) { return r.command[0] === "xdg-terminal-exec" }, "right click Continue launch")
     compare(Quickshell.execDetachedCalls.length, 0)
-    var run = ProcessController.lastRun()
     // foo's agents[0] is claude: launched from the launch table, not omarchy.
     compare(JSON.stringify(run.command.slice(0, 3)), JSON.stringify(["xdg-terminal-exec", "--", "sh"]))
     compare(JSON.stringify(run.command.slice(7, 10)), JSON.stringify(Launchers.LAUNCH_TABLE.claude.argv))
@@ -127,14 +134,17 @@ TestCase {
 
   function test_right_click_focuses_the_open_window() {
     var widget = start(fixture(function (d) { d.where_left_off[0].project.window = "0x55aa" }))
-    mouseClick(widget, widget.width / 2, widget.height / 2, Qt.RightButton)
-    compare(JSON.stringify(ProcessController.lastRun().command), JSON.stringify(Launchers.focusWindowCommand("0x55aa")))
+    act.clickWhenReady(widget, { button: Qt.RightButton, desc: "bar widget (right)" })
+    var run = act.launchedNext(function (r) { return JSON.stringify(r.command) === JSON.stringify(Launchers.focusWindowCommand("0x55aa")) }, "right click focus")
+    compare(JSON.stringify(run.command), JSON.stringify(Launchers.focusWindowCommand("0x55aa")))
   }
 
   function test_middle_click_refreshes() {
     var widget = start(fixture())
     var before = weekRuns().length
-    mouseClick(widget, widget.width / 2, widget.height / 2, Qt.MiddleButton)
+    act.clickWhenReady(widget, { button: Qt.MiddleButton, desc: "bar widget (middle)" })
+    act.settled(function () { return weekRuns().length >= before + 1 }, "middle click never refreshed")
+    act.drain()
     compare(weekRuns().length, before + 1)
     compare(Quickshell.execDetachedCalls.length, 0)
   }
