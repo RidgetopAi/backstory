@@ -67,7 +67,7 @@ func testDaemonRealProcFS(t *testing.T, st *store.Store, projectKey string) stri
 	if err != nil {
 		t.Fatalf("socket.Listen: %v", err)
 	}
-	t.Cleanup(func() { _ = srv.Close() })
+	t.Cleanup(func() { _ = srv.Close(); srv.Wait() })
 	go func() { _ = srv.Serve() }()
 	return sockPath
 }

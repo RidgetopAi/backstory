@@ -38,7 +38,7 @@ func testDaemonWithGit(t *testing.T, st *store.Store, harness, cwd, projectKey s
 	if err != nil {
 		t.Fatalf("socket.Listen: %v", err)
 	}
-	t.Cleanup(func() { _ = srv.Close() })
+	t.Cleanup(func() { _ = srv.Close(); srv.Wait() })
 	go func() { _ = srv.Serve() }()
 	return sockPath
 }

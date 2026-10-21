@@ -68,7 +68,7 @@ func shellDaemon(t *testing.T, st *store.Store, git fakeGit, cwd string) (string
 	if err != nil {
 		t.Fatalf("socket.Listen: %v", err)
 	}
-	t.Cleanup(func() { _ = srv.Close() })
+	t.Cleanup(func() { _ = srv.Close(); srv.Wait() })
 	go func() { _ = srv.Serve() }()
 	return sockPath, procfs
 }

@@ -16,6 +16,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/RidgetopAi/backstory/internal/ident"
@@ -48,6 +49,13 @@ type Server struct {
 	ln       net.Listener
 	resolver *ident.Resolver
 	handler  Handler
+
+	// mu guards closed and orders conns.Add against Wait: a connection is
+	// counted under mu, in Serve, before its goroutine starts, and never
+	// after Close, so Wait cannot return while a handler is about to run.
+	mu     sync.Mutex
+	closed bool
+	conns  sync.WaitGroup
 
 	// FirstLineDeadline bounds how long handle waits, per accepted
 	// connection, for the connecting peer to send its complete first
@@ -90,6 +98,9 @@ func (s *Server) Addr() string { return s.ln.Addr().String() }
 
 // Close stops accepting connections and removes the socket file.
 func (s *Server) Close() error {
+	s.mu.Lock()
+	s.closed = true
+	s.mu.Unlock()
 	if err := s.ln.Close(); err != nil {
 		return fmt.Errorf("socket: close: %w", err)
 	}
@@ -108,9 +119,35 @@ func (s *Server) Serve() error {
 			}
 			return fmt.Errorf("socket: accept: %w", err)
 		}
-		go s.handle(conn)
+		if !s.track() {
+			_ = conn.Close()
+			return nil
+		}
+		go func() {
+			defer s.conns.Done()
+			s.handle(conn)
+		}()
 	}
 }
+
+// track counts one accepted connection before its handler goroutine is
+// started. It reports false once Close has been called, in which case the
+// connection is not counted and must be dropped.
+func (s *Server) track() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return false
+	}
+	s.conns.Add(1)
+	return true
+}
+
+// Wait blocks until every connection accepted before Close has finished its
+// Handler. Call it after Close (Close stops new connections from being
+// counted); it lets an owner tear down state the Handler uses, such as a
+// store, only once no handler can still touch it.
+func (s *Server) Wait() { s.conns.Wait() }
 
 // handle resolves the connecting peer's Identity and hands (Identity, conn)
 // to the Server's Handler.

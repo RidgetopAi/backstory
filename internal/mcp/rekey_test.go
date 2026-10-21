@@ -51,7 +51,7 @@ func TestNoteAndStatusSurviveAnotherProcessRekey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = srv.Close() })
+	t.Cleanup(func() { _ = srv.Close(); srv.Wait() })
 	go func() { _ = srv.Serve() }()
 	shim := dialShim(t, sockPath)
 
