@@ -321,7 +321,9 @@ Four things only the human can do, through the panel or CLI, never through a too
   `ts` in the window is tombstoned and text-scrubbed (the human Delete's own path, same
   transaction), and a counts-only `purge_log` row (sessions, events, records) is written. A
   `--session` purge forgets no records. Refuses without `--yes` on a non-TTY. No tool or socket
-  call can purge.
+  call can purge. Forgetting reaches paired machines at the next sync: a delete or purge
+  tombstones the records (imported ones too) and stamps the sessions on every peer, and a
+  tombstoned record is never restored by a sync.
 - **Memory and Forget act on the row** — `backstory records --location DIR` and `purge --location
   DIR` scope to exactly the sessions and records This Week attributes to the row whose cwd is
   DIR (one function, `week.LocationScope`, over the same work-location labels the rows use): a

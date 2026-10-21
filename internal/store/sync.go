@@ -64,6 +64,9 @@ type SyncSession struct {
 	OriginDevice string `json:"origin_device"`
 	StartedAt    int64  `json:"started_at_ns"`
 	EndedAt      *int64 `json:"ended_at_ns,omitempty"`
+	// PurgedAt is set once the session was purged on its holder; it only ever
+	// goes from unset to set, on every device.
+	PurgedAt *int64 `json:"purged_at_ns,omitempty"`
 }
 
 // SyncChange is one change on the wire; exactly one of Record, Edge, Session
@@ -288,9 +291,10 @@ func (b *feedBuilder) addSession(id string) error {
 		origin sql.NullString
 		start  int64
 		ended  sql.NullInt64
+		purged sql.NullInt64
 	)
-	err := b.s.db.QueryRow(`SELECT agent, origin_device, started_at, ended_at FROM sessions WHERE id = ?`, id).
-		Scan(&agent, &origin, &start, &ended)
+	err := b.s.db.QueryRow(`SELECT agent, origin_device, started_at, ended_at, purged_at FROM sessions WHERE id = ?`, id).
+		Scan(&agent, &origin, &start, &ended, &purged)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
@@ -305,6 +309,10 @@ func (b *feedBuilder) addSession(id string) error {
 	if ended.Valid {
 		v := ended.Int64
 		ss.EndedAt = &v
+	}
+	if purged.Valid {
+		v := purged.Int64
+		ss.PurgedAt = &v
 	}
 	b.sessionOut = append(b.sessionOut, SyncChange{Kind: SyncKindSession, Session: ss})
 	return nil
@@ -591,26 +599,43 @@ func (im *syncImporter) session(ss *SyncSession) error {
 	if ss.ID == "" {
 		return errors.New("session id required")
 	}
-	var ended sql.NullInt64
+	var ended, purged sql.NullInt64
 	var origin string
-	err := im.tx.QueryRow(`SELECT ended_at, origin FROM sessions WHERE id = ?`, ss.ID).Scan(&ended, &origin)
+	err := im.tx.QueryRow(`SELECT ended_at, origin, purged_at FROM sessions WHERE id = ?`, ss.ID).Scan(&ended, &origin, &purged)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		var e any
+		var e, p any
 		if ss.EndedAt != nil {
 			e = *ss.EndedAt
 		}
-		if _, err := im.tx.Exec(`INSERT INTO sessions (id, agent, cwd, started_at, ended_at, origin, origin_device)
-			VALUES (?, ?, '', ?, ?, ?, ?)`, ss.ID, ss.Agent, ss.StartedAt, e, "synced", im.origin(ss.OriginDevice)); err != nil {
+		if ss.PurgedAt != nil {
+			p = *ss.PurgedAt
+		}
+		if _, err := im.tx.Exec(`INSERT INTO sessions (id, agent, cwd, started_at, ended_at, origin, origin_device, purged_at)
+			VALUES (?, ?, '', ?, ?, ?, ?, ?)`, ss.ID, ss.Agent, ss.StartedAt, e, "synced", im.origin(ss.OriginDevice), p); err != nil {
 			return err
 		}
 		im.res.Sessions++
+		return nil
 	case err != nil:
 		return err
-	case origin == "synced" && !ended.Valid && ss.EndedAt != nil:
+	}
+	changed := false
+	if origin == "synced" && !ended.Valid && ss.EndedAt != nil {
 		if _, err := im.tx.Exec(`UPDATE sessions SET ended_at = ? WHERE id = ?`, *ss.EndedAt, ss.ID); err != nil {
 			return err
 		}
+		changed = true
+	}
+	// Forgetting wins: a purge stamps this copy whatever its origin, and a
+	// stamp already present is never moved or cleared.
+	if ss.PurgedAt != nil && !purged.Valid {
+		if _, err := im.tx.Exec(`UPDATE sessions SET purged_at = ? WHERE id = ?`, *ss.PurgedAt, ss.ID); err != nil {
+			return err
+		}
+		changed = true
+	}
+	if changed {
 		im.res.Sessions++
 	}
 	return nil
@@ -736,4 +761,18 @@ func (im *syncImporter) edge(e *SyncEdge) error {
 		im.res.Edges++
 	}
 	return nil
+}
+
+// PendingForgets counts the tombstones in this store's feed that the peer with
+// deviceID has not yet acknowledged (feed entries past its push cursor). A
+// tombstone imported from another device counts too: it is also queued for
+// every peer, and the next sync clears it.
+func (s *Store) PendingForgets(deviceID string) (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(DISTINCT c.ref) FROM sync_changes c
+		WHERE c.kind = 'tombstone' AND c.seq > (SELECT push_cursor FROM sync_peers WHERE device_id = ?)`, deviceID).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("store: pending forgets: %w", err)
+	}
+	return n, nil
 }

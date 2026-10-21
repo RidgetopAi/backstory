@@ -130,5 +130,6 @@ func runPurge(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 	_, _ = fmt.Fprintf(stdout, "purged %d sessions, %d events, %d records\n", res.Sessions, res.Events, res.Records)
+	printAlsoForgotten(st, stdout, stderr)
 	return 0
 }

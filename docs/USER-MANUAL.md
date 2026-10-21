@@ -620,6 +620,9 @@ recording as normal.
 sometimes keeps a backup copy of the store beside it (files named `backstory.db.pre-…` in
 `~/.local/share/backstory/`), and those still hold the old text until you delete them.
 
+**Forgetting reaches your other machines.** If you have paired machines, what you delete or
+purge here is forgotten on them at the next sync, and a sync can never bring it back.
+
 **Agents can't erase your memory.** Only you can delete, edit, purge, pause or group. The
 tools agents get can add records but never remove them.
 
