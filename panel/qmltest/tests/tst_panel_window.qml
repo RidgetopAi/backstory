@@ -20,6 +20,8 @@ TestCase {
     Loader { source: Qt.resolvedUrl("../../Panel.qml") }
   }
 
+  TestActions { id: act; testCase: testCase }
+
   function test_top_level_is_floating_window_with_title() {
     ProcessController.reset()
     Quickshell.reset()
@@ -48,12 +50,12 @@ TestCase {
     var loader = makePanel()
     var p = loader.item
     p.open("{}")
-    compare(p.testWindow.visible, true)
+    act.settledEq(p.testWindow, "visible", true)
     p.testWindow.visible = false
-    compare(p.opened, false)
+    act.settledEq(p, "opened", false)
     p.toggle()
-    compare(p.opened, true)
-    compare(p.testWindow.visible, true)
+    act.settledEq(p, "opened", true)
+    act.settledEq(p.testWindow, "visible", true)
     loader.destroy()
   }
 
@@ -62,16 +64,16 @@ TestCase {
     var p = loader.item
     p.open("{}")
     p.toggle()
-    compare(p.opened, false)
-    compare(p.testWindow.visible, false)
+    act.settledEq(p, "opened", false)
+    act.settledEq(p.testWindow, "visible", false)
     p.toggle()
-    compare(p.opened, true)
+    act.settledEq(p, "opened", true)
     p.handleKey(Qt.Key_Escape, 0)
-    compare(p.opened, false)
-    compare(p.testWindow.visible, false)
+    act.settledEq(p, "opened", false)
+    act.settledEq(p.testWindow, "visible", false)
     p.toggle()
-    compare(p.opened, true)
-    compare(p.testWindow.visible, true)
+    act.settledEq(p, "opened", true)
+    act.settledEq(p.testWindow, "visible", true)
     loader.destroy()
   }
 }

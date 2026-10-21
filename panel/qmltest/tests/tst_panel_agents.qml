@@ -31,6 +31,8 @@ TestCase {
   property var loader: null
   property var panel: null
 
+  TestActions { id: act; testCase: testCase }
+
   function readFixture() {
     var xhr = new XMLHttpRequest()
     xhr.open("GET", fixtureUrl, false)
@@ -70,7 +72,9 @@ TestCase {
     ProcessController.respond(Launchers.defaultAgentCommand(), { stdout: "claude\n", stderr: "", exitCode: 0 })
     panel.open("{}")
     tryCompare(panel, "loading", false, 2000)
-    wait(20)
+    // Rows are built from the data on the next polish; wait for the first.
+    act.settled(function () { return findFoo() !== null }, "foo row never rendered")
+    act.drain()
   }
 
   function init() {
@@ -91,13 +95,27 @@ TestCase {
 
   function press(key) {
     panel.testKeyItem.forceActiveFocus()
-    keyClick(key)
+    act.pressKey(key)
+  }
+
+  function findFoo() {
+    return TestUtil.findFirst(panel.testContentItem, function (n) { return n.summary && n.stripCounts !== undefined && n.summary.display_name === "projects/foo" })
   }
 
   function fooRow() {
-    var row = TestUtil.findFirst(panel.testContentItem, function (n) { return n.summary && n.stripCounts !== undefined && n.summary.display_name === "projects/foo" })
-    verify(row !== null, "no foo row")
-    return row
+    act.settled(function () { return findFoo() !== null }, "no foo row")
+    return findFoo()
+  }
+
+  function selected(prop, value) { act.settledEq(panel, prop, value) }
+
+  function subRowCount(n) {
+    act.settled(function () { return subRows().length === n }, "expected " + n + " sub rows, have " + subRows().length)
+  }
+
+  function namesAre(root, objectName, want) {
+    act.settled(function () { return JSON.stringify(names(root, objectName)) === JSON.stringify(want) },
+      objectName + " never became " + JSON.stringify(want) + "; is " + JSON.stringify(names(root, objectName)))
   }
 
   function names(root, objectName) {
@@ -114,6 +132,12 @@ TestCase {
     })
   }
 
+  function isTermRun(r) {
+    return r.command[0] === "xdg-terminal-exec" && r.command[4] !== undefined && r.command[4].indexOf("exec \"$@\"") >= 0
+  }
+
+  function isOmarchyRun(r) { return r.command[0] === "omarchy" && r.command[1] === "agent" }
+
   function omarchyRuns() {
     return ProcessController.runs.filter(function (r) { return r.command[0] === "omarchy" && r.command[1] === "agent" })
   }
@@ -126,10 +150,12 @@ TestCase {
   function test_chips_stop_left_of_the_recent_action_button() {
     open(withAgents(["pi", "codex", "claude"], function (p) { p.last_activity = new Date(Date.now() - 5 * 60000).toISOString() }))
     var row = fooRow()
-    var button = TestUtil.findFirst(row, function (n) { return n.objectName === "recentActionButton" && n.visible })
-    verify(button !== null, "recent action button not visible")
+    var button = null
+    act.settled(function () {
+      button = TestUtil.findFirst(row, function (n) { return n.objectName === "recentActionButton" && n.visible })
+      return button !== null && chipsFor(row, "agentChip").length >= 1
+    }, "recent action button / chips not visible")
     var chips = chipsFor(row, "agentChip")
-    verify(chips.length >= 1)
     chips.forEach(function (c) {
       var right = c.mapToItem(row, c.width, 0).x
       verify(right <= button.x + 0.5, "chip right edge " + right + " is under the button at " + button.x)
@@ -165,16 +191,19 @@ TestCase {
 
   function test_device_chip_on_recent_row_and_here_card_only_when_non_null() {
     open(withAgents(["claude"], function (p) { p.origin_device_name = null }))
+    act.drain()
     compare(visibleDeviceChips(panel.testContentItem, "deviceChip").length, 0)
     compare(visibleDeviceChips(panel.testContentItem, "hereDeviceChip").length, 0)
     cleanup()
     init()
     open(withAgents(["claude"], function (p) { p.origin_device_name = "laptop" }))
     var row = fooRow()
-    var chips = visibleDeviceChips(row, "deviceChip")
-    compare(chips.length, 1)
-    compare(visibleDeviceChips(chips[0], "deviceChipText")[0].text, "from laptop")
-    compare(visibleDeviceChips(panel.testContentItem, "hereDeviceChip").length, 1)
+    act.settled(function () {
+      var c = visibleDeviceChips(row, "deviceChip")
+      return c.length === 1 && visibleDeviceChips(c[0], "deviceChipText").length === 1
+        && visibleDeviceChips(c[0], "deviceChipText")[0].text === "from laptop"
+        && visibleDeviceChips(panel.testContentItem, "hereDeviceChip").length === 1
+    }, "device chips never rendered 'from laptop' on the row and the here card")
   }
 
   // ---- (1) chips ----
@@ -204,9 +233,12 @@ TestCase {
 
   function test_here_card_shows_chips_too() {
     open(withAgents(["hermes", "pi", "claude"]))
-    var here = TestUtil.findFirst(panel.testContentItem, function (n) { return n.objectName === "hereAgentChips" })
-    verify(here !== null)
-    compare(JSON.stringify(names(here, "agentChipName")), JSON.stringify(["Hermes", "Pi", "Claude Code"]))
+    var here = null
+    act.settled(function () {
+      here = TestUtil.findFirst(panel.testContentItem, function (n) { return n.objectName === "hereAgentChips" })
+      return here !== null
+    }, "hereAgentChips never rendered")
+    namesAre(here, "agentChipName", ["Hermes", "Pi", "Claude Code"])
   }
 
   // ---- (2) expansion and sub-row launch ----
@@ -214,24 +246,23 @@ TestCase {
     open(withAgents(["hermes", "pi", "claude"]))
     compare(subRows().length, 0)
     press(Qt.Key_Right)
-    compare(subRows().length, 3)
-    compare(JSON.stringify(names(panel.testContentItem, "agentSubRowName")), JSON.stringify(["Hermes", "Pi", "Claude Code"]))
+    subRowCount(3)
+    namesAre(panel.testContentItem, "agentSubRowName", ["Hermes", "Pi", "Claude Code"])
 
-    compare(panel.selectedIndex, 0)
+    selected("selectedIndex", 0)
     press(Qt.Key_J)
-    compare(panel.selectedIndex, 1)
-    compare(panel.selectedAgent, "hermes")
+    selected("selectedIndex", 1)
+    selected("selectedAgent", "hermes")
     press(Qt.Key_J)
-    compare(panel.selectedIndex, 2)
-    compare(panel.selectedAgent, "pi")
+    selected("selectedIndex", 2)
+    selected("selectedAgent", "pi")
     press(Qt.Key_J)
-    compare(panel.selectedAgent, "claude")
+    selected("selectedAgent", "claude")
     press(Qt.Key_K)
-    compare(panel.selectedAgent, "pi")
+    selected("selectedAgent", "pi")
 
     press(Qt.Key_Return)
-    var runs = termRuns()
-    compare(runs.length, 1)
+    var runs = act.launchedCount(isTermRun, 1, "Enter on the pi sub-row")
     compare(runs[0].workingDirectory, fooCwd)
     compare(runs[0].command[6], fooCwd)
     compare(JSON.stringify(runs[0].command.slice(7, 8)), JSON.stringify(Launchers.LAUNCH_TABLE.pi.argv))
@@ -242,36 +273,43 @@ TestCase {
   function test_left_collapses_and_returns_selection_to_the_folder_row() {
     open(withAgents(["hermes", "pi", "claude"]))
     press(Qt.Key_Right)
+    subRowCount(3)
     press(Qt.Key_J)
     press(Qt.Key_J)
-    compare(panel.selectedAgent, "pi")
+    selected("selectedAgent", "pi")
     press(Qt.Key_Left)
-    compare(subRows().length, 0)
-    compare(panel.selectedIndex, 0)
-    compare(panel.selectedAgent, "")
+    subRowCount(0)
+    selected("selectedIndex", 0)
+    selected("selectedAgent", "")
   }
 
   function test_click_on_chip_strip_expands_and_sub_row_continue_launches_that_agent() {
     open(withAgents(["pi", "hermes", "claude"]))
-    var strip = TestUtil.findFirst(fooRow(), function (n) { return n.objectName === "agentChips" })
-    mouseClick(strip, 2, strip.height / 2)
-    compare(subRows().length, 3)
-    wait(50)
-    var btns = TestUtil.findAll(panel.testContentItem, function (n) { return n.objectName === "agentSubRowContinue" })
-    compare(btns.length, 3)
-    panel.revealInScroller(btns[1])
-    mouseClick(btns[1], btns[1].width / 2, btns[1].height / 2)
-    var runs = termRuns()
-    compare(runs.length, 1)
+    function findStrip() { return TestUtil.findFirst(fooRow(), function (n) { return n.objectName === "agentChips" }) }
+    act.clickWhenReady(findStrip, { x: 2, y: 4, desc: "foo's agent chip strip", until: function () { return subRows().length === 3 } })
+    function continueButtons() {
+      return TestUtil.findAll(panel.testContentItem, function (n) { return n.objectName === "agentSubRowContinue" })
+    }
+    act.settled(function () { return continueButtons().length === 3 }, "expected 3 sub-row Continue buttons")
+    act.clickWhenReady(function () {
+      var b = continueButtons()
+      if (b.length !== 3) return null
+      panel.revealInScroller(b[1])
+      return b[1]
+    }, { desc: "second sub-row Continue" })
+    var runs = act.launchedCount(isTermRun, 1, "sub-row Continue")
     compare(JSON.stringify(runs[0].command.slice(7, 9)), JSON.stringify(Launchers.LAUNCH_TABLE.hermes.argv.slice(0, 2)))
   }
 
   function test_expanded_sub_row_launch_ignores_an_open_window() {
     open(withAgents(["hermes", "pi", "claude"], function (p) { p.window = "0x55aa" }))
     press(Qt.Key_Right)
+    subRowCount(3)
     press(Qt.Key_J)
     press(Qt.Key_J)
     press(Qt.Key_Return)
+    act.launchedCount(isTermRun, 1, "sub-row Enter with an open window")
+    act.drain()
     compare(termRuns().length, 1)
     compare(ProcessController.runs.filter(function (r) { return r.command[0] === "hyprctl" }).length, 0)
   }
@@ -280,8 +318,7 @@ TestCase {
   function test_enter_on_collapsed_row_launches_newest_agent_with_handoff_query() {
     open(withAgents(["hermes", "pi", "claude"]))
     press(Qt.Key_Return)
-    var runs = termRuns()
-    compare(runs.length, 1)
+    var runs = act.launchedCount(isTermRun, 1, "Enter on the collapsed row")
     var argv = runs[0].command.slice(7)
     compare(JSON.stringify(argv.slice(0, 2)), JSON.stringify(["hermes", "chat"]))
     var q = argv[argv.length - 1]
@@ -293,9 +330,8 @@ TestCase {
   function test_agent_outside_the_table_falls_back_to_omarchy_agent_prompt() {
     open(withAgents(["opencode"]))
     press(Qt.Key_Return)
+    var a = act.launchedCount(isOmarchyRun, 1, "omarchy agent prompt fallback")
     compare(termRuns().length, 0)
-    var a = omarchyRuns()
-    compare(a.length, 1)
     compare(JSON.stringify(a[0].command.slice(0, 3)), JSON.stringify(["omarchy", "agent", "prompt"]))
     verify(a[0].command[3].indexOf("handoff-0042") >= 0)
     compare(a[0].workingDirectory, fooCwd)
@@ -304,16 +340,19 @@ TestCase {
   // ---- (4) the handoff line names its writer ----
   function test_handoff_line_names_its_writer() {
     open(withAgents(["hermes", "pi"], function (p) { p.handoff_agent = "pi" }))
-    var texts = TestUtil.collectVisibleTexts(panel.testContentItem)
-    var next = texts.filter(function (t) { return t.indexOf("Next (Pi):") === 0 })
-    verify(next.length >= 1, JSON.stringify(texts))
+    var texts = []
+    var next = []
+    act.settled(function () {
+      texts = TestUtil.collectVisibleTexts(panel.testContentItem)
+      next = texts.filter(function (t) { return t.indexOf("Next (Pi):") === 0 })
+      return next.length >= 1
+    }, "no 'Next (Pi):' line; " + JSON.stringify(texts))
     compare(next[0], "Next (Pi): Wire the bar")
     texts.forEach(function (t) { verify(t.indexOf("Continue opens") < 0, t) })
   }
 
   function test_handoff_line_is_plain_next_without_a_writer() {
     open(withAgents(["hermes"]))
-    var texts = TestUtil.collectVisibleTexts(panel.testContentItem)
-    verify(texts.indexOf("Next: Wire the bar") >= 0)
+    act.settled(function () { return TestUtil.collectVisibleTexts(panel.testContentItem).indexOf("Next: Wire the bar") >= 0 }, "plain Next line never rendered")
   }
 }

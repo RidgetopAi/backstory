@@ -30,6 +30,8 @@ TestCase {
   property var loader: null
   property var panel: null
 
+  TestActions { id: act; testCase: testCase }
+
   function readFixture() {
     var xhr = new XMLHttpRequest()
     xhr.open("GET", fixtureUrl, false)
@@ -56,7 +58,7 @@ TestCase {
     ProcessController.respond(Launchers.defaultAgentCommand(), { stdout: defaultAgent === undefined ? "claude\n" : defaultAgent, stderr: "", exitCode: 0 })
     panel.open("{}")
     tryCompare(panel, "loading", false, 2000)
-    wait(20)
+    act.quiescent(function () { return [texts(), panel.testImplicitHeight] }, "panel never finished rendering")
   }
 
   function init() {
@@ -86,14 +88,19 @@ TestCase {
   }
 
   function clickText(s) {
-    var node = TestUtil.findFirst(panel.testContentItem, function (n) { return n.text === s })
-    verify(node !== null, "no visible text " + JSON.stringify(s) + " in " + JSON.stringify(texts()))
-    mouseClick(node, node.width / 2, node.height / 2)
+    act.clickWhenReady(function () {
+      return TestUtil.findFirst(panel.testContentItem, function (n) { return n.text === s })
+    }, { desc: "visible text " + JSON.stringify(s) })
   }
 
   function runs(prefix) {
     return ProcessController.runs.filter(function (r) { return r.command[0] === prefix[0] && r.command[1] === prefix[1] })
   }
+
+  function isRun(prefix) { return function (r) { return r.command[0] === prefix[0] && r.command[1] === prefix[1] } }
+  function isTermRun(r) { return isRun(["xdg-terminal-exec", "--"])(r) && r.command[2] === "sh" && r.command[4] !== undefined && r.command[4].indexOf("exec \"$@\"") >= 0 }
+  function isHyprRun(r) { return isRun(["hyprctl", "dispatch"])(r) }
+  function isAgentRun(r) { return isRun(["omarchy", "agent"])(r) }
 
   function agentRuns() { return runs(["omarchy", "agent"]) }
   function termRuns() { return runs(["xdg-terminal-exec", "--"]).filter(function (r) { return r.command[2] === "sh" && r.command[4] !== undefined && r.command[4].indexOf("exec \"$@\"") >= 0 }) }
@@ -124,9 +131,10 @@ TestCase {
   function test_continue_with_window_focuses_and_does_not_launch() {
     open(payload(function (d) { d.where_left_off[0].project.window = "0x55aa" }))
     clickText("Continue in Claude Code")
+    var h = act.launchedCount(isHyprRun, 1, "focus window")
+    act.drain()
     compare(agentRuns().length, 0)
-    var h = hyprRuns()
-    compare(h.length, 1)
+    compare(hyprRuns().length, 1)
     compare(JSON.stringify(h[0].command), JSON.stringify(Launchers.focusWindowCommand("0x55aa")))
     compare(h[0].command[2], 'hl.dsp.focus({ window = "address:0x55aa" })')
   }
@@ -134,11 +142,12 @@ TestCase {
   function test_continue_without_window_launches_agent_in_cwd() {
     open(payload())
     clickText("Continue in Claude Code")
+    var a = act.launchedCount(isTermRun, 1, "Continue launch")
+    act.drain()
     compare(hyprRuns().length, 0)
     // foo's agents[0] is claude: the launch table, never omarchy agent prompt.
     compare(agentRuns().length, 0)
-    var a = termRuns()
-    compare(a.length, 1)
+    compare(termRuns().length, 1)
     var prompt = a[0].command[a[0].command.length - 1]
     compare(JSON.stringify(a[0].command.slice(7, 10)), JSON.stringify(Launchers.LAUNCH_TABLE.claude.argv))
     verify(prompt.indexOf("handoff-0042") >= 0, prompt)
@@ -149,6 +158,8 @@ TestCase {
   function test_continue_with_hostile_window_launches_agent_never_hyprctl() {
     open(payload(function (d) { d.where_left_off[0].project.window = "0x1; rm" }))
     clickText("Continue in Claude Code")
+    act.launchedCount(isTermRun, 1, "hostile-window Continue launch")
+    act.drain()
     compare(hyprRuns().length, 0)
     compare(termRuns().length, 1)
   }
@@ -157,7 +168,7 @@ TestCase {
     open(payload(function (d) { d.where_left_off[0].project.window = "0x55aa" }))
     ProcessController.respond(Launchers.focusWindowCommand("0x55aa"), { stdout: "", stderr: "", exitCode: 1 })
     clickText("Continue in Claude Code")
-    var h = hyprRuns()
+    var h = act.launchedCount(isHyprRun, 2, "focus then focuswindow fallback")
     compare(h.length, 2)
     compare(JSON.stringify(h[1].command), JSON.stringify(["hyprctl", "dispatch", "focuswindow", "address:0x55aa"]))
   }
@@ -176,14 +187,18 @@ TestCase {
     verify(hasText("Choose default agent"))
     compare(textContaining("Continue opens"), "")
     clickText("Choose default agent")
+    act.launchedCount(isAgentRun, 1, "agent picker")
     compare(agentRuns().length, 1)
     compare(JSON.stringify(agentRuns()[0].command), JSON.stringify(["omarchy", "agent", "--pick"]))
   }
 
   // ---- (4) Recent rows ----
   function strips(rowName) {
-    var row = TestUtil.findFirst(panel.testContentItem, function (n) { return n.summary && n.stripCounts !== undefined && n.summary.display_name === rowName })
-    verify(row !== null, "no row " + rowName)
+    var row = null
+    act.settled(function () {
+      row = TestUtil.findFirst(panel.testContentItem, function (n) { return n.summary && n.stripCounts !== undefined && n.summary.display_name === rowName })
+      return row !== null && TestUtil.findAll(row, function (n) { return n.objectName === "stripCell" }).length > 0
+    }, "no row " + rowName)
     return TestUtil.findAll(row, function (n) { return n.objectName === "stripCell" })
   }
 
@@ -289,6 +304,10 @@ TestCase {
       d.where_left_off[0].project.tmux = "Work:1.2"
     }))
     clickText("Switch")
+    act.launchedCount(isHyprRun, 1, "Switch focus")
+    act.launchedCount(isRun(["tmux", "select-window"]), 1, "tmux select-window")
+    act.launchedCount(isRun(["tmux", "select-pane"]), 1, "tmux select-pane")
+    act.drain()
     compare(hyprRuns().length, 1)
     compare(runs(["tmux", "select-window"]).length, 1)
     compare(runs(["tmux", "select-pane"]).length, 1)
@@ -299,35 +318,34 @@ TestCase {
   // ---- (5) keyboard ----
   function press(key) {
     panel.testKeyItem.forceActiveFocus()
-    keyClick(key)
+    act.pressKey(key)
   }
 
   function test_keys_select_continue_terminal_memory_and_close() {
     open(payload())
-    compare(panel.selectedIndex, 0)
+    act.settledEq(panel, "selectedIndex", 0)
     press(Qt.Key_J)
-    compare(panel.selectedIndex, 1)
+    act.settledEq(panel, "selectedIndex", 1)
     // row 2 is bar (cwd /home/brian/bar), codex, no handoff
     press(Qt.Key_Return)
-    var a = termRuns()
-    compare(a.length, 1)
+    var a = act.launchedCount(isTermRun, 1, "Enter on bar")
     compare(a[0].workingDirectory, "/home/brian/bar")
     compare(JSON.stringify(a[0].command.slice(7, 9)), JSON.stringify(Launchers.LAUNCH_TABLE.codex.argv))
     verify(a[0].command[a[0].command.length - 1].indexOf("bar") >= 0)
 
     press(Qt.Key_T)
-    var last = Quickshell.lastCall()
+    var last = act.detachedNext(function (c) { return JSON.stringify(c.command) === JSON.stringify(Launchers.terminalLaunchCommand("/home/brian/bar")) }, "T opens terminal")
     compare(JSON.stringify(last.command), JSON.stringify(Launchers.terminalLaunchCommand("/home/brian/bar")))
     compare(last.workingDirectory, "/home/brian/bar")
 
     press(Qt.Key_M)
-    compare(panel.memoryOpen, true)
-    compare(panel.memoryProjectKey, "bar-key")
-    compare(panel.memoryLocation, "/home/brian/bar")
+    act.settledEq(panel, "memoryOpen", true)
+    act.settledEq(panel, "memoryProjectKey", "bar-key")
+    act.settledEq(panel, "memoryLocation", "/home/brian/bar")
 
     press(Qt.Key_Escape)
-    compare(panel.opened, false)
-    compare(panel.memoryOpen, false)
+    act.settledEq(panel, "opened", false)
+    act.settledEq(panel, "memoryOpen", false)
   }
 
   function test_k_and_arrows_move_and_clamp() {
@@ -335,29 +353,33 @@ TestCase {
     press(Qt.Key_Down)
     press(Qt.Key_Down)
     press(Qt.Key_Down)
-    compare(panel.selectedIndex, 2)
+    act.settledEq(panel, "selectedIndex", 2)
     press(Qt.Key_K)
-    compare(panel.selectedIndex, 1)
+    act.settledEq(panel, "selectedIndex", 1)
     press(Qt.Key_Up)
     press(Qt.Key_Up)
-    compare(panel.selectedIndex, 0)
+    act.settledEq(panel, "selectedIndex", 0)
   }
 
   function test_r_refreshes() {
     open(payload())
     var before = runs(["backstory", "this-week"]).length
     press(Qt.Key_R)
+    act.launchedCount(isRun(["backstory", "this-week"]), before + 1, "R refresh")
+    act.drain()
     compare(runs(["backstory", "this-week"]).length, before + 1)
   }
 
   function test_row_keys_inert_while_memory_view_open() {
     open(payload())
     panel.openMemory("foo-key", "projects/foo", "/home/brian/projects/foo")
+    act.settledEq(panel, "memoryOpen", true)
     var before = Quickshell.execDetachedCalls.length
     press(Qt.Key_T)
+    act.drain()
     compare(Quickshell.execDetachedCalls.length, before)
     press(Qt.Key_Escape)
-    compare(panel.opened, false)
+    act.settledEq(panel, "opened", false)
   }
 
   function test_footer_lists_the_keys() {
@@ -368,8 +390,11 @@ TestCase {
 
   // ---- (7) layout gates ----
   function assertWithinBounds(label) {
-    var bad = TestUtil.collectOutOfBounds(panel.testContentItem, panel.testContentItem, panel.testImplicitWidth, panel.testImplicitHeight)
-    verify(bad.length === 0, label + ": " + JSON.stringify(bad).slice(0, 1500))
+    var bad = []
+    act.settled(function () {
+      bad = TestUtil.collectOutOfBounds(panel.testContentItem, panel.testContentItem, panel.testImplicitWidth, panel.testImplicitHeight)
+      return bad.length === 0
+    }, label + ": " + JSON.stringify(bad).slice(0, 1500))
   }
 
   function test_layout_panel_open_with_here() {
@@ -388,7 +413,7 @@ TestCase {
   function test_layout_memory_open() {
     open(payload())
     panel.openMemory("foo-key", "projects/foo", "/home/brian/projects/foo")
-    wait(20)
+    act.settledEq(panel, "memoryOpen", true)
     assertWithinBounds("memory open")
   }
 
@@ -396,7 +421,7 @@ TestCase {
     open(payload())
     ProcessController.respond(Launchers.groupListCommand(), { stdout: JSON.stringify({ groups: [], ungrouped: [] }), stderr: "", exitCode: 0 })
     panel.groupEditorOpen = true
-    wait(20)
+    act.settledEq(panel, "groupEditorOpen", true)
     assertWithinBounds("group editor open")
   }
 }

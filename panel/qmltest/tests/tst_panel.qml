@@ -47,6 +47,8 @@ TestCase {
   property var loader: null
   property var panel: null
 
+  TestActions { id: act; testCase: testCase }
+
   function init() {
     ProcessController.reset()
     Quickshell.reset()
@@ -58,7 +60,7 @@ TestCase {
     // contentItem is otherwise a disconnected subtree (our stub PanelWindow
     // is a QtObject, not a real QQuickWindow, so nothing parents it into
     // testCase's own shown window) — reparenting it here is what makes
-    // mouseClick() deliverable to anything inside the panel at all.
+    // a click deliverable to anything inside the panel at all.
     panel.testContentItem.parent = loader
   }
 
@@ -77,11 +79,9 @@ TestCase {
     tryCompare(panel, "loading", false, 2000)
     // Column/Row (QtQuick's positioners) recompute implicitWidth/Height
     // via a deferred polish pass, not synchronously on every child change
-    // — proven empirically while building this harness: reading
-    // testImplicitHeight immediately after a data change saw a stale
-    // pre-data height. wait() pumps the event loop long enough for that
-    // polish pass (and Repeater delegate creation) to actually run.
-    wait(20)
+    // (a read right after a data change saw a stale pre-data height), so
+    // wait for the rendered texts and height to stop changing.
+    act.quiescent(function () { return [TestUtil.collectVisibleTexts(panel.testContentItem), panel.testImplicitHeight] }, "panel never finished rendering")
   }
 
   function test_renders_golden_display_names() {
@@ -101,18 +101,23 @@ TestCase {
     // Group children are drawn only while their group is expanded; a
     // workspace-keyed row's text is "<dir> · workspace notes".
     panel.toggleGroup("widget-suite")
-    wait(20)
-    var rendered = TestUtil.collectVisibleTexts(panel.testContentItem)
-    var renderedSet = {}
-    for (i = 0; i < rendered.length; i++) {
-      renderedSet[rendered[i]] = true
-      renderedSet[rendered[i].replace(/ \u00b7 workspace notes$/, "")] = true
+    var rendered = []
+    var missing = []
+    function allRendered() {
+      rendered = TestUtil.collectVisibleTexts(panel.testContentItem)
+      var renderedSet = {}
+      for (var k = 0; k < rendered.length; k++) {
+        renderedSet[rendered[k]] = true
+        renderedSet[rendered[k].replace(/ \u00b7 workspace notes$/, "")] = true
+      }
+      missing = []
+      // Rows drop the leading "projects/" (decision 63ce9687 P4).
+      for (var name in names) {
+        if (renderedSet[name.replace(/^projects\/(?=.)/, "")] !== true) missing.push(name)
+      }
+      return missing.length === 0
     }
-
-    // Rows drop the leading "projects/" (decision 63ce9687 P4).
-    for (var name in names) {
-      verify(renderedSet[name.replace(/^projects\/(?=.)/, "")] === true, "expected display name " + JSON.stringify(name) + " to be rendered; got " + JSON.stringify(rendered))
-    }
+    act.settled(allRendered, "expected display names to be rendered; missing " + JSON.stringify(missing) + "; got " + JSON.stringify(rendered))
   }
 
   // Needs You's Dismiss on a stale-handoff row runs `backstory affirm <id>`
@@ -125,13 +130,15 @@ TestCase {
       ],
       where_left_off: [], week: []
     }))
-    var buttons = TestUtil.findAll(panel.testContentItem, function (n) { return n.objectName === "attentionDismiss" && n.visible })
-    compare(buttons.length, 1)
+    function dismissButtons() {
+      return TestUtil.findAll(panel.testContentItem, function (n) { return n.objectName === "attentionDismiss" && n.visible })
+    }
+    act.settled(function () { return dismissButtons().length === 1 }, "expected exactly one visible Dismiss button")
     ProcessController.reset()
     ProcessController.respond(Launchers.thisWeekCommand(), { stdout: emptyArraysPayload, stderr: "", exitCode: 0 })
-    buttons[0].clicked()
-    var ran = ProcessController.runs.map(function (r) { return JSON.stringify(r.command) })
-    verify(ran.indexOf(JSON.stringify(Launchers.affirmCommand("h-wobble"))) >= 0, "affirm not run; ran " + ran.join(" | "))
+    act.clickWhenReady(function () { var b = dismissButtons(); return b.length === 1 ? b[0] : null }, { desc: "attention Dismiss" })
+    var affirmJson = JSON.stringify(Launchers.affirmCommand("h-wobble"))
+    act.launchedNext(function (r) { return JSON.stringify(r.command) === affirmJson }, "affirm")
     compare(JSON.stringify(Launchers.affirmCommand("h-wobble")), JSON.stringify(["backstory", "affirm", "h-wobble"]))
     tryCompare(panel, "loading", false, 2000)
     compare(panel.attentionItems.length, 0)
@@ -152,11 +159,15 @@ TestCase {
   }
 
   function assertLayoutWithinBounds(label) {
-    var outOfBounds = TestUtil.collectOutOfBounds(
-      panel.testContentItem, panel.testContentItem,
-      panel.testImplicitWidth, panel.testImplicitHeight)
-    verify(outOfBounds.length === 0,
-      label + ": " + outOfBounds.length + " item(s) out of PanelWindow bounds "
+    // The polish pass lands a few ticks after a data change: wait for the
+    // bounds to hold rather than reading them once.
+    var outOfBounds = []
+    act.settled(function () {
+      outOfBounds = TestUtil.collectOutOfBounds(
+        panel.testContentItem, panel.testContentItem,
+        panel.testImplicitWidth, panel.testImplicitHeight)
+      return outOfBounds.length === 0
+    }, label + ": item(s) out of PanelWindow bounds "
       + "(" + panel.testImplicitWidth + "x" + panel.testImplicitHeight + "): "
       + JSON.stringify(outOfBounds).slice(0, 2000))
   }
@@ -171,8 +182,7 @@ TestCase {
     openWith(readFixture(goldenUrl))
     ProcessController.respond(Launchers.groupListCommand(), { stdout: JSON.stringify({ groups: [], ungrouped: [] }), stderr: "", exitCode: 0 })
     panel.groupEditorOpen = true
-    wait(20)
-    verify(panel.groupEditorOpen)
+    act.settled(function () { return panel.groupEditorOpen }, "group editor never opened")
     assertLayoutWithinBounds("group editor open")
   }
 
@@ -185,16 +195,16 @@ TestCase {
     }
     verify(target !== null, "fixture assumption broke: golden has no standalone project row")
 
-    var row = TestUtil.findFirst(panel.testContentItem, function (node) {
-      return node.summary && node.summary.cwd === target.cwd
-    })
-    verify(row !== null, "could not find a rendered row for cwd " + target.cwd)
+    function findRow() {
+      return TestUtil.findFirst(panel.testContentItem, function (node) {
+        return node.summary && node.summary.cwd === target.cwd
+      })
+    }
+    act.settled(function () { return findRow() !== null }, "could not find a rendered row for cwd " + target.cwd)
 
-    mouseClick(row, row.width / 2, row.height / 2)
-
-    var last = Quickshell.lastCall()
-    verify(last !== null, "expected a Quickshell.execDetached() call")
     var want = Launchers.terminalLaunchCommand(target.cwd)
+    act.clickWhenReady(findRow, { desc: "row for " + target.cwd })
+    var last = act.detachedNext(function (c) { return JSON.stringify(c.command) === JSON.stringify(want) }, "row click terminal")
     compare(JSON.stringify(last.command), JSON.stringify(want))
     compare(last.workingDirectory, target.cwd)
   }
