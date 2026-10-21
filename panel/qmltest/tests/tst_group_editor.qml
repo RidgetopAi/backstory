@@ -32,6 +32,8 @@ TestCase {
   property var loader: null
   property var panel: null
 
+  TestActions { id: act; testCase: testCase }
+
   function init() {
     ProcessController.reset()
     Quickshell.reset()
@@ -51,7 +53,9 @@ TestCase {
     panel = loader.item
     panel.testContentItem.parent = loader
     panel.open("{}")
-    wait(20)
+    act.launchedNext(function (r) { return ProcessController.keyFor(r.command) === ProcessController.keyFor(Launchers.thisWeekCommand()) }, "initial this-week fetch")
+    tryCompare(panel, "loading", false, 2000)
+    act.drain()
   }
 
   function cleanup() {
@@ -61,17 +65,24 @@ TestCase {
   }
 
   function clickByTooltip(tooltipText) {
-    var button = TestUtil.findFirst(panel.testContentItem, function (node) {
-      return node.tooltipText === tooltipText
-    })
-    verify(button !== null, "no PanelActionButton with tooltipText " + JSON.stringify(tooltipText))
-    mouseClick(button, button.width / 2, button.height / 2)
+    act.clickWhenReady(function () {
+      return TestUtil.findFirst(panel.testContentItem, function (node) {
+        return node.tooltipText === tooltipText
+      })
+    }, { desc: "PanelActionButton with tooltipText " + JSON.stringify(tooltipText) })
   }
 
   function openGroupEditor() {
     clickByTooltip("Groups")
-    wait(20)
-    verify(panel.groupEditorOpen)
+    act.settled(function () { return panel.groupEditorOpen }, "group editor never opened")
+    // The editor fetches its group list on open; its rows exist once that lands.
+    act.launchedNext(function (r) { return ProcessController.keyFor(r.command) === ProcessController.keyFor(Launchers.groupListCommand()) }, "group list fetch")
+  }
+
+  function findRow(key) {
+    return TestUtil.findFirst(panel.testContentItem, function (node) {
+      return node.projectKey === key
+    })
   }
 
   // findGroupEditor locates the embedded GroupEditor instance itself (only
@@ -86,21 +97,22 @@ TestCase {
   }
 
   function pickUngroupedProject() {
-    var row = TestUtil.findFirst(panel.testContentItem, function (node) {
-      return node.projectKey === ungroupedProjectKey
+    act.clickWhenReady(function () { return findRow(ungroupedProjectKey) }, {
+      desc: "GroupProjectRow for " + ungroupedProjectKey,
+      until: function () { var e = findGroupEditor(); return e !== null && e.selectedProjectKey === ungroupedProjectKey }
     })
-    verify(row !== null, "no GroupProjectRow for " + ungroupedProjectKey)
-    mouseClick(row, row.width / 2, row.height / 2)
-    wait(10)
   }
 
   function typeGroupName(name) {
-    var field = TestUtil.findFirst(panel.testContentItem, function (node) {
-      return node.placeholderText === "group name"
-    })
-    verify(field !== null, "no group-name TextField")
+    function findField() {
+      return TestUtil.findFirst(panel.testContentItem, function (node) {
+        return node.placeholderText === "group name"
+      })
+    }
+    act.settled(function () { return findField() !== null }, "no group-name TextField")
+    var field = findField()
     field.text = name
-    wait(10)
+    act.settledEq(field, "text", name)
   }
 
   function test_add_group_runs_backstory_group_set() {
@@ -110,18 +122,13 @@ TestCase {
 
     ProcessController.respond(["backstory", "group", "set", "work", ungroupedProjectKey], { stdout: "", stderr: "", exitCode: 0 })
     clickByTooltip("Set group")
-    wait(10)
 
     // A successful `group set` also triggers Panel's own onChanged ->
     // refresh() (re-fetch this-week, so rows regroup immediately) — so the
     // group-set run is not necessarily ProcessController's LAST recorded
     // run; search by argv instead.
     var wantKey = ProcessController.keyFor(Launchers.groupSetCommand("work", ungroupedProjectKey))
-    var found = null
-    for (var i = 0; i < ProcessController.runs.length; i++) {
-      if (ProcessController.keyFor(ProcessController.runs[i].command) === wantKey) found = ProcessController.runs[i]
-    }
-    verify(found !== null, "expected a `group set` run among " + JSON.stringify(ProcessController.runs))
+    var found = act.launchedNext(function (r) { return ProcessController.keyFor(r.command) === wantKey }, "group set")
     compare(JSON.stringify(found.command), JSON.stringify(["backstory", "group", "set", "work", ungroupedProjectKey]))
   }
 
@@ -133,11 +140,10 @@ TestCase {
     ProcessController.respond(["backstory", "group", "set", "work", ungroupedProjectKey],
       { stdout: "", stderr: "project is already in group other-thing", exitCode: 1 })
     clickByTooltip("Set group")
-    wait(10)
 
-    var texts = TestUtil.collectVisibleTexts(panel.testContentItem)
-    verify(texts.indexOf("project is already in group other-thing") !== -1,
-      "expected stderr text rendered in the editor; got " + JSON.stringify(texts))
+    act.settled(function () {
+      return TestUtil.collectVisibleTexts(panel.testContentItem).indexOf("project is already in group other-thing") !== -1
+    }, "expected stderr text rendered in the editor; got " + JSON.stringify(TestUtil.collectVisibleTexts(panel.testContentItem)))
   }
 
   // test_group_row_shows_display_name_from_projects_array is DONE WHEN
@@ -162,13 +168,10 @@ TestCase {
     var editor = findGroupEditor()
     verify(editor !== null, "no embedded GroupEditor instance found")
     editor.refresh()
-    wait(20)
-
-    var row = TestUtil.findFirst(panel.testContentItem, function (node) {
-      return node.projectKey === gitKey
-    })
-    verify(row !== null, "no GroupProjectRow for " + gitKey)
-    compare(row.displayName, "projects/omarcade")
+    act.settled(function () { return findRow(gitKey) !== null }, "no GroupProjectRow for " + gitKey)
+    var row = findRow(gitKey)
+    act.settledEq(row, "displayName", "projects/omarcade")
+    act.settled(function () { return TestUtil.collectVisibleTexts(panel.testContentItem).indexOf("projects/omarcade") !== -1 }, "projects/omarcade never rendered")
 
     var texts = TestUtil.collectVisibleTexts(panel.testContentItem)
     verify(texts.indexOf("projects/omarcade") !== -1,
@@ -212,11 +215,14 @@ TestCase {
     var editor = findGroupEditor()
     verify(editor !== null, "no embedded GroupEditor instance found")
     editor.refresh()
-    wait(20)
-
-    var rows = TestUtil.findAll(panel.testContentItem, function (node) {
-      return node.projectKey !== undefined
-    })
+    function projectRows() {
+      return TestUtil.findAll(panel.testContentItem, function (node) {
+        return node.projectKey !== undefined
+      })
+    }
+    act.settled(function () { return projectRows().length === 2 && findRow(workspaceKey) !== null && findRow(outsideKey) !== null }, "rows never settled to the two `projects` entries")
+    act.drain()
+    var rows = projectRows()
     compare(rows.length, 2, "expected exactly one row per `projects` entry (2), got " + JSON.stringify(rows.map(function (r) { return r.projectKey })))
 
     var byKey = {}
