@@ -142,7 +142,7 @@ func runDaemon(_ []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintln(stderr, "backstory daemon:", err)
 		return 1
 	}
-	defer func() { _ = srv.Close() }()
+	defer shutdownServer(srv)
 
 	if err := applyFirstLineDeadlineOverride(srv); err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory daemon:", err)
@@ -183,6 +183,14 @@ func runDaemon(_ []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	}
+}
+
+// shutdownServer stops accepting and waits for every in-flight connection
+// handler to return. runDaemon defers it after the store's Close defer, so it
+// runs first: no handler can touch the store once the store is closed.
+func shutdownServer(srv *socket.Server) {
+	_ = srv.Close()
+	srv.Wait()
 }
 
 // logIdentity prints the daemon's per-connection identity log line,

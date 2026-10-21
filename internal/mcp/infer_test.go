@@ -10,7 +10,6 @@ import (
 
 	"github.com/RidgetopAi/backstory/internal/ident"
 	"github.com/RidgetopAi/backstory/internal/project"
-	"github.com/RidgetopAi/backstory/internal/socket"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
@@ -73,15 +72,9 @@ func (f *inferFixture) session(t *testing.T, cwd string) *Server {
 	resolver := &ident.Resolver{ProcFS: procfs, ProjectKey: func(string) string { return key }}
 	sessions := NewSessionRegistry()
 	sockPath := filepath.Join(t.TempDir(), "sock")
-	srv, err := socket.Listen(sockPath, resolver, func(id ident.Identity, conn net.Conn) {
-		defer func() { _ = conn.Close() }()
+	serveTestDaemon(t, sockPath, resolver, func(id ident.Identity, conn net.Conn) {
 		ServeDaemonConn(id, conn, f.st, procfs, project.RealGit{}, nil, sessions, captureNeverOff, f.workspaces)
 	})
-	if err != nil {
-		t.Fatalf("socket.Listen: %v", err)
-	}
-	t.Cleanup(func() { _ = srv.Close(); srv.Wait() })
-	go func() { _ = srv.Serve() }()
 	return dialShim(t, sockPath)
 }
 

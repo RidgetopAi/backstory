@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/RidgetopAi/backstory/internal/ident"
-	"github.com/RidgetopAi/backstory/internal/socket"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
@@ -35,15 +34,9 @@ func testDaemonCwdErr(t *testing.T, st *store.Store, harness string) string {
 
 	sessions := NewSessionRegistry()
 	sockPath := filepath.Join(t.TempDir(), "sock")
-	srv, err := socket.Listen(sockPath, resolver, func(id ident.Identity, conn net.Conn) {
-		defer func() { _ = conn.Close() }()
+	serveTestDaemon(t, sockPath, resolver, func(id ident.Identity, conn net.Conn) {
 		ServeDaemonConn(id, conn, st, procfs, fakeGit{}, nil, sessions, captureNeverOff, nil)
 	})
-	if err != nil {
-		t.Fatalf("socket.Listen: %v", err)
-	}
-	t.Cleanup(func() { _ = srv.Close(); srv.Wait() })
-	go func() { _ = srv.Serve() }()
 	return sockPath
 }
 

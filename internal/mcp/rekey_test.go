@@ -10,7 +10,6 @@ import (
 
 	"github.com/RidgetopAi/backstory/internal/ident"
 	"github.com/RidgetopAi/backstory/internal/project"
-	"github.com/RidgetopAi/backstory/internal/socket"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
@@ -44,15 +43,9 @@ func TestNoteAndStatusSurviveAnotherProcessRekey(t *testing.T) {
 	resolver := &ident.Resolver{ProcFS: procfs, ProjectKey: func(string) string { return key }}
 	sessions := NewSessionRegistry()
 	sockPath := filepath.Join(t.TempDir(), "sock")
-	srv, err := socket.Listen(sockPath, resolver, func(id ident.Identity, conn net.Conn) {
-		defer func() { _ = conn.Close() }()
+	serveTestDaemon(t, sockPath, resolver, func(id ident.Identity, conn net.Conn) {
 		ServeDaemonConn(id, conn, st, procfs, project.RealGit{}, nil, sessions, captureNeverOff, nil)
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = srv.Close(); srv.Wait() })
-	go func() { _ = srv.Serve() }()
 	shim := dialShim(t, sockPath)
 
 	note := func() NoteResult {

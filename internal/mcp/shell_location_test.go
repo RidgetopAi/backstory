@@ -10,7 +10,6 @@ import (
 
 	"github.com/RidgetopAi/backstory/internal/ident"
 	"github.com/RidgetopAi/backstory/internal/payload"
-	"github.com/RidgetopAi/backstory/internal/socket"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
@@ -24,17 +23,9 @@ func locShellDaemon(t *testing.T, st *store.Store) (string, *shellProcFS) {
 	resolver := &ident.Resolver{ProcFS: procfs, ProjectKey: func(cwd string) string { return "key:" + cwd }}
 	sessions := NewSessionRegistry()
 	sockPath := filepath.Join(t.TempDir(), "sock")
-	srv, err := socket.Listen(sockPath, resolver, func(id ident.Identity, conn net.Conn) {
-		defer func() { _ = conn.Close() }()
+	serveTestDaemon(t, sockPath, resolver, func(id ident.Identity, conn net.Conn) {
 		ServeDaemonConn(id, conn, st, procfs, fakeGit{}, nil, sessions, captureNeverOff, nil)
 	})
-	if err != nil {
-		t.Fatalf("socket.Listen: %v", err)
-	}
-	// srv counts each connection before its handler runs; Wait keeps the store
-	// and its temp dir alive until every handler has returned.
-	t.Cleanup(func() { _ = srv.Close(); srv.Wait() })
-	go func() { _ = srv.Serve() }()
 	return sockPath, procfs
 }
 
