@@ -91,7 +91,7 @@ func (t Transport) Open(host string) (*Session, error) {
 		argv = DefaultSSHCommand
 	}
 	args := append(append(append([]string{}, argv[1:]...), host), RemoteCommand...)
-	cmd := exec.Command(argv[0], args...)
+	cmd := exec.Command(argv[0], args...) //nolint:gosec // argv is the user's own BACKSTORY_SYNC_SSH or the ssh default; host is validated by ValidHost
 	tail := &tailBuffer{max: stderrKeep}
 	cmd.Stderr = tail
 	stdin, err := cmd.StdinPipe()

@@ -185,21 +185,17 @@ func (s *Store) AppendSyncAttempt(a SyncAttempt) error {
 // SyncAttempts returns the attempts for one peer label, newest first (limit
 // <= 0 means all).
 func (s *Store) SyncAttempts(peer string, limit int) ([]SyncAttempt, error) {
-	return s.syncAttemptsWhere(`peer = ?`, []any{peer}, limit)
+	return s.syncAttemptsFor("", peer, limit)
 }
 
-// syncAttemptsFor matches by device id as well, so a renamed peer keeps its history.
-func (s *Store) syncAttemptsFor(p SyncPeerRow, limit int) ([]SyncAttempt, error) {
-	return s.syncAttemptsWhere(`(device_id = ? OR peer = ?)`, []any{p.DeviceID, p.Label()}, limit)
-}
-
-func (s *Store) syncAttemptsWhere(where string, args []any, limit int) ([]SyncAttempt, error) {
-	q := `SELECT ts, peer, COALESCE(device_id, ''), result, detail, pulled, pushed FROM sync_attempts WHERE ` + where + ` ORDER BY id DESC`
-	if limit > 0 {
-		q += ` LIMIT ?`
-		args = append(args, limit)
+// syncAttemptsFor matches by device id as well as label, so a renamed peer
+// keeps its history; an empty deviceID matches nothing.
+func (s *Store) syncAttemptsFor(deviceID, label string, limit int) ([]SyncAttempt, error) {
+	if limit <= 0 {
+		limit = -1 // sqlite: no limit
 	}
-	rows, err := s.db.Query(q, args...)
+	rows, err := s.db.Query(`SELECT ts, peer, COALESCE(device_id, ''), result, detail, pulled, pushed FROM sync_attempts
+		WHERE device_id = ? OR peer = ? ORDER BY id DESC LIMIT ?`, deviceID, label, limit)
 	if err != nil {
 		return nil, fmt.Errorf("store: sync attempts: %w", err)
 	}
@@ -235,7 +231,7 @@ func (s *Store) SyncStatus() ([]SyncPeerStatus, error) {
 	var out []SyncPeerStatus
 	for _, p := range peers {
 		st := SyncPeerStatus{Peer: p}
-		last, err := s.syncAttemptsFor(p, 1)
+		last, err := s.syncAttemptsFor(p.DeviceID, p.Label(), 1)
 		if err != nil {
 			return nil, err
 		}
