@@ -217,7 +217,7 @@ CREATE TABLE devices (
 );
 CREATE UNIQUE INDEX devices_one_self ON devices(is_self) WHERE is_self = 1;
 
-CREATE TABLE sync_peers (                  -- unused until sync 4/8
+CREATE TABLE sync_peers (                  -- written by `backstory pair`
   device_id  TEXT PRIMARY KEY REFERENCES devices(id),
   ssh_host   TEXT,
   enabled    INTEGER NOT NULL DEFAULT 1,
@@ -390,3 +390,28 @@ a mutable task row.
 - **`about[]` normalisation.** Paths relative to `projects.toplevel` or absolute.
 - **FTS over `payload`.** v0 indexes `records.text` only; whether timeline payloads join the
   index is a Phase 4 recall question.
+
+### Peers, cursors and the attempt log (migration 0019, Phase 8)
+
+```sql
+ALTER TABLE sync_peers ADD COLUMN pull_cursor INTEGER NOT NULL DEFAULT 0;  -- position in the PEER's feed
+ALTER TABLE sync_peers ADD COLUMN push_cursor INTEGER NOT NULL DEFAULT 0;  -- position in THIS store's feed
+
+CREATE TABLE sync_attempts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ts INTEGER NOT NULL,                     -- unix nanoseconds, UTC
+  peer TEXT NOT NULL, device_id TEXT,
+  result TEXT NOT NULL CHECK (result IN ('ok','unreachable','error','paused')),
+  detail TEXT NOT NULL DEFAULT '',
+  pulled INTEGER NOT NULL DEFAULT 0, pushed INTEGER NOT NULL DEFAULT 0
+);
+```
+
+`backstory pair` writes `devices` (`is_self = 0`) and `sync_peers` (`enabled = 1`);
+`pair --remove` sets `enabled = 0` and deletes nothing. A cursor is saved only after the
+batch it covers has committed (a failed batch is fetched again, and import is idempotent).
+`sync_attempts` is append-only (update and delete are refused); every non-dry-run sync
+appends one row per peer. `unreachable` is a connection failure (ssh exit 255 with a
+connection, timeout or DNS message); `error` is anything else (auth refused, no remote
+`backstory`/`sync-serve`, proto mismatch, an import failure, another device at the host);
+`paused` is capture off.

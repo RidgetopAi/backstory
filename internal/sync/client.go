@@ -26,6 +26,10 @@ type Report struct {
 	Paused bool
 	// PeerPaused: capture is off on the peer, so it imported nothing.
 	PeerPaused bool
+	// WouldPull and WouldPush are the change counts a DryRun found; nothing
+	// was imported or sent.
+	WouldPull int
+	WouldPush int
 	// Cursors to resume from; they advance only past what was applied.
 	Cursors Cursors
 }
@@ -36,33 +40,20 @@ type Report struct {
 func Run(st *store.Store, id store.Identity, from Cursors, r io.Reader, w io.Writer, opt Options) (Report, error) {
 	rep := Report{Cursors: from}
 	c := newConn(r, w)
-	self, err := st.SelfDevice()
+	hello, err := handshake(c, st)
 	if err != nil {
 		return rep, err
-	}
-	if err := c.send(message{Type: typeHello, Proto: ProtoVersion, DeviceID: self.ID, DeviceName: self.Name}); err != nil {
-		return rep, err
-	}
-	hello, err := c.recv()
-	if err != nil {
-		return rep, fmt.Errorf("sync: waiting for hello: %w", err)
-	}
-	switch {
-	case hello.Type == typeError:
-		return rep, remoteErr(hello)
-	case hello.Type != typeHello:
-		return rep, errUnexpected
-	case hello.Proto != ProtoVersion:
-		_ = c.send(message{Type: typeBye})
-		return rep, &ProtoMismatchError{Local: ProtoVersion, Remote: hello.Proto}
-	case hello.DeviceID == "":
-		return rep, fmt.Errorf("sync: peer hello without device_id")
 	}
 	rep.PeerDeviceID, rep.PeerDeviceName = hello.DeviceID, hello.DeviceName
+	if opt.ExpectPeerID != "" && hello.DeviceID != opt.ExpectPeerID {
+		_ = c.send(message{Type: typeBye})
+		return rep, &PeerIdentityError{Want: opt.ExpectPeerID, Got: hello.DeviceID, GotName: hello.DeviceName}
+	}
 	peer := store.SyncPeer{DeviceID: hello.DeviceID}
 
+	pullPos, pushPos := rep.Cursors.Pull, rep.Cursors.Push // dry-run positions; the cursors stay put
 	for !rep.Paused {
-		if err := c.send(message{Type: typePull, Since: rep.Cursors.Pull}); err != nil {
+		if err := c.send(message{Type: typePull, Since: pullPos}); err != nil {
 			return rep, err
 		}
 		m, err := c.recv()
@@ -75,6 +66,14 @@ func Run(st *store.Store, id store.Identity, from Cursors, r io.Reader, w io.Wri
 		if m.Type != typeChanges {
 			return rep, errUnexpected
 		}
+		if opt.DryRun {
+			rep.WouldPull += len(m.Changes)
+			pullPos = m.Next
+			if !m.More {
+				break
+			}
+			continue
+		}
 		res, err := st.ImportSyncChanges(id, peer, m.Changes)
 		if err != nil {
 			return rep, err
@@ -85,15 +84,24 @@ func Run(st *store.Store, id store.Identity, from Cursors, r io.Reader, w io.Wri
 		}
 		addResult(&rep.Pulled, res)
 		rep.Cursors.Pull = m.Next
+		pullPos = m.Next
 		if !m.More {
 			break
 		}
 	}
 
 	for {
-		changes, next, more, err := st.ChangesSince(rep.Cursors.Push, opt.batch())
+		changes, next, more, err := st.ChangesSince(pushPos, opt.batch())
 		if err != nil {
 			return rep, err
+		}
+		if opt.DryRun {
+			rep.WouldPush += len(changes)
+			pushPos = next
+			if !more {
+				break
+			}
+			continue
 		}
 		if err := c.send(message{Type: typePush, Changes: changes}); err != nil {
 			return rep, err
@@ -114,11 +122,57 @@ func Run(st *store.Store, id store.Identity, from Cursors, r io.Reader, w io.Wri
 		}
 		addResult(&rep.Pushed, *m.Result)
 		rep.Cursors.Push = next
+		pushPos = next
 		if !more {
 			break
 		}
 	}
 	return rep, c.send(message{Type: typeBye})
+}
+
+// handshake sends this store's hello and validates the peer's answer.
+func handshake(c *conn, st *store.Store) (message, error) {
+	self, err := st.SelfDevice()
+	if err != nil {
+		return message{}, err
+	}
+	if err := c.send(message{Type: typeHello, Proto: ProtoVersion, DeviceID: self.ID, DeviceName: self.Name}); err != nil {
+		return message{}, err
+	}
+	hello, err := c.recv()
+	if err != nil {
+		return message{}, fmt.Errorf("sync: waiting for hello: %w", err)
+	}
+	switch {
+	case hello.Type == typeError:
+		return message{}, remoteErr(hello)
+	case hello.Type != typeHello:
+		return message{}, errUnexpected
+	case hello.Proto != ProtoVersion:
+		_ = c.send(message{Type: typeBye})
+		return message{}, &ProtoMismatchError{Local: ProtoVersion, Remote: hello.Proto}
+	case hello.DeviceID == "":
+		return message{}, fmt.Errorf("sync: peer hello without device_id")
+	}
+	return hello, nil
+}
+
+// PeerInfo is who answered a Hello.
+type PeerInfo struct {
+	DeviceID   string
+	DeviceName string
+}
+
+// Hello runs only the handshake, then says bye: it is how `pair` learns the
+// peer's identity. A peer on another proto yields a *ProtoMismatchError.
+func Hello(st *store.Store, r io.Reader, w io.Writer) (PeerInfo, error) {
+	c := newConn(r, w)
+	hello, err := handshake(c, st)
+	if err != nil {
+		return PeerInfo{}, err
+	}
+	_ = c.send(message{Type: typeBye})
+	return PeerInfo{DeviceID: hello.DeviceID, DeviceName: hello.DeviceName}, nil
 }
 
 func addResult(dst *store.SyncImportResult, r store.SyncImportResult) {

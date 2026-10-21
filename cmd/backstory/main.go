@@ -33,6 +33,8 @@ commands:
   projects   list known projects with the KEY purge/records/recall/timeline take, read-only ("projects --json")
   group      set/clear/list project groups (human-only; "group set|clear|list")
   link       set/clear/list the sync identity of a project across machines (human-only; "link set <name> [KEY|--here]")
+  pair       pair with another computer over ssh ("pair <ssh-host>", "pair --remove <name|host>")
+  sync       share memory with every paired computer ("sync [--dry-run] [<peer>]")
   sync-serve serve this store's changes to a paired device over stdin/stdout (sync protocol v1; run by the peer, not by hand)
   export     write a project's markdown mirror for another tool to read
   tools      print the agent tools' names and descriptions ("tools --json")
@@ -87,6 +89,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runGroup(args[1:], stdout, stderr)
 	case "link":
 		return runLink(args[1:], stdout, stderr)
+	case "pair":
+		return runPair(args[1:], stdout, stderr)
+	case "sync":
+		return runSync(args[1:], stdout, stderr)
 	case "sync-serve":
 		return runSyncServe(args[1:], stdin, stdout, stderr)
 	case "export":

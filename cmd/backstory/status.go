@@ -68,6 +68,7 @@ func runStatus(_ []string, stdout, stderr io.Writer) int {
 	if result.DeviceID != "" {
 		_, _ = fmt.Fprintf(stdout, "device: %s (%s)\n", result.DeviceName, shortDeviceID(result.DeviceID))
 	}
+	printSyncLines(stdout, stderr)
 	if cwd, err := os.Getwd(); err == nil {
 		if note := outsideProjectRootsNote(cwd, project.DefaultProjectRoots()); note != "" {
 			_, _ = fmt.Fprintln(stdout, note)
@@ -102,4 +103,45 @@ func shortDeviceID(id string) string {
 		return id[:8]
 	}
 	return id
+}
+
+// printSyncLines prints one `sync:` line per paired device: its name, when it
+// last synced ok and the result of the latest attempt. A store that cannot be
+// read is reported on stderr and does not fail status.
+func printSyncLines(stdout, stderr io.Writer) {
+	dbPath, err := storePath()
+	if err != nil {
+		return
+	}
+	if _, err := os.Stat(dbPath); err != nil {
+		return
+	}
+	st, err := openStore(dbPath)
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "backstory status: sync:", err)
+		return
+	}
+	defer func() { _ = st.Close() }()
+	rows, err := st.SyncStatus()
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "backstory status: sync:", err)
+		return
+	}
+	for _, r := range rows {
+		lastOK := "never"
+		if r.HasOK {
+			lastOK = r.LastOK.Local().Format("2006-01-02 15:04")
+		}
+		last := "no attempt yet"
+		if r.HasAttempt {
+			last = r.Last.Result
+			if r.Last.Detail != "" {
+				last += " (" + r.Last.Detail + ")"
+			}
+		}
+		if !r.Peer.Enabled {
+			last = "removed"
+		}
+		_, _ = fmt.Fprintf(stdout, "sync: %s: last ok %s, last result %s\n", r.Peer.Label(), lastOK, last)
+	}
 }
