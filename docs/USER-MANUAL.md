@@ -522,6 +522,15 @@ here, so nothing was imported). If any computer is not `ok`, `sync` prints one l
 which and why, and exits non-zero. A sync cut short is safe to repeat: nothing is lost or
 doubled.
 
+When sync is on (at least one paired computer) and it is not working, Backstory says so
+loudly instead of letting you resume with the other computer's work silently missing:
+`backstory status` prints `SYNC FAILING with <computer>: <reason> (last ok <time>|never)` as
+its first line and exits **3** (a daemon that cannot be reached still exits 1, so a script can
+tell the two apart; healthy is 0), NEEDS YOU gets a `sync-failing` item, every new session's
+memory block opens with a warning, and the timer sends one desktop notification when sync
+starts failing and one when it recovers (never one per tick). See
+[Sync is failing](#9-troubleshooting).
+
 #### Sharing memory between two computers
 
 1. Install Backstory on both, and make sure `ssh <other-computer>` works with a key.
@@ -721,6 +730,24 @@ Set `BACKSTORY_PROJECT_ROOTS` ([section 8](#8-settings)), or remove them with
 Something happened after it was written, such as a failed command or a later edit to a file it
 names. Read it. If it's still right, **Dismiss** it (or `backstory affirm <id>`). If not, ask
 the agent for a fresh handoff.
+
+**Sync is failing**
+`backstory status` starts with `SYNC FAILING with <computer>: <reason>`. The reason is one of:
+
+- *the latest attempt failed (the text says why)*: the other computer answered but something
+  was wrong. If it names a **protocol** or **version** mismatch, update Backstory on **both**
+  computers (`make install`) and sync again. If ssh refused your key, fix `ssh <computer>`
+  (key loaded, `ssh <computer>` works without a prompt). If Backstory is missing there,
+  install it.
+- *unreachable for N hours across M attempts*: the computer has been off or off the network
+  for longer than 24 hours of recorded attempts. Turn it on, or, if you no longer use it,
+  `backstory pair --remove <computer>`. The limit is the `sync_unreachable_hours` setting.
+- *the sync timer is installed but not active*: the timer stopped. Run
+  `systemctl --user enable --now backstory-sync.timer` (or `backstory install sync`).
+
+Run `backstory sync` by hand to retry; one good sync clears the warning. `sync paused (capture
+off)` is not a failure: turn capture on with `backstory capture on`. A computer you paired but
+never synced shows `never synced`; run `backstory sync`.
 
 **Undo an update**
 `make install` keeps the previous version at `~/.local/bin/backstory.prev`:

@@ -13,6 +13,7 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 ### Added
 
+- Sync fails loudly (task 33412bb2, decision 2ac4c54f D8). One rule, `sync.Health`, decides when sync is on and not syncing (the latest attempt errored, recorded `unreachable` attempts span more than `sync_unreachable_hours` (default 24), or the installed sync timer is not active). While failing, `backstory status` prints `SYNC FAILING with <peer>: <reason> (last ok <time>|never)` first and exits 3, NEEDS YOU gets a `sync-failing` item (PANEL-CONTRACT.md), every SessionStart block carries a warning line that no budget drops, and `sync --quiet` sends one desktop notification (notify-send) when sync starts failing and one on recovery.
 - `docs/USER-MANUAL.md`: a plain-language user manual covering the five note kinds with examples, the panel and its keys, every command with examples, privacy controls, settings and troubleshooting. `TestManualCoversEveryCommand` fails if a user-facing command has no manual entry or the manual names a command that doesn't exist.
 
 ### Changed

@@ -107,6 +107,12 @@ func goEnv(t *testing.T, key string) string {
 	return strings.TrimSpace(string(out))
 }
 
+// fixtureHealthTimeout is the daemon health wait (seconds) for fixture installs.
+// It returns as soon as the daemon answers, so a generous value costs nothing
+// when healthy and keeps the test from flaking when the whole suite loads the
+// machine (the daemon start once exceeded 10s under `make check`).
+const fixtureHealthTimeout = "60"
+
 // make runs `make <target>` in the repo against the fixture and returns the
 // combined output and the exit error.
 func (f *installFixture) make(target string) (string, error) {
@@ -117,7 +123,7 @@ func (f *installFixture) make(target string) (string, error) {
 		"XDG_CONFIG_HOME="+f.cfg,
 		"XDG_DATA_HOME="+filepath.Join(f.home, ".local", "share"),
 		"XDG_RUNTIME_DIR="+f.run,
-		"BACKSTORY_HEALTH_TIMEOUT=10",
+		"BACKSTORY_HEALTH_TIMEOUT="+fixtureHealthTimeout,
 		"PATH="+f.fakes+string(os.PathListSeparator)+os.Getenv("PATH"),
 		"FAKE_LOG="+f.log,
 		"FAKE_ACTIVE="+filepath.Join(filepath.Dir(f.log), "active"),

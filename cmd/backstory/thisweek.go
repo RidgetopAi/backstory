@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/RidgetopAi/backstory/internal/install"
@@ -55,7 +56,7 @@ func runThisWeek(args []string, stdout, stderr io.Writer) int {
 	workspaceDirs := resolveWorkspaceDirs()
 	projectRoots := project.DefaultProjectRoots()
 
-	result, err := week.Build(week.Params{Store: st, Git: project.RealGit{}, WorkspaceDirs: workspaceDirs, ProjectRoots: projectRoots, Locations: thisWeekLocations(), Now: thisWeekNow(), ExtraAttention: codexApprovalAttention()})
+	result, err := week.Build(week.Params{Store: st, Git: project.RealGit{}, WorkspaceDirs: workspaceDirs, ProjectRoots: projectRoots, Locations: thisWeekLocations(), Now: thisWeekNow(), ExtraAttention: append(codexApprovalAttention(), syncFailingAttention(st, thisWeekNow())...)})
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory this-week:", err)
 		return 1
@@ -291,6 +292,28 @@ func codexApprovalAttention() []week.AttentionItem {
 		return nil
 	}
 	return []week.AttentionItem{{Kind: week.AttentionCodexHooksNotApproved, ProjectKey: "codex", Reason: codexApprovalReason, EvidenceIDs: []string{}}}
+}
+
+// syncFailingAttention is the NEEDS YOU item per failing peer (sync.Health):
+// kind sync-failing, project_key "sync", evidence the attempt row ids. A
+// never-attempted peer has no attempt and so no item.
+func syncFailingAttention(st *store.Store, now time.Time) []week.AttentionItem {
+	rep, err := syncHealth(st, now)
+	if err != nil {
+		return nil
+	}
+	var out []week.AttentionItem
+	for _, f := range rep.Failing() {
+		ids := make([]string, 0, len(f.EvidenceIDs))
+		for _, id := range f.EvidenceIDs {
+			ids = append(ids, strconv.FormatInt(id, 10))
+		}
+		out = append(out, week.AttentionItem{
+			Kind: week.AttentionSyncFailing, ProjectKey: "sync", EvidenceIDs: ids,
+			Reason: fmt.Sprintf("sync with %s is failing: %s (last ok %s)", f.Peer.Label(), f.Reason, f.LastOKText()),
+		})
+	}
+	return out
 }
 
 // projectOrDirInScope is BACKSTORY_PROJECT_ROOTS scoping for a folder dir

@@ -84,6 +84,10 @@ const (
 	// approved them, so Codex runs none of them. Supplied by the caller
 	// (Params.ExtraAttention); ProjectKey is "codex".
 	AttentionCodexHooksNotApproved AttentionKind = "codex-hooks-not-approved"
+	// AttentionSyncFailing is environment state too: sync is on with a
+	// paired device and not syncing (sync.Health). Caller-computed;
+	// ProjectKey is "sync", EvidenceIDs the sync_attempts row ids.
+	AttentionSyncFailing AttentionKind = "sync-failing"
 )
 
 // attentionKindOrder fixes AttentionItem's sort order across kinds — the
@@ -95,6 +99,7 @@ var attentionKindOrder = map[AttentionKind]int{
 	AttentionContradiction:           2,
 	AttentionExpiredClaim:            3,
 	AttentionCodexHooksNotApproved:   4,
+	AttentionSyncFailing:             5,
 }
 
 // AttentionItem is one item in the Attention section: positive evidence

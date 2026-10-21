@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
+	"time"
 
 	"github.com/RidgetopAi/backstory/internal/store"
 	bsync "github.com/RidgetopAi/backstory/internal/sync"
@@ -132,6 +133,9 @@ func runSync(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintln(stdout, "No paired devices. Run `backstory pair <ssh-host>` first.")
 		return 0
 	}
+	if *quiet && !*dry {
+		notifySyncTransition(st, stderr)
+	}
 	failed := false
 	for _, o := range outs {
 		switch {
@@ -149,6 +153,19 @@ func runSync(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// notifySyncTransition is the timer's loud edge: one desktop notification when
+// sync turns failing and one when it recovers, never one per tick. A notifier
+// that cannot run is reported on stderr and never changes sync's exit.
+func notifySyncTransition(st *store.Store, stderr io.Writer) {
+	rep, err := syncHealth(st, time.Now())
+	if err == nil {
+		err = bsync.Notify(st, rep)
+	}
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "backstory sync: notify:", err)
+	}
 }
 
 // trimStorePrefix drops the "store: " package prefix from an error shown to a person.

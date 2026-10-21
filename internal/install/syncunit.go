@@ -92,3 +92,17 @@ func SyncTimerStatus(home string) ItemStatus {
 	}
 	return StatusPresent
 }
+
+// SyncTimerActive observes the timer for sync health: both unit files written
+// and `systemctl --user is-active` failing means installed but inactive. It
+// goes through ServiceManager, so tests override it. installed is false when
+// the units are absent (not a failure).
+func SyncTimerActive(home string) (installed, active bool) {
+	dir := SyncUnitDir(home)
+	_, errT := os.Stat(filepath.Join(dir, SyncTimerName))
+	_, errS := os.Stat(filepath.Join(dir, SyncServiceName))
+	if errT != nil || errS != nil {
+		return false, false
+	}
+	return true, ServiceManager("is-active", "--quiet", SyncTimerName) == nil
+}

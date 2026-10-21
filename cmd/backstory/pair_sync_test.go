@@ -101,7 +101,7 @@ func TestPairSyncStatusAndRemove(t *testing.T) {
 
 	var so, se strings.Builder
 	printSyncLines(&so, &se)
-	if want := "sync: " + name + ": last ok never, last result no attempt yet\n"; so.String() != want {
+	if want := "sync: " + name + ": never synced\n"; so.String() != want {
 		t.Fatalf("status before sync: %q want %q", so.String(), want)
 	}
 
