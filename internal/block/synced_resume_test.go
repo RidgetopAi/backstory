@@ -18,6 +18,9 @@ type syncedFixture struct {
 	sess string
 }
 
+// importedID is the id of every handoff these tests import.
+const importedID = "imported-handoff-0001"
+
 func newSyncedFixture(t *testing.T) *syncedFixture {
 	t.Helper()
 	s := newTestStore(t)
@@ -30,10 +33,10 @@ func newSyncedFixture(t *testing.T) *syncedFixture {
 	return &syncedFixture{t: t, s: s, sess: mustStartSession(t, s, "claude", "/work", 0)}
 }
 
-func (f *syncedFixture) importHandoff(id string, ts time.Time, text string, edges ...store.SyncChange) {
+func (f *syncedFixture) importHandoff(ts time.Time, text string, edges ...store.SyncChange) {
 	f.t.Helper()
 	ch := []store.SyncChange{{Kind: store.SyncKindRecord, Record: &store.SyncRecord{
-		ID: id, TS: ts.UnixNano(), Kind: string(store.KindHandoff), Tier: string(store.TierHumanDeclared), Text: text,
+		ID: importedID, TS: ts.UnixNano(), Kind: string(store.KindHandoff), Tier: string(store.TierHumanDeclared), Text: text,
 		ProjectSyncID: "github.com/acme/widgets", OriginDevice: "dev-laptop",
 	}}}
 	ch = append(ch, edges...)
@@ -64,7 +67,7 @@ func (f *syncedFixture) render(budget string) string {
 func TestResumePicksNewestImportedHandoffAndNamesLocalInAlso(t *testing.T) {
 	f := newSyncedFixture(t)
 	local := mustInsertHandoff(t, f.s, f.sess, "local desktop handoff\nsecond line")
-	f.importHandoff("imported-handoff-0001", time.Now().Add(time.Hour), "laptop handoff text")
+	f.importHandoff(time.Now().Add(time.Hour), "laptop handoff text")
 
 	out := f.render("")
 	if !strings.Contains(out, "Resume: (id imported-handoff-0001, from laptop) laptop handoff text") {
@@ -96,7 +99,7 @@ func TestResumePicksNewestImportedHandoffAndNamesLocalInAlso(t *testing.T) {
 // way round, and a superseded loser earns no also line.
 func TestResumeLocalNewerKeepsLocalAndAlsoNamesImported(t *testing.T) {
 	f := newSyncedFixture(t)
-	f.importHandoff("imported-handoff-0001", time.Now().Add(-time.Hour), "old laptop handoff")
+	f.importHandoff(time.Now().Add(-time.Hour), "old laptop handoff")
 	local := mustInsertHandoff(t, f.s, f.sess, "fresh local handoff")
 	out := f.render("")
 	if !strings.Contains(out, "Resume: (id "+local.ID+") written by claude: fresh local handoff") {
@@ -110,7 +113,7 @@ func TestResumeLocalNewerKeepsLocalAndAlsoNamesImported(t *testing.T) {
 func TestResumeAlsoLineOmittedWhenLoserIsSuperseded(t *testing.T) {
 	f := newSyncedFixture(t)
 	local := mustInsertHandoff(t, f.s, f.sess, "local desktop handoff")
-	f.importHandoff("imported-handoff-0001", time.Now().Add(time.Hour), "laptop handoff text",
+	f.importHandoff(time.Now().Add(time.Hour), "laptop handoff text",
 		store.SyncChange{Kind: store.SyncKindEdge, Edge: &store.SyncEdge{
 			FromID: "imported-handoff-0001", ToID: local.ID, Type: string(store.EdgeSupersedes), DeclaredBy: "human"}})
 	out := f.render("")
@@ -126,7 +129,7 @@ func TestResumeAlsoLineOmittedWhenLoserIsSuperseded(t *testing.T) {
 func TestDeltaAfterImportedHandoffCountsOnlyLocalEventsAfterImport(t *testing.T) {
 	f := newSyncedFixture(t)
 	mustAppendToolUse(t, f.s, f.sess, time.Now().Add(-time.Minute), "/work/before.go")
-	f.importHandoff("imported-handoff-0001", time.Now().Add(-time.Hour), "laptop handoff text")
+	f.importHandoff(time.Now().Add(-time.Hour), "laptop handoff text")
 	sess2 := mustStartSession(t, f.s, "claude", "/work", 0)
 	mustAppendToolUse(t, f.s, sess2, time.Now(), "/work/after.go")
 
