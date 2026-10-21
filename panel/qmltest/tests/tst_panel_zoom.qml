@@ -24,6 +24,8 @@ TestCase {
   property var loader: null
   property var panel: null
 
+  TestActions { id: act; testCase: testCase }
+
   function init() {
     ProcessController.reset()
     Quickshell.reset()
@@ -36,7 +38,8 @@ TestCase {
     tryCompare(panel, "loading", false, 2000)
     panel.testWindow.width = 380
     panel.testWindow.height = 640
-    wait(20)
+    act.settledEq(panel, "zoom", 1.0)
+    act.drain()
   }
 
   function cleanup() {
@@ -57,12 +60,12 @@ TestCase {
 
   function press(key, mods) {
     panel.testKeyItem.forceActiveFocus()
-    keyClick(key, mods === undefined ? Qt.NoModifier : mods)
+    act.pressKey(key, mods)
   }
 
   function test_window_width_scales_content() {
-    compare(panel.userZoom, 1.0)
-    compare(panel.zoom, 1.0)
+    act.settledEq(panel, "userZoom", 1.0)
+    act.settledEq(panel, "zoom", 1.0)
     var h = heading()
     verify(h !== null, "heading Text not found")
     var base = onScreenHeight(h)
@@ -71,44 +74,46 @@ TestCase {
     var win = panel.testWindow
     win.width = 760
     win.height = 900
-    compare(panel.zoom, 2.0)
+    act.settledEq(panel, "zoom", 2.0)
     var card = panel.testKeyItem
-    compare(card.width, win.width)
-    compare(card.height, win.height)
-    verify(Math.abs(onScreenHeight(h) - 2 * base) <= 1, "heading " + onScreenHeight(h) + " vs 2x " + base)
+    act.settledEq(card, "width", win.width)
+    act.settledEq(card, "height", win.height)
+    act.settled(function () { return Math.abs(onScreenHeight(h) - 2 * base) <= 1 }, "heading " + onScreenHeight(h) + " vs 2x " + base)
   }
 
   function test_zoom_keys() {
     press(Qt.Key_Equal, Qt.ControlModifier)
-    compare(panel.userZoom, 1.1)
+    act.settledEq(panel, "userZoom", 1.1)
     press(Qt.Key_Plus, Qt.ControlModifier | Qt.ShiftModifier)
-    compare(panel.userZoom, 1.2)
+    act.settledEq(panel, "userZoom", 1.2)
     press(Qt.Key_Minus, Qt.ControlModifier)
-    compare(panel.userZoom, 1.1)
-    compare(panel.zoom, 1.1)
+    act.settledEq(panel, "userZoom", 1.1)
+    act.settledEq(panel, "zoom", 1.1)
     press(Qt.Key_0, Qt.ControlModifier)
-    compare(panel.userZoom, 1.0)
+    act.settledEq(panel, "userZoom", 1.0)
   }
 
   function test_zoom_clamps() {
     for (var i = 0; i < 30; i++) press(Qt.Key_Equal, Qt.ControlModifier)
-    compare(panel.userZoom, 2.5)
+    act.settledEq(panel, "userZoom", 2.5)
     for (i = 0; i < 40; i++) press(Qt.Key_Minus, Qt.ControlModifier)
-    compare(panel.userZoom, 0.75)
+    act.settledEq(panel, "userZoom", 0.75)
   }
 
   function test_plain_keys_leave_zoom_alone() {
     press(Qt.Key_Equal)
     press(Qt.Key_Minus)
     press(Qt.Key_0)
-    compare(panel.userZoom, 1.0)
+    act.drain()
+    act.settledEq(panel, "userZoom", 1.0)
   }
 
   function test_existing_keys_still_work() {
     press(Qt.Key_J)
     press(Qt.Key_K)
-    compare(panel.selectedIndex, 0)
+    act.drain()
+    act.settledEq(panel, "selectedIndex", 0)
     press(Qt.Key_Escape)
-    compare(panel.opened, false)
+    act.settledEq(panel, "opened", false)
   }
 }

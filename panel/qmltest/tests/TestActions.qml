@@ -169,6 +169,11 @@ QtObject {
     testCase.tryVerify(pred, root.timeoutMs, msg === undefined ? "condition never settled" : msg)
   }
 
+  // Wait for obj[prop] to equal value (QtTest's fuzzy compare for reals).
+  function settledEq(obj, prop, value, msg) {
+    testCase.tryCompare(obj, prop, value, root.timeoutMs, msg)
+  }
+
   // Wait for `count` recorded Process launches satisfying pred, and return
   // them all (oldest first). pred(run) sees { command, workingDirectory }.
   function launchedCount(pred, count, msg) {

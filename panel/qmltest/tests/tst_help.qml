@@ -30,6 +30,8 @@ TestCase {
   property var loader: null
   property var panel: null
 
+  TestActions { id: act; testCase: testCase }
+
   function summary(key, name) {
     return { project_key: key, display_name: name, cwd: "/home/brian/" + name, agent: "claude", last_active: new Date().toISOString() }
   }
@@ -55,7 +57,7 @@ TestCase {
     panel.testContentItem.parent = loader
     panel.open("{}")
     tryCompare(panel, "loading", false, 2000)
-    wait(20)
+    act.settled(function () { return bodyVisible() }, "panel body never rendered")
   }
 
   function cleanup() {
@@ -66,7 +68,7 @@ TestCase {
 
   function press(key, mods) {
     panel.testKeyItem.forceActiveFocus()
-    keyClick(key, mods === undefined ? Qt.NoModifier : mods)
+    act.pressKey(key, mods)
   }
 
   function texts() { return TestUtil.collectVisibleTexts(panel.testContentItem) }
@@ -77,13 +79,13 @@ TestCase {
     compare(panel.helpOpen, false)
     verify(bodyVisible())
     press(Qt.Key_Question)
-    compare(panel.helpOpen, true)
-    verify(!bodyVisible(), "main body still visible with help open")
+    act.settled(function () { return panel.helpOpen }, "help never opened")
+    act.settled(function () { return !bodyVisible() }, "main body still visible with help open")
   }
 
   function test_navigation_keys_inert_while_help_open() {
     press(Qt.Key_Question)
-    compare(panel.helpOpen, true)
+    act.settled(function () { return panel.helpOpen }, "help never opened")
     var before = panel.selectedIndex
     var execs = Quickshell.execDetachedCalls.length
     var runs = ProcessController.runs.length
@@ -92,6 +94,7 @@ TestCase {
     press(Qt.Key_Down)
     press(Qt.Key_T)
     press(Qt.Key_M)
+    act.drain()
     compare(panel.selectedIndex, before)
     compare(Quickshell.execDetachedCalls.length, execs)
     compare(ProcessController.runs.length, runs)
@@ -102,25 +105,28 @@ TestCase {
   function test_j_moves_selection_when_help_closed() {
     compare(panel.selectedIndex, 0)
     press(Qt.Key_J)
-    compare(panel.selectedIndex, 1)
+    act.settled(function () { return panel.selectedIndex === 1 }, "J never moved the selection")
   }
 
   function test_escape_closes_panel_from_help() {
     press(Qt.Key_Question)
     press(Qt.Key_Escape)
-    compare(panel.opened, false)
-    compare(panel.helpOpen, false)
+    act.settled(function () { return panel.opened === false && panel.helpOpen === false }, "Escape never closed the panel from help")
   }
 
   function test_question_again_returns_to_body() {
     press(Qt.Key_Question)
+    act.settled(function () { return panel.helpOpen }, "help never opened")
     press(Qt.Key_Question)
-    compare(panel.helpOpen, false)
-    verify(bodyVisible())
+    act.settled(function () { return !panel.helpOpen && bodyVisible() }, "second ? never returned to the body")
   }
 
   function test_help_renders_fixture_tools_and_sections() {
     press(Qt.Key_Question)
+    act.launchedNext(function (r) {
+      return ProcessController.keyFor(r.command) === ProcessController.keyFor(Launchers.toolsCommand())
+    }, "help never ran Launchers.toolsCommand()")
+    act.settled(function () { return texts().indexOf(fixtureTools[fixtureTools.length - 1].name) >= 0 }, "tools never rendered")
     var rendered = texts()
     for (var i = 0; i < fixtureTools.length; i++) {
       verify(rendered.indexOf(fixtureTools[i].name) >= 0, "missing tool name " + fixtureTools[i].name)
@@ -131,10 +137,6 @@ TestCase {
     verify(rendered.indexOf("GROUPS") >= 0)
     var groups = rendered.filter(function (t) { return t.indexOf("backstory group set") >= 0 && t.indexOf("gear") >= 0 })
     verify(groups.length === 1, "Groups section must name the gear and `backstory group set`")
-    var runs = ProcessController.runs.filter(function (r) {
-      return ProcessController.keyFor(r.command) === ProcessController.keyFor(Launchers.toolsCommand())
-    })
-    verify(runs.length >= 1, "help never ran Launchers.toolsCommand()")
   }
 
   function test_footer_hint_lists_help() {
@@ -144,15 +146,18 @@ TestCase {
 
   function test_layout_within_bounds_help_open() {
     press(Qt.Key_Question)
-    wait(20)
-    var bad = TestUtil.collectOutOfBounds(panel.testContentItem, panel.testContentItem,
-      panel.testImplicitWidth, panel.testImplicitHeight)
-    verify(bad.length === 0, bad.length + " item(s) out of bounds with help open: " + JSON.stringify(bad).slice(0, 2000))
+    var bad = []
+    act.settled(function () {
+      bad = TestUtil.collectOutOfBounds(panel.testContentItem, panel.testContentItem,
+        panel.testImplicitWidth, panel.testImplicitHeight)
+      return panel.helpOpen && bad.length === 0
+    }, "item(s) out of bounds with help open: " + JSON.stringify(bad).slice(0, 2000))
   }
 
   function test_close_resets_help() {
     press(Qt.Key_Question)
+    act.settled(function () { return panel.helpOpen }, "help never opened")
     panel.close()
-    compare(panel.helpOpen, false)
+    act.settled(function () { return !panel.helpOpen }, "close never reset help")
   }
 }
