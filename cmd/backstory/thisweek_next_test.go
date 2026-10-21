@@ -51,7 +51,7 @@ func TestHandoffNextRoundTripsMCPToThisWeekJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("socket.Listen: %v", err)
 	}
-	t.Cleanup(func() { _ = srv.Close() })
+	t.Cleanup(func() { shutdownServer(srv) })
 	go func() { _ = srv.Serve() }()
 	shim := mcp.NewServer(func() (net.Conn, error) { return net.Dial("unix", sockPath) })
 	t.Cleanup(func() { _ = shim.Close() })

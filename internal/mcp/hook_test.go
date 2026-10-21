@@ -11,7 +11,6 @@ import (
 
 	"github.com/RidgetopAi/backstory/internal/ident"
 	"github.com/RidgetopAi/backstory/internal/payload"
-	"github.com/RidgetopAi/backstory/internal/socket"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
@@ -39,15 +38,9 @@ func testDaemonWithCapture(t *testing.T, st *store.Store, harness, cwd, projectK
 
 	sessions := NewSessionRegistry()
 	sockPath := filepath.Join(t.TempDir(), "sock")
-	srv, err := socket.Listen(sockPath, resolver, func(id ident.Identity, conn net.Conn) {
-		defer func() { _ = conn.Close() }()
+	serveTestDaemon(t, sockPath, resolver, func(id ident.Identity, conn net.Conn) {
 		ServeDaemonConn(id, conn, st, procfs, fakeGit{}, nil, sessions, captureOff, nil)
 	})
-	if err != nil {
-		t.Fatalf("socket.Listen: %v", err)
-	}
-	t.Cleanup(func() { _ = srv.Close() })
-	go func() { _ = srv.Serve() }()
 	return sockPath
 }
 
