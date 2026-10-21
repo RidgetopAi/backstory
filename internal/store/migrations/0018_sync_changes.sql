@@ -45,8 +45,8 @@ CREATE INDEX sessions_parent ON sessions(parent_session_id);
 
 -- History that predates the feed is queued once, oldest first.
 INSERT INTO sync_changes (kind, ref) SELECT 'session', id FROM sessions ORDER BY rowid;
-INSERT INTO sync_changes (kind, ref)
-  SELECT CASE WHEN tombstoned_at IS NULL THEN 'record' ELSE 'tombstone' END, id FROM records ORDER BY rowid;
+INSERT INTO sync_changes (kind, ref) SELECT 'record', id FROM records WHERE tombstoned_at IS NULL ORDER BY rowid;
+INSERT INTO sync_changes (kind, ref) SELECT 'tombstone', id FROM records WHERE tombstoned_at IS NOT NULL ORDER BY rowid;
 INSERT INTO sync_changes (kind, ref) SELECT 'edge', from_id || '|' || to_id || '|' || type FROM edges ORDER BY rowid;
 
 CREATE TRIGGER sync_changes_no_update BEFORE UPDATE ON sync_changes
@@ -54,9 +54,14 @@ BEGIN SELECT RAISE(ABORT, 'sync_changes: append-only'); END;
 CREATE TRIGGER sync_changes_no_delete BEFORE DELETE ON sync_changes
 BEGIN SELECT RAISE(ABORT, 'sync_changes: append-only'); END;
 
-CREATE TRIGGER sync_record_ai AFTER INSERT ON records BEGIN
-  INSERT INTO sync_changes (kind, ref)
-    VALUES (CASE WHEN new.tombstoned_at IS NULL THEN 'record' ELSE 'tombstone' END, new.id);
+-- (no CASE...END in a trigger body: splitStatements counts every END)
+CREATE TRIGGER sync_record_ai AFTER INSERT ON records
+WHEN new.tombstoned_at IS NULL BEGIN
+  INSERT INTO sync_changes (kind, ref) VALUES ('record', new.id);
+END;
+CREATE TRIGGER sync_record_ai_tombstoned AFTER INSERT ON records
+WHEN new.tombstoned_at IS NOT NULL BEGIN
+  INSERT INTO sync_changes (kind, ref) VALUES ('tombstone', new.id);
 END;
 CREATE TRIGGER sync_record_tombstone AFTER UPDATE OF tombstoned_at ON records
 WHEN old.tombstoned_at IS NULL AND new.tombstoned_at IS NOT NULL BEGIN

@@ -149,8 +149,8 @@ func (s *Store) ChangesSince(since int64, limit int) (changes []SyncChange, next
 		return nil, since, false, err
 	}
 
-	b := &feedBuilder{s: s, self: self.ID, records: map[string]*SyncRecord{}, sessions: map[string]bool{},
-		edges: map[string]bool{}, servable: map[string]bool{}}
+	b := &feedBuilder{s: s, self: self.ID, records: map[string]*SyncRecord{}, emitted: map[string]bool{}, sessions: map[string]bool{},
+		edges: map[string]bool{}}
 	for _, e := range entries {
 		if err := b.add(e); err != nil {
 			return nil, since, false, err
@@ -172,10 +172,10 @@ type feedBuilder struct {
 	s       *Store
 	self    string
 	records map[string]*SyncRecord // id -> served record (nil: known unservable)
+	emitted map[string]bool        // record ids already in recordOut
 	// sessions/edges: already emitted this pull.
 	sessions   map[string]bool
 	edges      map[string]bool
-	servable   map[string]bool
 	sessionOut []SyncChange
 	recordOut  []SyncChange
 	edgeOut    []SyncChange
@@ -221,7 +221,7 @@ func (b *feedBuilder) load(id string) (*SyncRecord, error) {
 }
 
 func (b *feedBuilder) addRecord(id string) error {
-	if _, seen := b.records[id]; seen {
+	if b.emitted[id] {
 		return nil
 	}
 	r, err := b.load(id)
@@ -233,6 +233,7 @@ func (b *feedBuilder) addRecord(id string) error {
 			return err
 		}
 	}
+	b.emitted[id] = true
 	kind := SyncKindRecord
 	if r.TombstonedAt != nil {
 		kind = SyncKindTombstone
@@ -547,11 +548,11 @@ func syncPass(kind string) string {
 }
 
 type syncImporter struct {
-	tx        *sql.Tx
-	self      string
-	peer      string
-	idx       map[string]string
-	res       *SyncImportResult
+	tx   *sql.Tx
+	self string
+	peer string
+	idx  map[string]string
+	res  *SyncImportResult
 }
 
 func (im *syncImporter) origin(o string) any {
