@@ -187,6 +187,9 @@ func sweepOneTarget(tx *sql.Tx, legacy, canonical string, repoIdentity bool) err
 	if err != nil {
 		return err
 	}
+	if err := sweepProjectLinks(tx, legacy, canonical); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(`DELETE FROM projects WHERE key = ?`, legacy); err != nil {
 		return fmt.Errorf("delete legacy project row: %w", err)
 	}
@@ -238,4 +241,23 @@ func sweepProjectGroups(tx *sql.Tx, legacy, canonical string) (int64, error) {
 		total += n
 	}
 	return total, nil
+}
+
+// sweepProjectLinks merges legacy's and canonical's project_links rows the
+// way sweepProjectGroups does: the newer set_at wins, moved under canonical.
+func sweepProjectLinks(tx *sql.Tx, legacy, canonical string) error {
+	if _, err := tx.Exec(`DELETE FROM project_links WHERE local_key = ? AND EXISTS (
+		SELECT 1 FROM project_links c WHERE c.local_key = ?
+		AND c.set_at >= (SELECT set_at FROM project_links WHERE local_key = ?))`,
+		legacy, canonical, legacy); err != nil {
+		return fmt.Errorf("drop superseded legacy project_links row: %w", err)
+	}
+	if _, err := tx.Exec(`DELETE FROM project_links WHERE local_key = ?
+		AND EXISTS (SELECT 1 FROM project_links WHERE local_key = ?)`, canonical, legacy); err != nil {
+		return fmt.Errorf("drop superseded canonical project_links row: %w", err)
+	}
+	if _, err := tx.Exec(`UPDATE project_links SET local_key = ? WHERE local_key = ?`, canonical, legacy); err != nil {
+		return fmt.Errorf("move winning legacy project_links row: %w", err)
+	}
+	return nil
 }

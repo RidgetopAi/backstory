@@ -190,6 +190,13 @@ CREATE TABLE project_groups (
 );
 CREATE INDEX project_groups_name ON project_groups(group_name);
 
+CREATE TABLE project_links (            -- human-set sync identity; overrides the remote
+  local_key  TEXT PRIMARY KEY REFERENCES projects(key),
+  sync_id    TEXT NOT NULL,
+  set_at     INTEGER NOT NULL           -- unix nanoseconds, UTC
+);
+CREATE INDEX project_links_sync_id ON project_links(sync_id);
+
 CREATE VIRTUAL TABLE records_fts USING fts5(
   text, content='records', content_rowid='rowid'
 );
