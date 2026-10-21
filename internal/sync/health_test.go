@@ -32,6 +32,7 @@ func TestHealthTable(t *testing.T) {
 		{"timer installed but inactive", []store.SyncPeerRow{peer}, []store.SyncAttempt{at(1, time.Hour, "ok", "")}, TimerInactive, true, StateFailing, []int64{1}},
 		{"timer absent is fine", []store.SyncPeerRow{peer}, []store.SyncAttempt{at(1, time.Hour, "ok", "")}, TimerAbsent, true, StateOK, nil},
 		{"paused", []store.SyncPeerRow{peer}, []store.SyncAttempt{at(1, time.Hour, "paused", "capture off")}, TimerActive, true, StatePaused, nil},
+		{"busy attempt is not failing", []store.SyncPeerRow{peer}, []store.SyncAttempt{at(1, 2*time.Hour, "ok", ""), at(2, time.Hour, "busy", "another sync running")}, TimerActive, true, StateOK, nil},
 		{"ok", []store.SyncPeerRow{peer}, []store.SyncAttempt{at(1, time.Hour, "ok", "")}, TimerActive, true, StateOK, nil},
 		{"never attempted", []store.SyncPeerRow{peer}, nil, TimerInactive, true, StateNeverSynced, nil},
 		{"no enabled peer", []store.SyncPeerRow{{DeviceID: "dev-b", Name: "laptop"}}, []store.SyncAttempt{at(1, time.Hour, "error", "x")}, TimerInactive, false, "", nil},
