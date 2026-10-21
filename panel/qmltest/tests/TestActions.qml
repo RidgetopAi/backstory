@@ -169,6 +169,23 @@ QtObject {
     testCase.tryVerify(pred, root.timeoutMs, msg === undefined ? "condition never settled" : msg)
   }
 
+  // Wait until snapshot() (any JSON-able view of the UI) has been identical
+  // across stableFrames + 1 consecutive polls: the tree has stopped reflowing.
+  // For the baseline render after a data load, before a test reads it.
+  function quiescent(snapshot, msg) {
+    var last = null
+    var same = 0
+    var done = false
+    testCase.tryVerify(function () {
+      if (done) return true
+      var now = JSON.stringify(snapshot())
+      same = now === last ? same + 1 : 0
+      last = now
+      done = same >= root.stableFrames
+      return done
+    }, root.timeoutMs, msg === undefined ? "UI never stopped changing" : msg)
+  }
+
   // Wait for obj[prop] to equal value (QtTest's fuzzy compare for reals).
   function settledEq(obj, prop, value, msg) {
     testCase.tryCompare(obj, prop, value, root.timeoutMs, msg)
