@@ -51,7 +51,7 @@ func TestFillMissingRemotesRepairsNullRemotes(t *testing.T) {
 	root := t.TempDir()
 	keys := []string{root + "/live/.git", root + "/noremote/.git", root + "/gone/.git"}
 	for _, k := range keys[:2] {
-		if err := os.MkdirAll(k, 0o755); err != nil {
+		if err := os.MkdirAll(k, 0o750); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -153,7 +153,7 @@ func TestFillMissingRemotesDecidesEachProjectOnce(t *testing.T) {
 	root := t.TempDir()
 	none, live := root+"/none/.git", root+"/live/.git"
 	for _, k := range []string{none, live} {
-		if err := os.MkdirAll(k, 0o755); err != nil {
+		if err := os.MkdirAll(k, 0o750); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -188,7 +188,7 @@ func TestFillMissingRemotesSkipsVanishedCommonDir(t *testing.T) {
 func TestRemoteCheckedMarkerDoesNotFreezeRemoteURL(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "backstory.db")
 	key := t.TempDir() + "/app/.git"
-	if err := os.MkdirAll(key, 0o755); err != nil {
+	if err := os.MkdirAll(key, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	seedProjects(t, path, key)
