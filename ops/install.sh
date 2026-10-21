@@ -17,6 +17,8 @@ BINDIR="${BINDIR:-$HOME/.local/bin}"
 BIN="$BINDIR/$APP"
 UNIT_DIR="$CONFIG_HOME/systemd/user"
 UNIT="$UNIT_DIR/$APP.service"
+SYNC_SERVICE="$UNIT_DIR/$APP-sync.service"
+SYNC_TIMER="$UNIT_DIR/$APP-sync.timer"
 PLUGINS_DIR="$CONFIG_HOME/omarchy/plugins"
 PANEL="$PLUGINS_DIR/$PLUGIN_ID"
 PANEL_PREV="$PLUGINS_DIR/.$PLUGIN_ID.prev" # hidden so the shell never loads a second copy
@@ -208,6 +210,11 @@ unregister_harnesses() {
 
 do_uninstall() {
 	unregister_harnesses
+	# The optional sync timer (`backstory install sync`), when present.
+	if [ -f "$SYNC_TIMER" ] || [ -f "$SYNC_SERVICE" ]; then
+		systemctl --user disable --now "$APP-sync.timer" || true
+		rm -f "$SYNC_TIMER" "$SYNC_SERVICE"
+	fi
 	if [ -f "$UNIT" ] || systemctl --user is-enabled --quiet "$APP" 2>/dev/null; then
 		systemctl --user stop "$APP" || true
 		systemctl --user disable "$APP" || true

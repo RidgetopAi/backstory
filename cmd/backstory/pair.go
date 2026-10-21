@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"path/filepath"
 
 	"github.com/RidgetopAi/backstory/internal/store"
 	bsync "github.com/RidgetopAi/backstory/internal/sync"
@@ -63,8 +64,9 @@ func runPair(args []string, stdout, stderr io.Writer) int {
 func runSync(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("sync", flag.ContinueOnError)
 	dry := fs.Bool("dry-run", false, "print what would be pulled and pushed; change nothing")
+	quiet := fs.Bool("quiet", false, "print nothing on success; on failure only the per-peer failure lines")
 	fs.SetOutput(stderr)
-	fs.Usage = func() { _, _ = fmt.Fprintln(stderr, "usage: backstory sync [--dry-run] [<peer>]") }
+	fs.Usage = func() { _, _ = fmt.Fprintln(stderr, "usage: backstory sync [--dry-run] [--quiet] [<peer>]") }
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -77,6 +79,28 @@ func runSync(args []string, stdout, stderr io.Writer) int {
 		return code
 	}
 	defer func() { _ = st.Close() }()
+
+	// One sync at a time: a manual run and the timer never overlap. A dry run
+	// changes nothing, so it does not wait.
+	if !*dry {
+		dbPath, err := storePath()
+		if err != nil {
+			_, _ = fmt.Fprintf(stderr, "backstory sync: %v\n", err)
+			return 1
+		}
+		lock, err := bsync.AcquireLock(filepath.Dir(dbPath))
+		if errors.Is(err, bsync.ErrBusy) {
+			if !*quiet {
+				_, _ = fmt.Fprintln(stdout, "sync: busy: another sync is already running; nothing was attempted")
+			}
+			return 0
+		}
+		if err != nil {
+			_, _ = fmt.Fprintf(stderr, "backstory sync: %v\n", err)
+			return 1
+		}
+		defer lock.Release()
+	}
 
 	var peers []store.SyncPeerRow
 	if fs.NArg() == 1 {
@@ -102,6 +126,9 @@ func runSync(args []string, stdout, stderr io.Writer) int {
 	y := &bsync.Syncer{Store: st, Identity: humanIdentity, Transport: bsync.TransportFromEnv(), Options: bsync.Options{DryRun: *dry}}
 	outs := y.SyncAll(peers)
 	if len(outs) == 0 {
+		if *quiet {
+			return 0
+		}
 		_, _ = fmt.Fprintln(stdout, "No paired devices. Run `backstory pair <ssh-host>` first.")
 		return 0
 	}
@@ -111,6 +138,7 @@ func runSync(args []string, stdout, stderr io.Writer) int {
 		case !o.OK():
 			failed = true
 			_, _ = fmt.Fprintln(stderr, o.FormatFailure())
+		case *quiet:
 		case *dry:
 			_, _ = fmt.Fprintf(stdout, "%s: would pull %d, would push %d (dry run; nothing changed)\n", o.Peer.Label(), o.WouldPull, o.WouldPush)
 		default:
