@@ -65,6 +65,9 @@ func runStatus(_ []string, stdout, stderr io.Writer) int {
 	}
 	_, _ = fmt.Fprintf(stdout, "project: %s\ncapture: %s\nbudget remaining: %d\n",
 		projectName, captureState, result.RemainingBudget)
+	if result.DeviceID != "" {
+		_, _ = fmt.Fprintf(stdout, "device: %s (%s)\n", result.DeviceName, shortDeviceID(result.DeviceID))
+	}
 	if cwd, err := os.Getwd(); err == nil {
 		if note := outsideProjectRootsNote(cwd, project.DefaultProjectRoots()); note != "" {
 			_, _ = fmt.Fprintln(stdout, note)
@@ -91,4 +94,12 @@ func outsideProjectRootsNote(cwd string, roots []string) string {
 	}
 	return fmt.Sprintf("scope: %s is outside %s; it is not shown as a project in the panel or This Week (capture and recall still work here)",
 		dir, project.ProjectRootsEnvVar)
+}
+
+// shortDeviceID is the first 8 characters of a device id, for display.
+func shortDeviceID(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
 }

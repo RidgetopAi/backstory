@@ -119,7 +119,8 @@ CREATE TABLE sessions (
   started_at          INTEGER NOT NULL,    -- unix nanoseconds, UTC
   ended_at            INTEGER,             -- unix nanoseconds, UTC
   origin              TEXT NOT NULL CHECK (origin IN ('live','backfilled')),
-  exit_kind           TEXT                 -- NULL while live or unobserved
+  exit_kind           TEXT,                -- NULL while live or unobserved
+  origin_device       TEXT                 -- NULL = this device (migration 0016)
 );
 
 CREATE TABLE timeline_events (
@@ -197,6 +198,33 @@ CREATE TRIGGER records_ai AFTER INSERT ON records BEGIN
   INSERT INTO records_fts(rowid, text) VALUES (new.rowid, new.text);
 END;
 ```
+
+### Device identity and sync schema (migration 0016, Phase 8)
+
+```sql
+CREATE TABLE devices (
+  id          TEXT PRIMARY KEY,            -- UUID, minted once by store.Open
+  name        TEXT NOT NULL,               -- defaults to the hostname
+  is_self     INTEGER NOT NULL CHECK (is_self IN (0,1)),
+  first_seen  INTEGER                      -- unix nanoseconds, UTC
+);
+CREATE UNIQUE INDEX devices_one_self ON devices(is_self) WHERE is_self = 1;
+
+CREATE TABLE sync_peers (                  -- unused until sync 4/8
+  device_id  TEXT PRIMARY KEY REFERENCES devices(id),
+  ssh_host   TEXT,
+  enabled    INTEGER NOT NULL DEFAULT 1,
+  paired_at  INTEGER
+);
+
+ALTER TABLE records  ADD COLUMN origin_device TEXT;  -- NULL = this device
+ALTER TABLE sessions ADD COLUMN origin_device TEXT;
+```
+
+Exactly one `devices` row has `is_self = 1`; `Open` mints it on first open and never
+re-mints. Existing records and sessions keep `origin_device` NULL (nothing is rewritten).
+`records.origin_device` is set at INSERT time only; `records_no_update` refuses any UPDATE
+of it. `backstory status` prints `device: <name> (<id8>)`.
 
 ## Invariants the store enforces
 

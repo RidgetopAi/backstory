@@ -25,8 +25,9 @@ import (
 var migrationDataHooks = map[int]func(context.Context, *sql.Tx) error{
 	3:  rewriteNulProjectKeySeparators,
 	6:  rewriteToolUseDetailPayloads,
-	10: installRecordsNoUpdateTrigger,
-	13: installRecordsNoUpdateTrigger,
+	10: installRecordsNoUpdateTriggerV13,
+	13: installRecordsNoUpdateTriggerV13,
+	16: installRecordsNoUpdateTrigger,
 }
 
 // recordsNoUpdateTriggerSQL is the one definition of records_no_update.
@@ -35,7 +36,7 @@ var migrationDataHooks = map[int]func(context.Context, *sql.Tx) error{
 // the two can never drift. records is append-only except for the human
 // delete path, which may, in one UPDATE, set tombstoned_at from NULL and
 // scrub text to ”. Every other column — including event_cursor and
-// git_head, next — is immutable (a tombstone scrub may also clear next). An UPDATE that changes neither text nor
+// git_head, next, origin_device — is immutable (a tombstone scrub may also clear next). An UPDATE that changes neither text nor
 // tombstoned_at is a harmless no-op; re-tombstoning is refused.
 const recordsNoUpdateTriggerSQL = `
 CREATE TRIGGER records_no_update
@@ -54,6 +55,7 @@ WHEN NOT (
   old.expires_at   IS new.expires_at AND
   old.event_cursor = new.event_cursor AND
   old.git_head     IS new.git_head AND
+  old.origin_device IS new.origin_device AND
   (
     (old.text = new.text AND old.next IS new.next AND old.tombstoned_at IS new.tombstoned_at)
     OR
@@ -92,7 +94,21 @@ BEGIN
   SELECT RAISE(ABORT, 'records: append-only, only tombstoned_at may change');
 END;`
 
-// installRecordsNoUpdateTrigger is migration 0010's data hook: the SQL file
+// recordsNoUpdateTriggerV13SQL is records_no_update as migrations 10 and 13
+// install it: the current definition without the origin_device clause, since
+// that column does not exist until migration 16 (which recreates the trigger).
+var recordsNoUpdateTriggerV13SQL = strings.Replace(recordsNoUpdateTriggerSQL,
+	"  old.origin_device IS new.origin_device AND\n", "", 1)
+
+// installRecordsNoUpdateTriggerV13 is the data hook for migrations 10 and 13.
+func installRecordsNoUpdateTriggerV13(ctx context.Context, tx *sql.Tx) error {
+	if _, err := tx.ExecContext(ctx, recordsNoUpdateTriggerV13SQL); err != nil {
+		return fmt.Errorf("create records_no_update: %w", err)
+	}
+	return nil
+}
+
+// installRecordsNoUpdateTrigger is migration 0016's data hook: the SQL file
 // drops the old trigger, this creates the current one from the shared const.
 func installRecordsNoUpdateTrigger(ctx context.Context, tx *sql.Tx) error {
 	if _, err := tx.ExecContext(ctx, recordsNoUpdateTriggerSQL); err != nil {

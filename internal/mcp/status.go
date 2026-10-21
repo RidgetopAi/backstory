@@ -43,6 +43,9 @@ type StatusResult struct {
 	// can tell that apart from "no harness found" instead of seeing the
 	// same empty ProjectKey either way.
 	Reason string `json:"reason,omitempty"`
+	// DeviceName and DeviceID name this machine's self device (sync schema).
+	DeviceName string `json:"device_name,omitempty"`
+	DeviceID   string `json:"device_id,omitempty"`
 }
 
 // handleStatus never writes to the store; it only reads sessions, the
@@ -84,6 +87,11 @@ func handleStatus(st *store.Store, id ident.Identity, sessionID string, captureO
 		return errResponse("internal", err.Error())
 	}
 
+	dev, err := st.SelfDevice()
+	if err != nil {
+		return errResponse("internal", err.Error())
+	}
+
 	result, err := json.Marshal(StatusResult{
 		Kind:                id.Kind.String(),
 		Harness:             id.Harness,
@@ -95,6 +103,8 @@ func handleStatus(st *store.Store, id ident.Identity, sessionID string, captureO
 		TZ:                  ResultTimeZone,
 		CaptureOn:           !off,
 		Reason:              id.Reason,
+		DeviceName:          dev.Name,
+		DeviceID:            dev.ID,
 	})
 	if err != nil {
 		return errResponse("internal", err.Error())
