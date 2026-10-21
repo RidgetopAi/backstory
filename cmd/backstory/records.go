@@ -106,14 +106,15 @@ func runRecords(args []string, stdout, stderr io.Writer) int {
 			continue
 		}
 		rows = append(rows, recordRowJSON{
-			ID:           rec.ID,
-			TS:           store.FormatTS(rec.TS, time.RFC3339),
-			Kind:         string(rec.Kind),
-			Tier:         string(rec.Tier),
-			Status:       status,
-			SupersededBy: item.SupersededByID,
-			Text:         item.Text,
-			ts:           rec.TS,
+			ID:               rec.ID,
+			TS:               store.FormatTS(rec.TS, time.RFC3339),
+			Kind:             string(rec.Kind),
+			Tier:             string(rec.Tier),
+			Status:           status,
+			SupersededBy:     item.SupersededByID,
+			Text:             item.Text,
+			OriginDeviceName: nullableDeviceName(rec.OriginDeviceName),
+			ts:               rec.TS,
 		})
 	}
 
@@ -132,8 +133,12 @@ func runRecords(args []string, stdout, stderr io.Writer) int {
 	}
 	now := time.Now()
 	for _, r := range rows {
-		_, _ = fmt.Fprintf(stdout, "%s  %s  %s  %s  %s  %s\n",
+		line := fmt.Sprintf("%s  %s  %s  %s  %s  %s",
 			r.ID[:min(8, len(r.ID))], recordAge(now.Sub(r.ts)), r.Kind, r.Tier, r.Status, firstLineOf(r.Text))
+		if r.OriginDeviceName != nil {
+			line += "  from " + *r.OriginDeviceName
+		}
+		_, _ = fmt.Fprintln(stdout, line)
 	}
 	return 0
 }
@@ -147,6 +152,9 @@ type recordRowJSON struct {
 	Status       string `json:"status"`
 	SupersededBy string `json:"superseded_by,omitempty"`
 	Text         string `json:"text"`
+	// OriginDeviceName names the paired device that wrote the record; null
+	// for a record written on this device.
+	OriginDeviceName *string `json:"origin_device_name"`
 
 	ts time.Time
 }

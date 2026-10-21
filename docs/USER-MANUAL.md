@@ -223,6 +223,8 @@ From top to bottom:
 - **RECENT**: one row per project you worked on this week, newest first. Each row shows:
   - small **chips** for the agents used there, newest first
   - the handoff's **next step**, if there is one
+  - a small **from <device>** chip when that handoff, or a record in the Memory view, was
+    written on another of your paired devices (nothing shows for records from this machine)
   - a small bar of activity across the week
 
 ### What you can do on a row

@@ -27,6 +27,7 @@ Rectangle {
   readonly property string lastAgent: root.summary ? (Model.summaryLastAgent(root.summary) || "") : ""
   readonly property string next: root.summary ? (Model.summaryHandoffNext(root.summary) || "") : ""
   readonly property var agents: root.summary ? Model.summaryAgents(root.summary) : []
+  readonly property string originDevice: root.summary ? Model.summaryOriginDevice(root.summary) : ""
   readonly property string handoffAgent: root.summary ? Model.summaryHandoffAgent(root.summary) : ""
   readonly property string facts: {
     var parts = []
@@ -91,6 +92,11 @@ Rectangle {
       font.pixelSize: Style.font.bodySmall
       color: Qt.darker(Color.popups.text, 1.3)
       elide: Text.ElideRight
+    }
+
+    DeviceChip {
+      objectName: "hereDeviceChip"
+      device: root.originDevice
     }
 
     AgentChips {

@@ -26,6 +26,7 @@ Item {
   readonly property bool workspaceRow: Format.isWorkspaceKey(root.projectKey)
   readonly property bool stale: summary ? !!Model.summaryHandoffStale(summary) : false
   readonly property string next: summary ? (Model.summaryHandoffNext(summary) || "") : ""
+  readonly property string originDevice: summary ? Model.summaryOriginDevice(summary) : ""
   readonly property string handoffAgent: summary ? Model.summaryHandoffAgent(summary) : ""
   readonly property string nextText: root.handoffAgent !== "" ? Format.nextPrefix(root.handoffAgent) + root.next : root.next
   readonly property string nameText: {
@@ -112,6 +113,11 @@ Item {
         color: Qt.darker(Color.foreground, 1.3)
         anchors.verticalCenter: parent.verticalCenter
       }
+    }
+
+    DeviceChip {
+      objectName: "deviceChip"
+      device: root.originDevice
     }
 
     AgentChips {

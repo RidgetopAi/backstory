@@ -18,3 +18,6 @@ function recordKind(r) { return r.kind }
 function recordTier(r) { return r.tier }
 function recordStatus(r) { return r.status }
 function recordText(r) { return r.text || "" }
+// origin_device_name: the paired device that wrote the record; null (read as
+// "") for a record written on this device.
+function recordOriginDevice(r) { return r.origin_device_name || "" }

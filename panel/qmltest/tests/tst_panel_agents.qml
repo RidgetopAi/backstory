@@ -158,6 +158,25 @@ TestCase {
     compare(chipsFor(tiny, "agentChipMoreText")[0].text, "+2")
   }
 
+  // ---- device chip: only for a handoff from another device ----
+  function visibleDeviceChips(root, objectName) {
+    return TestUtil.findAll(root, function (n) { return n.objectName === objectName && n.visible })
+  }
+
+  function test_device_chip_on_recent_row_and_here_card_only_when_non_null() {
+    open(withAgents(["claude"], function (p) { p.origin_device_name = null }))
+    compare(visibleDeviceChips(panel.testContentItem, "deviceChip").length, 0)
+    compare(visibleDeviceChips(panel.testContentItem, "hereDeviceChip").length, 0)
+    cleanup()
+    init()
+    open(withAgents(["claude"], function (p) { p.origin_device_name = "laptop" }))
+    var row = fooRow()
+    var chips = visibleDeviceChips(row, "deviceChip")
+    compare(chips.length, 1)
+    compare(visibleDeviceChips(chips[0], "deviceChipText")[0].text, "from laptop")
+    compare(visibleDeviceChips(panel.testContentItem, "hereDeviceChip").length, 1)
+  }
+
   // ---- (1) chips ----
   // An old last_activity keeps the labelled action button off the row, so the
   // chips have the room the MAX_AGENT_CHIPS cap alone decides.

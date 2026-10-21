@@ -9,7 +9,6 @@ import (
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
-
 // syncedFixture is a store whose project testProjectKey has remote
 // syncedRemote, paired with device "laptop", so an imported record is homed
 // on testProjectKey exactly as ImportSyncChanges does for a real peer.

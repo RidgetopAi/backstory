@@ -63,6 +63,9 @@ function summaryLastActivity(p) { return p.last_activity }
 function summaryHandoffId(p) { return p.handoff_id }
 function summaryHandoffFirstLine(p) { return p.handoff_first_line }
 function summaryHandoffStale(p) { return p.handoff_stale }
+// origin_device_name: the paired device that wrote the row's handoff; null
+// (read as "") when it was written on this device.
+function summaryOriginDevice(p) { return p.origin_device_name || "" }
 function summaryHandoffNext(p) { return p.handoff_next }
 function summaryLastAgent(p) { return p.last_agent }
 // agents: the per-agent footprint, newest first ({agent, last_activity,

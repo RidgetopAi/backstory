@@ -343,6 +343,11 @@ Item {
                 color: Color.foreground
               }
 
+              DeviceChip {
+                objectName: "recordDeviceChip"
+                device: Records.recordOriginDevice(rec.modelData)
+              }
+
               Text {
                 visible: rec.mark !== ""
                 textFormat: Text.PlainText

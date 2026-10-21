@@ -48,6 +48,9 @@ type fixtureRecord struct {
 	Evidence                  []int64
 	Outcome                   *store.Outcome
 	ExpiresAt                 *time.Time
+	// OriginDevice, when set, files the record as imported from that
+	// (already paired) device id.
+	OriginDevice string
 }
 
 func mustInsertThisWeekRecord(t *testing.T, st *store.Store, r fixtureRecord) {
@@ -77,10 +80,10 @@ func mustInsertThisWeekRecord(t *testing.T, st *store.Store, r fixtureRecord) {
 		expiresAt = r.ExpiresAt.UTC().UnixNano()
 	}
 	_, err = st.DB().Exec(`INSERT INTO records
-		(id, ts, kind, tier, text, about, session_id, project_key, evidence, outcome, promoter, expires_at, tombstoned_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL)`,
+		(id, ts, kind, tier, text, about, session_id, project_key, evidence, outcome, promoter, expires_at, tombstoned_at, origin_device)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?)`,
 		r.ID, r.TS.UTC().UnixNano(), string(r.Kind), string(r.Tier), r.Text, string(aboutJSON),
-		r.SessionID, r.ProjectKey, string(evidenceJSON), outcome, expiresAt)
+		r.SessionID, r.ProjectKey, string(evidenceJSON), outcome, expiresAt, nullIfEmpty(r.OriginDevice))
 	if err != nil {
 		t.Fatalf("insert fixture record %s: %v", r.ID, err)
 	}
@@ -131,8 +134,13 @@ func buildThisWeekFixtureStore(t *testing.T, dataDir string) {
 	mustAppendEvent(t, st, store.Event{TS: date(3, 9, 6), Kind: "tool.use", SessionID: sessMain, Source: "shell", Payload: `{"name":"Read","path":"README.md"}`})
 	mustAppendEvent(t, st, store.Event{TS: date(3, 10, 0), Kind: "session.git_state", SessionID: sessMain, Source: "daemon", Payload: `{"branch":"main","uncommitted_count":2}`})
 
+	// acme-week-main's handoff was written on a paired laptop and imported.
+	if err := st.PairSyncPeer("dev-laptop-0001", "laptop", "laptop.local"); err != nil {
+		t.Fatalf("PairSyncPeer: %v", err)
+	}
 	mustInsertThisWeekRecord(t, st, fixtureRecord{
-		ID: "handoff-0001", ProjectKey: mainProject, SessionID: sessMain, TS: date(3, 9, 10),
+		OriginDevice: "dev-laptop-0001",
+		ID:           "handoff-0001", ProjectKey: mainProject, SessionID: sessMain, TS: date(3, 9, 10),
 		Kind: store.KindHandoff, Tier: store.TierAgentDeclared, Text: "Resume: ship the CLI\nMODE: build",
 		About: []string{"main.go"},
 	})
@@ -467,4 +475,11 @@ func TestThisWeekJSONHandoffAgent(t *testing.T) {
 	if !strings.Contains(stdout, `"handoff_agent":""`) {
 		t.Errorf("handoff_agent not emitted as empty string: %s", stdout)
 	}
+}
+
+func nullIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }

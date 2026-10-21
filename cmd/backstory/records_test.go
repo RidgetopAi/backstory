@@ -22,6 +22,11 @@ const (
 	recContradicID = "aaaa0007-0000-4000-8000-000000000007" // contradicts the handoff
 )
 
+const (
+	recPeerDeviceID = "dev-laptop-0001"
+	recPeerName     = "laptop"
+)
+
 // buildRecordsFixtureStore seeds one project with a current note, a
 // superseded decision, an expired claim, a possibly-stale handoff and a
 // tombstoned note (plus the superseding decision and the contradicting
@@ -52,7 +57,17 @@ func buildRecordsFixtureStore(t *testing.T, dataDir string) {
 	ins(3, recHandoffID, store.KindHandoff, store.TierAgentDeclared, "Resume here.")
 	ins(4, recDeletedID, store.KindNote, store.TierAgentDeclared, "secret note to delete")
 	ins(5, recNewDecID, store.KindDecision, store.TierHumanDeclared, "Use option B.")
-	ins(6, recContradicID, store.KindNote, store.TierAgentDeclared, "The handoff is wrong.")
+	// The contradicting note was written on a paired device and imported.
+	if err := st.PairSyncPeer(recPeerDeviceID, recPeerName, "laptop.local"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().Exec(`INSERT INTO records
+		(id, ts, kind, tier, text, about, session_id, project_key, evidence, outcome, promoter, expires_at, tombstoned_at, origin_device)
+		VALUES (?, ?, ?, ?, ?, '[]', NULL, ?, '[]', NULL, NULL, NULL, NULL, ?)`,
+		recContradicID, base.Add(6*time.Minute).UnixNano(), string(store.KindNote), string(store.TierAgentDeclared),
+		"The handoff is wrong.", recallFixtureProject, recPeerDeviceID); err != nil {
+		t.Fatal(err)
+	}
 	if err := st.LinkEdge(recNewDecID, recOldDecID, store.EdgeSupersedes, "human-cli-fixture"); err != nil {
 		t.Fatal(err)
 	}
@@ -226,5 +241,33 @@ func TestRecordsUnknownProjectAndHere(t *testing.T) {
 	}
 	if !strings.Contains(out, `"project_key":"`+want+`"`) || !strings.Contains(out, `"records":[]`) {
 		t.Errorf("out = %s", out)
+	}
+}
+
+// TestRecordsOriginDeviceName: an imported record carries its device name in
+// --json (null for a local one) and `from <device>` in the text output.
+func TestRecordsOriginDeviceName(t *testing.T) {
+	dir := t.TempDir()
+	buildRecordsFixtureStore(t, dir)
+	out, _, code := runRecordsCLI(t, dir, "--project", recallFixtureProject, "--json")
+	if code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	for _, r := range decodeRecords(t, out) {
+		switch {
+		case r.ID == recContradicID && (r.OriginDeviceName == nil || *r.OriginDeviceName != recPeerName):
+			t.Errorf("imported record origin_device_name = %v, want %q", r.OriginDeviceName, recPeerName)
+		case r.ID != recContradicID && r.OriginDeviceName != nil:
+			t.Errorf("local record %s origin_device_name = %q, want null", r.ID, *r.OriginDeviceName)
+		}
+	}
+	if !strings.Contains(out, `"origin_device_name":null`) || !strings.Contains(out, `"origin_device_name":"laptop"`) {
+		t.Errorf("JSON must carry both null and the name: %s", out)
+	}
+	text, _, _ := runRecordsCLI(t, dir, "--project", recallFixtureProject)
+	for _, line := range strings.Split(strings.TrimSpace(text), "\n") {
+		if has := strings.Contains(line, "from laptop"); has != strings.HasPrefix(line, "aaaa0007") {
+			t.Errorf("text line %q: from-laptop=%v", line, has)
+		}
 	}
 }
