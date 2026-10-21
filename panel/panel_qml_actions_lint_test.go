@@ -64,7 +64,7 @@ func TestQMLTestsUseSharedActionHelper(t *testing.T) {
 		if filepath.Base(path) == qmlActionsHelper {
 			continue
 		}
-		raw, err := os.ReadFile(path)
+		raw, err := os.ReadFile(path) //nolint:gosec // path is this test's own filepath.Glob("*.qml") result, never external input
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -83,7 +83,7 @@ func TestQMLSuitesInstantiateSharedActionHelper(t *testing.T) {
 		if !strings.HasPrefix(base, "tst_") || base == "tst_load_all.qml" {
 			continue
 		}
-		raw, err := os.ReadFile(path)
+		raw, err := os.ReadFile(path) //nolint:gosec // path is this test's own filepath.Glob("*.qml") result, never external input
 		if err != nil {
 			t.Fatal(err)
 		}
