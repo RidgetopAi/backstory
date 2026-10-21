@@ -22,7 +22,9 @@ type Project struct {
 }
 
 // UpsertProject inserts a project, or updates its identity fields if the
-// key already exists. first_seen is preserved on update.
+// key already exists. first_seen is preserved on update. An empty
+// GitCommonDir or RemoteURL never replaces a known one (callers that did not
+// observe the repo pass them empty); a non-empty value always does.
 func (s *Store) UpsertProject(p Project) error {
 	p.Key = s.canonicalizeProjectKey(p.Key)
 	var before SyncIdentity
@@ -35,8 +37,8 @@ func (s *Store) UpsertProject(p Project) error {
 	_, err := s.db.Exec(`INSERT INTO projects (key, git_common_dir, remote_url, toplevel, first_seen)
 		VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT(key) DO UPDATE SET
-			git_common_dir = excluded.git_common_dir,
-			remote_url     = excluded.remote_url,
+			git_common_dir = COALESCE(NULLIF(excluded.git_common_dir, ''), projects.git_common_dir),
+			remote_url     = COALESCE(NULLIF(excluded.remote_url, ''), projects.remote_url),
 			toplevel       = excluded.toplevel`,
 		p.Key, nullable(p.GitCommonDir), nullable(p.RemoteURL), p.Toplevel, tsToNanos(p.FirstSeen))
 	if err != nil {
