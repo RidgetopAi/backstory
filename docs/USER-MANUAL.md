@@ -299,8 +299,9 @@ no agent can run on your behalf through Backstory's tools.
 | [`tools`](#tools) | List the tools agents get |
 | [`version`](#version) | Print the installed version |
 
-`daemon`, `mcp`, `hook` and `shell` are run by the system and your agents; you don't need to
-run them yourself.
+`daemon`, `mcp`, `hook`, `shell` and `sync-serve` are run by the system, your agents and your
+other devices; you don't need to run them yourself. (`sync-serve` is the end a paired device
+talks to when it syncs with this one.)
 
 ### status
 

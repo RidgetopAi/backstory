@@ -9,7 +9,7 @@ import (
 
 // manualSystemCommands are run by the service and the agents' hooks, never
 // by a person, so the User Manual names them once instead of documenting them.
-var manualSystemCommands = map[string]bool{"daemon": true, "mcp": true, "hook": true, "shell": true}
+var manualSystemCommands = map[string]bool{"daemon": true, "mcp": true, "hook": true, "shell": true, "sync-serve": true}
 
 // TestManualCoversEveryCommand keeps docs/USER-MANUAL.md in step with the CLI:
 // every user-facing command in main.go's usage has its own "### <command>"

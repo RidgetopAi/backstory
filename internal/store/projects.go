@@ -25,6 +25,13 @@ type Project struct {
 // key already exists. first_seen is preserved on update.
 func (s *Store) UpsertProject(p Project) error {
 	p.Key = s.canonicalizeProjectKey(p.Key)
+	var before SyncIdentity
+	if p.RemoteURL != "" {
+		var err error
+		if before, err = s.SyncIdentityOf(p.Key); err != nil {
+			return err
+		}
+	}
 	_, err := s.db.Exec(`INSERT INTO projects (key, git_common_dir, remote_url, toplevel, first_seen)
 		VALUES (?, ?, ?, ?, ?)
 		ON CONFLICT(key) DO UPDATE SET
@@ -35,7 +42,10 @@ func (s *Store) UpsertProject(p Project) error {
 	if err != nil {
 		return fmt.Errorf("store: upsert project %s: %w", p.Key, err)
 	}
-	return nil
+	if p.RemoteURL == "" {
+		return nil
+	}
+	return s.afterSyncIdentityChange(p.Key, before)
 }
 
 // ProjectsSeenSince returns the distinct project keys with at least one
