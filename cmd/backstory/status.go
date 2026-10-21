@@ -7,6 +7,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/RidgetopAi/backstory/internal/mcp"
 	"github.com/RidgetopAi/backstory/internal/project"
@@ -24,6 +25,10 @@ const noSessionEnv = "BACKSTORY_NO_SESSION"
 // broken-pipe bug — this fold-in gives an operator a direct way to ask the
 // daemon "are you actually there" without going through a harness.
 func runStatus(_ []string, stdout, stderr io.Writer) int {
+	// Sync health leads the output: a failing sync is the first thing a
+	// person (or script) sees, before the daemon is even asked.
+	failing := printSyncFailing(stdout, stderr)
+
 	sockPath, err := socketPath()
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory status:", err)
@@ -76,7 +81,36 @@ func runStatus(_ []string, stdout, stderr io.Writer) int {
 			_, _ = fmt.Fprintln(stdout, note)
 		}
 	}
+	if failing {
+		return exitSyncFailing
+	}
 	return 0
+}
+
+// printSyncFailing prints one SYNC FAILING line per failing peer and reports
+// whether any peer is failing. An unreadable store is reported on stderr by
+// printSyncLines; it is not a failing sync.
+func printSyncFailing(stdout, _ io.Writer) bool {
+	dbPath, err := storePath()
+	if err != nil {
+		return false
+	}
+	if _, err := os.Stat(dbPath); err != nil {
+		return false
+	}
+	st, err := openStore(dbPath)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = st.Close() }()
+	rep, err := syncHealth(st, time.Now())
+	if err != nil {
+		return false
+	}
+	for _, f := range rep.Failing() {
+		_, _ = fmt.Fprintln(stdout, f.FailingLine())
+	}
+	return rep.IsFailing()
 }
 
 // outsideProjectRootsNote is the status line for a folder that
@@ -144,7 +178,15 @@ func printSyncLines(stdout, stderr io.Writer) {
 		if !r.Peer.Enabled {
 			last = "removed"
 		}
-		_, _ = fmt.Fprintf(stdout, "sync: %s: last ok %s, last result %s\n", r.Peer.Label(), lastOK, last)
+		switch {
+		case r.Peer.Enabled && !r.HasAttempt:
+			_, _ = fmt.Fprintf(stdout, "sync: %s: never synced\n", r.Peer.Label())
+		default:
+			if r.Peer.Enabled && r.Last.Result == store.SyncResultPaused {
+				_, _ = fmt.Fprintf(stdout, "sync paused (capture off): %s\n", r.Peer.Label())
+			}
+			_, _ = fmt.Fprintf(stdout, "sync: %s: last ok %s, last result %s\n", r.Peer.Label(), lastOK, last)
+		}
 		if !r.Peer.Enabled {
 			continue
 		}

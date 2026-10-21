@@ -3,6 +3,7 @@ Attention:
 - [uncommitted-at-session-end] acme-week-main: session ended with 2 uncommitted change(s) on branch main (ids 4)
 - [contradiction] acme-week-contradiction: record outcome1 is contradicted by confirm1 (ids 5)
 - [expired-claim] acme-week-claim: claim claim001 expired with no outcome recorded (ids claim001)
+- [sync-failing] sync: sync with laptop is failing: remote backstory speaks sync proto 2, this one 1 (last ok never) (ids 1)
 
 Where you left off:
 - Group widget-suite:

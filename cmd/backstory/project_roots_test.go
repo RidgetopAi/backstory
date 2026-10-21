@@ -37,6 +37,9 @@ func weekProjectKeys(t *testing.T, raw string) map[string]bool {
 	}
 	keys := map[string]bool{}
 	for _, a := range out.Attention {
+		if a.ProjectKey == "sync" { // environment state, not a project
+			continue
+		}
 		keys[a.ProjectKey] = true
 	}
 	for _, r := range out.WhereLeftOff {

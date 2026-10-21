@@ -138,6 +138,11 @@ func buildThisWeekFixtureStore(t *testing.T, dataDir string) {
 	if err := st.PairSyncPeer("dev-laptop-0001", "laptop", "laptop.local"); err != nil {
 		t.Fatalf("PairSyncPeer: %v", err)
 	}
+	// ...and the last sync with it failed: the golden carries the sync-failing
+	// Attention item with this attempt's row id as evidence.
+	if err := st.AppendSyncAttempt(store.SyncAttempt{TS: date(7, 8, 0), Peer: "laptop", DeviceID: "dev-laptop-0001", Result: store.SyncResultError, Detail: "remote backstory speaks sync proto 2, this one 1"}); err != nil {
+		t.Fatalf("AppendSyncAttempt: %v", err)
+	}
 	mustInsertThisWeekRecord(t, st, fixtureRecord{
 		OriginDevice: "dev-laptop-0001",
 		ID:           "handoff-0001", ProjectKey: mainProject, SessionID: sessMain, TS: date(3, 9, 10),
@@ -343,8 +348,14 @@ func TestThisWeekGoldenJSON(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &parsed); err != nil {
 		t.Fatalf("decode --json output: %v", err)
 	}
-	if len(parsed.Attention) != 4 {
-		t.Fatalf("attention items = %d, want 4 (got %+v)", len(parsed.Attention), parsed.Attention)
+	if len(parsed.Attention) != 5 {
+		t.Fatalf("attention items = %d, want 5 (got %+v)", len(parsed.Attention), parsed.Attention)
+	}
+	// The failed laptop attempt (sync_attempts row 1) is a sync-failing item.
+	syncItem := parsed.Attention[4]
+	if syncItem.Kind != "sync-failing" || syncItem.ProjectKey != "sync" || len(syncItem.EvidenceIDs) != 1 || syncItem.EvidenceIDs[0] != "1" ||
+		!strings.Contains(syncItem.Reason, "laptop") || !strings.Contains(syncItem.Reason, "proto 2") {
+		t.Errorf("sync-failing item = %+v, want kind sync-failing, project_key sync, evidence [1], reason naming laptop and the cause", syncItem)
 	}
 	if len(parsed.WhereLeftOff) != 6 {
 		t.Fatalf("where_left_off rows = %d, want 6 (3 standalone + 1 group + omarcade + vidflow; got %+v)", len(parsed.WhereLeftOff), parsed.WhereLeftOff)
