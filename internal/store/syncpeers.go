@@ -44,6 +44,8 @@ func (p SyncPeerRow) Label() string {
 
 // SyncAttempt is one row of the append-only sync_attempts log.
 type SyncAttempt struct {
+	// ID is the row id; zero on an attempt not yet appended.
+	ID       int64
 	TS       time.Time
 	Peer     string
 	DeviceID string
@@ -194,7 +196,7 @@ func (s *Store) syncAttemptsFor(deviceID, label string, limit int) ([]SyncAttemp
 	if limit <= 0 {
 		limit = -1 // sqlite: no limit
 	}
-	rows, err := s.db.Query(`SELECT ts, peer, COALESCE(device_id, ''), result, detail, pulled, pushed FROM sync_attempts
+	rows, err := s.db.Query(`SELECT id, ts, peer, COALESCE(device_id, ''), result, detail, pulled, pushed FROM sync_attempts
 		WHERE device_id = ? OR peer = ? ORDER BY id DESC LIMIT ?`, deviceID, label, limit)
 	if err != nil {
 		return nil, fmt.Errorf("store: sync attempts: %w", err)
@@ -204,7 +206,7 @@ func (s *Store) syncAttemptsFor(deviceID, label string, limit int) ([]SyncAttemp
 	for rows.Next() {
 		var a SyncAttempt
 		var ts int64
-		if err := rows.Scan(&ts, &a.Peer, &a.DeviceID, &a.Result, &a.Detail, &a.Pulled, &a.Pushed); err != nil {
+		if err := rows.Scan(&a.ID, &ts, &a.Peer, &a.DeviceID, &a.Result, &a.Detail, &a.Pulled, &a.Pushed); err != nil {
 			return nil, err
 		}
 		a.TS = time.Unix(0, ts).UTC()
@@ -248,4 +250,31 @@ func (s *Store) SyncStatus() ([]SyncPeerStatus, error) {
 		out = append(out, st)
 	}
 	return out, nil
+}
+
+// SyncAttemptsSinceLastOK returns one peer's attempts from its latest ok one
+// (included) to the newest, newest first; every attempt when it never had an
+// ok. It is what sync health reads: the current failure streak and the last
+// success. A renamed peer keeps its history (matched by device id as well as
+// label).
+func (s *Store) SyncAttemptsSinceLastOK(p SyncPeerRow) ([]SyncAttempt, error) {
+	rows, err := s.db.Query(`SELECT id, ts, peer, COALESCE(device_id, ''), result, detail, pulled, pushed FROM sync_attempts
+		WHERE (device_id = ?1 OR peer = ?2)
+		  AND id >= COALESCE((SELECT MAX(id) FROM sync_attempts WHERE (device_id = ?1 OR peer = ?2) AND result = 'ok'), 0)
+		ORDER BY id DESC`, p.DeviceID, p.Label())
+	if err != nil {
+		return nil, fmt.Errorf("store: sync attempts since last ok: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var out []SyncAttempt
+	for rows.Next() {
+		var a SyncAttempt
+		var ts int64
+		if err := rows.Scan(&a.ID, &ts, &a.Peer, &a.DeviceID, &a.Result, &a.Detail, &a.Pulled, &a.Pushed); err != nil {
+			return nil, err
+		}
+		a.TS = time.Unix(0, ts).UTC()
+		out = append(out, a)
+	}
+	return out, rows.Err()
 }
