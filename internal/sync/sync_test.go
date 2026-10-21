@@ -51,7 +51,7 @@ func note(t *testing.T, s *store.Store, id store.Identity, project, session, tex
 // link runs one sync with `client` pulling from and pushing to `server`
 // across in-process pipes. It returns the report, the client's error, and
 // every byte the client received from the server.
-func link(t *testing.T, client *store.Store, clientID store.Identity, server *store.Store, serverID store.Identity, from bsync.Cursors) (bsync.Report, error, []byte) {
+func link(t *testing.T, client *store.Store, clientID store.Identity, server *store.Store, serverID store.Identity, from bsync.Cursors) (bsync.Report, []byte, error) {
 	t.Helper()
 	c2sR, c2sW := io.Pipe()
 	s2cR, s2cW := io.Pipe()
@@ -67,7 +67,7 @@ func link(t *testing.T, client *store.Store, clientID store.Identity, server *st
 	_ = c2sW.Close()
 	_, _ = io.Copy(io.Discard, s2cR)
 	<-done
-	return rep, err, received.Bytes()
+	return rep, received.Bytes(), err
 }
 
 func count(t *testing.T, s *store.Store, q string, args ...any) int {
@@ -99,7 +99,7 @@ func TestReplicationIsIdempotentAndKeepsTierAndOrigin(t *testing.T) {
 	}
 	eventsB := count(t, b, `SELECT COUNT(*) FROM timeline_events`)
 
-	rep, err, wire := link(t, b, human, a, human, bsync.Cursors{})
+	rep, wire, err := link(t, b, human, a, human, bsync.Cursors{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestReplicationIsIdempotentAndKeepsTierAndOrigin(t *testing.T) {
 
 	// Second run, from zero and from the cursors: nothing imported either way.
 	for _, from := range []bsync.Cursors{{}, rep.Cursors} {
-		rep2, err, _ := link(t, b, human, a, human, from)
+		rep2, _, err := link(t, b, human, a, human, from)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -159,7 +159,7 @@ func TestTombstonesCrossWithNoText(t *testing.T) {
 	addProject(t, b, "/b/widgets", remoteURL)
 
 	synced := note(t, a, human, "/a/widgets", "", "uniqueword-synced then forgotten")
-	if _, err, _ := link(t, b, human, a, human, bsync.Cursors{}); err != nil {
+	if _, _, err := link(t, b, human, a, human, bsync.Cursors{}); err != nil {
 		t.Fatal(err)
 	}
 	if hits, _ := b.SearchRecords("uniqueword", 10); len(hits) != 1 {
@@ -168,7 +168,7 @@ func TestTombstonesCrossWithNoText(t *testing.T) {
 	if err := a.TombstoneRecord(synced, human); err != nil {
 		t.Fatal(err)
 	}
-	rep, err, _ := link(t, b, human, a, human, bsync.Cursors{})
+	rep, _, err := link(t, b, human, a, human, bsync.Cursors{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +201,7 @@ func TestTombstonesCrossWithNoText(t *testing.T) {
 	if n := count(t, a, `SELECT COUNT(*) FROM records WHERE id = ? AND text <> ''`, legacy); n != 1 {
 		t.Fatal("test setup: the legacy tombstone should still hold its text on A")
 	}
-	_, err, wire := link(t, b2, human, a, human, bsync.Cursors{})
+	_, wire, err := link(t, b2, human, a, human, bsync.Cursors{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +232,7 @@ func TestProjectsWithoutIdentityAreNotServedAndPlaceholdersRehome(t *testing.T) 
 			t.Fatal("record of a project with no sync identity was served")
 		}
 	}
-	rep, err, wire := link(t, b, human, a, human, bsync.Cursors{})
+	rep, wire, err := link(t, b, human, a, human, bsync.Cursors{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +265,7 @@ func TestProjectsWithoutIdentityAreNotServedAndPlaceholdersRehome(t *testing.T) 
 	if err := a.SetProjectLink(human, "loose-notes", "/a/loose"); err != nil {
 		t.Fatal(err)
 	}
-	rep2, err, _ := link(t, b, human, a, human, rep.Cursors)
+	rep2, _, err := link(t, b, human, a, human, rep.Cursors)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -317,7 +317,7 @@ func TestCaptureOffPausesImportAndWritesNothing(t *testing.T) {
 	if err := b.BeginCapturePause(time.Now().Add(-time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	rep, err, _ := link(t, b, human, a, human, bsync.Cursors{})
+	rep, _, err := link(t, b, human, a, human, bsync.Cursors{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -339,7 +339,7 @@ func TestCaptureOffPausesImportAndWritesNothing(t *testing.T) {
 	if err := a2.BeginCapturePause(time.Now().Add(-time.Minute)); err != nil {
 		t.Fatal(err)
 	}
-	rep, err, _ = link(t, b, human, a2, human, bsync.Cursors{})
+	rep, _, err = link(t, b, human, a2, human, bsync.Cursors{})
 	_ = rep
 	if err != nil {
 		t.Fatal(err)
@@ -363,7 +363,7 @@ func TestImportRefusesAgentIdentity(t *testing.T) {
 		t.Fatal("refused import still wrote")
 	}
 	// A server run as an agent refuses pushes.
-	_, err, _ = link(t, a, human, b, agent, bsync.Cursors{})
+	_, _, err = link(t, a, human, b, agent, bsync.Cursors{})
 	var re *bsync.RemoteError
 	if !errors.As(err, &re) || re.Code != bsync.CodeImportRefused {
 		t.Fatalf("err=%v, want import_refused", err)

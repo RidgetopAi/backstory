@@ -118,7 +118,7 @@ CREATE TABLE sessions (
   window              TEXT,
   started_at          INTEGER NOT NULL,    -- unix nanoseconds, UTC
   ended_at            INTEGER,             -- unix nanoseconds, UTC
-  origin              TEXT NOT NULL CHECK (origin IN ('live','backfilled')),
+  origin              TEXT NOT NULL CHECK (origin IN ('live','backfilled','synced')),  -- 'synced': stub imported from a paired device (migration 0018)
   exit_kind           TEXT,                -- NULL while live or unobserved
   origin_device       TEXT                 -- NULL = this device (migration 0016)
 );
@@ -232,6 +232,31 @@ Exactly one `devices` row has `is_self = 1`; `Open` mints it on first open and n
 re-mints. Existing records and sessions keep `origin_device` NULL (nothing is rewritten).
 `records.origin_device` is set at INSERT time only; `records_no_update` refuses any UPDATE
 of it. `backstory status` prints `device: <name> (<id8>)`.
+
+### Change feed (migration 0018, Phase 8)
+
+```sql
+CREATE TABLE sync_changes (
+  seq   INTEGER PRIMARY KEY AUTOINCREMENT,   -- the cursor; never a timestamp
+  kind  TEXT NOT NULL CHECK (kind IN ('record','tombstone','edge','session')),
+  ref   TEXT NOT NULL                        -- record id | session id | "from|to|type"
+);
+```
+
+Append-only (update and delete are refused). Triggers write it in the same transaction as
+the change: a record insert, a record's `tombstoned_at` NULL -> value (so a tombstone of an
+already-synced record is its own change), an edge insert, a session insert or its
+`ended_at` change. The feed holds no content: what crosses is read from the row at serve
+time. A tombstoned record always crosses with empty text, next step and about, even if an
+old row still holds its text. Raw `timeline_events` are never served; a record's `evidence`
+(ids into this device's timeline) is not served either, and an imported record has
+`evidence` `[]`. A record whose project has no sync identity is not served. The
+migration queues existing history once. Import (`store.ImportSyncChanges`, human identity
+only) is idempotent by id, keeps the change's own tier and `origin_device`, writes
+sessions as `origin = 'synced'` stubs (empty `cwd`, no pid), and files a record whose
+project this store lacks under a placeholder project keyed `sync:<sync_id>`, rehomed
+through `project_key_aliases` when a local project gains that identity. Capture off here:
+import writes nothing and reports `paused`.
 
 ## Invariants the store enforces
 

@@ -303,6 +303,7 @@ with a mutation probe in the store package (`PLAN.md §First three punches`).
    ledger is permanent while Claude sweeps transcripts after 30 days — Backstory would
    otherwise extend the life of everything in a transcript indefinitely.
 8. **Never read another user's store.** Moot on a single-user laptop; kept moot by design.
+9. **A synced record is imported only by the human-run sync from a paired device; no tool imports.** The socket API has no import method and no agent tool touches the change feed; `store.ImportSyncChanges` refuses any identity but the human's. A synced record keeps the tier and `origin_device` it was written with, and a tombstoned record crosses with no text.
 
 ## User-only powers
 
