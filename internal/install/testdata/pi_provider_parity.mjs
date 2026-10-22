@@ -7,8 +7,26 @@ import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
 const [, , indexTS, provider, api] = process.argv;
+const WAIT_DEADLINE_MS = 15000; // generous: a loaded box can take seconds to spawn node
+const POLL_MS = 20;
+const EXPECTED_HOOKS = 2; // one post-tool-use per tool_execution_end fired below
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const log = () => readFileSync(process.env.FAKE_LOG, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+// Polling reads the log while the fake may be mid-append: drop the text after the
+// last newline (a partial record) so JSON.parse never sees half a line.
+const log = () =>
+  readFileSync(process.env.FAKE_LOG, "utf8").split("\n").slice(0, -1).filter(Boolean).map((l) => JSON.parse(l));
+
+// waitFor polls until pred() is truthy or the deadline passes, then returns the
+// last value; callers assert on it, so a timeout surfaces as a clear failure.
+async function waitFor(pred) {
+  const end = Date.now() + WAIT_DEADLINE_MS;
+  for (;;) {
+    const v = pred();
+    if (v || Date.now() >= end) return v;
+    await sleep(POLL_MS);
+  }
+}
+const isHook = (r) => r.argv[0] === "hook" && r.argv[1] === "post-tool-use";
 
 const handlers = {};
 const tools = [];
@@ -46,9 +64,9 @@ async function main() {
     await fire("tool_execution_start", withModel({ toolCallId: id, toolName: name, args }), ctx);
     await fire("tool_execution_end", withModel({ toolCallId: id, toolName: name, result: { content: [{ type: "text", text: "ok" }] }, isError: false }), ctx);
   }
-  await sleep(500);
+  await waitFor(() => log().filter(isHook).length >= EXPECTED_HOOKS);
   const hooks = log()
-    .filter((r) => r.argv[0] === "hook" && r.argv[1] === "post-tool-use")
+    .filter(isHook)
     .map((r) => ({ argv: r.argv, stdin: JSON.parse(r.stdin) }))
     .sort((a, b) => a.stdin.tool_use_id.localeCompare(b.stdin.tool_use_id));
   await fire("session_shutdown", withModel({ reason: "quit" }), ctx);

@@ -103,9 +103,12 @@ func Open(path string, workspaceDirs []string, git project.Git) (*Store, error) 
 // each call site having to opt in separately.
 func dsn(path string) string {
 	q := url.Values{}
+	// busy_timeout comes first: pragmas run in order, and the journal_mode
+	// switch on a fresh database needs a lock that concurrent first Opens
+	// contend for; without the timeout already set it fails SQLITE_BUSY.
+	q.Add("_pragma", "busy_timeout(5000)")
 	q.Add("_pragma", "journal_mode(WAL)")
 	q.Add("_pragma", "foreign_keys(ON)")
-	q.Add("_pragma", "busy_timeout(5000)")
 	// secure_delete zeroes freed cells and pages, so a deleted/purged row's
 	// text does not linger in the file (DELETE FORGETS, decision 02c511b3).
 	q.Add("_pragma", "secure_delete(ON)")
