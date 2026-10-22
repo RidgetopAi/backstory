@@ -32,11 +32,17 @@ type Syncer struct {
 // Pair runs the hello with host and records the peer. It refuses this device
 // and a peer on another proto. The returned error is one plain line.
 func (y *Syncer) Pair(host string) (PeerInfo, error) {
+	return y.PairAs(host, PairRequest{})
+}
+
+// PairAs is Pair, and with req.Pair also has the peer record this device and
+// check its way back. A failed way back is PeerInfo.BackError, not an error.
+func (y *Syncer) PairAs(host string, req PairRequest) (PeerInfo, error) {
 	sess, err := y.Transport.Open(host)
 	if err != nil {
 		return PeerInfo{}, err
 	}
-	info, herr := Hello(y.Store, sess.Reader(), sess.Writer())
+	info, herr := Hello(y.Store, sess.Reader(), sess.Writer(), req)
 	exit := sess.Finish()
 	if herr != nil {
 		_, detail := y.classify(herr, exit)
@@ -147,4 +153,78 @@ func (y *Syncer) SyncAll(peers []store.SyncPeerRow) []Outcome {
 // FormatFailure is the one plain line `sync` prints for a failing peer.
 func (o Outcome) FormatFailure() string {
 	return fmt.Sprintf("sync: %s %s: %s", o.Peer.Label(), o.Result, o.Detail)
+}
+
+// BackHostFor is the host a pairing peer records for reaching its client:
+// the client's own override, else user@address from the connection the server
+// saw. It is empty when neither is known.
+func BackHostFor(req message, clientAddr string) string {
+	if req.BackHost != "" {
+		return req.BackHost
+	}
+	if req.BackUser == "" || clientAddr == "" {
+		return ""
+	}
+	return req.BackUser + "@" + clientAddr
+}
+
+// pairClient records a pairing client as a peer of st and checks the way back
+// to it. The returned error refuses the pairing (self, bad host); backErr is
+// the one plain line for a way back that does not work, in which case the
+// peer row is still written and a failed attempt is logged so status shows it.
+func pairClient(st *store.Store, hello message, opt Options) (backHost, backErr string, err error) {
+	self, serr := st.SelfDevice()
+	if serr != nil {
+		return "", "", serr
+	}
+	if hello.DeviceID == self.ID {
+		return "", "", fmt.Errorf("%s is this device; a device cannot be paired with itself", hello.DeviceName)
+	}
+	host := BackHostFor(hello, opt.ClientAddr)
+	if host == "" {
+		// Nothing to reach it by: remember who it is, pair nothing.
+		if rerr := st.RecordDevice(hello.DeviceID, hello.DeviceName); rerr != nil {
+			return "", "", rerr
+		}
+		return "", "it sent no user and the connection address is unknown", nil
+	}
+	if verr := ValidHost(host); verr != nil {
+		return "", "", verr
+	}
+	if perr := st.PairSyncPeer(hello.DeviceID, hello.DeviceName, host); perr != nil {
+		if errors.Is(perr, store.ErrPairSelf) {
+			return "", "", fmt.Errorf("%s is this device; a device cannot be paired with itself", hello.DeviceName)
+		}
+		return "", "", perr
+	}
+	y := &Syncer{Store: st, Transport: opt.Transport}
+	result, detail := y.checkBack(host, hello.DeviceID)
+	if result == store.SyncResultOK {
+		return host, "", nil
+	}
+	label := hello.DeviceName
+	if label == "" {
+		label = host
+	}
+	_ = st.AppendSyncAttempt(store.SyncAttempt{Peer: label, DeviceID: hello.DeviceID, Result: result, Detail: detail})
+	return host, detail, nil
+}
+
+// checkBack runs a hello to host and expects device wantID to answer.
+func (y *Syncer) checkBack(host, wantID string) (result, detail string) {
+	sess, err := y.Transport.Open(host)
+	if err != nil {
+		return store.SyncResultError, err.Error()
+	}
+	info, herr := Hello(y.Store, sess.Reader(), sess.Writer(), PairRequest{})
+	exit := sess.Finish()
+	switch {
+	case herr != nil:
+		return y.classify(herr, exit)
+	case exit.Code != 0:
+		return ClassifyExit(exit)
+	case info.DeviceID != wantID:
+		return store.SyncResultError, (&PeerIdentityError{Want: wantID, Got: info.DeviceID, GotName: info.DeviceName}).Error()
+	}
+	return store.SyncResultOK, ""
 }

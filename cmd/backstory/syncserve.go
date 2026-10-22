@@ -3,6 +3,8 @@ package main
 import (
 	"fmt"
 	"io"
+	"os"
+	"strings"
 
 	bsync "github.com/RidgetopAi/backstory/internal/sync"
 )
@@ -21,9 +23,18 @@ func runSyncServe(args []string, stdin io.Reader, stdout, stderr io.Writer) int 
 		return code
 	}
 	defer func() { _ = st.Close() }()
-	if err := bsync.Serve(st, humanIdentity, stdin, stdout, bsync.Options{}); err != nil {
+	if err := bsync.Serve(st, humanIdentity, stdin, stdout, bsync.Options{Transport: bsync.TransportFromEnv(), ClientAddr: sshClientAddr(os.Getenv("SSH_CLIENT"))}); err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory sync-serve:", err)
 		return 1
 	}
 	return 0
+}
+
+// sshClientAddr is the address field of an SSH_CLIENT value ("addr port port").
+func sshClientAddr(v string) string {
+	f := strings.Fields(v)
+	if len(f) == 0 {
+		return ""
+	}
+	return f[0]
 }

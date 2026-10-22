@@ -40,7 +40,7 @@ type Report struct {
 func Run(st *store.Store, id store.Identity, from Cursors, r io.Reader, w io.Writer, opt Options) (Report, error) {
 	rep := Report{Cursors: from}
 	c := newConn(r, w)
-	hello, err := handshake(c, st)
+	hello, err := handshake(c, st, PairRequest{})
 	if err != nil {
 		return rep, err
 	}
@@ -131,12 +131,13 @@ func Run(st *store.Store, id store.Identity, from Cursors, r io.Reader, w io.Wri
 }
 
 // handshake sends this store's hello and validates the peer's answer.
-func handshake(c *conn, st *store.Store) (message, error) {
+func handshake(c *conn, st *store.Store, req PairRequest) (message, error) {
 	self, err := st.SelfDevice()
 	if err != nil {
 		return message{}, err
 	}
-	if err := c.send(message{Type: typeHello, Proto: ProtoVersion, DeviceID: self.ID, DeviceName: self.Name}); err != nil {
+	if err := c.send(message{Type: typeHello, Proto: ProtoVersion, DeviceID: self.ID, DeviceName: self.Name,
+		Pair: req.Pair, BackUser: req.User, BackHost: req.Host}); err != nil {
 		return message{}, err
 	}
 	hello, err := c.recv()
@@ -157,22 +158,38 @@ func handshake(c *conn, st *store.Store) (message, error) {
 	return hello, nil
 }
 
+// PairRequest asks the answering side to record this device as its peer.
+type PairRequest struct {
+	// Pair turns the request on.
+	Pair bool
+	// User is this device's local user, for the default back host.
+	User string
+	// Host overrides the back host the peer would derive from its client address.
+	Host string
+}
+
 // PeerInfo is who answered a Hello.
 type PeerInfo struct {
 	DeviceID   string
 	DeviceName string
+	// BackError is why a pairing peer could not reach this device back; empty
+	// when it could (or for a plain Hello).
+	BackError string
+	// BackHost is the host the peer recorded for reaching this device.
+	BackHost string
 }
 
 // Hello runs only the handshake, then says bye: it is how `pair` learns the
 // peer's identity. A peer on another proto yields a *ProtoMismatchError.
-func Hello(st *store.Store, r io.Reader, w io.Writer) (PeerInfo, error) {
+// With req.Pair the peer also records this device and checks the way back.
+func Hello(st *store.Store, r io.Reader, w io.Writer, req PairRequest) (PeerInfo, error) {
 	c := newConn(r, w)
-	hello, err := handshake(c, st)
+	hello, err := handshake(c, st, req)
 	if err != nil {
 		return PeerInfo{}, err
 	}
 	_ = c.send(message{Type: typeBye})
-	return PeerInfo{DeviceID: hello.DeviceID, DeviceName: hello.DeviceName}, nil
+	return PeerInfo{DeviceID: hello.DeviceID, DeviceName: hello.DeviceName, BackError: hello.BackError, BackHost: hello.BackHost}, nil
 }
 
 func addResult(dst *store.SyncImportResult, r store.SyncImportResult) {
