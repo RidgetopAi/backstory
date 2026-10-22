@@ -53,7 +53,11 @@ func runPair(args []string, stdout, stderr io.Writer) int {
 	}
 
 	y := &bsync.Syncer{Store: st, Identity: humanIdentity, Transport: bsync.TransportFromEnv()}
-	info, err := y.PairAs(ref, bsync.PairRequest{Pair: true, User: localUser(), Host: *back})
+	req := bsync.PairRequest{Pair: true, User: localUser(), Host: *back}
+	if *back == "" {
+		req.Names = tailnetNames()
+	}
+	info, err := y.PairAs(ref, req)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory pair:", trimStorePrefix(err))
 		return 1
@@ -189,6 +193,9 @@ func trimStorePrefix(err error) string {
 	}
 	return s
 }
+
+// tailnetNames is how pair learns this device's tailnet names; tests replace it.
+var tailnetNames = bsync.TailnetNames
 
 // localUser is the user name a paired device records to reach this one back.
 func localUser() string {

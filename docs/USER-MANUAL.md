@@ -501,9 +501,14 @@ backstory pair --remove laptop                # stop syncing with it (by its nam
 ```
 
 It prints the other computer's name. The other computer records this one by name, and
-reaches it back at `<your user>@<the address it saw you connect from>`; `--back <ssh-host>`
-names a different way (an ssh alias, a Tailscale name) when that address will not work.
-The other computer checks that way right away. If it cannot reach this one, `pair` still
+reaches it back by your Tailscale name when you have one: it tries
+`<your user>@<your MagicDNS name>`, then `<your user>@<your short host name>`, then
+`<your user>@<the address it saw you connect from>`, and records the first that answers
+(a name it already has in known_hosts is far likelier to work than a raw tailnet IP; host
+keys stay strict and nothing is added to known_hosts). Without Tailscale it uses only the
+address. If none answers it records the Tailscale name (or the address). Use
+`--back <ssh-host>` (an ssh alias, a name that works there) when none of those will work;
+it is the only host tried. The other computer checks that way right away. If it cannot reach this one, `pair` still
 succeeds and exits 0, prints one line naming the failed path and the command to run on the
 other computer, and that computer's `status` shows this one as not ok until a sync works.
 A pairing started from the other side never replaces a host that computer already has for

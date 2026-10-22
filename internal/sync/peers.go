@@ -168,6 +168,34 @@ func BackHostFor(req message, clientAddr string) string {
 	return req.BackUser + "@" + clientAddr
 }
 
+// BackCandidates are the hosts a pairing peer tries, in order, for reaching
+// its client. An explicit override is the only candidate. Otherwise they are
+// user@name for each tailnet name the client advertised (MagicDNS FQDN first,
+// then the short name), then user@address from the connection the server saw.
+// Empty, duplicate and invalid hosts are dropped.
+func BackCandidates(req message, clientAddr string) []string {
+	if req.BackHost != "" {
+		return []string{req.BackHost}
+	}
+	if req.BackUser == "" {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, n := range append(append([]string{}, req.BackNames...), clientAddr) {
+		if n == "" {
+			continue
+		}
+		h := req.BackUser + "@" + n
+		if seen[h] || ValidHost(h) != nil {
+			continue
+		}
+		seen[h] = true
+		out = append(out, h)
+	}
+	return out
+}
+
 // pairClient records a pairing client as a peer of st and checks the way back
 // to it. The returned error refuses the pairing (self, bad host); backErr is
 // the one plain line for a way back that does not work, in which case the
@@ -180,16 +208,32 @@ func pairClient(st *store.Store, hello message, opt Options) (backHost, backErr 
 	if hello.DeviceID == self.ID {
 		return "", "", fmt.Errorf("%s is this device; a device cannot be paired with itself", hello.DeviceName)
 	}
-	host := BackHostFor(hello, opt.ClientAddr)
-	if host == "" {
+	cands := BackCandidates(hello, opt.ClientAddr)
+	if len(cands) == 0 {
 		// Nothing to reach it by: remember who it is, pair nothing.
 		if rerr := st.RecordDevice(hello.DeviceID, hello.DeviceName); rerr != nil {
 			return "", "", rerr
 		}
 		return "", "it sent no user and the connection address is unknown", nil
 	}
-	if verr := ValidHost(host); verr != nil {
-		return "", "", verr
+	if hello.BackHost != "" {
+		if verr := ValidHost(hello.BackHost); verr != nil {
+			return "", "", verr
+		}
+	}
+	// Check each candidate in order; the first that answers as the client wins.
+	// When none does, the first is recorded and the last failure reported.
+	y := &Syncer{Store: st, Transport: opt.Transport}
+	host, result, detail := cands[0], "", ""
+	for i, c := range cands {
+		r, d := y.checkBack(c, hello.DeviceID)
+		if i == 0 {
+			result, detail = r, d
+		}
+		if r == store.SyncResultOK {
+			host, result, detail = c, r, ""
+			break
+		}
 	}
 	// A back registration only creates the row; an existing host stays unless
 	// the client named one with --back.
@@ -211,8 +255,6 @@ func pairClient(st *store.Store, hello message, opt Options) (backHost, backErr 
 		}
 		return "", "", perr
 	}
-	y := &Syncer{Store: st, Transport: opt.Transport}
-	result, detail := y.checkBack(host, hello.DeviceID)
 	if result == store.SyncResultOK {
 		return recorded, "", nil
 	}
