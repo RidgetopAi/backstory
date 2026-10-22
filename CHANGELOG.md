@@ -19,6 +19,8 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 ### Fixed
 
+- Sync: every session of a shared project syncs, notes or not, and arrives under that project (task 3a274a07, decision 1e53165a). Before, a session that wrote no note never reached the other computer, and stubs arrived with no project so `projects` could not count them. Session stubs now carry `project_sync_id`; a project that gains a remote or link also re-queues its earlier sessions. Sessions of unshared projects, the home directory and scratch folders still never leave the device.
+
 - Sync finds backstory on a computer whose SSH server gives remote commands a bare PATH (Tailscale SSH; task 3147c689). The remote command now runs `backstory` from the remote PATH, else `$HOME/.local/bin/backstory` (the installer's location), then `sync-serve`. When neither exists, `pair` and `sync` say so, naming both places and noting the SSH server may not load your PATH; it is still classified `error`. `BACKSTORY_SYNC_SSH` still works; the remote words are now `sh -c '<script>'`.
 - A placeholder project (`sync:<id>`, made when a record arrives for a project this machine has no checkout of) now has its sync identity, with source `synced`. Deleting or purging a record there reaches the computer it came from at the next sync (it used to stay readable there), and `backstory link list` and `backstory projects` show the id instead of `-` (task ac644f60).
 

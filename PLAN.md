@@ -267,7 +267,7 @@ and one desktop notification fires.
   opens no network connections. No server, no new port; offline machines catch up later.
 - Projects match on the normalized git remote; a repo with no remote, or a workspace, matches only
   through a human-only `backstory link`. Never guessed.
-- Records, edges, tombstones, purges and session stubs of shared records sync (a session with no record of a project that has a sync identity never leaves the device); raw timeline events stay local
+- Records, edges, tombstones, purges and session stubs sync for every session of a project that has a sync identity, whether or not it wrote notes, and carry that project (when, which agent, which device; never cwd, workspace or window); nothing of unshared projects, the home dir or scratch dirs leaves the device; raw timeline events stay local
   (synced evidence ids dangle, which invariant 9 already tolerates).
 - Forgetting always wins: a tombstone is monotone, a tombstoned record crosses with no text, and a
   purge or delete reaches the peer at the next sync.

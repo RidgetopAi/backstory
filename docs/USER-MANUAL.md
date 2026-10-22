@@ -556,6 +556,8 @@ To sync automatically: `backstory install sync`. It needs a paired computer, and
 never turns it on. If a sync is already running (yours or the timer's), the second reports
 `busy` and does nothing.
 
+Sessions of shared projects sync (when, which agent, which computer), whether or not they wrote a note; nothing of unshared projects does.
+
 Projects match across computers by their git remote; for a project with no remote, use
 [`link`](#link) on both. By default ssh runs in batch mode and never asks for a password;
 to use another ssh command, set `BACKSTORY_SYNC_SSH` (it is run as
