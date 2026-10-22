@@ -388,3 +388,60 @@ func TestTierComesFromTheChangeNotTheImporter(t *testing.T) {
 		t.Fatalf("tier %s, want inferred", got.Tier)
 	}
 }
+
+func TestOnlySessionsBehindSharedRecordsSync(t *testing.T) {
+	a, b := openStore(t), openStore(t)
+	addProject(t, a, "/a/widgets", remoteURL)
+	addProject(t, a, "/a/loose", "")
+	shared := startSession(t, a, "/a/widgets")
+	empty := startSession(t, a, "/a/widgets")
+	unshared := startSession(t, a, "/a/loose")
+	note(t, a, human, "/a/widgets", shared, "shared work")
+	note(t, a, human, "/a/loose", unshared, "private work")
+
+	if _, _, err := link(t, b, human, a, human, bsync.Cursors{}); err != nil {
+		t.Fatal(err)
+	}
+	if n := count(t, b, `SELECT COUNT(*) FROM sessions`); n != 1 {
+		t.Fatalf("B holds %d session stubs, want 1", n)
+	}
+	if n := count(t, b, `SELECT COUNT(*) FROM sessions WHERE id = ?`, shared); n != 1 {
+		t.Fatal("the session behind the shared record is missing on B")
+	}
+	for _, id := range []string{empty, unshared} {
+		if n := count(t, b, `SELECT COUNT(*) FROM sessions WHERE id = ?`, id); n != 0 {
+			t.Fatalf("session %s was served", id)
+		}
+	}
+}
+
+func TestSessionServedOnceItsProjectGainsAnIdentity(t *testing.T) {
+	a, b := openStore(t), openStore(t)
+	addProject(t, a, "/a/loose", "")
+	sess := startSession(t, a, "/a/loose")
+	rid := note(t, a, human, "/a/loose", sess, "later shared")
+
+	rep, _, err := link(t, b, human, a, human, bsync.Cursors{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Pulled.Sessions != 0 || count(t, b, `SELECT COUNT(*) FROM sessions`) != 0 {
+		t.Fatalf("session served without an identity: %+v", rep.Pulled)
+	}
+	if err := a.SetProjectLink(human, "loose-notes", "/a/loose"); err != nil {
+		t.Fatal(err)
+	}
+	rep, _, err = link(t, b, human, a, human, rep.Cursors)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep.Pulled.Sessions != 1 || rep.Pulled.Records != 1 {
+		t.Fatalf("after the identity: pulled %+v", rep.Pulled)
+	}
+	if n := count(t, b, `SELECT COUNT(*) FROM sessions WHERE id = ?`, sess); n != 1 {
+		t.Fatal("session stub missing on B")
+	}
+	if _, err := b.GetRecord(rid); err != nil {
+		t.Fatal(err)
+	}
+}

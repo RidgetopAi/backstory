@@ -23,6 +23,7 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 ### Changed
 
+- Sync serves a session stub only when a record the same feed would serve belongs to that session (task 7b489b17, brian 2026-10-22). Sessions in the home directory, scratch repos and other projects with no sync identity no longer leak when and how much you worked. A session whose project later gains a remote or link is served then, with its records. Stubs a peer already holds are left alone.
 - README rewritten as a short front page for people new to Linux: a three-step install, what `make install` does, and links into the manual. All install, update, uninstall and privacy facts are kept. Both now say where to set `BACKSTORY_PROJECT_ROOTS` on Omarchy: `~/.config/uwsm/env.d/`, then log out and back in.
 
 ## [1.1.0] - 2026-10-19
