@@ -14,12 +14,30 @@ import (
 )
 
 // SSHCommandEnv overrides the transport's command prefix. The value is split
-// on whitespace and run as `<prefix...> <host> backstory sync-serve`; tests
+// on whitespace and run as `<prefix...> <host> <RemoteCommand...>`; tests
 // point it at a script that runs the peer as a local subprocess.
 const SSHCommandEnv = "BACKSTORY_SYNC_SSH"
 
-// RemoteCommand is what runs on the peer.
-var RemoteCommand = []string{"backstory", "sync-serve"}
+// NotFoundMarker is printed on the peer's stderr by RemoteCommand when it found
+// no backstory; ClassifyExit turns it into the message that names both places.
+const NotFoundMarker = "backstory-not-found"
+
+// RemoteInstallPath is where ops/install.sh puts backstory, relative to the
+// remote $HOME. It is the fallback when the remote PATH has no backstory.
+const RemoteInstallPath = ".local/bin/backstory"
+
+// remoteScript runs on the peer's POSIX sh. Some SSH servers (Tailscale SSH)
+// give remote commands a bare PATH and read no shell startup file, so
+// ~/.local/bin is not on it. It has no single quote so it survives being
+// single-quoted for the remote login shell (sh, bash, zsh or fish).
+const remoteScript = `if command -v backstory >/dev/null 2>&1; then exec backstory sync-serve; ` +
+	`elif [ -x "$HOME/` + RemoteInstallPath + `" ]; then exec "$HOME/` + RemoteInstallPath + `" sync-serve; ` +
+	`else echo "` + NotFoundMarker + `" >&2; exit 127; fi`
+
+// RemoteCommand is what runs on the peer: backstory from the remote PATH, else
+// $HOME/.local/bin/backstory, then sync-serve. ssh hands the words to the
+// remote shell joined by spaces, so the script is one single-quoted word.
+var RemoteCommand = []string{"sh", "-c", "'" + remoteScript + "'"}
 
 // DefaultSSHCommand is the transport's default prefix. BatchMode makes ssh
 // fail instead of prompting for a password, so a sync never hangs; the connect
@@ -175,6 +193,8 @@ func ClassifyExit(e Exit) (result, detail string) {
 		return "unreachable", orDefault(line, "connection failed")
 	case strings.Contains(e.Stderr, "unknown command") || strings.Contains(e.Stderr, "unknown subcommand"):
 		return "error", fmt.Sprintf("remote backstory has no sync-serve, so it has no sync (proto 0 vs %d)", ProtoVersion)
+	case strings.Contains(e.Stderr, NotFoundMarker):
+		return "error", "remote has no backstory: looked on the remote PATH and at ~/" + RemoteInstallPath + " (the remote SSH server may not load your PATH, e.g. Tailscale SSH; install backstory there or put it on the system PATH)"
 	case e.Code == 127 || strings.Contains(e.Stderr, "command not found") || strings.Contains(e.Stderr, "No such file or directory"):
 		return "error", "remote has no backstory installed (command not found)"
 	case e.Code == 255:
