@@ -26,6 +26,9 @@ const (
 	SyncSourceRemote SyncSource = "remote"
 	// SyncSourceLink: set by a human in project_links; overrides the remote.
 	SyncSourceLink SyncSource = "link"
+	// SyncSourceSynced: a placeholder project ("sync:<id>") made by an
+	// import; its identity is the id in its key.
+	SyncSourceSynced SyncSource = "synced"
 )
 
 // SyncIdentity is a project's machine-independent identity.
@@ -85,7 +88,8 @@ func (s *Store) ClearProjectLink(identity Identity, projectKey string) error {
 }
 
 // SyncIdentityOf returns projectKey's sync identity: its link if one is set,
-// else its normalized remote, else none. A project that does not exist has
+// else its normalized remote, else the id in a "sync:<id>" placeholder key,
+// else none. A project that does not exist has
 // none.
 func (s *Store) SyncIdentityOf(projectKey string) (SyncIdentity, error) {
 	projectKey = s.canonicalizeProjectKey(projectKey)
@@ -133,6 +137,9 @@ func resolveSyncIdentity(key string, link, remote sql.NullString) SyncIdentity {
 		if id, ok := project.NormalizeRemote(remote.String); ok {
 			return SyncIdentity{ProjectKey: key, ID: id, Source: SyncSourceRemote}
 		}
+	}
+	if id := strings.TrimPrefix(key, SyncPlaceholderPrefix); id != key && id != "" {
+		return SyncIdentity{ProjectKey: key, ID: id, Source: SyncSourceSynced}
 	}
 	return SyncIdentity{ProjectKey: key}
 }

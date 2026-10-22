@@ -110,7 +110,7 @@ func runLinkClear(args []string, stdout, stderr io.Writer) int {
 type linkListRow struct {
 	Key    string `json:"key"`
 	SyncID string `json:"sync_id"`
-	Source string `json:"source"` // "remote", "link" or "" for none
+	Source string `json:"source"` // "remote", "link", "synced" (placeholder) or "" for none
 }
 
 // runLinkList is `backstory link list [--json]`: every project with its sync

@@ -1,6 +1,7 @@
 package sync_test
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -48,6 +49,29 @@ func TestDeleteOfImportedRecordReachesItsOrigin(t *testing.T) {
 	}
 	if hits, _ := a.SearchRecords("zebrafinch", 10); len(hits) != 1 {
 		t.Fatal("record not searchable on A before the delete")
+	}
+	if err := b.TombstoneRecord(id, human); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := link(t, b, human, a, human, rep.Cursors); err != nil {
+		t.Fatal(err)
+	}
+	assertForgotten(t, a, "A", id, "zebrafinch")
+}
+
+// The same, when B has no project with the remote: the record lands in B's
+// sync:<id> placeholder, which must still carry the sync identity.
+func TestDeleteInPlaceholderProjectReachesItsOrigin(t *testing.T) {
+	a, b := openStore(t), openStore(t)
+	addProject(t, a, "/a/widgets", remoteURL)
+	id := note(t, a, human, "/a/widgets", "", "zebrafinch-secret decided")
+	rep, _, err := link(t, b, human, a, human, bsync.Cursors{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := b.GetRecord(id)
+	if err != nil || !strings.HasPrefix(got.ProjectKey, store.SyncPlaceholderPrefix) {
+		t.Fatalf("record not in a placeholder on B: %+v %v", got, err)
 	}
 	if err := b.TombstoneRecord(id, human); err != nil {
 		t.Fatal(err)

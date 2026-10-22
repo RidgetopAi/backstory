@@ -97,3 +97,37 @@ func TestLinkSetClearListAndProjectsSyncColumn(t *testing.T) {
 		t.Fatalf("link bogus: exit %d, want 2", code)
 	}
 }
+
+func TestPlaceholderProjectShowsItsSyncIdentity(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	dbPath, err := storePath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.Open(dbPath, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ph := store.SyncPlaceholderPrefix + "github.com/x/wobble"
+	if err := st.UpsertProject(store.Project{Key: ph, FirstSeen: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	_ = st.Close()
+
+	code, out, errs := runLinkCLI(t, "link", "list", "--json")
+	var rows []linkListRow
+	if code != 0 || json.Unmarshal([]byte(out), &rows) != nil {
+		t.Fatalf("link list: %d %s %s", code, out, errs)
+	}
+	if len(rows) != 1 || rows[0].SyncID != "github.com/x/wobble" || rows[0].Source != "synced" {
+		t.Fatalf("link list = %+v", rows)
+	}
+	code, out, _ = runLinkCLI(t, "projects", "--json")
+	var prows []projectRow
+	if code != 0 || json.Unmarshal([]byte(out), &prows) != nil {
+		t.Fatalf("projects: %d %s", code, out)
+	}
+	if len(prows) != 1 || prows[0].SyncID != "github.com/x/wobble" || prows[0].SyncSource != "synced" {
+		t.Fatalf("projects = %+v", prows)
+	}
+}
