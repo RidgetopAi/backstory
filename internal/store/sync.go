@@ -67,6 +67,9 @@ type SyncSession struct {
 	// PurgedAt is set once the session was purged on its holder; it only ever
 	// goes from unset to set, on every device.
 	PurgedAt *int64 `json:"purged_at_ns,omitempty"`
+	// ProjectSyncID is the sync identity of the session's project, so the peer
+	// files the stub under its own project. Empty from an old peer.
+	ProjectSyncID string `json:"project_sync_id,omitempty"`
 }
 
 // SyncChange is one change on the wire; exactly one of Record, Edge, Session
@@ -189,7 +192,7 @@ func (b *feedBuilder) add(e feedEntry) error {
 	case SyncKindRecord, SyncKindTombstone:
 		return b.addRecord(e.ref)
 	case SyncKindSession:
-		ok, err := b.sessionHasServedRecord(e.ref)
+		ok, err := b.sessionServable(e.ref)
 		if err != nil || !ok {
 			return err
 		}
@@ -286,12 +289,34 @@ func (b *feedBuilder) addEdge(from, to, typ string) error {
 	return nil
 }
 
+// sessionServable reports whether the session entry id is served: its own
+// project has a sync identity (a shared project's sessions sync whether or not
+// they wrote notes), or one of its records is one this feed would serve. A
+// session of a project that never syncs stays home: a stub alone would leak
+// when and how much someone worked on it.
+func (b *feedBuilder) sessionServable(id string) (bool, error) {
+	var project sql.NullString
+	err := b.s.db.QueryRow(`SELECT project_key FROM sessions WHERE id = ?`, id).Scan(&project)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("store: project of session %s: %w", id, err)
+	}
+	if project.Valid && project.String != "" {
+		ident, err := b.s.SyncIdentityOf(project.String)
+		if err != nil {
+			return false, err
+		}
+		if ident.ID != "" {
+			return true, nil
+		}
+	}
+	return b.sessionHasServedRecord(id)
+}
+
 // sessionHasServedRecord reports whether at least one record of session id is
-// one this feed would serve (its project has a sync identity). A session entry
-// in the feed is served only then: a stub alone would leak when and how much
-// someone worked on projects that never sync. Records carry their own stub
-// (addRecord), so a session that becomes eligible later arrives with the
-// requeued records of its project.
+// one this feed would serve (its project has a sync identity).
 func (b *feedBuilder) sessionHasServedRecord(id string) (bool, error) {
 	rows, err := b.s.db.Query(`SELECT id FROM records WHERE session_id = ? ORDER BY rowid`, id)
 	if err != nil {
@@ -329,14 +354,15 @@ func (b *feedBuilder) addSession(id string) error {
 		return nil
 	}
 	var (
-		agent  string
-		origin sql.NullString
-		start  int64
-		ended  sql.NullInt64
-		purged sql.NullInt64
+		agent   string
+		origin  sql.NullString
+		start   int64
+		ended   sql.NullInt64
+		purged  sql.NullInt64
+		project sql.NullString
 	)
-	err := b.s.db.QueryRow(`SELECT agent, origin_device, started_at, ended_at, purged_at FROM sessions WHERE id = ?`, id).
-		Scan(&agent, &origin, &start, &ended, &purged)
+	err := b.s.db.QueryRow(`SELECT agent, origin_device, started_at, ended_at, purged_at, project_key FROM sessions WHERE id = ?`, id).
+		Scan(&agent, &origin, &start, &ended, &purged, &project)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
@@ -345,6 +371,13 @@ func (b *feedBuilder) addSession(id string) error {
 	}
 	b.sessions[id] = true
 	ss := &SyncSession{ID: id, Agent: agent, OriginDevice: b.self, StartedAt: start}
+	if project.Valid && project.String != "" {
+		ident, err := b.s.SyncIdentityOf(project.String)
+		if err != nil {
+			return err
+		}
+		ss.ProjectSyncID = ident.ID
+	}
 	if origin.Valid && origin.String != "" {
 		ss.OriginDevice = origin.String
 	}
@@ -421,7 +454,7 @@ func (s *Store) loadSyncRecord(id, selfDevice string) (*SyncRecord, error) {
 	return &r, nil
 }
 
-// requeueProjectChanges re-queues every record of projectKey in the feed. A
+// requeueProjectChanges re-queues every record and session of projectKey in the feed. A
 // record of a project with no sync identity is skipped, never guessed; once
 // the project gains one (a remote, or a human link) its records are queued
 // again so they are served. Peers dedupe by id.
@@ -431,6 +464,13 @@ func (s *Store) requeueProjectChanges(projectKey string) error {
 		FROM records WHERE project_key = ? ORDER BY rowid`, projectKey)
 	if err != nil {
 		return fmt.Errorf("store: requeue sync changes for %s: %w", projectKey, err)
+	}
+	// Its sessions too: a session that wrote no note is only ever served by
+	// its project's identity.
+	_, err = s.db.Exec(`INSERT INTO sync_changes (kind, ref) SELECT 'session', id FROM sessions
+		WHERE project_key = ? ORDER BY rowid`, projectKey)
+	if err != nil {
+		return fmt.Errorf("store: requeue sync sessions for %s: %w", projectKey, err)
 	}
 	return nil
 }
@@ -643,18 +683,27 @@ func (im *syncImporter) session(ss *SyncSession) error {
 	}
 	var ended, purged sql.NullInt64
 	var origin string
-	err := im.tx.QueryRow(`SELECT ended_at, origin, purged_at FROM sessions WHERE id = ?`, ss.ID).Scan(&ended, &origin, &purged)
+	var projectKey sql.NullString
+	err := im.tx.QueryRow(`SELECT ended_at, origin, purged_at, project_key FROM sessions WHERE id = ?`, ss.ID).
+		Scan(&ended, &origin, &purged, &projectKey)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		var e, p any
+		var e, p, proj any
 		if ss.EndedAt != nil {
 			e = *ss.EndedAt
 		}
 		if ss.PurgedAt != nil {
 			p = *ss.PurgedAt
 		}
-		if _, err := im.tx.Exec(`INSERT INTO sessions (id, agent, cwd, started_at, ended_at, origin, origin_device, purged_at)
-			VALUES (?, ?, '', ?, ?, ?, ?, ?)`, ss.ID, ss.Agent, ss.StartedAt, e, "synced", im.origin(ss.OriginDevice), p); err != nil {
+		if ss.ProjectSyncID != "" {
+			k, err := im.projectFor(ss.ProjectSyncID)
+			if err != nil {
+				return err
+			}
+			proj = k
+		}
+		if _, err := im.tx.Exec(`INSERT INTO sessions (id, agent, cwd, project_key, started_at, ended_at, origin, origin_device, purged_at)
+			VALUES (?, ?, '', ?, ?, ?, ?, ?, ?)`, ss.ID, ss.Agent, proj, ss.StartedAt, e, "synced", im.origin(ss.OriginDevice), p); err != nil {
 			return err
 		}
 		im.res.Sessions++
@@ -663,6 +712,17 @@ func (im *syncImporter) session(ss *SyncSession) error {
 		return err
 	}
 	changed := false
+	// A key is only ever filled, never overwritten.
+	if ss.ProjectSyncID != "" && (!projectKey.Valid || projectKey.String == "") {
+		k, err := im.projectFor(ss.ProjectSyncID)
+		if err != nil {
+			return err
+		}
+		if _, err := im.tx.Exec(`UPDATE sessions SET project_key = ? WHERE id = ?`, k, ss.ID); err != nil {
+			return err
+		}
+		changed = true
+	}
 	if origin == "synced" && !ended.Valid && ss.EndedAt != nil {
 		if _, err := im.tx.Exec(`UPDATE sessions SET ended_at = ? WHERE id = ?`, *ss.EndedAt, ss.ID); err != nil {
 			return err
