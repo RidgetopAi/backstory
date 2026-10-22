@@ -246,7 +246,7 @@ func pairClient(st *store.Store, hello message, opt Options) (backHost, backErr 
 		}
 	}
 	// A back registration only creates the row; an existing host stays unless
-	// the client named one with --back.
+	// the client named one with --back. A removed (disabled) row counts as no row.
 	recorded, kept := host, ""
 	if hello.BackHost == "" {
 		peers, lerr := st.SyncPeers()
@@ -254,7 +254,7 @@ func pairClient(st *store.Store, hello message, opt Options) (backHost, backErr 
 			return "", "", lerr
 		}
 		for _, p := range peers {
-			if p.DeviceID == hello.DeviceID && p.SSHHost != "" {
+			if p.DeviceID == hello.DeviceID && p.Enabled && p.SSHHost != "" {
 				recorded, kept = p.SSHHost, p.SSHHost
 			}
 		}

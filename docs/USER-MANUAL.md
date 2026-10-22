@@ -513,6 +513,7 @@ succeeds and exits 0, prints one line naming the failed path and the command to 
 other computer, and that computer's `status` shows this one as not ok until a sync works.
 A pairing started from the other side never replaces a host that computer already has for
 this one (even when that check fails); only an explicit `--back <ssh-host>` replaces it.
+A computer you removed with `--remove` is set up fresh when paired again, as if it were new.
 
 `pair` refuses to pair a computer with itself, and a computer whose Backstory is too old to
 sync. `--remove` only stops syncing on the computer you run it on: everything the other
