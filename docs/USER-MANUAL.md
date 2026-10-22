@@ -484,7 +484,8 @@ backstory link clear --here                   # drop the link (the remote, if an
 backstory link list                           # every project with its sync identity
 ```
 
-`backstory projects` shows the same identity in its SYNC column.
+`backstory projects` shows the same identity in its SYNC column. A `sync:<id>` project (made when
+another computer sends a project you have no copy of) shows its id with source `synced`.
 
 ### pair
 

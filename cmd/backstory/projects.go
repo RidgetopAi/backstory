@@ -27,7 +27,7 @@ type projectRow struct {
 	Sessions     int     `json:"sessions"`
 	Records      int     `json:"records"`
 	// SyncID is the project's machine-independent sync identity ("" when it
-	// has none); SyncSource is "remote", "link" or "".
+	// has none); SyncSource is "remote", "link", "synced" (a sync:<id> placeholder) or "".
 	SyncID     string `json:"sync_id"`
 	SyncSource string `json:"sync_source"`
 }
