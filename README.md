@@ -65,7 +65,8 @@ release instead, run `git checkout <tag>` (for example `v1.1.0`) before `make in
 - installs the panel into `~/.config/omarchy/plugins/backstory.this-week` and turns it on with
   `omarchy plugin enable backstory.this-week` (if the `omarchy` command isn't found, it prints
   that command for you to run). It restarts the Omarchy shell if your session is unlocked; if
-  it's locked, it tells you to run `omarchy restart shell`
+  it's locked, it restarts the shell once you unlock (and tells you the manual
+  `omarchy restart shell` fallback)
 - installs the keyboard-shortcut file `~/.config/hypr/backstory.lua`
 - runs `backstory install`, which connects every agent it finds, then checks the service
   answers (or prints a failure line naming the daemon and exits non-zero)

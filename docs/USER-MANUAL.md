@@ -742,6 +742,11 @@ Its log is `journalctl --user -u backstory -n 50`.
 `require("hypr.backstory")`. Add it, save, and run `hyprctl reload`. If the panel still doesn't
 appear, run `omarchy restart shell`.
 
+**`make install` ran while my screen was locked**
+It finishes normally. It never restarts the shell over a lock screen; instead it schedules the
+restart for when you unlock (waiting up to 24 hours), so the panel loads then. A restart that
+fails is reported, never fatal: run `omarchy restart shell` yourself.
+
 **Codex starts with no memory**
 Codex has to trust Backstory once. Open `codex` in a project, choose **"Trust and Continue"**,
 then **"Trust all and continue"** for the hooks. Until then, NEEDS YOU shows a reminder.
