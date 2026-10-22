@@ -15,7 +15,7 @@ const testClientAddr = "10.9.8.7"
 // the script it is given; B's sync-serve reaches A back through backScript,
 // and sees its client at testClientAddr. The back script logs the host it was
 // asked for to the returned file.
-func twoWayScripts(t *testing.T, bin string, a, b syncHome, backBody string) (forward, backLog string) {
+func twoWayScripts(t *testing.T, bin string, b syncHome, backBody string) (forward, backLog string) {
 	t.Helper()
 	dir := t.TempDir()
 	backLog = filepath.Join(dir, "back-hosts")
@@ -35,7 +35,7 @@ func pairedOneWay(t *testing.T, args ...string) (a, b syncHome, bin, ra, rb, bac
 	a, b = newSyncHome(t, "/a/widgets"), newSyncHome(t, "/b/widgets")
 	ra = a.handoff(t, "/a/widgets", "handoff on A")
 	rb = b.handoff(t, "/b/widgets", "handoff on B")
-	forward, backLog := twoWayScripts(t, bin, a, b, serveScript(bin, a))
+	forward, backLog := twoWayScripts(t, bin, b, serveScript(bin, a))
 	useTransport(t, a, forward)
 	code, out, errs = runLinkCLI(t, append([]string{"pair"}, args...)...)
 	return a, b, bin, ra, rb, backLog, code, out, errs
@@ -110,7 +110,7 @@ func TestSyncServeNamesClientOnOneSidedPairing(t *testing.T) {
 func TestPairWhenBackPathFailsStillExitsZeroAndBShowsNotOK(t *testing.T) {
 	bin := buildBackstory(t)
 	a, b := newSyncHome(t, "/a/widgets"), newSyncHome(t, "/b/widgets")
-	forward, _ := twoWayScripts(t, bin, a, b, `echo "ssh: connect to host `+testClientAddr+` port 22: Connection refused" >&2; exit 255`)
+	forward, _ := twoWayScripts(t, bin, b, `echo "ssh: connect to host `+testClientAddr+` port 22: Connection refused" >&2; exit 255`)
 	useTransport(t, a, forward)
 	code, out, errs := runLinkCLI(t, "pair", "laptop")
 	if code != 0 || errs != "" {
@@ -163,7 +163,8 @@ func checkBackHost(t *testing.T, b syncHome, backLog, want string) {
 	if len(peers) != 1 || peers[0].SSHHost != want {
 		t.Fatalf("B peer host %+v, want %q", peers, want)
 	}
-	if raw, _ := os.ReadFile(backLog); strings.TrimSpace(string(raw)) != want {
+	raw, _ := os.ReadFile(backLog) //nolint:gosec // t.TempDir() path
+	if strings.TrimSpace(string(raw)) != want {
 		t.Fatalf("back check used %q, want %q", raw, want)
 	}
 }
