@@ -25,8 +25,17 @@ PANEL_PREV="$PLUGINS_DIR/.$PLUGIN_ID.prev" # hidden so the shell never loads a s
 HYPR_DIR="$CONFIG_HOME/hypr"
 HYPR_FILE="$HYPR_DIR/$APP.lua"
 HYPR_LINE='require("hypr.backstory")'
-# The session-locked probe: Omarchy locks with hyprlock.
+# The session-locked probe: Omarchy's own omarchy-hyprland-session-locked when
+# it is on PATH (4.x locks inside the shell, with no hyprlock process); older
+# Omarchy locks with hyprlock, which is looked for by process name.
 LOCK_PROC="${BACKSTORY_LOCK_PROC:-hyprlock}"
+
+# A shell restart refused because the session is locked is deferred to a
+# transient user unit that polls every RESTART_POLL seconds and gives up after
+# RESTART_GIVEUP seconds (24h). A second install replaces the pending unit.
+RESTART_UNIT="${BACKSTORY_RESTART_UNIT:-backstory-shell-restart}"
+RESTART_POLL="${BACKSTORY_RESTART_POLL:-5}"
+RESTART_GIVEUP="${BACKSTORY_RESTART_GIVEUP:-86400}"
 
 SRC="$(cd "$(dirname "$0")/.." && pwd)"
 
@@ -79,6 +88,48 @@ do_check_go() {
 hyprland_loads_backstory() {
 	[ -f "$HYPR_DIR/hyprland.lua" ] &&
 		grep -Eq "^[[:space:]]*require[[:space:]]*\([[:space:]]*[\"']hypr\.backstory[\"'][[:space:]]*\)" "$HYPR_DIR/hyprland.lua"
+}
+
+# session_locked LOCK_PROC: the session is locked. Prefers Omarchy's own probe
+# (exit 0 = locked); otherwise a process by that name.
+session_locked() {
+	if command -v omarchy-hyprland-session-locked >/dev/null 2>&1; then
+		omarchy-hyprland-session-locked >/dev/null 2>&1
+	else
+		pgrep -x "$1" >/dev/null 2>&1
+	fi
+}
+
+# The deferred restart, run by the transient unit as: sh -c SCRIPT sh POLL
+# GIVEUP LOCK_PROC. Same lock probe as session_locked (kept in step by hand:
+# the unit has no access to this file).
+# shellcheck disable=SC2016  # expanded by the unit's own shell
+DEFERRED_RESTART='
+poll="$1"; giveup="$2"; proc="$3"; waited=0
+locked() {
+	if command -v omarchy-hyprland-session-locked >/dev/null 2>&1; then
+		omarchy-hyprland-session-locked >/dev/null 2>&1
+	else
+		pgrep -x "$proc" >/dev/null 2>&1
+	fi
+}
+while locked; do
+	[ "$waited" -ge "$giveup" ] && exit 0
+	sleep "$poll"
+	waited=$((waited + poll))
+done
+omarchy-restart-shell
+'
+
+# defer_shell_restart: start (replacing any pending one) the unit that
+# restarts the shell once the session unlocks. Returns non-zero when it cannot.
+defer_shell_restart() {
+	command -v systemd-run >/dev/null 2>&1 || return 1
+	systemctl --user stop "$RESTART_UNIT.service" >/dev/null 2>&1 || true
+	systemctl --user reset-failed "$RESTART_UNIT.service" >/dev/null 2>&1 || true
+	systemd-run --user --quiet --unit="$RESTART_UNIT" --collect \
+		--setenv=PATH="$PATH" \
+		sh -c "$DEFERRED_RESTART" sh "$RESTART_POLL" "$RESTART_GIVEUP" "$LOCK_PROC"
 }
 
 # wait_for_daemon: the unit is active and `backstory status` answers within
@@ -178,13 +229,18 @@ do_install() {
 	echo "installed $PANEL"
 	plugin_toggle enable
 
-	# New QML types need a shell restart, which must not happen over a
-	# locked session.
-	if pgrep -x "$LOCK_PROC" >/dev/null 2>&1; then
-		echo "session is locked: run \`omarchy restart shell\` to load the new panel"
-	else
-		omarchy-restart-shell
+	# New QML types need a shell restart, which must never happen over a
+	# locked session (it would kill the lock screen) and is never fatal.
+	if session_locked "$LOCK_PROC"; then
+		if defer_shell_restart; then
+			echo "session is locked: the panel loads when you unlock (or run \`omarchy restart shell\`)"
+		else
+			echo "session is locked: run \`omarchy restart shell\` to load the new panel"
+		fi
+	elif omarchy-restart-shell; then
 		echo "restarted the Omarchy shell"
+	else
+		echo "backstory: the shell restart did not complete; run \`omarchy restart shell\` to load the new panel"
 	fi
 
 	# The hook verification below needs a live daemon: wait for it first.

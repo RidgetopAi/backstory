@@ -55,6 +55,7 @@ func newInstallFixture(t *testing.T) *installFixture {
 pids="$FAKE_LOG.daemon-pids"
 stopdaemon() { [ -f "$pids" ] && while read -r p; do kill "$p" 2>/dev/null; n=0; while kill -0 "$p" 2>/dev/null && [ "$n" -lt 100 ]; do sleep 0.1; n=$((n+1)); done; done < "$pids"; : > "$pids"; }
 case "$*" in
+*"stop backstory-shell-restart"*) [ -f "$FAKE_LOG.unit-pid" ] && kill "$(cat "$FAKE_LOG.unit-pid")" 2>/dev/null; rm -f "$FAKE_LOG.unit-pid" ;;
 *is-active*) [ -e "$FAKE_ACTIVE" ]; exit ;;
 *"enable --now"*|*restart*)
 	: > "$FAKE_ACTIVE"
@@ -76,7 +77,20 @@ exit 0`)
 	})
 	f.fake("pgrep", `echo "pgrep $*" >> "$FAKE_LOG"; [ -e "$FAKE_LOCKED" ]`)
 	f.fake("omarchy-restart-shell", `echo "omarchy-restart-shell" >> "$FAKE_LOG"`)
+	// systemd-run: record the call; the unit does not run unless a test
+	// replaces this stub (see runDeferredUnit).
+	f.fake("systemd-run", `echo "systemd-run $1 $2 $3 $4" >> "$FAKE_LOG"`)
 	return f
+}
+
+// runDeferredUnit makes the systemd-run fake behave like a transient unit:
+// it runs the command detached (as the pending unit) and remembers its pid so
+// `systemctl stop` of the unit kills it.
+func (f *installFixture) runDeferredUnit() {
+	f.fake("systemd-run", `echo "systemd-run $1 $2 $3 $4" >> "$FAKE_LOG"
+while [ $# -gt 0 ]; do case "$1" in --*) shift ;; *) break ;; esac; done
+setsid "$@" >/dev/null 2>&1 </dev/null &
+echo $! > "$FAKE_LOG.unit-pid"`)
 }
 
 func (f *installFixture) fake(name, body string) {
@@ -808,5 +822,94 @@ func TestInstallWithoutOmarchyCLIStillSucceedsAndNamesCommand(t *testing.T) {
 	out := f.mustMake("install")
 	if !strings.Contains(out, "plugin enable backstory.this-week") {
 		t.Errorf("output does not name the enable command:\n%s", out)
+	}
+}
+
+// lockProbe fakes omarchy-hyprland-session-locked: exit 0 = locked while the
+// "omarchy-locked" flag exists. The restart fake refuses (exit 1) when locked,
+// as the real one does.
+func (f *installFixture) lockProbe() {
+	f.fake("omarchy-hyprland-session-locked", `[ -e "$(dirname "$FAKE_LOG")/omarchy-locked" ]`)
+	f.fake("omarchy-restart-shell", `echo "omarchy-restart-shell" >> "$FAKE_LOG"
+if [ -e "$(dirname "$FAKE_LOG")/omarchy-locked" ]; then echo "Refusing to restart Omarchy shell while the session is locked."; exit 1; fi`)
+}
+
+// withHarness gives `backstory install` a Claude harness to wire up.
+func (f *installFixture) withHarness() {
+	f.t.Helper()
+	if err := os.MkdirAll(f.path(".claude"), 0o755); err != nil { //nolint:gosec // fixture path under t.TempDir
+		f.t.Fatal(err)
+	}
+}
+
+func countLines(s, sub string) int {
+	n := 0
+	for _, l := range strings.Split(s, "\n") {
+		if strings.TrimSpace(l) == sub || strings.HasPrefix(strings.TrimSpace(l), sub+" ") {
+			n++
+		}
+	}
+	return n
+}
+
+func TestInstallOmarchyLockedSessionDoesNotAbort(t *testing.T) {
+	f := newInstallFixture(t)
+	f.withHarness()
+	f.lockProbe()
+	f.flag("omarchy-locked", true) // locked, and pgrep sees no hyprlock
+	out, err := f.make("install")
+	if err != nil {
+		t.Fatalf("make install failed on a locked session: %v\n%s", err, out)
+	}
+	if countLines(f.calls(), "omarchy-restart-shell") > 0 {
+		t.Errorf("shell restarted while locked:\n%s", f.calls())
+	}
+	mustExist(t, filepath.Join(f.home, ".claude", "settings.json"))
+	if !strings.Contains(out, "the panel loads when you unlock") {
+		t.Errorf("missing deferred-restart line:\n%s", out)
+	}
+}
+
+func TestInstallLockedThenUnlockedRestartsOnceAndDoesNotStack(t *testing.T) {
+	f := newInstallFixture(t)
+	f.withHarness()
+	f.lockProbe()
+	f.runDeferredUnit()
+	f.extra = append(f.extra, "BACKSTORY_RESTART_POLL=1")
+	f.flag("omarchy-locked", true)
+	f.mustMake("install")
+	f.mustMake("install") // a second install while pending replaces the unit
+	if n := countLines(f.calls(), "systemd-run"); n != 2 {
+		t.Fatalf("systemd-run calls = %d, want 2:\n%s", n, f.calls())
+	}
+	if !strings.Contains(f.calls(), "stop backstory-shell-restart") {
+		t.Errorf("pending unit not stopped before replacement:\n%s", f.calls())
+	}
+	if countLines(f.calls(), "omarchy-restart-shell") > 0 {
+		t.Fatalf("restart ran while locked:\n%s", f.calls())
+	}
+	f.flag("omarchy-locked", false)
+	deadline := time.Now().Add(20 * time.Second)
+	for countLines(f.calls(), "omarchy-restart-shell") == 0 && time.Now().Before(deadline) {
+		time.Sleep(200 * time.Millisecond)
+	}
+	time.Sleep(3 * time.Second) // a stacked second waiter would have fired by now
+	if n := countLines(f.calls(), "omarchy-restart-shell"); n != 1 {
+		t.Errorf("omarchy-restart-shell calls = %d, want exactly 1:\n%s", n, f.calls())
+	}
+}
+
+func TestInstallShellRestartFailureIsNotFatal(t *testing.T) {
+	f := newInstallFixture(t)
+	f.withHarness()
+	f.fake("omarchy-hyprland-session-locked", `exit 1`) // unlocked
+	f.fake("omarchy-restart-shell", `echo "omarchy-restart-shell" >> "$FAKE_LOG"; exit 1`)
+	out, err := f.make("install")
+	if err != nil {
+		t.Fatalf("make install failed when the shell restart failed: %v\n%s", err, out)
+	}
+	mustExist(t, filepath.Join(f.home, ".claude", "settings.json"))
+	if !strings.Contains(out, "run `omarchy restart shell`") {
+		t.Errorf("missing manual line:\n%s", out)
 	}
 }
