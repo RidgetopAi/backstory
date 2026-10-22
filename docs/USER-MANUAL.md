@@ -546,9 +546,7 @@ never turns it on. If a sync is already running (yours or the timer's), the seco
 Projects match across computers by their git remote; for a project with no remote, use
 [`link`](#link) on both. By default ssh runs in batch mode and never asks for a password;
 to use another ssh command, set `BACKSTORY_SYNC_SSH` (it is run as
-`<command> <host> sh -c '<script>'`, where the script runs `backstory sync-serve` from the other
-computer's PATH, or from `~/.local/bin/backstory` when its SSH server, such as Tailscale SSH, gives
-commands a bare PATH). If it finds neither, the error names both places it looked.
+`<command> <host> backstory sync-serve`).
 
 ### backfill
 
