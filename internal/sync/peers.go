@@ -191,7 +191,21 @@ func pairClient(st *store.Store, hello message, opt Options) (backHost, backErr 
 	if verr := ValidHost(host); verr != nil {
 		return "", "", verr
 	}
-	if perr := st.PairSyncPeer(hello.DeviceID, hello.DeviceName, host); perr != nil {
+	// A back registration only creates the row; an existing host stays unless
+	// the client named one with --back.
+	recorded, kept := host, ""
+	if hello.BackHost == "" {
+		peers, lerr := st.SyncPeers()
+		if lerr != nil {
+			return "", "", lerr
+		}
+		for _, p := range peers {
+			if p.DeviceID == hello.DeviceID && p.SSHHost != "" {
+				recorded, kept = p.SSHHost, p.SSHHost
+			}
+		}
+	}
+	if perr := st.PairSyncPeer(hello.DeviceID, hello.DeviceName, recorded); perr != nil {
 		if errors.Is(perr, store.ErrPairSelf) {
 			return "", "", fmt.Errorf("%s is this device; a device cannot be paired with itself", hello.DeviceName)
 		}
@@ -200,7 +214,10 @@ func pairClient(st *store.Store, hello message, opt Options) (backHost, backErr 
 	y := &Syncer{Store: st, Transport: opt.Transport}
 	result, detail := y.checkBack(host, hello.DeviceID)
 	if result == store.SyncResultOK {
-		return host, "", nil
+		return recorded, "", nil
+	}
+	if kept != "" {
+		detail += "; this device keeps its existing host " + kept + " for it"
 	}
 	label := hello.DeviceName
 	if label == "" {

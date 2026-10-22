@@ -178,3 +178,59 @@ func runCmdIn(t *testing.T, dataDir string, args ...string) (string, string, int
 }
 
 func timeNow() time.Time { return time.Now() }
+
+func peerHosts(t *testing.T, h syncHome) []string {
+	t.Helper()
+	st := h.open(t)
+	defer func() { _ = st.Close() }()
+	peers, err := st.SyncPeers()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hosts []string
+	for _, p := range peers {
+		hosts = append(hosts, p.SSHHost)
+	}
+	return hosts
+}
+
+// A paired B (B's row for A is written, the back check passes); then B pairs
+// with A, A's back check to B fails. A keeps "laptop" for B and still syncs.
+func TestPairFromOtherSideKeepsWorkingHostWhenBackCheckFails(t *testing.T) {
+	a, b, bin, _, _, _, code, out, errs := pairedOneWay(t, "laptop")
+	if code != 0 {
+		t.Fatalf("pair on A: %d %q %q", code, out, errs)
+	}
+	forward, _ := twoWayScripts(t, bin, a, `echo "Host key verification failed." >&2; exit 255`)
+	useTransport(t, b, forward)
+	code, out, errs = runLinkCLI(t, "pair", "desk")
+	if code != 0 || errs != "" {
+		t.Fatalf("pair on B: %d %q %q", code, out, errs)
+	}
+	if !strings.Contains(out, "keeps its existing host laptop") {
+		t.Fatalf("pair output lacks the kept-host line: %q", out)
+	}
+	if hosts := peerHosts(t, a); len(hosts) != 1 || hosts[0] != "laptop" {
+		t.Fatalf("A hosts %v, want [laptop]", hosts)
+	}
+	useTransport(t, a, serveScript(bin, b))
+	if code, out, errs = runLinkCLI(t, "sync"); code != 0 {
+		t.Fatalf("sync on A: %d %q %q", code, out, errs)
+	}
+}
+
+// An explicit --back on B's pair replaces A's existing row for B.
+func TestPairExplicitBackReplacesExistingHost(t *testing.T) {
+	a, b, bin, _, _, _, code, out, errs := pairedOneWay(t, "laptop")
+	if code != 0 {
+		t.Fatalf("pair on A: %d %q %q", code, out, errs)
+	}
+	forward, _ := twoWayScripts(t, bin, a, serveScript(bin, b))
+	useTransport(t, b, forward)
+	if code, out, errs = runLinkCLI(t, "pair", "--back", "laptop-alias", "desk"); code != 0 {
+		t.Fatalf("pair --back on B: %d %q %q", code, out, errs)
+	}
+	if hosts := peerHosts(t, a); len(hosts) != 1 || hosts[0] != "laptop-alias" {
+		t.Fatalf("A hosts %v, want [laptop-alias]", hosts)
+	}
+}
