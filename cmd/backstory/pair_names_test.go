@@ -113,3 +113,42 @@ func readFile(t *testing.T, p string) string {
 	}
 	return string(raw)
 }
+
+// B removes A; A pairs B again advertising names where only the short name is
+// known. B's row is enabled again and holds the short name, not the removed host.
+func TestRePairAfterRemovePicksFreshBackHost(t *testing.T) {
+	withTailnetNames(t, testFQDN, testShort)
+	bin := buildBackstory(t)
+	a := newSyncHome(t, "/a/widgets")
+	b := newSyncHome(t, "/b/widgets")
+	hOld := localUser() + "@" + testFQDN
+	forward, _ := twoWayScripts(t, bin, b, knownOnly(bin, a, hOld))
+	useTransport(t, a, forward)
+	if code, out, errs := runLinkCLI(t, "pair", "laptop"); code != 0 || errs != "" {
+		t.Fatalf("first pair: %d %q %q", code, out, errs)
+	}
+	checkPeerHost(t, b, hOld)
+
+	if out, errs, code := runCmdIn(t, b.xdg, "pair", "--remove", hOld); code != 0 {
+		t.Fatalf("remove on B: %d %q %q", code, out, errs)
+	}
+	st := b.open(t)
+	peers, _ := st.SyncPeers()
+	_ = st.Close()
+	if len(peers) != 1 || peers[0].Enabled || peers[0].SSHHost != hOld {
+		t.Fatalf("after remove %+v, want one disabled row keeping %s", peers, hOld)
+	}
+
+	hShort := localUser() + "@" + testShort
+	forward, _ = twoWayScripts(t, bin, b, knownOnly(bin, a, hShort))
+	useTransport(t, a, forward)
+	if code, out, errs := runLinkCLI(t, "pair", "laptop"); code != 0 || errs != "" {
+		t.Fatalf("re-pair: %d %q %q", code, out, errs)
+	}
+	st = b.open(t)
+	peers, _ = st.SyncPeers()
+	_ = st.Close()
+	if len(peers) != 1 || !peers[0].Enabled || peers[0].SSHHost != hShort {
+		t.Fatalf("after re-pair %+v, want one enabled row at %s", peers, hShort)
+	}
+}
