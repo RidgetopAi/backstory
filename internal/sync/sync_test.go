@@ -389,7 +389,7 @@ func TestTierComesFromTheChangeNotTheImporter(t *testing.T) {
 	}
 }
 
-func TestOnlySessionsBehindSharedRecordsSync(t *testing.T) {
+func TestSharedProjectSessionsSyncNotelessOrNot(t *testing.T) {
 	a, b := openStore(t), openStore(t)
 	addProject(t, a, "/a/widgets", remoteURL)
 	addProject(t, a, "/a/loose", "")
@@ -402,16 +402,63 @@ func TestOnlySessionsBehindSharedRecordsSync(t *testing.T) {
 	if _, _, err := link(t, b, human, a, human, bsync.Cursors{}); err != nil {
 		t.Fatal(err)
 	}
-	if n := count(t, b, `SELECT COUNT(*) FROM sessions`); n != 1 {
-		t.Fatalf("B holds %d session stubs, want 1", n)
+	if n := count(t, b, `SELECT COUNT(*) FROM sessions`); n != 2 {
+		t.Fatalf("B holds %d session stubs, want 2", n)
 	}
-	if n := count(t, b, `SELECT COUNT(*) FROM sessions WHERE id = ?`, shared); n != 1 {
-		t.Fatal("the session behind the shared record is missing on B")
-	}
-	for _, id := range []string{empty, unshared} {
-		if n := count(t, b, `SELECT COUNT(*) FROM sessions WHERE id = ?`, id); n != 0 {
-			t.Fatalf("session %s was served", id)
+	// A note-less session of a shared project syncs too, under B's project.
+	addProject(t, b, "/b/widgets", remoteURL)
+	for _, id := range []string{shared, empty} {
+		if n := count(t, b, `SELECT COUNT(*) FROM sessions WHERE id = ?`, id); n != 1 {
+			t.Fatalf("session %s of the shared project is missing on B", id)
 		}
+	}
+	if n := count(t, b, `SELECT COUNT(*) FROM sessions WHERE id = ?`, unshared); n != 0 {
+		t.Fatal("session of the unshared project was served")
+	}
+}
+
+// A note-less session of a shared project lands under B's project for the
+// identity; an unshared folder's session never arrives.
+func TestNotelessSessionLandsUnderProject(t *testing.T) {
+	a, b := openStore(t), openStore(t)
+	addProject(t, a, "/a/widgets", remoteURL)
+	addProject(t, a, "/a/loose", "")
+	addProject(t, b, "/b/widgets", remoteURL)
+	s1 := startSession(t, a, "/a/widgets")
+	s2 := startSession(t, a, "/a/loose")
+	if _, _, err := link(t, b, human, a, human, bsync.Cursors{}); err != nil {
+		t.Fatal(err)
+	}
+	var key string
+	if err := b.DB().QueryRow(`SELECT project_key FROM sessions WHERE id = ?`, s1).Scan(&key); err != nil || key != "/b/widgets" {
+		t.Fatalf("S1 project_key=%q err=%v", key, err)
+	}
+	if n := count(t, b, `SELECT COUNT(*) FROM sessions WHERE id = ?`, s2); n != 0 {
+		t.Fatal("S2 reached B")
+	}
+}
+
+// An unshared project that gains a remote serves its earlier note-less
+// sessions on the next sync.
+func TestEarlierNotelessSessionsServedWhenProjectGainsRemote(t *testing.T) {
+	a, b := openStore(t), openStore(t)
+	addProject(t, a, "/a/widgets", "")
+	addProject(t, b, "/b/widgets", remoteURL)
+	s1 := startSession(t, a, "/a/widgets")
+	rep, _, err := link(t, b, human, a, human, bsync.Cursors{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := count(t, b, `SELECT COUNT(*) FROM sessions`); n != 0 {
+		t.Fatal("served before the remote")
+	}
+	addProject(t, a, "/a/widgets", remoteURL)
+	if _, _, err := link(t, b, human, a, human, rep.Cursors); err != nil {
+		t.Fatal(err)
+	}
+	var key string
+	if err := b.DB().QueryRow(`SELECT project_key FROM sessions WHERE id = ?`, s1).Scan(&key); err != nil || key != "/b/widgets" {
+		t.Fatalf("project_key=%q err=%v", key, err)
 	}
 }
 
