@@ -5,6 +5,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"os/user"
 	"path/filepath"
 	"time"
 
@@ -18,9 +20,10 @@ import (
 func runPair(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("pair", flag.ContinueOnError)
 	remove := fs.Bool("remove", false, "stop syncing with a paired device (its imported records stay)")
+	back := fs.String("back", "", "ssh host the other device uses to reach this one (default: this user at the address it sees)")
 	fs.SetOutput(stderr)
 	fs.Usage = func() {
-		_, _ = fmt.Fprintln(stderr, "usage: backstory pair <ssh-host> | backstory pair --remove <name|host>")
+		_, _ = fmt.Fprintln(stderr, "usage: backstory pair [--back <ssh-host>] <ssh-host> | backstory pair --remove <name|host>")
 	}
 	if err := fs.Parse(args); err != nil {
 		return 2
@@ -50,10 +53,18 @@ func runPair(args []string, stdout, stderr io.Writer) int {
 	}
 
 	y := &bsync.Syncer{Store: st, Identity: humanIdentity, Transport: bsync.TransportFromEnv()}
-	info, err := y.Pair(ref)
+	info, err := y.PairAs(ref, bsync.PairRequest{Pair: true, User: localUser(), Host: *back})
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory pair:", trimStorePrefix(err))
 		return 1
+	}
+	if info.BackError != "" {
+		at := ""
+		if info.BackHost != "" {
+			at = " at " + info.BackHost
+		}
+		_, _ = fmt.Fprintf(stdout, "%s cannot reach back to this device%s (%s); on %s run: backstory pair <ssh-host-of-this-device> (or re-run here with --back <ssh-host>).\n",
+			info.DeviceName, at, info.BackError, info.DeviceName)
 	}
 	_, _ = fmt.Fprintf(stdout, "Paired with %s (%s). Run `backstory sync` to share memory.\n", info.DeviceName, shortDeviceID(info.DeviceID))
 	return 0
@@ -177,4 +188,12 @@ func trimStorePrefix(err error) string {
 		}
 	}
 	return s
+}
+
+// localUser is the user name a paired device records to reach this one back.
+func localUser() string {
+	if u, err := user.Current(); err == nil && u.Username != "" {
+		return u.Username
+	}
+	return os.Getenv("USER")
 }

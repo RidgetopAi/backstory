@@ -489,17 +489,27 @@ backstory link list                           # every project with its sync iden
 ### pair
 
 Pairs this computer with another one you can reach over ssh, so the two can share memory.
-You pair once; after that, [`sync`](#sync) does the work. The other computer needs Backstory
-installed and `ssh <host>` must work without a password prompt (use an ssh key).
+You pair once, on one computer; that sets up **both** sides, and after that [`sync`](#sync)
+works from either one. The other computer needs Backstory installed and `ssh <host>` must
+work without a password prompt (use an ssh key).
 
 ```
 backstory pair laptop                         # pair with the computer you reach as "laptop"
+backstory pair --back desk laptop             # the laptop reaches this computer as "desk"
 backstory pair --remove laptop                # stop syncing with it (by its name or ssh host)
 ```
 
-It prints the other computer's name. It refuses to pair a computer with itself, and a
-computer whose Backstory is too old to sync. `--remove` only stops syncing: everything the
-other computer already sent stays in your memory.
+It prints the other computer's name. The other computer records this one by name, and
+reaches it back at `<your user>@<the address it saw you connect from>`; `--back <ssh-host>`
+names a different way (an ssh alias, a Tailscale name) when that address will not work.
+The other computer checks that way right away. If it cannot reach this one, `pair` still
+succeeds and exits 0, prints one line naming the failed path and the command to run on the
+other computer, and that computer's `status` shows this one as not ok until a sync works.
+
+`pair` refuses to pair a computer with itself, and a computer whose Backstory is too old to
+sync. `--remove` only stops syncing on the computer you run it on: everything the other
+computer already sent stays in your memory, and the other computer keeps syncing with you
+until you also run `backstory pair --remove` there.
 
 ### sync
 

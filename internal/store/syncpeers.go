@@ -167,6 +167,20 @@ func (s *Store) SetSyncCursors(deviceID string, pull, push int64) error {
 	return nil
 }
 
+// RecordDevice remembers a device's name so records it wrote are shown by
+// name, not by raw id. It never touches this device's own row and never
+// pairs: sync_peers is unchanged.
+func (s *Store) RecordDevice(deviceID, name string) error {
+	if deviceID == "" || name == "" {
+		return nil
+	}
+	if _, err := s.db.Exec(`INSERT INTO devices (id, name, is_self, first_seen) VALUES (?, ?, 0, ?)
+		ON CONFLICT(id) DO UPDATE SET name = excluded.name WHERE is_self = 0`, deviceID, name, time.Now().UTC().UnixNano()); err != nil {
+		return fmt.Errorf("store: record device: %w", err)
+	}
+	return nil
+}
+
 // AppendSyncAttempt appends one row to the sync_attempts log.
 func (s *Store) AppendSyncAttempt(a SyncAttempt) error {
 	ts := a.TS

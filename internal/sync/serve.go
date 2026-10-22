@@ -38,7 +38,19 @@ func Serve(st *store.Store, id store.Identity, r io.Reader, w io.Writer, opt Opt
 		_ = c.send(message{Type: typeError, Error: &wireError{Code: CodeBadRequest, Message: "hello without device_id"}})
 		return errUnexpected
 	}
-	if err := c.send(message{Type: typeHello, Proto: ProtoVersion, DeviceID: self.ID, DeviceName: self.Name}); err != nil {
+	reply := message{Type: typeHello, Proto: ProtoVersion, DeviceID: self.ID, DeviceName: self.Name}
+	if hello.Pair {
+		host, backErr, perr := pairClient(st, hello, opt)
+		if perr != nil {
+			_ = c.send(message{Type: typeError, Error: &wireError{Code: CodeBadRequest, Message: perr.Error()}})
+			return perr
+		}
+		reply.BackHost, reply.BackError = host, backErr
+	} else if err := st.RecordDevice(hello.DeviceID, hello.DeviceName); err != nil {
+		_ = c.send(message{Type: typeError, Error: &wireError{Code: CodeInternal, Message: err.Error()}})
+		return err
+	}
+	if err := c.send(reply); err != nil {
 		return err
 	}
 	peer := store.SyncPeer{DeviceID: hello.DeviceID}

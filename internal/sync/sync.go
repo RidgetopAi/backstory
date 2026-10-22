@@ -61,6 +61,12 @@ type Options struct {
 	// ExpectPeerID, when set, makes Run refuse (before anything is imported)
 	// a peer whose hello names another device: cursors belong to one peer.
 	ExpectPeerID string
+	// Transport is how a serving side reaches a pairing client back; the zero
+	// value is the default ssh.
+	Transport Transport
+	// ClientAddr is the address the serving side saw its client connect from
+	// (the first field of SSH_CLIENT); empty when unknown.
+	ClientAddr string
 }
 
 // PeerIdentityError is returned when the device that answered is not the one
@@ -107,16 +113,23 @@ type wireError struct {
 }
 
 type message struct {
-	Type       string                  `json:"type"`
-	Proto      int                     `json:"proto,omitempty"`
-	DeviceID   string                  `json:"device_id,omitempty"`
-	DeviceName string                  `json:"device_name,omitempty"`
-	Since      int64                   `json:"since"`
-	Next       int64                   `json:"next"`
-	More       bool                    `json:"more,omitempty"`
-	Changes    []store.SyncChange      `json:"changes,omitempty"`
-	Result     *store.SyncImportResult `json:"result,omitempty"`
-	Error      *wireError              `json:"error,omitempty"`
+	Type       string `json:"type"`
+	Proto      int    `json:"proto,omitempty"`
+	DeviceID   string `json:"device_id,omitempty"`
+	DeviceName string `json:"device_name,omitempty"`
+	// Pair, BackUser and BackHost ride on a pairing client's hello: the
+	// server records the client as a peer. BackError rides on the server's
+	// answer: why it could not reach the client back, empty when it could.
+	Pair      bool                    `json:"pair,omitempty"`
+	BackUser  string                  `json:"back_user,omitempty"`
+	BackHost  string                  `json:"back_host,omitempty"`
+	BackError string                  `json:"back_error,omitempty"`
+	Since     int64                   `json:"since"`
+	Next      int64                   `json:"next"`
+	More      bool                    `json:"more,omitempty"`
+	Changes   []store.SyncChange      `json:"changes,omitempty"`
+	Result    *store.SyncImportResult `json:"result,omitempty"`
+	Error     *wireError              `json:"error,omitempty"`
 }
 
 // conn reads and writes protocol lines.
