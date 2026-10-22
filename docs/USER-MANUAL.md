@@ -525,6 +525,11 @@ Shares memory with every paired computer: it pulls what the other one has that y
 then pushes what you have that it doesn't. Run it whenever you like; running it again when
 nothing changed moves nothing.
 
+Each computer gets one line: `laptop: pulled 12 (2 already here), sent 486 (42 already on laptop)`.
+`--dry-run` counts the same changes, so its line (`would pull 12, would send 486`) matches
+the real run's pulled and sent numbers; the "already" counts are the part of them the
+receiving side held before.
+
 ```
 backstory sync                                # every paired computer
 backstory sync laptop                         # just one

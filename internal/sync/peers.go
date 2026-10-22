@@ -16,7 +16,16 @@ type Outcome struct {
 	Pulled, Pushed int
 	// WouldPull and WouldPush are a dry run's counts.
 	WouldPull, WouldPush int
+	// OfferedPull and OfferedPush are what a real run received and sent;
+	// Pulled and Pushed are the part of those that were new to the receiver.
+	OfferedPull, OfferedPush int
 }
+
+// AlreadyHere is how many received changes this device already held.
+func (o Outcome) AlreadyHere() int { return max(o.OfferedPull-o.Pulled, 0) }
+
+// AlreadyThere is how many sent changes the peer already held.
+func (o Outcome) AlreadyThere() int { return max(o.OfferedPush-o.Pushed, 0) }
 
 // OK reports a fully successful sync.
 func (o Outcome) OK() bool { return o.Result == store.SyncResultOK }
@@ -82,6 +91,7 @@ func (y *Syncer) SyncPeer(p store.SyncPeerRow) Outcome {
 	}
 	out.Pulled, out.Pushed = rep.Pulled.Imported(), rep.Pushed.Imported()
 	out.WouldPull, out.WouldPush = rep.WouldPull, rep.WouldPush
+	out.OfferedPull, out.OfferedPush = rep.OfferedPull, rep.OfferedPush
 
 	switch {
 	case oerr != nil:

@@ -60,7 +60,7 @@ func TestPairSetsUpBothSidesAndBSyncsBack(t *testing.T) {
 	// sync on B (not A): B reaches A through its own transport.
 	useTransport(t, b, serveScript(bin, a))
 	code, out, errs = runLinkCLI(t, "sync")
-	if code != 0 || !strings.Contains(out, self.Name+": pulled 1, pushed 1") {
+	if code != 0 || !strings.Contains(out, self.Name+": pulled 1 (0 already here), sent ") {
 		t.Fatalf("sync on B: code=%d out=%q err=%q", code, out, errs)
 	}
 	if !a.has(t, rb) || !b.has(t, ra) {

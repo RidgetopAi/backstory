@@ -105,19 +105,19 @@ func TestPairSyncStatusAndRemove(t *testing.T) {
 		t.Fatalf("status before sync: %q want %q", so.String(), want)
 	}
 
-	if code, out, errs = runLinkCLI(t, "sync", "--dry-run"); code != 0 || !strings.Contains(out, "would pull 1, would push 1") {
+	if code, out, errs = runLinkCLI(t, "sync", "--dry-run"); code != 0 || !strings.Contains(out, "would pull 1, would send 1") {
 		t.Fatalf("dry run: code=%d out=%q err=%q", code, out, errs)
 	}
 	if a.has(t, rb) || b.has(t, ra) {
 		t.Fatal("dry run moved a record")
 	}
-	if code, out, errs = runLinkCLI(t, "sync"); code != 0 || !strings.Contains(out, "pulled 1, pushed 1") {
+	if code, out, errs = runLinkCLI(t, "sync"); code != 0 || !strings.Contains(out, "pulled 1 (0 already here), sent ") {
 		t.Fatalf("sync: code=%d out=%q err=%q", code, out, errs)
 	}
 	if !a.has(t, rb) || !b.has(t, ra) {
 		t.Fatal("handoffs did not cross")
 	}
-	if code, out, _ = runLinkCLI(t, "sync"); code != 0 || !strings.Contains(out, "pulled 0, pushed 0") {
+	if code, out, _ = runLinkCLI(t, "sync"); code != 0 || !strings.Contains(out, "pulled 1 (1 already here), sent 0 (0 already on ") {
 		t.Fatalf("second sync: code=%d out=%q", code, out)
 	}
 	so.Reset()
@@ -245,7 +245,7 @@ func TestPairAndSyncFindBackstoryInRemoteLocalBin(t *testing.T) {
 	if code, out, errs := runLinkCLI(t, "pair", "laptop"); code != 0 || !strings.Contains(out, "Paired with") {
 		t.Fatalf("pair: code=%d out=%q err=%q", code, out, errs)
 	}
-	if code, out, errs := runLinkCLI(t, "sync"); code != 0 || !strings.Contains(out, "pulled 1, pushed 1") {
+	if code, out, errs := runLinkCLI(t, "sync"); code != 0 || !strings.Contains(out, "pulled 1 (0 already here), sent ") {
 		t.Fatalf("sync: code=%d out=%q err=%q", code, out, errs)
 	}
 	if !a.has(t, rb) || !b.has(t, ra) {
@@ -286,5 +286,57 @@ func TestPairAndSyncNameBothPlacesWhenBackstoryMissing(t *testing.T) {
 	att, err := st.SyncAttempts(peers[0].Name, 1)
 	if err != nil || len(att) != 1 || att[0].Result != store.SyncResultError {
 		t.Fatalf("attempts %+v err=%v", att, err)
+	}
+}
+
+// With a peer already holding some records, dry-run's "would send N" equals
+// the real sync's "sent N", and the real line reports the part already there.
+func TestSyncDryRunAndRealReportSameCounts(t *testing.T) {
+	bin := buildBackstory(t)
+	a, b := newSyncHome(t, "/a/widgets"), newSyncHome(t, "/b/widgets")
+	for i := 0; i < 3; i++ {
+		a.handoff(t, "/a/widgets", fmt.Sprintf("old on A %d", i))
+	}
+	useTransport(t, a, serveScript(bin, b))
+	if code, out, errs := runLinkCLI(t, "pair", "laptop"); code != 0 {
+		t.Fatalf("pair: code=%d out=%q err=%q", code, out, errs)
+	}
+	if code, out, errs := runLinkCLI(t, "sync"); code != 0 {
+		t.Fatalf("first sync: code=%d out=%q err=%q", code, out, errs)
+	}
+	// Rewind this side's cursors: the peer now holds records it is offered again.
+	st := a.open(t)
+	peers, _ := st.SyncPeers()
+	if len(peers) != 1 {
+		t.Fatalf("peers %+v", peers)
+	}
+	if err := st.SetSyncCursors(peers[0].DeviceID, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	_ = st.Close()
+	a.handoff(t, "/a/widgets", "new on A")
+
+	code, dry, errs := runLinkCLI(t, "sync", "--dry-run")
+	if code != 0 {
+		t.Fatalf("dry run: code=%d out=%q err=%q", code, dry, errs)
+	}
+	code, real, errs := runLinkCLI(t, "sync")
+	if code != 0 {
+		t.Fatalf("sync: code=%d out=%q err=%q", code, real, errs)
+	}
+	var wantPull, wantSend int
+	if _, err := fmt.Sscanf(dry[strings.Index(dry, "would pull"):], "would pull %d, would send %d", &wantPull, &wantSend); err != nil {
+		t.Fatalf("dry line %q: %v", dry, err)
+	}
+	var pull, here, send, there int
+	tail := real[strings.Index(real, "pulled"):]
+	if _, err := fmt.Sscanf(tail, "pulled %d (%d already here), sent %d (%d already on", &pull, &here, &send, &there); err != nil {
+		t.Fatalf("real line %q: %v", real, err)
+	}
+	if pull != wantPull || send != wantSend {
+		t.Fatalf("dry run %q vs real %q: counts differ", dry, real)
+	}
+	if send != 4 || there != 3 {
+		t.Fatalf("want sent 4 with 3 already on the peer, got %q", real)
 	}
 }

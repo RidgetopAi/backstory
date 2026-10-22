@@ -159,9 +159,10 @@ func runSync(args []string, stdout, stderr io.Writer) int {
 			_, _ = fmt.Fprintln(stderr, o.FormatFailure())
 		case *quiet:
 		case *dry:
-			_, _ = fmt.Fprintf(stdout, "%s: would pull %d, would push %d (dry run; nothing changed)\n", o.Peer.Label(), o.WouldPull, o.WouldPush)
+			_, _ = fmt.Fprintf(stdout, "%s: would pull %d, would send %d (dry run; nothing changed)\n", o.Peer.Label(), o.WouldPull, o.WouldPush)
 		default:
-			_, _ = fmt.Fprintf(stdout, "%s: pulled %d, pushed %d\n", o.Peer.Label(), o.Pulled, o.Pushed)
+			_, _ = fmt.Fprintf(stdout, "%s: pulled %d (%d already here), sent %d (%d already on %s)\n",
+				o.Peer.Label(), o.OfferedPull, o.AlreadyHere(), o.OfferedPush, o.AlreadyThere(), o.Peer.Label())
 		}
 	}
 	if failed {

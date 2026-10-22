@@ -30,6 +30,11 @@ type Report struct {
 	// was imported or sent.
 	WouldPull int
 	WouldPush int
+	// OfferedPull and OfferedPush count the changes the peer served here and
+	// this side sent, whether or not the receiver already held them; a
+	// DryRun's WouldPull/WouldPush are the same numbers.
+	OfferedPull int
+	OfferedPush int
 	// Cursors to resume from; they advance only past what was applied.
 	Cursors Cursors
 }
@@ -83,6 +88,7 @@ func Run(st *store.Store, id store.Identity, from Cursors, r io.Reader, w io.Wri
 			break
 		}
 		addResult(&rep.Pulled, res)
+		rep.OfferedPull += len(m.Changes)
 		rep.Cursors.Pull = m.Next
 		pullPos = m.Next
 		if !m.More {
@@ -121,6 +127,7 @@ func Run(st *store.Store, id store.Identity, from Cursors, r io.Reader, w io.Wri
 			break
 		}
 		addResult(&rep.Pushed, *m.Result)
+		rep.OfferedPush += len(changes)
 		rep.Cursors.Push = next
 		pushPos = next
 		if !more {
