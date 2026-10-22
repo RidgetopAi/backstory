@@ -459,18 +459,34 @@ func (s *Store) loadSyncRecord(id, selfDevice string) (*SyncRecord, error) {
 // the project gains one (a remote, or a human link) its records are queued
 // again so they are served. Peers dedupe by id.
 func (s *Store) requeueProjectChanges(projectKey string) error {
-	_, err := s.db.Exec(`INSERT INTO sync_changes (kind, ref)
-		SELECT CASE WHEN tombstoned_at IS NULL THEN 'record' ELSE 'tombstone' END, id
-		FROM records WHERE project_key = ? ORDER BY rowid`, projectKey)
+	tx, err := s.db.Begin()
 	if err != nil {
+		return fmt.Errorf("store: requeue sync changes for %s: %w", projectKey, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err = tx.Exec(`INSERT INTO sync_changes (kind, ref)
+		SELECT CASE WHEN tombstoned_at IS NULL THEN 'record' ELSE 'tombstone' END, id
+		FROM records WHERE project_key = ? ORDER BY rowid`, projectKey); err != nil {
 		return fmt.Errorf("store: requeue sync changes for %s: %w", projectKey, err)
 	}
 	// Its sessions too: a session that wrote no note is only ever served by
 	// its project's identity.
-	_, err = s.db.Exec(`INSERT INTO sync_changes (kind, ref) SELECT 'session', id FROM sessions
-		WHERE project_key = ? ORDER BY rowid`, projectKey)
-	if err != nil {
+	if _, err = tx.Exec(`INSERT INTO sync_changes (kind, ref) SELECT 'session', id FROM sessions
+		WHERE project_key = ? ORDER BY rowid`, projectKey); err != nil {
 		return fmt.Errorf("store: requeue sync sessions for %s: %w", projectKey, err)
+	}
+	// A ref keeps exactly one entry, the newest: the older copies go in the
+	// same transaction as the insert. A peer behind an old copy still reaches
+	// the new one, and the order of the remaining entries is unchanged.
+	if _, err = tx.Exec(`DELETE FROM sync_changes WHERE kind IN (?, ?, ?)
+		AND ref IN (SELECT id FROM records WHERE project_key = ? UNION SELECT id FROM sessions WHERE project_key = ?)
+		AND seq < (SELECT MAX(n.seq) FROM sync_changes n WHERE n.ref = sync_changes.ref AND n.kind IN (?, ?, ?))`,
+		SyncKindRecord, SyncKindTombstone, SyncKindSession, projectKey, projectKey,
+		SyncKindRecord, SyncKindTombstone, SyncKindSession); err != nil {
+		return fmt.Errorf("store: supersede sync changes for %s: %w", projectKey, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("store: requeue sync changes for %s: %w", projectKey, err)
 	}
 	return nil
 }

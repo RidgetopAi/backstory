@@ -105,19 +105,19 @@ func TestPairSyncStatusAndRemove(t *testing.T) {
 		t.Fatalf("status before sync: %q want %q", so.String(), want)
 	}
 
-	if code, out, errs = runLinkCLI(t, "sync", "--dry-run"); code != 0 || !strings.Contains(out, "would pull 1, would push 1") {
+	if code, out, errs = runLinkCLI(t, "sync", "--dry-run"); code != 0 || !strings.Contains(out, "would pull 1, would send 1") {
 		t.Fatalf("dry run: code=%d out=%q err=%q", code, out, errs)
 	}
 	if a.has(t, rb) || b.has(t, ra) {
 		t.Fatal("dry run moved a record")
 	}
-	if code, out, errs = runLinkCLI(t, "sync"); code != 0 || !strings.Contains(out, "pulled 1, pushed 1") {
+	if code, out, errs = runLinkCLI(t, "sync"); code != 0 || !strings.Contains(out, "pulled 1 (0 already here), sent 1 (0 already on ") {
 		t.Fatalf("sync: code=%d out=%q err=%q", code, out, errs)
 	}
 	if !a.has(t, rb) || !b.has(t, ra) {
 		t.Fatal("handoffs did not cross")
 	}
-	if code, out, _ = runLinkCLI(t, "sync"); code != 0 || !strings.Contains(out, "pulled 0, pushed 0") {
+	if code, out, _ = runLinkCLI(t, "sync"); code != 0 || !strings.Contains(out, "pulled 0 (0 already here), sent 0 (0 already on ") {
 		t.Fatalf("second sync: code=%d out=%q", code, out)
 	}
 	so.Reset()
@@ -245,7 +245,7 @@ func TestPairAndSyncFindBackstoryInRemoteLocalBin(t *testing.T) {
 	if code, out, errs := runLinkCLI(t, "pair", "laptop"); code != 0 || !strings.Contains(out, "Paired with") {
 		t.Fatalf("pair: code=%d out=%q err=%q", code, out, errs)
 	}
-	if code, out, errs := runLinkCLI(t, "sync"); code != 0 || !strings.Contains(out, "pulled 1, pushed 1") {
+	if code, out, errs := runLinkCLI(t, "sync"); code != 0 || !strings.Contains(out, "pulled 1 (0 already here), sent 1 (0 already on ") {
 		t.Fatalf("sync: code=%d out=%q err=%q", code, out, errs)
 	}
 	if !a.has(t, rb) || !b.has(t, ra) {
