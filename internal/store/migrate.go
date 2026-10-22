@@ -185,6 +185,18 @@ func (s *Store) applyMigration(m migration) error {
 	if err != nil {
 		return fmt.Errorf("store: begin migration %s: %w", m.name, err)
 	}
+	// Another process (the daemon and a CLI call opening the same fresh
+	// database) may have applied this migration between migrate's read of
+	// schema_version and this transaction taking the write lock. Re-check
+	// under the lock so the loser skips instead of re-running the DDL.
+	var already int
+	if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_version WHERE version = ?`, m.version).Scan(&already); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("store: recheck migration %s: %w", m.name, err)
+	}
+	if already > 0 {
+		return tx.Rollback()
+	}
 	for i, stmt := range splitStatements(m.sql) {
 		if strings.TrimSpace(stmt) == "" {
 			continue
