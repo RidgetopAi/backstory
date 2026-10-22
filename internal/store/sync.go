@@ -189,6 +189,10 @@ func (b *feedBuilder) add(e feedEntry) error {
 	case SyncKindRecord, SyncKindTombstone:
 		return b.addRecord(e.ref)
 	case SyncKindSession:
+		ok, err := b.sessionHasServedRecord(e.ref)
+		if err != nil || !ok {
+			return err
+		}
 		return b.addSession(e.ref)
 	case SyncKindEdge:
 		from, to, typ, ok := splitEdgeRef(e.ref)
@@ -280,6 +284,44 @@ func (b *feedBuilder) addEdge(from, to, typ string) error {
 	b.edges[key] = true
 	b.edgeOut = append(b.edgeOut, SyncChange{Kind: SyncKindEdge, Edge: &SyncEdge{FromID: from, ToID: to, Type: typ, DeclaredBy: declaredBy}})
 	return nil
+}
+
+// sessionHasServedRecord reports whether at least one record of session id is
+// one this feed would serve (its project has a sync identity). A session entry
+// in the feed is served only then: a stub alone would leak when and how much
+// someone worked on projects that never sync. Records carry their own stub
+// (addRecord), so a session that becomes eligible later arrives with the
+// requeued records of its project.
+func (b *feedBuilder) sessionHasServedRecord(id string) (bool, error) {
+	rows, err := b.s.db.Query(`SELECT id FROM records WHERE session_id = ? ORDER BY rowid`, id)
+	if err != nil {
+		return false, fmt.Errorf("store: records of session %s: %w", id, err)
+	}
+	var ids []string
+	for rows.Next() {
+		var rid string
+		if err := rows.Scan(&rid); err != nil {
+			_ = rows.Close()
+			return false, err
+		}
+		ids = append(ids, rid)
+	}
+	if err := rows.Close(); err != nil {
+		return false, err
+	}
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	for _, rid := range ids {
+		r, err := b.load(rid)
+		if err != nil {
+			return false, err
+		}
+		if r != nil {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 func (b *feedBuilder) addSession(id string) error {
