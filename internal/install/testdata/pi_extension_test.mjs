@@ -9,6 +9,23 @@ const log = () =>
   readFileSync(process.env.FAKE_LOG, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+const WAIT_DEADLINE_MS = 15000; // generous: a loaded box can take seconds to spawn node
+const POLL_MS = 20;
+// Negative checks ("nothing more happens") cannot poll for an event; they wait
+// this short window only AFTER every positive condition has been observed.
+const SETTLE_MS = 300;
+
+// waitFor polls until pred() is truthy or the deadline passes, then returns the
+// last value; callers assert on it, so a timeout surfaces as a clear failure.
+async function waitFor(pred) {
+  const end = Date.now() + WAIT_DEADLINE_MS;
+  for (;;) {
+    const v = pred();
+    if (v || Date.now() >= end) return v;
+    await sleep(POLL_MS);
+  }
+}
+
 // A failed assertion must end the process: a live `backstory mcp` child would
 // otherwise keep node running until the Go test times out.
 const die = (e) => {
@@ -47,7 +64,8 @@ if (process.argv[3] === "missing") {
   assert.equal(p.tools.length, 0, "no tools without a backstory binary");
   assert.equal((await p.fire("before_agent_start", {}, ctxFor("s1"))).filter(Boolean).length, 0);
   await p.fire("tool_execution_end", { toolCallId: "t", toolName: "bash", result: {} }, ctxFor("s1"));
-  await sleep(400);
+  // Nothing is spawned, so there is no log line to poll for: settle, then check.
+  await sleep(SETTLE_MS);
   assert.equal(crashes.length, 0, "clause 3: missing binary leaked an error");
   console.log("PI EXTENSION MISSING-BINARY OK");
   process.exit(0);
@@ -88,7 +106,7 @@ await pi.fire(
   { toolCallId: "t1", toolName: "bash", result: { content: [{ type: "text", text: "file.txt" }] }, isError: false },
   ctxFor("s2"),
 );
-await sleep(400);
+await waitFor(() => log().some((r) => r.argv[0] === "hook" && r.argv[1] === "post-tool-use"));
 const hooks = log().filter((r) => r.argv[0] === "hook" && r.argv[1] === "post-tool-use");
 assert.equal(hooks.length, 1, "clause 3: one post-tool-use invocation");
 assert.deepEqual(hooks[0].argv, ["hook", "post-tool-use", "--harness", "pi"]);
@@ -104,8 +122,13 @@ assert.equal(sent.tool_response.exit_code, undefined, "never invents an exit cod
 async function assertNoLeak(label) {
   const before = crashes.length;
   const evt = { toolCallId: "t2", toolName: "read", result: { content: [] }, isError: false };
+  const calls = () => log().filter((r) => r.argv[0] === "hook" && r.argv[1] === "post-tool-use").length;
+  const seen = calls();
   await pi.fire("tool_execution_end", evt, ctxFor("s2")); // must not reject
-  await sleep(400);
+  await waitFor(() => calls() > seen);
+  // The hook has run (the fake logs before it exits 1); give its failure a
+  // moment to reach the extension's error handling before checking for leaks.
+  await sleep(SETTLE_MS);
   assert.equal(crashes.length, before, `clause 3: ${label} leaked an error`);
 }
 process.env.FAKE_HOOK_FAIL = "1";
@@ -130,10 +153,14 @@ const fireResult = async (id, extra = {}) => {
   const out = (await pi.fire("tool_result", event, ctxFor("s2")))[0];
   return { event, out };
 };
-const endFor = async (id) => {
+// endFor fires tool_execution_end and returns how many hook calls it caused.
+// `expected` is how many the caller asserts: when positive we poll for them;
+// when 0 we can only observe absence, so we wait one settle window.
+const endFor = async (id, expected = 0) => {
   const before = hookCalls().length;
   await pi.fire("tool_execution_end", { toolCallId: id, toolName: "bash", result: { content: [] }, isError: false }, ctxFor("s2"));
-  await sleep(400);
+  if (expected > 0) await waitFor(() => hookCalls().length - before >= expected);
+  else await sleep(SETTLE_MS);
   return hookCalls().length - before;
 };
 
@@ -191,7 +218,7 @@ process.env.FAKE_HOOK_STDOUT = "";
 {
   const out = (await pi.fire("tool_result", { toolCallId: "n1", toolName: "read", content: [], isError: false }, ctxFor("s2")))[0];
   assert.equal(out, undefined);
-  assert.equal(await endFor("n1"), 1, "a call tool_result did not handle still takes the fire-and-forget path");
+  assert.equal(await endFor("n1", 1), 1, "a call tool_result did not handle still takes the fire-and-forget path");
 }
 await pi.fire("session_shutdown", { reason: "quit" }, ctxFor("s2"));
 console.log("PI EXTENSION OK");
