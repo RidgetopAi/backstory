@@ -134,7 +134,27 @@ func (f *installFixture) make(target string) (string, error) {
 	)
 	cmd.Env = append(cmd.Env, f.extra...)
 	out, err := cmd.CombinedOutput()
+	if err != nil && strings.Contains(string(out), "not healthy") {
+		return string(out) + f.healthDiagnostics(), err
+	}
 	return string(out), err
+}
+
+// healthDiagnostics is what a failed health wait needs to explain itself: the
+// fixture daemon's own output and the fake command log, both of which die with
+// the test's TempDir.
+func (f *installFixture) healthDiagnostics() string {
+	section := func(title, path string) string {
+		b, err := os.ReadFile(path) //nolint:gosec // fixture path under t.TempDir
+		body := string(b)
+		if err != nil {
+			body = "(unreadable: " + err.Error() + ")\n"
+		} else if body == "" {
+			body = "(empty)\n"
+		}
+		return "\n--- " + title + " (" + path + ") ---\n" + body
+	}
+	return section("fixture daemon output", f.log+".daemon-out") + section("fake command log", f.log)
 }
 
 func (f *installFixture) calls() string {
@@ -374,6 +394,22 @@ func TestInstallerFailsWhenNoDaemonRuns(t *testing.T) {
 	out, err := f.make("install")
 	if err == nil || !strings.Contains(out, "backstory.service") || !strings.Contains(out, "not healthy") {
 		t.Fatalf("want a named daemon failure, got err=%v:\n%s", err, out)
+	}
+}
+
+// A failed health wait must carry the fixture daemon's output and the fake
+// command log: both live in the TempDir, so this is the only chance to see them.
+func TestFixtureHealthFailureShowsDaemonOutputAndFakeLog(t *testing.T) {
+	f := newInstallFixture(t)
+	f.extra = []string{"FAKE_NODAEMON=1", "BACKSTORY_HEALTH_TIMEOUT=1"}
+	out, err := f.make("install")
+	if err == nil {
+		t.Fatalf("install succeeded with no daemon:\n%s", out)
+	}
+	for _, want := range []string{"--- fixture daemon output", "--- fake command log", "systemctl --user enable --now"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("failure text lacks %q:\n%s", want, out)
+		}
 	}
 }
 
