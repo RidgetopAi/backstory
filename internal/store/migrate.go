@@ -113,10 +113,11 @@ func (s *Store) migrate() error {
 	// own schema_version row must already land in the final column type.
 	// IF NOT EXISTS makes this a no-op against a pre-0002 database still
 	// carrying the original TEXT column; migration 0002 converts that one.
-	if _, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS schema_version (
-		version    INTEGER NOT NULL,
-		applied_at INTEGER NOT NULL
-	)`); err != nil {
+	// Concurrent first Opens of a fresh database (daemon plus a CLI call)
+	// race the journal-mode switch and this first write; SQLite returns
+	// SQLITE_BUSY at once for some of those interleavings without consulting
+	// busy_timeout, so retry until a deadline instead of failing the Open.
+	if err := retryBusy(bootstrapBusyDeadline, s.createSchemaVersion); err != nil {
 		return fmt.Errorf("store: create schema_version: %w", err)
 	}
 
@@ -333,4 +334,33 @@ func isWordEnd(upper string, i int) bool {
 	}
 	c := upper[i]
 	return c != '_' && (c < 'A' || c > 'Z') && (c < '0' || c > '9')
+}
+
+// bootstrapBusyDeadline bounds how long a first Open retries SQLITE_BUSY.
+const bootstrapBusyDeadline = 15 * time.Second
+
+func (s *Store) createSchemaVersion() error {
+	_, err := s.db.Exec(`CREATE TABLE IF NOT EXISTS schema_version (
+		version    INTEGER NOT NULL,
+		applied_at INTEGER NOT NULL
+	)`)
+	return err
+}
+
+// retryBusy runs fn, retrying while it fails with a SQLite busy/locked error,
+// until the deadline passes.
+func retryBusy(deadline time.Duration, fn func() error) error {
+	end := time.Now().Add(deadline)
+	for {
+		err := fn()
+		if err == nil || !isBusy(err) || time.Now().After(end) {
+			return err
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func isBusy(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "SQLITE_BUSY") || strings.Contains(msg, "SQLITE_LOCKED")
 }
