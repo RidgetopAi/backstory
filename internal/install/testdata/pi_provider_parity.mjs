@@ -11,7 +11,10 @@ const WAIT_DEADLINE_MS = 15000; // generous: a loaded box can take seconds to sp
 const POLL_MS = 20;
 const EXPECTED_HOOKS = 2; // one post-tool-use per tool_execution_end fired below
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const log = () => readFileSync(process.env.FAKE_LOG, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+// Polling reads the log while the fake may be mid-append: drop the text after the
+// last newline (a partial record) so JSON.parse never sees half a line.
+const log = () =>
+  readFileSync(process.env.FAKE_LOG, "utf8").split("\n").slice(0, -1).filter(Boolean).map((l) => JSON.parse(l));
 
 // waitFor polls until pred() is truthy or the deadline passes, then returns the
 // last value; callers assert on it, so a timeout surfaces as a clear failure.

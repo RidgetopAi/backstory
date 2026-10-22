@@ -5,8 +5,10 @@ import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import { pathToFileURL } from "node:url";
 
+// Polling reads the log while the fake may be mid-append: drop the text after the
+// last newline (a partial record) so JSON.parse never sees half a line.
 const log = () =>
-  readFileSync(process.env.FAKE_LOG, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+  readFileSync(process.env.FAKE_LOG, "utf8").split("\n").slice(0, -1).filter(Boolean).map((l) => JSON.parse(l));
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const WAIT_DEADLINE_MS = 15000; // generous: a loaded box can take seconds to spawn node
