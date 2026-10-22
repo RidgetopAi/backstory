@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -346,15 +347,24 @@ func TestShellBashPreservesExistingPS0AndPromptCommandDoubleEvalRecordsOnce(t *t
 
 // TestShellBashPromptReturnsQuicklyWithNoDaemonAndSlowFakeBackstory is the
 // punch's DONE WHEN clause 3: with no daemon listening, and a fake
-// `backstory` on PATH that sleeps 5s standing in for the emit call, each
-// prompt still returns in under 300ms.
+// `backstory` on PATH that sleeps slowFakeBackstorySleepSeconds standing in
+// for the emit call, each prompt still returns well inside
+// promptReturnBoundMS. The bound is not a latency target: it proves the
+// prompt hook does not wait on backstory (a blocking hook would take at
+// least the full fake sleep), and it sits far enough above the hook's real
+// cost, and at most half the sleep, that machine load cannot trip it.
+const (
+	slowFakeBackstorySleepSeconds = 8
+	promptReturnBoundMS           = 2000 // <= half the fake's sleep, >= 1500
+)
+
 func TestShellBashPromptReturnsQuicklyWithNoDaemonAndSlowFakeBackstory(t *testing.T) {
 	bin := buildBackstory(t)
 	snippet := initSnippet(t, bin)
 
 	fakeBinDir := t.TempDir()
 	fakeBackstory := filepath.Join(fakeBinDir, "backstory")
-	if err := os.WriteFile(fakeBackstory, []byte("#!/usr/bin/env bash\nsleep 5\n"), 0o700); err != nil { //nolint:gosec // test fixture, needs +x
+	if err := os.WriteFile(fakeBackstory, []byte(fmt.Sprintf("#!/usr/bin/env bash\nsleep %d\n", slowFakeBackstorySleepSeconds)), 0o700); err != nil { //nolint:gosec // test fixture, needs +x
 		t.Fatalf("write fake backstory: %v", err)
 	}
 
@@ -394,8 +404,8 @@ func TestShellBashPromptReturnsQuicklyWithNoDaemonAndSlowFakeBackstory(t *testin
 		if err != nil {
 			t.Fatalf("parse %s value from %q: %v", marker, last, err)
 		}
-		if ms >= 300 {
-			t.Errorf("%s%d, want under 300ms with no daemon and a 5s-sleeping fake backstory on PATH", marker, ms)
+		if ms >= promptReturnBoundMS {
+			t.Errorf("%s%d, want under %dms with no daemon and a %ds-sleeping fake backstory on PATH", marker, ms, promptReturnBoundMS, slowFakeBackstorySleepSeconds)
 		}
 	}
 }
