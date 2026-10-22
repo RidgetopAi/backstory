@@ -279,7 +279,11 @@ func TestPairAndSyncNameBothPlacesWhenBackstoryMissing(t *testing.T) {
 	}
 	st := a.open(t)
 	defer func() { _ = st.Close() }()
-	att, err := st.SyncAttempts("", 1)
+	peers, _ := st.SyncPeers()
+	if len(peers) != 1 {
+		t.Fatalf("peers %+v", peers)
+	}
+	att, err := st.SyncAttempts(peers[0].Name, 1)
 	if err != nil || len(att) != 1 || att[0].Result != store.SyncResultError {
 		t.Fatalf("attempts %+v err=%v", att, err)
 	}
