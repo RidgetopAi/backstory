@@ -506,6 +506,8 @@ names a different way (an ssh alias, a Tailscale name) when that address will no
 The other computer checks that way right away. If it cannot reach this one, `pair` still
 succeeds and exits 0, prints one line naming the failed path and the command to run on the
 other computer, and that computer's `status` shows this one as not ok until a sync works.
+A pairing started from the other side never replaces a host that computer already has for
+this one (even when that check fails); only an explicit `--back <ssh-host>` replaces it.
 
 `pair` refuses to pair a computer with itself, and a computer whose Backstory is too old to
 sync. `--remove` only stops syncing on the computer you run it on: everything the other
