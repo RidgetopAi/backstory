@@ -137,7 +137,7 @@ func handshake(c *conn, st *store.Store, req PairRequest) (message, error) {
 		return message{}, err
 	}
 	if err := c.send(message{Type: typeHello, Proto: ProtoVersion, DeviceID: self.ID, DeviceName: self.Name,
-		Pair: req.Pair, BackUser: req.User, BackHost: req.Host}); err != nil {
+		Pair: req.Pair, BackUser: req.User, BackHost: req.Host, BackNames: req.Names}); err != nil {
 		return message{}, err
 	}
 	hello, err := c.recv()
@@ -166,6 +166,9 @@ type PairRequest struct {
 	User string
 	// Host overrides the back host the peer would derive from its client address.
 	Host string
+	// Names are this device's tailnet names, FQDN first, advertised so the peer
+	// can reach it by name; unused when Host is set.
+	Names []string
 }
 
 // PeerInfo is who answered a Hello.

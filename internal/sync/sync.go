@@ -120,9 +120,12 @@ type message struct {
 	// Pair, BackUser and BackHost ride on a pairing client's hello: the
 	// server records the client as a peer. BackError rides on the server's
 	// answer: why it could not reach the client back, empty when it could.
-	Pair      bool                    `json:"pair,omitempty"`
-	BackUser  string                  `json:"back_user,omitempty"`
-	BackHost  string                  `json:"back_host,omitempty"`
+	Pair     bool   `json:"pair,omitempty"`
+	BackUser string `json:"back_user,omitempty"`
+	BackHost string `json:"back_host,omitempty"`
+	// BackNames are the client's own tailnet names (MagicDNS FQDN, short
+	// name), advertised so the server can try them before the raw address.
+	BackNames []string                `json:"back_names,omitempty"`
 	BackError string                  `json:"back_error,omitempty"`
 	Since     int64                   `json:"since"`
 	Next      int64                   `json:"next"`
