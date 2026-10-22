@@ -17,6 +17,10 @@ See `RELEASING.md` for the release flow and its approval gates.
 - Sync fails loudly (task 33412bb2, decision 2ac4c54f D8). One rule, `sync.Health`, decides when sync is on and not syncing (the latest attempt errored, recorded `unreachable` attempts span more than `sync_unreachable_hours` (default 24), or the installed sync timer is not active). While failing, `backstory status` prints `SYNC FAILING with <peer>: <reason> (last ok <time>|never)` first and exits 3, NEEDS YOU gets a `sync-failing` item (PANEL-CONTRACT.md), every SessionStart block carries a warning line that no budget drops, and `sync --quiet` sends one desktop notification (notify-send) when sync starts failing and one on recovery.
 - `docs/USER-MANUAL.md`: a plain-language user manual covering the five note kinds with examples, the panel and its keys, every command with examples, privacy controls, settings and troubleshooting. `TestManualCoversEveryCommand` fails if a user-facing command has no manual entry or the manual names a command that doesn't exist.
 
+### Fixed
+
+- Sync finds backstory on a computer whose SSH server gives remote commands a bare PATH (Tailscale SSH; task 3147c689). The remote command now runs `backstory` from the remote PATH, else `$HOME/.local/bin/backstory` (the installer's location), then `sync-serve`. When neither exists, `pair` and `sync` say so, naming both places and noting the SSH server may not load your PATH; it is still classified `error`. `BACKSTORY_SYNC_SSH` still works; the remote words are now `sh -c '<script>'`.
+
 ### Changed
 
 - README rewritten as a short front page for people new to Linux: a three-step install, what `make install` does, and links into the manual. All install, update, uninstall and privacy facts are kept. Both now say where to set `BACKSTORY_PROJECT_ROOTS` on Omarchy: `~/.config/uwsm/env.d/`, then log out and back in.
