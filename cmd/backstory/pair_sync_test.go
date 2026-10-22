@@ -209,3 +209,82 @@ func TestSyncNamesEveryFailingPeerAndReason(t *testing.T) {
 		t.Fatalf("paused sync: code=%d err=%q", code, errs)
 	}
 }
+
+// bareSSHScript emulates an SSH server that gives remote commands a bare PATH
+// (Tailscale SSH): like ssh it joins the remote words with spaces and hands
+// them to a shell, which runs with a system-only PATH and the peer's HOME.
+func bareSSHScript(peer syncHome, remoteHome string) string {
+	return fmt.Sprintf(`shift
+exec env -i PATH=/usr/bin:/bin HOME=%q XDG_DATA_HOME=%q /bin/sh -c "$*"`, remoteHome, peer.xdg)
+}
+
+func installRemoteBackstory(t *testing.T, bin, home string) {
+	t.Helper()
+	dir := filepath.Join(home, ".local", "bin")
+	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // test dir
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(bin) //nolint:gosec // test binary
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "backstory"), data, 0o755); err != nil { //nolint:gosec // test binary
+		t.Fatal(err)
+	}
+}
+
+func TestPairAndSyncFindBackstoryInRemoteLocalBin(t *testing.T) {
+	bin := buildBackstory(t)
+	a, b := newSyncHome(t, "/a/widgets"), newSyncHome(t, "/b/widgets")
+	ra := a.handoff(t, "/a/widgets", "handoff on A")
+	rb := b.handoff(t, "/b/widgets", "handoff on B")
+	remoteHome := t.TempDir()
+	installRemoteBackstory(t, bin, remoteHome)
+
+	useTransport(t, a, bareSSHScript(b, remoteHome))
+	if code, out, errs := runLinkCLI(t, "pair", "laptop"); code != 0 || !strings.Contains(out, "Paired with") {
+		t.Fatalf("pair: code=%d out=%q err=%q", code, out, errs)
+	}
+	if code, out, errs := runLinkCLI(t, "sync"); code != 0 || !strings.Contains(out, "pulled 1, pushed 1") {
+		t.Fatalf("sync: code=%d out=%q err=%q", code, out, errs)
+	}
+	if !a.has(t, rb) || !b.has(t, ra) {
+		t.Fatal("handoffs did not cross")
+	}
+}
+
+func TestPairAndSyncNameBothPlacesWhenBackstoryMissing(t *testing.T) {
+	bin := buildBackstory(t)
+	a, b := newSyncHome(t, "/a/widgets"), newSyncHome(t, "/b/widgets")
+	remoteHome := t.TempDir() // no .local/bin/backstory, none on the bare PATH
+
+	useTransport(t, a, bareSSHScript(b, remoteHome))
+	code, out, errs := runLinkCLI(t, "pair", "laptop")
+	line := strings.TrimSpace(errs)
+	if code == 0 || strings.Contains(line, "\n") || !strings.Contains(line, "remote PATH") || !strings.Contains(line, ".local/bin/backstory") || !strings.Contains(line, "may not load your PATH") {
+		t.Fatalf("pair: code=%d out=%q err=%q", code, out, errs)
+	}
+
+	// Pair for real, then lose the install: the sync attempt is error, not unreachable.
+	installRemoteBackstory(t, bin, remoteHome)
+	if code, _, errs = runLinkCLI(t, "pair", "laptop"); code != 0 {
+		t.Fatal(errs)
+	}
+	if err := os.Remove(filepath.Join(remoteHome, ".local", "bin", "backstory")); err != nil {
+		t.Fatal(err)
+	}
+	code, _, errs = runLinkCLI(t, "sync")
+	if code == 0 || !strings.Contains(errs, " error: ") || strings.Contains(errs, "unreachable") || !strings.Contains(errs, ".local/bin/backstory") {
+		t.Fatalf("sync: code=%d err=%q", code, errs)
+	}
+	st := a.open(t)
+	defer func() { _ = st.Close() }()
+	peers, _ := st.SyncPeers()
+	if len(peers) != 1 {
+		t.Fatalf("peers %+v", peers)
+	}
+	att, err := st.SyncAttempts(peers[0].Name, 1)
+	if err != nil || len(att) != 1 || att[0].Result != store.SyncResultError {
+		t.Fatalf("attempts %+v err=%v", att, err)
+	}
+}
