@@ -244,6 +244,18 @@ func (s *Store) locationScopeForKeyQ(q purgeQuerier, key string) (LocationScope,
 	return ls, nil
 }
 
+// NewerHandoff reports whether a is a newer handoff than b: later ts, then
+// greater id. It is the one newest-handoff rule: SessionStart's Resume pick
+// calls it, and the SQL ORDER BY in LatestHandoffAtFrom and LatestRecordFrom
+// (handoff kind) spells the same ordering, so this-week and Resume cannot
+// disagree after a sync (insertion order equals newest only on one machine).
+func NewerHandoff(a, b Record) bool {
+	if !a.TS.Equal(b.TS) {
+		return a.TS.After(b.TS)
+	}
+	return a.ID > b.ID
+}
+
 // maxHandoffScanForLocation bounds LatestHandoffAt's newest-first scan, the
 // read-side safety cap for a workspace with years of handoff history.
 const maxHandoffScanForLocation = 1000
@@ -251,7 +263,8 @@ const maxHandoffScanForLocation = 1000
 // LatestHandoffAt returns the newest non-tombstoned handoff belonging to
 // dir under the same membership rule as LocationScope.HasRecord, without
 // building the whole scope: candidates are the handoffs filed under dir's
-// repo key and under its workspace home key, newest first.
+// repo key and under its workspace home key, newest first by NewerHandoff's
+// rule (ts, then id) — never insertion order, which a sync scrambles.
 func (s *Store) LatestHandoffAt(dir string, git project.Git, workspaces []string) (Record, bool, error) {
 	return s.LatestHandoffAtFrom(dir, git, workspaces, OriginAny)
 }
@@ -281,7 +294,7 @@ func (s *Store) LatestHandoffAtFrom(dir string, git project.Git, workspaces []st
 	//nolint:gosec // marks is only "?" placeholders; every value is bound
 	query := `SELECT id FROM records
 		WHERE kind = ? AND tombstoned_at IS NULL AND project_key IN (` + marks + `)
-		ORDER BY rowid DESC LIMIT ?`
+		ORDER BY ts DESC, id DESC LIMIT ?`
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return Record{}, false, fmt.Errorf("store: latest handoff at %s: %w", dir, err)
