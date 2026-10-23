@@ -142,6 +142,7 @@ func (f *installFixture) make(target string) (string, error) {
 		"FAKE_LOG="+f.log,
 		"FAKE_ACTIVE="+filepath.Join(filepath.Dir(f.log), "active"),
 		"FAKE_LOCKED="+filepath.Join(filepath.Dir(f.log), "locked"),
+		"HYPRLAND_INSTANCE_SIGNATURE=", // an ssh session has none; never inherit the developer's
 		// keep the build off the (empty) fixture HOME
 		"GOCACHE="+goEnv(f.t, "GOCACHE"),
 		"GOMODCACHE="+goEnv(f.t, "GOMODCACHE"),
@@ -911,5 +912,92 @@ func TestInstallShellRestartFailureIsNotFatal(t *testing.T) {
 	mustExist(t, filepath.Join(f.home, ".claude", "settings.json"))
 	if !strings.Contains(out, "run `omarchy restart shell`") {
 		t.Errorf("missing manual line:\n%s", out)
+	}
+}
+
+// sshLockProbe fakes the real probe's behaviour over ssh: exit 2 (undetermined)
+// when HYPRLAND_INSTANCE_SIGNATURE is unset, and with the signature "sig-new"
+// exit 0 while the "omarchy-locked" flag exists, else 1. A stale instance dir
+// "sig-old" is created too, older than "sig-new".
+func (f *installFixture) sshLockProbe() {
+	f.t.Helper()
+	hypr := filepath.Join(f.run, "hypr")
+	for i, d := range []string{"sig-old", "sig-new"} {
+		p := filepath.Join(hypr, d)
+		if err := os.MkdirAll(p, 0o755); err != nil { //nolint:gosec // fixture path under t.TempDir
+			f.t.Fatal(err)
+		}
+		at := time.Now().Add(time.Duration(i-10) * time.Minute)
+		if err := os.Chtimes(p, at, at); err != nil {
+			f.t.Fatal(err)
+		}
+	}
+	f.fake("omarchy-hyprland-session-locked", `[ -n "$HYPRLAND_INSTANCE_SIGNATURE" ] || exit 2
+[ "$HYPRLAND_INSTANCE_SIGNATURE" = sig-new ] || exit 2
+[ -e "$(dirname "$FAKE_LOG")/omarchy-locked" ]`)
+	f.fake("omarchy-restart-shell", `echo "omarchy-restart-shell" >> "$FAKE_LOG"`)
+}
+
+func TestInstallDerivesHyprlandSignatureOverSSHAndDefers(t *testing.T) {
+	f := newInstallFixture(t)
+	f.withHarness()
+	f.sshLockProbe()
+	f.flag("omarchy-locked", true)
+	out, err := f.make("install")
+	if err != nil {
+		t.Fatalf("make install failed: %v\n%s", err, out)
+	}
+	if countLines(f.calls(), "omarchy-restart-shell") > 0 {
+		t.Errorf("shell restarted while locked:\n%s", f.calls())
+	}
+	if countLines(f.calls(), "systemd-run") != 1 {
+		t.Errorf("restart not deferred to a unit:\n%s", f.calls())
+	}
+	if !strings.Contains(out, "the panel loads when you unlock") {
+		t.Errorf("missing deferred-restart line:\n%s", out)
+	}
+}
+
+func TestInstallUndeterminedProbeDefersAndUnlockedRestarts(t *testing.T) {
+	f := newInstallFixture(t)
+	f.withHarness()
+	f.fake("omarchy-hyprland-session-locked", `exit 2`)
+	out, err := f.make("install")
+	if err != nil {
+		t.Fatalf("make install failed: %v\n%s", err, out)
+	}
+	if countLines(f.calls(), "omarchy-restart-shell") > 0 || countLines(f.calls(), "systemd-run") != 1 {
+		t.Errorf("undetermined probe must defer, not restart:\n%s", f.calls())
+	}
+
+	g := newInstallFixture(t)
+	g.withHarness()
+	g.fake("omarchy-hyprland-session-locked", `exit 1`)
+	g.mustMake("install")
+	if countLines(g.calls(), "omarchy-restart-shell") != 1 || countLines(g.calls(), "systemd-run") != 0 {
+		t.Errorf("definitely unlocked must restart immediately:\n%s", g.calls())
+	}
+}
+
+func TestDeferredWaiterDerivesSignatureAndRestartsOnceOnExit1(t *testing.T) {
+	f := newInstallFixture(t)
+	f.withHarness()
+	f.sshLockProbe()
+	f.runDeferredUnit()
+	f.extra = append(f.extra, "BACKSTORY_RESTART_POLL=1")
+	f.flag("omarchy-locked", true)
+	f.mustMake("install")
+	time.Sleep(3 * time.Second) // several polls while locked
+	if n := countLines(f.calls(), "omarchy-restart-shell"); n != 0 {
+		t.Fatalf("waiter restarted while locked (%d):\n%s", n, f.calls())
+	}
+	f.flag("omarchy-locked", false)
+	deadline := time.Now().Add(20 * time.Second)
+	for countLines(f.calls(), "omarchy-restart-shell") == 0 && time.Now().Before(deadline) {
+		time.Sleep(200 * time.Millisecond)
+	}
+	time.Sleep(3 * time.Second)
+	if n := countLines(f.calls(), "omarchy-restart-shell"); n != 1 {
+		t.Errorf("omarchy-restart-shell calls = %d, want exactly 1:\n%s", n, f.calls())
 	}
 }

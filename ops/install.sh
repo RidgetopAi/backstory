@@ -29,6 +29,8 @@ HYPR_LINE='require("hypr.backstory")'
 # it is on PATH (4.x locks inside the shell, with no hyprlock process); older
 # Omarchy locks with hyprlock, which is looked for by process name.
 LOCK_PROC="${BACKSTORY_LOCK_PROC:-hyprlock}"
+# Where Hyprland keeps one directory per running instance.
+HYPR_RUN_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/hypr"
 
 # A shell restart refused because the session is locked is deferred to a
 # transient user unit that polls every RESTART_POLL seconds and gives up after
@@ -90,25 +92,48 @@ hyprland_loads_backstory() {
 		grep -Eq "^[[:space:]]*require[[:space:]]*\([[:space:]]*[\"']hypr\.backstory[\"'][[:space:]]*\)" "$HYPR_DIR/hyprland.lua"
 }
 
-# session_locked LOCK_PROC: the session is locked. Prefers Omarchy's own probe
-# (exit 0 = locked); otherwise a process by that name.
+# hypr_signature HYPR_DIR: print the live Hyprland instance. An ssh session has
+# no HYPRLAND_INSTANCE_SIGNATURE, so omarchy-hyprland-session-locked cannot
+# reach hyprctl and answers "undetermined"; derive the variable the way
+# omarchy-restart-shell does: the newest directory under HYPR_DIR.
+hypr_signature() {
+	if [ -n "${HYPRLAND_INSTANCE_SIGNATURE:-}" ]; then
+		printf '%s\n' "$HYPRLAND_INSTANCE_SIGNATURE"
+		return 0
+	fi
+	# shellcheck disable=SC2012  # directory names are Hyprland instance signatures
+	newest="$(ls -t "$1" 2>/dev/null | head -n1)"
+	[ -n "$newest" ] && printf '%s\n' "$newest"
+	return 0
+}
+
+# session_locked LOCK_PROC: the shell must NOT be restarted now. Three-state
+# with Omarchy's own probe: exit 1 = definitely unlocked (restart now); 0 =
+# locked and 2 = undetermined both defer. Without the probe, a process by that
+# name (found = locked).
 session_locked() {
 	if command -v omarchy-hyprland-session-locked >/dev/null 2>&1; then
-		omarchy-hyprland-session-locked >/dev/null 2>&1
+		sig="$(hypr_signature "$HYPR_RUN_DIR")"
+		HYPRLAND_INSTANCE_SIGNATURE="$sig" omarchy-hyprland-session-locked >/dev/null 2>&1
+		[ "$?" -ne 1 ]
 	else
 		pgrep -x "$1" >/dev/null 2>&1
 	fi
 }
 
 # The deferred restart, run by the transient unit as: sh -c SCRIPT sh POLL
-# GIVEUP LOCK_PROC. Same lock probe as session_locked (kept in step by hand:
-# the unit has no access to this file).
+# GIVEUP LOCK_PROC HYPR_RUN_DIR. Same probe as session_locked (kept in step by
+# hand: the unit has no access to this file); the signature is re-derived on
+# every poll because Hyprland can restart while waiting.
 # shellcheck disable=SC2016  # expanded by the unit's own shell
 DEFERRED_RESTART='
-poll="$1"; giveup="$2"; proc="$3"; waited=0
+poll="$1"; giveup="$2"; proc="$3"; hyprdir="$4"; waited=0
 locked() {
 	if command -v omarchy-hyprland-session-locked >/dev/null 2>&1; then
-		omarchy-hyprland-session-locked >/dev/null 2>&1
+		sig="${HYPRLAND_INSTANCE_SIGNATURE:-}"
+		[ -n "$sig" ] || sig="$(ls -t "$hyprdir" 2>/dev/null | head -n1)"
+		HYPRLAND_INSTANCE_SIGNATURE="$sig" omarchy-hyprland-session-locked >/dev/null 2>&1
+		[ "$?" -ne 1 ]
 	else
 		pgrep -x "$proc" >/dev/null 2>&1
 	fi
@@ -129,7 +154,7 @@ defer_shell_restart() {
 	systemctl --user reset-failed "$RESTART_UNIT.service" >/dev/null 2>&1 || true
 	systemd-run --user --quiet --unit="$RESTART_UNIT" --collect \
 		--setenv=PATH="$PATH" \
-		sh -c "$DEFERRED_RESTART" sh "$RESTART_POLL" "$RESTART_GIVEUP" "$LOCK_PROC"
+		sh -c "$DEFERRED_RESTART" sh "$RESTART_POLL" "$RESTART_GIVEUP" "$LOCK_PROC" "$HYPR_RUN_DIR"
 }
 
 # wait_for_daemon: the unit is active and `backstory status` answers within
