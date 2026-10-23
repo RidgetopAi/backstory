@@ -124,18 +124,22 @@ func Build(p Params) (string, error) {
 	return b.String(), nil
 }
 
-// latestHandoff returns the newest non-tombstoned handoff in items — items
-// is already newest-first by sequence (recall's project-anchor ordering,
-// itself store.RecordsForProjectAll's rowid DESC) — the same "most recent,
-// tombstone excluded" rule store.LatestRecord applies for the SessionStart
-// block's own Resume slot.
+// latestHandoff returns the newest non-tombstoned handoff in items by
+// store.NewerHandoff's rule (ts, then id) — the same one the SessionStart
+// block's Resume and This Week use. items arrive in insertion order, which a
+// sync scrambles, so position alone does not say which handoff is newest.
 func latestHandoff(items []recall.Item) (recall.Item, bool) {
+	var best recall.Item
+	found := false
 	for _, item := range items {
-		if item.Kind == store.KindHandoff && item.Status != recall.StatusTombstoned {
-			return item, true
+		if item.Kind != store.KindHandoff || item.Status == recall.StatusTombstoned {
+			continue
+		}
+		if !found || store.NewerHandoff(store.Record{ID: item.ID, TS: item.TS}, store.Record{ID: best.ID, TS: best.TS}) {
+			best, found = item, true
 		}
 	}
-	return recall.Item{}, false
+	return best, found
 }
 
 // mirrorHeaderFormat names Backstory, the project, the generation time and

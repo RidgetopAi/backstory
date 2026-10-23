@@ -327,10 +327,17 @@ func (f OriginFilter) sql() string {
 func (s *Store) LatestRecordFrom(projectKey string, kind RecordKind, from OriginFilter) (Record, bool, error) {
 	projectKey = s.canonicalizeProjectKey(projectKey)
 	var id string
-	//nolint:gosec // from.sql() is a fixed fragment, never caller text
+	// Handoffs order by NewerHandoff's rule (ts, then id): a synced handoff
+	// is inserted when it arrives, not when it was written. Other kinds keep
+	// insertion order.
+	order := "rowid DESC"
+	if kind == KindHandoff {
+		order = "ts DESC, id DESC"
+	}
+	//nolint:gosec // from.sql() and order are fixed fragments, never caller text
 	err := s.db.QueryRow(`SELECT id FROM records
 		WHERE project_key = ? AND kind = ? AND tombstoned_at IS NULL`+from.sql()+`
-		ORDER BY rowid DESC LIMIT 1`, projectKey, string(kind)).Scan(&id)
+		ORDER BY `+order+` LIMIT 1`, projectKey, string(kind)).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Record{}, false, nil
 	}

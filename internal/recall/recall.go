@@ -125,6 +125,9 @@ var now = time.Now
 type Item struct {
 	ID   string
 	Kind store.RecordKind
+	// TS is when the record was written (not when it was inserted: a synced
+	// record is inserted on arrival).
+	TS time.Time
 	// Tier is the record's stored tier, verbatim — never computed from
 	// anything else (PLAN.md §Phase 4: "never computed from anything but
 	// the stored tier").
@@ -398,6 +401,7 @@ func annotate(st *store.Store, rec store.Record, workspaces []string) (Item, err
 	item := Item{
 		ID:               rec.ID,
 		Kind:             rec.Kind,
+		TS:               rec.TS,
 		Tier:             rec.Tier,
 		OriginDeviceName: rec.OriginDeviceName,
 		Text:             rec.Text,

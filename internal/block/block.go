@@ -360,13 +360,8 @@ func loseLabel(r store.Record, locLabel, impLabel string, loc store.Record) stri
 	return impLabel
 }
 
-// newerHandoff reports whether a is newer than b: later ts, then greater id.
-func newerHandoff(a, b store.Record) bool {
-	if !a.TS.Equal(b.TS) {
-		return a.TS.After(b.TS)
-	}
-	return a.ID > b.ID
-}
+// newerHandoff is store.NewerHandoff, the one newest-handoff rule.
+func newerHandoff(a, b store.Record) bool { return store.NewerHandoff(a, b) }
 
 // alsoLineFor is the one-line pointer to the handoff the Resume line did not
 // pick: `also: <device> handoff (id <id8>) <first line>`. A local record is
