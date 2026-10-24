@@ -126,3 +126,50 @@ func TestThisWeekHandoffMatchesResumeAfterSync(t *testing.T) {
 		}
 	}
 }
+
+// A project the receiving machine knows only through synced records (no local
+// session) shows its recorded toplevel as cwd; with no toplevel either, the cwd
+// is empty and the text row carries no "()" (F13).
+func TestThisWeekCWDForSyncOnlyProject(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		toplevel string
+	}{
+		{"recorded toplevel", "/home/a/widgets"},
+		{"no toplevel", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			b := newMachine(t, "b")
+			b.handoff(t, "from B")
+			st, err := store.Open(filepath.Join(t.TempDir(), "a.db"), nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = st.Close() })
+			key := "/a/widgets"
+			if tc.toplevel != "" {
+				if err := st.UpsertProject(store.Project{Key: key, RemoteURL: syncedRemote, Toplevel: tc.toplevel, FirstSeen: time.Now()}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			pull(t, st, b.st)
+			res, err := week.Build(week.Params{Store: st, Now: time.Now().Add(time.Minute)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(res.WhereLeftOff) != 1 {
+				t.Fatalf("want one row, got %+v", res.WhereLeftOff)
+			}
+			if got := res.WhereLeftOff[0].Project.CWD; got != tc.toplevel {
+				t.Errorf("cwd = %q, want %q", got, tc.toplevel)
+			}
+			text := res.Rendered
+			if tc.toplevel == "" && strings.Contains(text, "()") {
+				t.Errorf("text row has empty parens:\n%s", text)
+			}
+			if tc.toplevel != "" && !strings.Contains(text, "("+tc.toplevel+")") {
+				t.Errorf("text row lacks toplevel:\n%s", text)
+			}
+		})
+	}
+}

@@ -68,7 +68,11 @@ func renderWhereLeftOff(rows []WhereLeftOffRow) string {
 }
 
 func renderProjectSummary(p ProjectSummary) string {
-	line := fmt.Sprintf("%s (%s) — last activity %s", p.DisplayName, p.CWD, formatTS(p.LastActivity))
+	name := p.DisplayName
+	if p.CWD != "" {
+		name += " (" + p.CWD + ")"
+	}
+	line := fmt.Sprintf("%s — last activity %s", name, formatTS(p.LastActivity))
 	if p.HandoffID != "" {
 		line += fmt.Sprintf("; handoff (id %s): %s", p.HandoffID, p.HandoffFirstLine)
 		if p.HandoffStale {
