@@ -432,8 +432,9 @@ func buildProject(st *store.Store, projectKey string, since, now time.Time, git 
 	sess, hasSess, err := st.LatestSessionForProject(projectKey)
 	if err != nil {
 		return ProjectSummary{}, nil, fmt.Errorf("week: latest session for %s: %w", projectKey, err)
-	} else if hasSess {
-		summary.CWD = sess.CWD
+	}
+	if summary.CWD, err = localProjectDir(st, projectKey); err != nil {
+		return ProjectSummary{}, nil, err
 	}
 
 	ids, err := st.ProjectSessionIDs(projectKey)
@@ -1066,23 +1067,38 @@ func firstLine(text string) string {
 	return text
 }
 
-// projectDir is the directory a project key's location rules are judged
-// against: its latest session's cwd, else its recorded toplevel, else the
-// key itself (a non-repo project's key is its cwd).
-func projectDir(st *store.Store, key string) (string, error) {
-	sess, ok, err := st.LatestSessionForProject(key)
+// localProjectDir is a project's LOCAL directory: the newest session on this
+// device with a cwd, else the project's recorded toplevel, else "". A cwd from
+// a session recorded on another device is never used — that path does not
+// exist here.
+func localProjectDir(st *store.Store, key string) (string, error) {
+	cwd, err := st.LatestLocalCWDForProject(key)
 	if err != nil {
-		return "", fmt.Errorf("week: latest session for %s: %w", key, err)
+		return "", fmt.Errorf("week: local cwd for %s: %w", key, err)
 	}
-	if ok && sess.CWD != "" {
-		return sess.CWD, nil
+	if cwd != "" {
+		return cwd, nil
 	}
 	proj, ok, err := st.GetProject(key)
 	if err != nil {
 		return "", fmt.Errorf("week: project %s: %w", key, err)
 	}
-	if ok && proj.Toplevel != "" {
+	if ok {
 		return proj.Toplevel, nil
+	}
+	return "", nil
+}
+
+// projectDir is the directory a project key's location rules are judged
+// against: its local directory (localProjectDir), else the key itself (a
+// non-repo project's key is its cwd).
+func projectDir(st *store.Store, key string) (string, error) {
+	dir, err := localProjectDir(st, key)
+	if err != nil {
+		return "", err
+	}
+	if dir != "" {
+		return dir, nil
 	}
 	return key, nil
 }

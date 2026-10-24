@@ -203,6 +203,23 @@ func (s *Store) LatestSessionForProject(projectKey string) (Session, bool, error
 	return sess, true, nil
 }
 
+// LatestLocalCWDForProject returns the cwd of projectKey's newest session
+// recorded on THIS device (not a synced stub, whose cwd is empty or a peer's
+// path that does not exist here) with a non-empty cwd; "" when there is none.
+func (s *Store) LatestLocalCWDForProject(projectKey string) (string, error) {
+	var cwd string
+	err := s.db.QueryRow(`SELECT cwd FROM sessions
+		WHERE project_key = ? AND cwd != '' AND origin != 'synced' AND origin_device IS NULL
+		ORDER BY started_at DESC LIMIT 1`, projectKey).Scan(&cwd)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("store: latest local cwd for project %s: %w", projectKey, err)
+	}
+	return cwd, nil
+}
+
 // getSession reads back a single sessions row by id, the shared scan logic
 // LatestSessionForProject uses.
 func (s *Store) getSession(id string) (Session, error) {
