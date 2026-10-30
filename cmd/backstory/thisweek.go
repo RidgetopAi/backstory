@@ -69,7 +69,7 @@ func runThisWeek(args []string, stdout, stderr io.Writer) int {
 		var here *hereJSON
 		var windows map[string]windowRef
 		if *hereFlag != "" {
-			r := hereResolver{git: git, workspaces: workspaceDirs, result: result,
+			r := hereResolver{git: git, workspaces: workspaceDirs, result: result, procs: &procTable{},
 				inScope: func(key, dir string) bool { return projectOrDirInScope(st, projectRoots, key, dir) },
 				displayName: func(key, dir string) string {
 					if proj, ok, err := st.GetProject(key); err == nil && ok {

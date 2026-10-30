@@ -153,29 +153,36 @@ func procStartTicks(pid int) uint64 {
 	return v
 }
 
-// procDescendants returns every descendant of root (excluding root).
-func procDescendants(root int) []procNode {
-	entries, err := os.ReadDir(thisWeekProcRoot)
-	if err != nil {
-		return nil
+// procTable is one run's snapshot of the process tree. It reads every
+// <proc>/<pid> on first use and answers each later descendants call from that
+// snapshot: windowsByProject asks about every open window, and re-reading the
+// whole table each time cost about 55 ms per run on a desktop.
+type procTable struct {
+	children map[int][]procNode
+	comms    map[int]string
+}
+
+// load reads the snapshot on first use.
+func (t *procTable) load() {
+	if t.children == nil {
+		t.children, t.comms = readProcChildren()
 	}
-	children := map[int][]procNode{}
-	for _, e := range entries {
-		pid, err := strconv.Atoi(e.Name())
-		if err != nil {
-			continue
-		}
-		ppid, comm, ok := procPPidAndComm(pid)
-		if !ok {
-			continue
-		}
-		children[ppid] = append(children[ppid], procNode{pid: pid, comm: comm, startTicks: procStartTicks(pid)})
-	}
+}
+
+// comm is pid's process name in the snapshot, "" when it was not running.
+func (t *procTable) comm(pid int) string {
+	t.load()
+	return t.comms[pid]
+}
+
+// descendants returns every descendant of root (excluding root).
+func (t *procTable) descendants(root int) []procNode {
+	t.load()
 	var out []procNode
 	seen := map[int]bool{root: true}
 	var walk func(pid, depth int)
 	walk = func(pid, depth int) {
-		for _, c := range children[pid] {
+		for _, c := range t.children[pid] {
 			if seen[c.pid] {
 				continue
 			}
@@ -187,6 +194,31 @@ func procDescendants(root int) []procNode {
 	}
 	walk(root, 1)
 	return out
+}
+
+// readProcChildren reads every <proc>/<pid> once into a ppid -> children map
+// and a pid -> name map. Neither is nil, so an unreadable <proc> is not
+// re-read on every call.
+func readProcChildren() (map[int][]procNode, map[int]string) {
+	children := map[int][]procNode{}
+	comms := map[int]string{}
+	entries, err := os.ReadDir(thisWeekProcRoot)
+	if err != nil {
+		return children, comms
+	}
+	for _, e := range entries {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil {
+			continue
+		}
+		ppid, comm, ok := procPPidAndComm(pid)
+		if !ok {
+			continue
+		}
+		children[ppid] = append(children[ppid], procNode{pid: pid, comm: comm, startTicks: procStartTicks(pid)})
+		comms[pid] = comm
+	}
+	return children, comms
 }
 
 // usableProjectDir reports whether dir can be a folder the here card or a
@@ -278,16 +310,15 @@ var browserNames = map[string]bool{
 // descendants are tabs, web apps and extension helpers (native messaging
 // hosts running in their own install folder), never the folder the user is
 // working in, so a browser window is not looked into.
-func isBrowserPID(pid int) bool {
-	_, comm, ok := procPPidAndComm(pid)
-	return ok && browserNames[comm]
+func isBrowserPID(procs *procTable, pid int) bool {
+	return browserNames[procs.comm(pid)]
 }
 
-func folderOfWindowPID(pid int) (string, bool) {
-	if pid <= 0 || isBrowserPID(pid) {
+func folderOfWindowPID(procs *procTable, pid int) (string, bool) {
+	if pid <= 0 || isBrowserPID(procs, pid) {
 		return "", false
 	}
-	desc := procDescendants(pid)
+	desc := procs.descendants(pid)
 	if len(desc) == 0 {
 		return "", false
 	}
@@ -349,6 +380,8 @@ type hereResolver struct {
 	// inScope reports whether the project (key) of folder dir is in scope for
 	// BACKSTORY_PROJECT_ROOTS; nil means everything is.
 	inScope func(key, dir string) bool
+	// procs is this run's process-tree snapshot, shared by here and windows.
+	procs *procTable
 }
 
 func (r hereResolver) key(dir string) string {
@@ -396,7 +429,7 @@ func (r hereResolver) resolveHere(arg string) (*hereJSON, error) {
 		if isBackstoryPanel(w) {
 			continue
 		}
-		if dir, ok := folderOfWindowPID(w.PID); ok && r.scoped(dir) {
+		if dir, ok := folderOfWindowPID(r.procs, w.PID); ok && r.scoped(dir) {
 			h := r.here(dir, hereSourceFocused)
 			return &h, nil
 		}
@@ -508,12 +541,12 @@ func tmuxSessionPanes(tty string, server []string) []windowFolder {
 // foldersOfWindowPID lists every folder a window's terminal holds: all panes
 // of each attached tmux client's session, else (no tmux) the folder
 // folderOfWindowPID resolves.
-func foldersOfWindowPID(pid int) []windowFolder {
+func foldersOfWindowPID(procs *procTable, pid int) []windowFolder {
 	if pid <= 0 {
 		return nil
 	}
 	var out []windowFolder
-	for _, d := range procDescendants(pid) {
+	for _, d := range procs.descendants(pid) {
 		if !isTmuxClient(d.comm) {
 			continue
 		}
@@ -526,7 +559,7 @@ func foldersOfWindowPID(pid int) []windowFolder {
 	if len(out) > 0 {
 		return out
 	}
-	if dir, ok := folderOfWindowPID(pid); ok {
+	if dir, ok := folderOfWindowPID(procs, pid); ok {
 		return []windowFolder{{Dir: dir, Active: true}}
 	}
 	return nil
@@ -548,7 +581,7 @@ func (r hereResolver) windowsByProject() map[string]windowRef {
 		}
 		// Within this window: key → chosen folder (active pane wins, else first).
 		inWindow := map[string]windowFolder{}
-		for _, f := range foldersOfWindowPID(c.PID) {
+		for _, f := range foldersOfWindowPID(r.procs, c.PID) {
 			key := r.key(f.Dir)
 			if prev, seen := inWindow[key]; seen && (prev.Active || !f.Active) {
 				continue
