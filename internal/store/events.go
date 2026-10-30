@@ -363,26 +363,38 @@ func duplicateRunKeysQuery(n int) string {
 }
 
 // duplicateRunKeys maps session id -> run key for each of ids whose (agent,
-// harness_session_id) is shared by more than one session row.
+// harness_session_id) is shared by more than one session row. It asks in
+// chunks of locationQueryChunk ids, so any number of sessions stays under
+// SQLite's bound-variable limit.
 func (s *Store) duplicateRunKeys(ids []string) (map[string]string, error) {
+	keys := map[string]string{}
+	for start := 0; start < len(ids); start += locationQueryChunk {
+		if err := s.addDuplicateRunKeys(keys, ids[start:min(start+locationQueryChunk, len(ids))]); err != nil {
+			return nil, err
+		}
+	}
+	return keys, nil
+}
+
+// addDuplicateRunKeys adds to keys the run keys of one chunk of session ids.
+func (s *Store) addDuplicateRunKeys(keys map[string]string, ids []string) error {
 	args := make([]any, len(ids))
 	for i, id := range ids {
 		args[i] = id
 	}
 	rows, err := s.db.Query(duplicateRunKeysQuery(len(ids)), args...)
 	if err != nil {
-		return nil, fmt.Errorf("store: duplicate run keys: %w", err)
+		return fmt.Errorf("store: duplicate run keys: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
-	keys := map[string]string{}
 	for rows.Next() {
 		var id, key string
 		if err := rows.Scan(&id, &key); err != nil {
-			return nil, fmt.Errorf("store: scan duplicate run key: %w", err)
+			return fmt.Errorf("store: scan duplicate run key: %w", err)
 		}
 		keys[id] = key
 	}
-	return keys, rows.Err()
+	return rows.Err()
 }
 
 func (s *Store) stampRunKeys(events []TimelineEvent) error {

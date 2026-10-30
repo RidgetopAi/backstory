@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -75,5 +76,42 @@ func TestEventsCarryARunKeyOnlyForDuplicateRuns(t *testing.T) {
 		if g, ok := got[id]; !ok || g != w {
 			t.Errorf("RunKey of session %s = %q (seen %v); want %q", id, g, ok, w)
 		}
+	}
+}
+
+// TestDuplicateRunKeysPastSQLiteVariableLimit: stampRunKeys runs on every
+// event read with one id per session read, and SQLite caps a statement at
+// 32,766 bound variables. A read covering more sessions than that (a long-lived
+// project's full timeline) must still answer, and a twin pair split across the
+// chunks still shares its run key.
+func TestDuplicateRunKeysPastSQLiteVariableLimit(t *testing.T) {
+	s := mustOpen(t, tempDBPath(t))
+	key := "/srv/repo/.git"
+	mustUpsertProject(t, s, key)
+	start := func() string {
+		t.Helper()
+		id, err := s.StartSession(StartSessionParams{
+			Agent: "claude", HarnessSessionID: "run-1", CWD: "/srv/repo", ProjectKey: key, StartedAt: time.Now(), Origin: OriginLive,
+		})
+		if err != nil {
+			t.Fatalf("StartSession: %v", err)
+		}
+		return id
+	}
+	first, last := start(), start()
+
+	ids := []string{first}
+	for i := 0; len(ids) < 33_000; i++ {
+		ids = append(ids, fmt.Sprintf("no-such-session-%d", i))
+	}
+	ids = append(ids, last)
+
+	keys, err := s.duplicateRunKeys(ids)
+	if err != nil {
+		t.Fatalf("duplicateRunKeys(%d ids): %v", len(ids), err)
+	}
+	want := "claude\x1frun-1"
+	if keys[first] != want || keys[last] != want || len(keys) != 2 {
+		t.Errorf("keys = %d entries, first %q, last %q; want both %q and nothing else", len(keys), keys[first], keys[last], want)
 	}
 }
