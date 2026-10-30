@@ -141,7 +141,28 @@ Item {
 
   function moveSelection(delta) {
     if (root.navRows.length === 0) return
+    // Up on the first row scrolls the whole card to the top, so the HERE
+    // card and Needs you above Recent are in view again.
+    if (delta < 0 && root.selectedIndex === 0) {
+      scroller.contentY = 0
+      return
+    }
     root.selectedIndex = Math.max(0, Math.min(root.navRows.length - 1, root.selectedIndex + delta))
+    var row = root.selectedRowIn(recentSection)
+    if (row) root.revealInScroller(row)
+  }
+
+  // The visible row (project, group or agent sub-row) whose `selected` is
+  // set, so a key move can scroll it into view; null when there is none.
+  function selectedRowIn(item) {
+    for (var i = 0; i < item.children.length; i++) {
+      var child = item.children[i]
+      if (!child.visible) continue
+      if (child.selected === true) return child
+      var found = root.selectedRowIn(child)
+      if (found) return found
+    }
+    return null
   }
 
   function summaryMemory(summary) {
@@ -198,6 +219,7 @@ Item {
   readonly property Item testContentItem: panel.contentItem
   readonly property var testWindow: panel
   readonly property Item testKeyItem: card
+  readonly property Item testScroller: scroller
   readonly property real testImplicitWidth: panel.implicitWidth
   readonly property real testImplicitHeight: panel.implicitHeight
 
@@ -242,9 +264,13 @@ Item {
 
   // Scrolls the card's Flickable so `target` lies inside its visible
   // viewport: the user never scrolls to find what a click just produced. An
-  // item taller than the viewport is shown from its top.
+  // item taller than the viewport is shown from its top. Every positioner
+  // between target and the content is laid out first, innermost first: a
+  // row's agent sub-rows sit in a nested Column that is not yet positioned
+  // right after the row expands.
   function revealInScroller(target) {
-    contentColumn.forceLayout()
+    for (var p = target.parent; p && p !== scroller.contentItem; p = p.parent)
+      if (typeof p.forceLayout === "function") p.forceLayout()
     var top = target.mapToItem(scroller.contentItem, 0, 0).y
     var bottom = top + target.height
     var y = scroller.contentY
@@ -427,6 +453,7 @@ Item {
 
               PanelSectionHeader { text: "RECENT"; foreground: Color.popups.text }
               WhereLeftOffSection {
+                id: recentSection
                 rows: root.whereLeftOffRows
                 week: root.weekDays
                 expandedGroups: root.expandedGroups
