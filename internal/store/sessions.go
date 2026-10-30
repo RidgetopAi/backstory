@@ -375,41 +375,8 @@ func (s *Store) AgentActivityForSessions(ids []string, since, asOf time.Time) ([
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	idPH := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
-	agentPH := strings.TrimSuffix(strings.Repeat("?,", len(ident.KnownHarnesses)), ",")
-	//nolint:gosec // only "?" placeholders are concatenated; every value is bound
-	query := `
-		WITH act AS (
-			SELECT COALESCE(NULLIF(harness_session_id, ''), id) AS sid, agent, started_at AS ts FROM sessions
-				WHERE id IN (` + idPH + `) AND agent IN (` + agentPH + `)
-			UNION ALL
-			SELECT COALESCE(NULLIF(s.harness_session_id, ''), s.id), s.agent, e.ts FROM timeline_events e
-				JOIN sessions s ON s.id = e.session_id
-				WHERE e.session_id IN (` + idPH + `) AND s.agent IN (` + agentPH + `)
-			UNION ALL
-			SELECT COALESCE(NULLIF(s.harness_session_id, ''), s.id), s.agent, r.ts FROM records r
-				JOIN sessions s ON s.id = r.session_id
-				WHERE r.session_id IN (` + idPH + `) AND s.agent IN (` + agentPH + `)
-		), per AS (
-			SELECT sid, agent, MAX(ts) AS m FROM act WHERE ts <= ? GROUP BY sid, agent
-		)
-		SELECT agent, MAX(m), COUNT(*) FROM per WHERE m >= ?
-		GROUP BY agent ORDER BY MAX(m) DESC, agent ASC`
-	idArgs := make([]any, len(ids))
-	for i, id := range ids {
-		idArgs[i] = id
-	}
-	agentArgs := make([]any, len(ident.KnownHarnesses))
-	for i, a := range ident.KnownHarnesses {
-		agentArgs[i] = a
-	}
-	var full []any
-	for i := 0; i < 3; i++ {
-		full = append(full, idArgs...)
-		full = append(full, agentArgs...)
-	}
-	full = append(full, tsToNanos(asOf), tsToNanos(since))
-	rows, err := s.db.Query(query, full...)
+	query, args := agentActivityQuery(ids, ident.KnownHarnesses, tsToNanos(asOf), tsToNanos(since))
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("store: agent activity: %w", err)
 	}
@@ -427,6 +394,47 @@ func (s *Store) AgentActivityForSessions(ids []string, since, asOf time.Time) ([
 		out = append(out, a)
 	}
 	return out, rows.Err()
+}
+
+// agentActivityQuery is AgentActivityForSessions' query and its arguments, in
+// order: per agent, the latest activity at or before asOf and how many runs
+// were active at or after since.
+func agentActivityQuery(ids, agents []string, asOf, since int64) (string, []any) {
+	idPH := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+	agentPH := strings.TrimSuffix(strings.Repeat("?,", len(agents)), ",")
+	//nolint:gosec // only "?" placeholders are concatenated; every value is bound
+	query := `
+		WITH act AS (
+			SELECT COALESCE(NULLIF(harness_session_id, ''), id) AS sid, agent, started_at AS ts FROM sessions
+				WHERE id IN (` + idPH + `) AND agent IN (` + agentPH + `)
+			UNION ALL
+			SELECT COALESCE(NULLIF(s.harness_session_id, ''), s.id), s.agent,
+				(SELECT MAX(e.ts) FROM timeline_events e WHERE e.session_id = s.id AND e.ts <= ?) FROM sessions s
+				WHERE s.id IN (` + idPH + `) AND s.agent IN (` + agentPH + `)
+			UNION ALL
+			SELECT COALESCE(NULLIF(s.harness_session_id, ''), s.id), s.agent, r.ts FROM records r
+				JOIN sessions s ON s.id = r.session_id
+				WHERE r.session_id IN (` + idPH + `) AND s.agent IN (` + agentPH + `)
+		), per AS (
+			SELECT sid, agent, MAX(ts) AS m FROM act WHERE ts <= ? GROUP BY sid, agent
+		)
+		SELECT agent, MAX(m), COUNT(*) FROM per WHERE m >= ?
+		GROUP BY agent ORDER BY MAX(m) DESC, agent ASC`
+	var args []any
+	for i := 0; i < 3; i++ {
+		if i == 1 {
+			// The events part's latest-event bound comes first: it sits in
+			// that part's select list, before its WHERE.
+			args = append(args, asOf)
+		}
+		for _, id := range ids {
+			args = append(args, id)
+		}
+		for _, a := range agents {
+			args = append(args, a)
+		}
+	}
+	return query, append(args, asOf, since)
 }
 
 // ShellSessionIDs returns the id of every session minted for an interactive
