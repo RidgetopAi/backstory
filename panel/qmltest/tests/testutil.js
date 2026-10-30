@@ -47,6 +47,15 @@ function collectOutOfBounds(root, reference, boundsWidth, boundsHeight, epsilon)
   return bad
 }
 
+// collectClipped returns, as collectOutOfBounds does, the visible items
+// under root that its first Flickable cuts off. The panel's scroller clips
+// panelPadding inside the window, so an item can lie inside the window and
+// still be cut off.
+function collectClipped(root) {
+  var scroller = findFirst(root, function (n) { return n.flickableDirection !== undefined })
+  return collectOutOfBounds(scroller.contentItem, scroller, scroller.width, scroller.height)
+}
+
 // scrolls reports whether node sits inside a Flickable's content (any
 // ancestor exposing contentHeight/flickableDirection other than node itself).
 function scrolls(node) {

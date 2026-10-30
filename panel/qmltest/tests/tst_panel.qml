@@ -172,10 +172,21 @@ TestCase {
       + JSON.stringify(outOfBounds).slice(0, 2000))
   }
 
+  function assertWithinScroller(label) {
+    function clipped() { return TestUtil.collectClipped(panel.testContentItem) }
+    act.quiescent(clipped, label + ": layout never settled")
+    compare(JSON.stringify(clipped()), "[]", label + ": item(s) clipped by the scroller")
+  }
+
   function test_layout_within_bounds_panel_open() {
     openWith(readFixture(goldenUrl))
     compare(panel.groupEditorOpen, false)
     assertLayoutWithinBounds("panel open, group editor closed")
+  }
+
+  function test_layout_within_scroller_panel_open() {
+    openWith(readFixture(goldenUrl))
+    assertWithinScroller("panel open")
   }
 
   function test_layout_within_bounds_group_editor_open() {

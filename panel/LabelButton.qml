@@ -20,9 +20,17 @@ Rectangle {
   border.width: root.primary ? 0 : 1
   border.color: Color.popups.border
 
+  // Held narrower than its natural width, the label fits as qs.Ui Button's
+  // does: it spends half the padding, then shrinks to fit, and elides only
+  // when even the smallest size does not.
   Text {
     id: text
     anchors.centerIn: parent
+    width: Math.max(0, Math.min(implicitWidth, root.width - Style.spacing.rowPaddingX))
+    fontSizeMode: Text.HorizontalFit
+    minimumPixelSize: Math.round(Style.font.bodySmall * 0.75)
+    elide: Text.ElideRight
+    horizontalAlignment: Text.AlignHCenter
     textFormat: Text.PlainText
     text: root.label
     font.family: Style.font.family

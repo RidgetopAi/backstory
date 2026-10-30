@@ -10,6 +10,7 @@ import "js/format.js" as Format
 // chips, the Next line and the three actions.
 Rectangle {
   id: root
+  objectName: "hereCard"
 
   property var summary: null
   property string hereName: ""
@@ -118,12 +119,22 @@ Rectangle {
       wrapMode: Text.WordWrap
     }
 
+    // Continue takes the width the other two leave, so the row ends at the
+    // card's inner edge whatever the agent's name.
     Row {
+      id: buttons
+      width: parent.width
       spacing: Style.spacing.controlGap
 
-      LabelButton { label: root.continueLabel; primary: true; onClicked: root.continueRequested() }
-      LabelButton { label: "Terminal"; onClicked: root.terminalRequested() }
-      LabelButton { label: "Memory"; onClicked: root.memoryRequested() }
+      LabelButton {
+        objectName: "hereContinue"
+        width: buttons.width - terminalButton.width - memoryButton.width - buttons.spacing * 2
+        label: root.continueLabel
+        primary: true
+        onClicked: root.continueRequested()
+      }
+      LabelButton { id: terminalButton; label: "Terminal"; onClicked: root.terminalRequested() }
+      LabelButton { id: memoryButton; objectName: "hereMemory"; label: "Memory"; onClicked: root.memoryRequested() }
     }
   }
 }

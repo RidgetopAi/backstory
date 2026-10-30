@@ -2,6 +2,7 @@ import QtQuick
 import QtTest
 import Quickshell
 import Quickshell.Io
+import qs.Commons
 import "testutil.js" as TestUtil
 import "../../js/launchers.js" as Launchers
 import "../../js/format.js" as Format
@@ -75,6 +76,8 @@ TestCase {
     if (loader) loader.destroy()
     loader = null
     panel = null
+    Style.fontScale = 1
+    Style.spacingScaleWithFont = true
   }
 
   function texts() { return TestUtil.collectVisibleTexts(panel.testContentItem) }
@@ -119,6 +122,60 @@ TestCase {
     verify(hasText("Memory"))
     verify(textContaining("sessions this week").indexOf("19 sessions this week") >= 0, "facts line: " + textContaining("sessions this week"))
     for (var i = 0; i < tree.length; i++) verify(tree[i].toUpperCase().indexOf("THE WEEK") < 0, "found 'THE WEEK': " + tree[i])
+  }
+
+  // The card's buttons span its inner width: the last ends as far from the
+  // card's right edge as the first starts from its left and the row sits
+  // from its bottom, whether the Continue label is long or short.
+  function test_here_card_buttons_pad_like_the_card() {
+    open(payload())
+    assertHereCardGaps("Continue in Claude Code")
+    named("hereCard").continueLabel = "Go"
+    assertHereCardGaps("Go")
+  }
+
+  function named(name) { return TestUtil.findFirst(panel.testContentItem, function (n) { return n.objectName === name }) }
+
+  function assertHereCardGaps(desc) {
+    var card = named("hereCard")
+    act.quiescent(function () { return [named("hereMemory").x, named("hereContinue").width] }, desc + ": never settled")
+    var first = named("hereContinue").mapToItem(card, 0, 0)
+    var lastButton = named("hereMemory")
+    var last = lastButton.mapToItem(card, 0, 0)
+    var left = first.x
+    fuzzyCompare(card.width - (last.x + lastButton.width), left, 0.5, desc + ": right gap vs left gap")
+    fuzzyCompare(card.height - (last.y + lastButton.height), left, 0.5, desc + ": bottom gap vs left gap")
+  }
+
+  // Text sizes a theme can set (`[font] base-size`, 12 by default), and 16
+  // with spacing that does not follow it (`[spacing] scale-with-font = false`).
+  function test_layout_at_text_sizes_data() {
+    return [
+      { tag: "base-size 10", fontScale: 10 / 12, withFont: true },
+      { tag: "base-size 16", fontScale: 16 / 12, withFont: true },
+      { tag: "base-size 20", fontScale: 20 / 12, withFont: true },
+      { tag: "base-size 16, fixed spacing", fontScale: 16 / 12, withFont: false }
+    ]
+  }
+
+  // Nothing is cut off by the scroller (Dismiss included), the HERE card's
+  // buttons pad like the card, and Continue's label lies inside its button
+  // (shrunk or elided as qs.Ui Button does when there is too little room).
+  function test_layout_at_text_sizes(row) {
+    cleanup()
+    Style.fontScale = row.fontScale
+    Style.spacingScaleWithFont = row.withFont
+    init()
+    open(payload(function (d) {
+      d.attention.push({ kind: "possibly-stale-handoff", project_key: "foo", reason: "foo: handoff possibly stale — cargo test failed (exit 101) after it", handoff_id: "h-foo", evidence_ids: ["7"] })
+    }))
+    act.quiescent(function () { return TestUtil.collectClipped(panel.testContentItem) }, row.tag + ": never settled")
+    compare(JSON.stringify(TestUtil.collectClipped(panel.testContentItem)), "[]", row.tag + ": clipped by the scroller")
+    assertHereCardGaps(row.tag)
+    var button = named("hereContinue")
+    var label = TestUtil.findFirst(button, function (n) { return n.text === "Continue in Claude Code" })
+    verify(label.x >= 0 && label.x + label.width <= button.width && label.paintedWidth <= label.width + 0.5,
+      row.tag + ": Continue label (x " + label.x + ", " + label.paintedWidth + " painted in " + label.width + ") outside its button (" + button.width + ")")
   }
 
   function test_no_here_means_no_card() {
