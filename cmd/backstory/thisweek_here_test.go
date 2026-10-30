@@ -558,3 +558,101 @@ func TestHereAutoPlainWindowHasNoTmuxTarget(t *testing.T) {
 		t.Fatalf("tmux = %q, want empty", tm)
 	}
 }
+
+// windowsByKey maps each where-you-left-off project's key to its window.
+func windowsByKey(t *testing.T, m map[string]any) map[string]string {
+	t.Helper()
+	got := map[string]string{}
+	rows, _ := m["where_left_off"].([]any)
+	for _, r := range rows {
+		row, _ := r.(map[string]any)
+		ps := []any{row["project"]}
+		if row["project"] == nil {
+			ps, _ = row["children"].([]any)
+		}
+		for _, p := range ps {
+			pm, _ := p.(map[string]any)
+			w, _ := pm["window"].(string)
+			pk, _ := pm["project_key"].(string)
+			got[pk] = w
+		}
+	}
+	return got
+}
+
+// TestHereAutoSkipsBrowserWindows: a browser's extensions start helper
+// processes (native messaging hosts) inside the browser's process tree, in
+// their own install folder. Seen on a desktop: every Chromium window
+// (tabs and web apps alike) reported a browser extension helper's install
+// folder, a git repo, as the project in front of the user. A window whose
+// own program is a browser is never looked into: `here` passes over it to
+// the next window in focus history (a terminal in bar here), and no project
+// gets the browser as its window.
+func TestHereAutoSkipsBrowserWindows(t *testing.T) {
+	e := newHereEnv(t)
+	clients := `[
+	 {"address":"0xch","class":"chrome-x.com__-Default","pid":500,"focusHistoryID":0},
+	 {"address":"0xf1","class":"ghostty","pid":401,"focusHistoryID":1}]`
+	e.fakeHyprctl(t, `{"address":"0xch","class":"chrome-x.com__-Default","pid":500}`, strings.ReplaceAll(clients, "\n", " "))
+	e.addProc(t, 500, 1, "chromium", e.home, "")
+	e.addProc(t, 501, 500, "native-msg-host", e.foo, "")
+	e.addProc(t, 401, 1, "ghostty", e.home, "")
+	e.addProc(t, 411, 401, "bash", e.bar, "")
+	m := mustRun(t, e, "--here", "auto")
+	if h := hereOf(t, m); h["project_key"] != e.barKey || h["source"] != "focused" {
+		t.Fatalf("here = %v; want bar, the next window in focus history, not the browser helper's folder", h)
+	}
+	got := windowsByKey(t, m)
+	if w := got[e.fooKey]; w != "" {
+		t.Errorf("foo's window = %q; want \"\" (only a browser helper sits in foo)", w)
+	}
+	if w := got[e.barKey]; w != "0xf1" {
+		t.Errorf("bar's window = %q; want the terminal 0xf1", w)
+	}
+}
+
+// TestHereAutoWalksFocusHistory: `here` is the most recently focused window
+// whose folder is an in-scope project. Backstory's own panel (focused the
+// moment it opens, so a bar click or the panel's own refresh saw it), a
+// browser, and a window outside BACKSTORY_PROJECT_ROOTS are passed over in
+// Hyprland's focus history instead of dropping straight to the recent
+// fallback. Seen on a desktop: a left click on the bar opened the panel and
+// the bar's refresh then named the most recent project, not the pane the
+// user had come from.
+func TestHereAutoWalksFocusHistory(t *testing.T) {
+	setup := func(t *testing.T) *hereEnv {
+		t.Helper()
+		e := newHereEnv(t)
+		clients := `[
+		 {"address":"0xb","class":"ghostty","title":"bar","pid":401,"focusHistoryID":3},
+		 {"address":"0xp","class":"org.quickshell","title":"backstory","pid":900,"focusHistoryID":0},
+		 {"address":"0xq","class":"ghostty","title":"qux","pid":402,"focusHistoryID":2},
+		 {"address":"0xch","class":"chromium","title":"web","pid":500,"focusHistoryID":1}]`
+		e.fakeHyprctl(t, `{"address":"0xp","class":"org.quickshell","title":"backstory","pid":900}`, strings.ReplaceAll(clients, "\n", " "))
+		e.addProc(t, 900, 1, "quickshell", e.home, "")
+		e.addProc(t, 901, 900, "plugin-helper", e.foo, "")
+		e.addProc(t, 500, 1, "chromium", e.home, "")
+		e.addProc(t, 501, 500, "native-msg-host", e.foo, "")
+		e.addProc(t, 402, 1, "ghostty", e.home, "")
+		e.addProc(t, 412, 402, "bash", e.qux, "/dev/pts/2")
+		e.addProc(t, 401, 1, "ghostty", e.home, "")
+		e.addProc(t, 411, 401, "bash", e.bar, "/dev/pts/1")
+		return e
+	}
+
+	t.Run("passes over the panel and a browser", func(t *testing.T) {
+		e := setup(t)
+		h := hereOf(t, mustRun(t, e, "--here", "auto"))
+		if h["project_key"] != e.quxKey || h["source"] != "focused" {
+			t.Fatalf("here = %v; want qux, the most recently focused project window", h)
+		}
+	})
+	t.Run("passes over an out-of-scope window too", func(t *testing.T) {
+		e := setup(t)
+		t.Setenv("BACKSTORY_PROJECT_ROOTS", e.foo+string(os.PathListSeparator)+e.bar)
+		h := hereOf(t, mustRun(t, e, "--here", "auto"))
+		if h["project_key"] != e.barKey || h["source"] != "focused" {
+			t.Fatalf("here = %v; want bar (qux is out of scope)", h)
+		}
+	})
+}

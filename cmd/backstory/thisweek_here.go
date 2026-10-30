@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -70,6 +71,7 @@ func runCommand(name string, args ...string) ([]byte, error) {
 type hyprWindow struct {
 	Address        string `json:"address"`
 	Class          string `json:"class"`
+	Title          string `json:"title"`
 	PID            int    `json:"pid"`
 	FocusHistoryID int    `json:"focusHistoryID"`
 }
@@ -265,8 +267,24 @@ func isTmuxClient(comm string) bool {
 // path of a tmux client descendant (asked of tmux by the client's tty), else
 // the cwd of the deepest descendant (ties → newest). ok is false when the
 // window has no descendant or no cwd is readable.
+// browserNames are the process names (comm) of the browsers Omarchy tags
+// (default/hypr/apps/browser.lua), with the -bin names some packages use.
+var browserNames = map[string]bool{
+	"chromium": true, "chrome": true, "brave": true, "vivaldi-bin": true, "msedge": true, "helium": true,
+	"firefox": true, "firefox-bin": true, "zen": true, "zen-bin": true, "librewolf": true,
+}
+
+// isBrowserPID reports whether the window process pid is a browser. Its
+// descendants are tabs, web apps and extension helpers (native messaging
+// hosts running in their own install folder), never the folder the user is
+// working in, so a browser window is not looked into.
+func isBrowserPID(pid int) bool {
+	_, comm, ok := procPPidAndComm(pid)
+	return ok && browserNames[comm]
+}
+
 func folderOfWindowPID(pid int) (string, bool) {
-	if pid <= 0 {
+	if pid <= 0 || isBrowserPID(pid) {
 		return "", false
 	}
 	desc := procDescendants(pid)
@@ -374,13 +392,49 @@ func (r hereResolver) resolveHere(arg string) (*hereJSON, error) {
 		}
 		return r.recent(), nil
 	}
-	if w, err := hyprActiveWindow(); err == nil {
+	for _, w := range focusOrder() {
+		if isBackstoryPanel(w) {
+			continue
+		}
 		if dir, ok := folderOfWindowPID(w.PID); ok && r.scoped(dir) {
 			h := r.here(dir, hereSourceFocused)
 			return &h, nil
 		}
 	}
 	return r.recent(), nil
+}
+
+// focusOrder is the active window, then every window by Hyprland's focus
+// history (focusHistoryID 0 = most recent), each once. `here` is the first
+// of them whose folder is an in-scope project: Backstory's own panel, a
+// browser or an out-of-scope window in front is passed over, not taken as
+// "no project here".
+func focusOrder() []hyprWindow {
+	var out []hyprWindow
+	if w, err := hyprActiveWindow(); err == nil {
+		out = append(out, w)
+	}
+	if ws, err := hyprClients(); err == nil {
+		sort.SliceStable(ws, func(i, j int) bool { return ws[i].FocusHistoryID < ws[j].FocusHistoryID })
+		for _, w := range ws {
+			if len(out) == 0 || w.Address != out[0].Address {
+				out = append(out, w)
+			}
+		}
+	}
+	return out
+}
+
+// Backstory's own panel window, as ops/hyprland/backstory.lua matches it
+// (Panel.qml's windowTitle). It belongs to the Quickshell process, whose
+// descendants are the whole shell's helpers, never the user's folder.
+const (
+	backstoryPanelClass = "org.quickshell"
+	backstoryPanelTitle = "backstory"
+)
+
+func isBackstoryPanel(w hyprWindow) bool {
+	return w.Class == backstoryPanelClass && w.Title == backstoryPanelTitle
 }
 
 // recent is the most recently active where-you-left-off project, which Build
