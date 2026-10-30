@@ -26,6 +26,12 @@ Item {
   property bool opened: false
   property var data: null
   property bool loading: false
+  // A fresh panel (the shell unloads it on a bar or keybind close) has no
+  // data until this-week first answers; until then it shows no empty state.
+  // Not `data === null`: on Qt 6.12 an unassigned `data` reads as Item's own
+  // `data` list.
+  property bool hasLoaded: false
+  readonly property bool waitingForFirstData: root.loading && !root.hasLoaded
   property bool groupEditorOpen: false
   property bool memoryOpen: false
   property bool helpOpen: false
@@ -302,6 +308,7 @@ Item {
     stdout: StdioCollector {
       onStreamFinished: {
         root.loading = false
+        root.hasLoaded = true
         try {
           root.data = JSON.parse(text || "{}")
           root.resetSelection()
@@ -471,6 +478,7 @@ Item {
               WhereLeftOffSection {
                 id: recentSection
                 rows: root.whereLeftOffRows
+                waiting: root.waitingForFirstData
                 week: root.weekDays
                 expandedGroups: root.expandedGroups
                 selectedId: root.selectedId
@@ -491,6 +499,7 @@ Item {
               width: parent.width
               textFormat: Text.PlainText
               text: root.summaryText
+              visible: !root.waitingForFirstData
               font.family: Style.font.family
               font.pixelSize: Style.font.caption
               color: Qt.darker(Color.popups.text, 1.3)

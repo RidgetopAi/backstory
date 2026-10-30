@@ -151,6 +151,31 @@ TestCase {
     compare(panel.weekDays.length, 0)
   }
 
+  // A fresh panel (the shell unloads it on a bar or keybind close) has no
+  // data until this-week answers. It must not claim "Nothing this week."
+  // meanwhile: filmed, the empty card showed for 40-70 ms before the data.
+  // The panel here is fresh, as the shell creates it; nothing is assigned to
+  // `data`, which on Qt 6.12 reads as Item's own `data` list, not null, so
+  // "no data yet" must not be tested by `data === null`.
+  function test_no_empty_state_while_first_load_runs() {
+    panel.loading = true
+    var texts = TestUtil.collectVisibleTexts(panel.testContentItem)
+    verify(texts.indexOf("Nothing this week.") < 0, "empty state shown while the first load runs: " + texts)
+    verify(texts.indexOf(panel.summaryText) < 0, "summary '" + panel.summaryText + "' shown while the first load runs")
+
+    panel.loading = false
+    texts = TestUtil.collectVisibleTexts(panel.testContentItem)
+    verify(texts.indexOf("Nothing this week.") >= 0, "a first load that ends with no answer shows the empty state: " + texts)
+
+    openWith("{}")
+    texts = TestUtil.collectVisibleTexts(panel.testContentItem)
+    verify(texts.indexOf("Nothing this week.") >= 0, "an empty answer shows the empty state: " + texts)
+
+    panel.loading = true
+    texts = TestUtil.collectVisibleTexts(panel.testContentItem)
+    verify(texts.indexOf(panel.summaryText) >= 0, "a later refresh hid the summary: " + texts)
+  }
+
   function test_handles_all_empty_arrays_payload() {
     openWith(emptyArraysPayload)
     compare(panel.attentionItems.length, 0)
