@@ -136,6 +136,7 @@ CREATE TABLE timeline_events (
 );
 CREATE INDEX timeline_session ON timeline_events(session_id, id);
 CREATE INDEX timeline_ts      ON timeline_events(ts);
+CREATE INDEX timeline_session_ts ON timeline_events(session_id, ts);  -- a session's events by time (migration 0024)
 
 CREATE TABLE records (
   id             TEXT PRIMARY KEY,
