@@ -123,6 +123,7 @@ CREATE TABLE sessions (
   origin_device       TEXT                 -- NULL = this device (migration 0016)
 );
 CREATE INDEX sessions_project ON sessions(project_key);  -- per-project lookups in this-week (migration 0023)
+CREATE INDEX sessions_harness ON sessions(agent, harness_session_id);  -- run-key twin checks (migration 0025)
 
 CREATE TABLE timeline_events (
   id          INTEGER PRIMARY KEY,         -- rowid: the ONLY ordering
