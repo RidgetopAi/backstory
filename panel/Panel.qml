@@ -141,6 +141,12 @@ Item {
 
   function moveSelection(delta) {
     if (root.navRows.length === 0) return
+    // Up on the first row scrolls the whole card to the top, so the HERE
+    // card and Needs you above Recent are in view again.
+    if (delta < 0 && root.selectedIndex === 0) {
+      scroller.contentY = 0
+      return
+    }
     root.selectedIndex = Math.max(0, Math.min(root.navRows.length - 1, root.selectedIndex + delta))
     var row = root.selectedRowIn(recentSection)
     if (row) root.revealInScroller(row)

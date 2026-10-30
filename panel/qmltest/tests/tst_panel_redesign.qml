@@ -321,23 +321,27 @@ TestCase {
     act.pressKey(key)
   }
 
-  // j/k (and the arrows) move the highlight through Recent; the highlighted
-  // row must stay in view, scrolling the card as it goes past either edge.
-  function test_keyboard_selection_stays_in_view() {
-    open(payload(function (d) {
+  // The fixture plus 25 extra Recent rows, so the card overflows; the last
+  // row has six agents, so its expanded sub-rows run past the bottom edge.
+  function longRecentPayload() {
+    return payload(function (d) {
       for (var i = 0; i < 25; i++) {
         var row = JSON.parse(JSON.stringify(d.where_left_off[0]))
         row.project.project_key = "extra-" + i
         row.project.display_name = "extra-" + i
         row.project.window = ""
-        // The last row has six agents, so walking into its expanded
-        // sub-rows must scroll past the bottom edge too.
         if (i === 24) row.project.agents = ["claude", "codex", "copilot", "hermes", "opencode", "pi"].map(function (a) {
           return { agent: a, last_activity: row.project.agents[0].last_activity, session_count: 1 }
         })
         d.where_left_off.push(row)
       }
-    }))
+    })
+  }
+
+  // j/k (and the arrows) move the highlight through Recent; the highlighted
+  // row must stay in view, scrolling the card as it goes past either edge.
+  function test_keyboard_selection_stays_in_view() {
+    open(longRecentPayload())
     var scroller = panel.testScroller
     verify(scroller.contentHeight > scroller.height + 200, "fixture does not overflow the card: content " + scroller.contentHeight + ", view " + scroller.height)
     function checkInView(step) {
@@ -367,6 +371,25 @@ TestCase {
       act.settledEq(panel, "selectedIndex", k)
       checkInView("k to row " + k)
     }
+  }
+
+  // Back on the first Recent row, up (k or the arrow) scrolls the whole card
+  // to the top, so the HERE card and Needs you are in view again.
+  function test_up_on_first_row_scrolls_to_top() {
+    open(longRecentPayload())
+    var scroller = panel.testScroller
+    var last = panel.navRows.length - 1
+    for (var i = 1; i <= last; i++) press(Qt.Key_J)
+    act.settledEq(panel, "selectedIndex", last)
+    for (var k = last - 1; k >= 0; k--) press(Qt.Key_K)
+    act.settledEq(panel, "selectedIndex", 0)
+    verify(scroller.contentY > 0, "first row already shows the top of the card (contentY " + scroller.contentY + "): fixture too short")
+    press(Qt.Key_K)
+    act.settledEq(scroller, "contentY", 0)
+    compare(panel.selectedIndex, 0)
+    press(Qt.Key_Up)
+    act.settledEq(scroller, "contentY", 0)
+    compare(panel.selectedIndex, 0)
   }
 
   function test_keys_select_continue_terminal_memory_and_close() {
