@@ -15,6 +15,12 @@ o.window(BACKSTORY, {
   float = true,
   size = { 380, 640 },
   move = { "(monitor_w-window_w-20)", "(monitor_h*0.04)" },
+  -- No Hyprland window animation, as for Omarchy's own panels
+  -- (apps/omarchy-shell.lua); Panel.qml fades the card in itself, as they do.
+  no_anim = true,
+  -- No shadow either: Omarchy's panels have no Hyprland decoration, and without
+  -- the close animation a theme's shadow (a focus glow) stayed on screen.
+  no_shadow = true,
 })
 
 -- Keybind: toggle the This Week panel (the bar widget runs this same command).

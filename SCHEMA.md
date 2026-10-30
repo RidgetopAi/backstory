@@ -122,6 +122,8 @@ CREATE TABLE sessions (
   exit_kind           TEXT,                -- NULL while live or unobserved
   origin_device       TEXT                 -- NULL = this device (migration 0016)
 );
+CREATE INDEX sessions_project ON sessions(project_key);  -- per-project lookups in this-week (migration 0023)
+CREATE INDEX sessions_harness ON sessions(agent, harness_session_id);  -- run-key twin checks (migration 0025)
 
 CREATE TABLE timeline_events (
   id          INTEGER PRIMARY KEY,         -- rowid: the ONLY ordering
@@ -135,6 +137,7 @@ CREATE TABLE timeline_events (
 );
 CREATE INDEX timeline_session ON timeline_events(session_id, id);
 CREATE INDEX timeline_ts      ON timeline_events(ts);
+CREATE INDEX timeline_session_ts ON timeline_events(session_id, ts);  -- a session's events by time (migration 0024)
 
 CREATE TABLE records (
   id             TEXT PRIMARY KEY,

@@ -26,6 +26,12 @@ Item {
   property bool opened: false
   property var data: null
   property bool loading: false
+  // A fresh panel (the shell unloads it on a bar or keybind close) has no
+  // data until this-week first answers; until then it shows no empty state.
+  // Not `data === null`: on Qt 6.12 an unassigned `data` reads as Item's own
+  // `data` list.
+  property bool hasLoaded: false
+  readonly property bool waitingForFirstData: root.loading && !root.hasLoaded
   property bool groupEditorOpen: false
   property bool memoryOpen: false
   property bool helpOpen: false
@@ -302,6 +308,7 @@ Item {
     stdout: StdioCollector {
       onStreamFinished: {
         root.loading = false
+        root.hasLoaded = true
         try {
           root.data = JSON.parse(text || "{}")
           root.resetSelection()
@@ -346,6 +353,22 @@ Item {
       color: Util.alpha(Color.popups.background, 0.98)
       borderSpec: Border.surfaceSpec("popups", "border", Color.popups.border, Math.max(1, Style.space(2)))
       radius: Style.cornerRadius
+
+      // Fades in on every open, growing from just under full size, as
+      // Omarchy's own panels do (Ui/PopupCard.qml); closing hides it at once.
+      // Style.duration (Omarchy 4.5+) makes it 0 when `omarchy toggle
+      // animations` is off; 4.0 has no such helper, so it always fades there.
+      property real shown: root.opened ? 1 : 0
+      Behavior on shown {
+        id: showing
+        NumberAnimation {
+          duration: showing.targetValue > 0 ? (typeof Style.duration === "function" ? Style.duration(180) : 180) : 0
+          easing.type: Easing.OutCubic
+        }
+      }
+      opacity: shown
+      scale: 0.97 + 0.03 * shown
+      transformOrigin: Item.Top
 
       // Key handling lives on the card so a key reaches it from anywhere in
       // the panel's own subtree; a child that accepts a key (a text field)
@@ -455,6 +478,7 @@ Item {
               WhereLeftOffSection {
                 id: recentSection
                 rows: root.whereLeftOffRows
+                waiting: root.waitingForFirstData
                 week: root.weekDays
                 expandedGroups: root.expandedGroups
                 selectedId: root.selectedId
@@ -475,6 +499,7 @@ Item {
               width: parent.width
               textFormat: Text.PlainText
               text: root.summaryText
+              visible: !root.waitingForFirstData
               font.family: Style.font.family
               font.pixelSize: Style.font.caption
               color: Qt.darker(Color.popups.text, 1.3)

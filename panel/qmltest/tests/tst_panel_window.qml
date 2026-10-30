@@ -59,6 +59,25 @@ TestCase {
     loader.destroy()
   }
 
+  // The card fades in on every open, as Omarchy's own panels do (PopupCard:
+  // opacity 0 -> 1 with a slight grow), instead of popping in or relying on
+  // Hyprland's slower window animation. Closing hides it at once.
+  function test_card_fades_in_on_every_open() {
+    var loader = makePanel()
+    var p = loader.item
+    var card = p.testKeyItem
+    p.open("{}")
+    verify(card.opacity < 1, "card fully opaque the moment it opens (opacity " + card.opacity + "): no fade")
+    tryCompare(card, "opacity", 1, 1000)
+    compare(card.scale, 1)
+    p.close()
+    compare(card.opacity, 0)
+    p.open("{}")
+    verify(card.opacity < 1, "second open: card fully opaque at once (opacity " + card.opacity + ")")
+    tryCompare(card, "opacity", 1, 1000)
+    loader.destroy()
+  }
+
   function test_toggle_and_escape_unchanged() {
     var loader = makePanel()
     var p = loader.item

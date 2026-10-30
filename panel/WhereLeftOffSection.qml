@@ -11,6 +11,8 @@ Column {
   id: root
 
   property var rows: []
+  // True while the panel waits for its first data: no "Nothing this week."
+  property bool waiting: false
 
   signal openTerminal(string cwd)
   signal continueRequested(var summary)
@@ -159,7 +161,7 @@ Column {
   }
 
   Text {
-    visible: root.rows.length === 0
+    visible: root.rows.length === 0 && !root.waiting
     textFormat: Text.PlainText
     text: "Nothing this week."
     font.family: Style.font.family

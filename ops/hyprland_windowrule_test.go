@@ -104,3 +104,36 @@ func TestHyprlandWindowruleMatchesPanelClass(t *testing.T) {
 		t.Error("lua must not call require( — use the global o")
 	}
 }
+
+// TestHyprlandWindowruleOpensWithoutAnimation: Hyprland does not animate the
+// panel window, as it does not animate Omarchy's own panels
+// (default/hypr/apps/omarchy-shell.lua sets no_anim for them). Those panels
+// fade their card in themselves in QML, and so does Panel.qml
+// (tst_panel_window.qml test_card_fades_in_on_every_open). Hyprland's window
+// animation took about 300 ms to settle.
+func TestHyprlandWindowruleOpensWithoutAnimation(t *testing.T) {
+	raw, err := os.ReadFile("hyprland/backstory.lua")
+	if err != nil {
+		t.Fatalf("read backstory.lua: %v", err)
+	}
+	code := regexp.MustCompile(`(?m)--.*$`).ReplaceAllString(string(raw), "")
+	if !regexp.MustCompile(`no_anim\s*=\s*true`).MatchString(code) {
+		t.Error("lua window rule must set no_anim = true")
+	}
+}
+
+// TestHyprlandWindowruleHasNoShadow: with no_anim, Hyprland repaints only the
+// window's own box when the panel closes, so a theme's shadow (Norrsken's
+// focus "glow", 9 px beyond the window) was left on screen as a ghost
+// outline until something redrew that spot. Omarchy's own panels get no
+// Hyprland decoration at all, so the panel window drops its shadow too.
+func TestHyprlandWindowruleHasNoShadow(t *testing.T) {
+	raw, err := os.ReadFile("hyprland/backstory.lua")
+	if err != nil {
+		t.Fatalf("read backstory.lua: %v", err)
+	}
+	code := regexp.MustCompile(`(?m)--.*$`).ReplaceAllString(string(raw), "")
+	if !regexp.MustCompile(`no_shadow\s*=\s*true`).MatchString(code) {
+		t.Error("lua window rule must set no_shadow = true")
+	}
+}
