@@ -9,8 +9,10 @@ import (
 
 // TestAgentActivityCountsEventsWithinTheWindowOnly pins how events decide a
 // session's activity: a session that started before the window counts when an
-// event at or before asOf lands inside it, an event after asOf never counts,
-// and the agent's latest activity is its newest such event.
+// event at or before asOf lands inside it, an event after asOf never counts
+// (nor hides the session's earlier in-window events: clock skew or a synced
+// device can put a session's newest event after asOf), and the agent's latest
+// activity is its newest such event.
 func TestAgentActivityCountsEventsWithinTheWindowOnly(t *testing.T) {
 	s := mustOpen(t, tempDBPath(t))
 	key := "/srv/repo/.git"
@@ -34,12 +36,13 @@ func TestAgentActivityCountsEventsWithinTheWindowOnly(t *testing.T) {
 	a := session("claude", now.Add(-10*24*time.Hour), now.Add(-24*time.Hour))
 	b := session("codex", now.Add(-10*24*time.Hour), now.Add(time.Hour))
 	c := session("claude", now.Add(-9*24*time.Hour), now.Add(-48*time.Hour), now.Add(-3*time.Hour))
+	d := session("claude", now.Add(-8*24*time.Hour), now.Add(-2*time.Hour), now.Add(2*time.Hour))
 
-	got, err := s.AgentActivityForSessions([]string{a, b, c}, since, now)
+	got, err := s.AgentActivityForSessions([]string{a, b, c, d}, since, now)
 	if err != nil {
 		t.Fatalf("AgentActivityForSessions: %v", err)
 	}
-	if len(got) != 1 || got[0].Agent != "claude" || got[0].SessionCount != 2 || !got[0].LastActivity.Equal(now.Add(-3*time.Hour)) {
-		t.Errorf("AgentActivityForSessions = %+v; want only claude, 2 sessions, last activity 3h ago (%v)", got, now.Add(-3*time.Hour))
+	if len(got) != 1 || got[0].Agent != "claude" || got[0].SessionCount != 3 || !got[0].LastActivity.Equal(now.Add(-2*time.Hour)) {
+		t.Errorf("AgentActivityForSessions = %+v; want only claude, 3 sessions, last activity 2h ago (%v)", got, now.Add(-2*time.Hour))
 	}
 }
