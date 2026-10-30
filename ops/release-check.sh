@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # release-check validates that a version is ready to tag: semver-shaped,
-# documented in CHANGELOG.md, and matching the AUR PKGBUILD's pkgver, with a real sha256sums (never SKIP) that
-the committed .SRCINFO agrees with. It
+# documented in CHANGELOG.md, and matching the AUR PKGBUILD's pkgver, with a real
+# sha256sums (never SKIP) that the committed .SRCINFO agrees with. It
 # builds nothing and publishes nothing (see RELEASING.md). Invoked as
 # `make release-check VERSION=vX.Y.Z`; CHANGELOG_FILE and PKGBUILD_FILE are
 # overridable for tests.
