@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -70,6 +71,7 @@ func runCommand(name string, args ...string) ([]byte, error) {
 type hyprWindow struct {
 	Address        string `json:"address"`
 	Class          string `json:"class"`
+	Title          string `json:"title"`
 	PID            int    `json:"pid"`
 	FocusHistoryID int    `json:"focusHistoryID"`
 }
@@ -390,13 +392,49 @@ func (r hereResolver) resolveHere(arg string) (*hereJSON, error) {
 		}
 		return r.recent(), nil
 	}
-	if w, err := hyprActiveWindow(); err == nil {
+	for _, w := range focusOrder() {
+		if isBackstoryPanel(w) {
+			continue
+		}
 		if dir, ok := folderOfWindowPID(w.PID); ok && r.scoped(dir) {
 			h := r.here(dir, hereSourceFocused)
 			return &h, nil
 		}
 	}
 	return r.recent(), nil
+}
+
+// focusOrder is the active window, then every window by Hyprland's focus
+// history (focusHistoryID 0 = most recent), each once. `here` is the first
+// of them whose folder is an in-scope project: Backstory's own panel, a
+// browser or an out-of-scope window in front is passed over, not taken as
+// "no project here".
+func focusOrder() []hyprWindow {
+	var out []hyprWindow
+	if w, err := hyprActiveWindow(); err == nil {
+		out = append(out, w)
+	}
+	if ws, err := hyprClients(); err == nil {
+		sort.SliceStable(ws, func(i, j int) bool { return ws[i].FocusHistoryID < ws[j].FocusHistoryID })
+		for _, w := range ws {
+			if len(out) == 0 || w.Address != out[0].Address {
+				out = append(out, w)
+			}
+		}
+	}
+	return out
+}
+
+// Backstory's own panel window, as ops/hyprland/backstory.lua matches it
+// (Panel.qml's windowTitle). It belongs to the Quickshell process, whose
+// descendants are the whole shell's helpers, never the user's folder.
+const (
+	backstoryPanelClass = "org.quickshell"
+	backstoryPanelTitle = "backstory"
+)
+
+func isBackstoryPanel(w hyprWindow) bool {
+	return w.Class == backstoryPanelClass && w.Title == backstoryPanelTitle
 }
 
 // recent is the most recently active where-you-left-off project, which Build
