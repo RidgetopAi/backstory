@@ -51,3 +51,30 @@ covered by this document or by `make release-check`:
 
 Both require Brian's explicit sign-off before anyone runs them. Neither has
 credentials or automation in this repo.
+
+## Cutting the GitHub Release
+
+Pushing the `vX.Y.Z` tag (Brian's call, like everything outward-facing here)
+triggers `.github/workflows/release.yml`. It builds linux/amd64 with the same
+flags as `ops/aur/PKGBUILD` (`ops/workflows_test.go` fails on drift), packages
+`backstory-X.Y.Z-linux-amd64.tar.gz` (binary, `LICENSE`, `README.md`,
+`backstory.service`), writes `SHA256SUMS`, attests the tarball's build
+provenance, and creates a **draft** release. Nothing is public yet.
+
+1. Open the draft under the repository's Releases page.
+2. Download the assets and run the checks in "Verify a release" below.
+3. Review the generated notes against the `CHANGELOG.md` section.
+4. Click **Publish release**. Publishing is a human step; the workflow never
+   does it.
+
+## Verify a release
+
+From a directory holding the downloaded assets:
+
+```
+sha256sum -c SHA256SUMS
+gh attestation verify backstory-X.Y.Z-linux-amd64.tar.gz --repo RidgetopAi/backstory
+```
+
+The first confirms the tarball matches the published checksum; the second
+confirms it was built by this repository's CI from a specific commit.
