@@ -58,15 +58,17 @@ func envWithout(env []string, keys ...string) []string {
 }
 
 // testXDGEnv returns os.Environ() with any inherited XDG_RUNTIME_DIR,
-// XDG_DATA_HOME, and XDG_STATE_HOME entries removed, then overrides (each
-// an already-formatted "KEY=value" string) appended. It is the one helper
-// every test in this package that spawns a backstory process must build
-// its child env through — hand-rolling append(os.Environ(), "XDG_RUNTIME_DIR=…")
-// lets an inherited value survive alongside the test's own, which is
-// exactly what let task 7c121b4b's first-match env reader pick the
-// invoking user's real runtime dir over the test's temp one.
+// XDG_DATA_HOME, XDG_STATE_HOME, and XDG_CONFIG_HOME entries removed, then
+// overrides (each an already-formatted "KEY=value" string) appended. It is
+// the one helper every test in this package that spawns a backstory process
+// must build its child env through — hand-rolling append(os.Environ(),
+// "XDG_RUNTIME_DIR=…") lets an inherited value survive alongside the test's
+// own, which is exactly what let task 7c121b4b's first-match env reader pick
+// the invoking user's real runtime dir over the test's temp one. An inherited
+// XDG_CONFIG_HOME would likewise point a fixture HOME's sync-timer probe at
+// the invoking user's real units.
 func testXDGEnv(overrides ...string) []string {
-	return append(envWithout(os.Environ(), "XDG_RUNTIME_DIR", "XDG_DATA_HOME", "XDG_STATE_HOME"), overrides...)
+	return append(envWithout(os.Environ(), "XDG_RUNTIME_DIR", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CONFIG_HOME"), overrides...)
 }
 
 // startTestDaemon starts `backstory daemon` as a subprocess against fresh
