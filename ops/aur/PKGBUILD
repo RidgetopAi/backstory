@@ -18,7 +18,7 @@ depends=('glibc')
 makedepends=('go')
 install=backstory.install
 source=("$pkgname-$pkgver.tar.gz::https://github.com/RidgetopAi/backstory/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('SKIP')
+sha256sums=('1e5516887975bbc2a7a3bb403adb0d53cbcb5795a95a469380ffc9389a844ecf')
 
 build() {
 	cd "$pkgname-$pkgver"

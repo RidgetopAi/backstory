@@ -18,13 +18,21 @@ anything on your behalf.
    `[Unreleased]` entries under it: `## [X.Y.Z] - YYYY-MM-DD`.
 3. Bump `pkgver` in `ops/aur/PKGBUILD` to `X.Y.Z` (no leading `v`, per Arch
    packaging convention) and reset `pkgrel` to `1`.
+   Once the tag is on GitHub (the sha cannot exist before), compute the
+   tarball hash from the GitHub tag tarball and set `sha256sums` to it:
+   `curl -sL https://github.com/RidgetopAi/backstory/archive/refs/tags/vX.Y.Z.tar.gz | sha256sum`.
+   Do not use `git archive`: GitHub compresses differently, so it yields a
+   different hash that makepkg would reject. Never use `SKIP`. Then regenerate
+   `.SRCINFO` (`cd ops/aur && makepkg --printsrcinfo > .SRCINFO`) and commit
+   `PKGBUILD` and `.SRCINFO` together.
 4. Run `make release-check VERSION=vX.Y.Z`. It must exit 0: VERSION is
    semver, `CHANGELOG.md` has the `## [X.Y.Z]` section, and the PKGBUILD's
-   `pkgver` matches. This step builds nothing and publishes nothing — it
+   `pkgver` matches, `sha256sums` is a real 64-hex digest (SKIP is refused), and
+   `.SRCINFO` agrees with the PKGBUILD. This step builds nothing and publishes nothing — it
    only checks that the three sources of truth (tag, changelog, package
    metadata) agree.
 5. Run `make check` on the `release` branch head.
-6. Commit the CHANGELOG and PKGBUILD bump, then tag: `git tag -a vX.Y.Z -m
+6. Commit the CHANGELOG, PKGBUILD and `.SRCINFO` bump, then tag: `git tag -a vX.Y.Z -m
    "vX.Y.Z"`.
 
 Everything above happens locally or on the canonical clone. Nothing here
