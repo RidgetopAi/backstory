@@ -121,3 +121,19 @@ func TestHyprlandWindowruleOpensWithoutAnimation(t *testing.T) {
 		t.Error("lua window rule must set no_anim = true")
 	}
 }
+
+// TestHyprlandWindowruleHasNoShadow: with no_anim, Hyprland repaints only the
+// window's own box when the panel closes, so a theme's shadow (Norrsken's
+// focus "glow", 9 px beyond the window) was left on screen as a ghost
+// outline until something redrew that spot. Omarchy's own panels get no
+// Hyprland decoration at all, so the panel window drops its shadow too.
+func TestHyprlandWindowruleHasNoShadow(t *testing.T) {
+	raw, err := os.ReadFile("hyprland/backstory.lua")
+	if err != nil {
+		t.Fatalf("read backstory.lua: %v", err)
+	}
+	code := regexp.MustCompile(`(?m)--.*$`).ReplaceAllString(string(raw), "")
+	if !regexp.MustCompile(`no_shadow\s*=\s*true`).MatchString(code) {
+		t.Error("lua window rule must set no_shadow = true")
+	}
+}
