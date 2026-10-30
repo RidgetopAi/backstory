@@ -7,31 +7,33 @@ import QtQuick
 // QML load, so this file stays in lockstep with grep -oh 'Style\.[a-zA-Z.()]+'
 // over panel/*.qml, not a full reimplementation of the real theme).
 //
-// Test knobs, scaled as the real Style scales them: fontScale is
-// `[font] base-size` / 12; spacing follows it unless spacingScaleWithFont
-// is false (`[spacing] scale-with-font`); the bar follows the font.
+// Test knobs, scaled as the real Style scales them: testFontScale is
+// `[font] base-size` / 12; spacing follows it unless testSpacingScaleWithFont
+// is false (`[spacing] scale-with-font`); the bar follows the font. These
+// four exist only here, never in the real Style, hence the test prefix: panel
+// code that reached for one would pass the tests and break on a desktop.
 QtObject {
   id: style
 
-  property real fontScale: 1
-  property bool spacingScaleWithFont: true
-  readonly property real spacingScale: spacingScaleWithFont ? fontScale : 1
+  property real testFontScale: 1
+  property bool testSpacingScaleWithFont: true
+  readonly property real testSpacingScale: testSpacingScaleWithFont ? testFontScale : 1
 
-  function fontPx(n) { return Math.max(1, Math.round(n * style.fontScale)) }
+  function testFontPx(n) { return Math.max(1, Math.round(n * style.testFontScale)) }
 
   readonly property int cornerRadius: 8
 
   readonly property QtObject font: QtObject {
     readonly property string family: "sans-serif"
-    readonly property int heading: style.fontPx(18)
-    readonly property int title: style.fontPx(16)
-    readonly property int body: style.fontPx(14)
-    readonly property int bodySmall: style.fontPx(13)
-    readonly property int caption: style.fontPx(11)
+    readonly property int heading: style.testFontPx(18)
+    readonly property int title: style.testFontPx(16)
+    readonly property int body: style.testFontPx(14)
+    readonly property int bodySmall: style.testFontPx(13)
+    readonly property int caption: style.testFontPx(11)
   }
 
   readonly property QtObject bar: QtObject {
-    readonly property int sizeHorizontal: style.fontPx(26)
+    readonly property int sizeHorizontal: style.testFontPx(26)
   }
 
   readonly property QtObject spacing: QtObject {
@@ -44,7 +46,7 @@ QtObject {
     readonly property int dropdownWidth: style.space(160)
   }
 
-  function space(n) { return Math.max(1, Math.round(n * style.spacingScale)) }
+  function space(n) { return Math.max(1, Math.round(n * style.testSpacingScale)) }
 
   function hoverFillFor(fg, bg) { return Qt.rgba(fg.r, fg.g, fg.b, 0.12) }
 }

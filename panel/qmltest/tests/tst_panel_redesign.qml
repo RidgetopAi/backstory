@@ -76,8 +76,8 @@ TestCase {
     if (loader) loader.destroy()
     loader = null
     panel = null
-    Style.fontScale = 1
-    Style.spacingScaleWithFont = true
+    Style.testFontScale = 1
+    Style.testSpacingScaleWithFont = true
   }
 
   function texts() { return TestUtil.collectVisibleTexts(panel.testContentItem) }
@@ -165,8 +165,8 @@ TestCase {
   // (shrunk or elided as qs.Ui Button does when there is too little room).
   function test_layout_at_text_sizes(row) {
     cleanup()
-    Style.fontScale = row.fontScale
-    Style.spacingScaleWithFont = row.withFont
+    Style.testFontScale = row.fontScale
+    Style.testSpacingScaleWithFont = row.withFont
     init()
     open(payload(function (d) {
       d.attention.push({ kind: "possibly-stale-handoff", project_key: "foo", reason: "foo: handoff possibly stale — cargo test failed (exit 101) after it", handoff_id: "h-foo", evidence_ids: ["7"] })

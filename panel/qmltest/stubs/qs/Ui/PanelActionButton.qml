@@ -11,7 +11,7 @@ Item {
   property string tooltipText: ""
   property color foreground: "black"
   property color hoverColor: "black"
-  property real fontSize: Style.fontPx(14)
+  property real fontSize: Style.testFontPx(14)
   property real size: Math.max(Style.space(24), fontSize + Style.space(10))
 
   signal clicked()
