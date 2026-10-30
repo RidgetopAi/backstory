@@ -558,3 +558,54 @@ func TestHereAutoPlainWindowHasNoTmuxTarget(t *testing.T) {
 		t.Fatalf("tmux = %q, want empty", tm)
 	}
 }
+
+// windowsByKey maps each where-you-left-off project's key to its window.
+func windowsByKey(t *testing.T, m map[string]any) map[string]string {
+	t.Helper()
+	got := map[string]string{}
+	rows, _ := m["where_left_off"].([]any)
+	for _, r := range rows {
+		row, _ := r.(map[string]any)
+		ps := []any{row["project"]}
+		if row["project"] == nil {
+			ps, _ = row["children"].([]any)
+		}
+		for _, p := range ps {
+			pm, _ := p.(map[string]any)
+			w, _ := pm["window"].(string)
+			pk, _ := pm["project_key"].(string)
+			got[pk] = w
+		}
+	}
+	return got
+}
+
+// TestHereAutoSkipsBrowserWindows: a browser's extensions start helper
+// processes (native messaging hosts) inside the browser's process tree, in
+// their own install folder. Seen on a desktop: every Chromium window
+// (tabs and web apps alike) reported a browser extension helper's install
+// folder, a git repo, as the project in front of the user. A window whose
+// own program is a browser is never looked into: `here` falls back to
+// recent, and no project gets the browser as its window.
+func TestHereAutoSkipsBrowserWindows(t *testing.T) {
+	e := newHereEnv(t)
+	clients := `[
+	 {"address":"0xch","class":"chrome-x.com__-Default","pid":500,"focusHistoryID":0},
+	 {"address":"0xf1","class":"ghostty","pid":401,"focusHistoryID":1}]`
+	e.fakeHyprctl(t, `{"address":"0xch","class":"chrome-x.com__-Default","pid":500}`, strings.ReplaceAll(clients, "\n", " "))
+	e.addProc(t, 500, 1, "chromium", e.home, "")
+	e.addProc(t, 501, 500, "native-msg-host", e.foo, "")
+	e.addProc(t, 401, 1, "ghostty", e.home, "")
+	e.addProc(t, 411, 401, "bash", e.bar, "")
+	m := mustRun(t, e, "--here", "auto")
+	if h := hereOf(t, m); h["source"] != "recent" || h["project_key"] != recentKey(t, m) {
+		t.Fatalf("here = %v; want the recent fallback, not the browser helper's folder", h)
+	}
+	got := windowsByKey(t, m)
+	if w := got[e.fooKey]; w != "" {
+		t.Errorf("foo's window = %q; want \"\" (only a browser helper sits in foo)", w)
+	}
+	if w := got[e.barKey]; w != "0xf1" {
+		t.Errorf("bar's window = %q; want the terminal 0xf1", w)
+	}
+}

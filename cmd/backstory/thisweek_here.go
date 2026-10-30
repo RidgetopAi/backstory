@@ -265,8 +265,24 @@ func isTmuxClient(comm string) bool {
 // path of a tmux client descendant (asked of tmux by the client's tty), else
 // the cwd of the deepest descendant (ties → newest). ok is false when the
 // window has no descendant or no cwd is readable.
+// browserNames are the process names (comm) of the browsers Omarchy tags
+// (default/hypr/apps/browser.lua), with the -bin names some packages use.
+var browserNames = map[string]bool{
+	"chromium": true, "chrome": true, "brave": true, "vivaldi-bin": true, "msedge": true, "helium": true,
+	"firefox": true, "firefox-bin": true, "zen": true, "zen-bin": true, "librewolf": true,
+}
+
+// isBrowserPID reports whether the window process pid is a browser. Its
+// descendants are tabs, web apps and extension helpers (native messaging
+// hosts running in their own install folder), never the folder the user is
+// working in, so a browser window is not looked into.
+func isBrowserPID(pid int) bool {
+	_, comm, ok := procPPidAndComm(pid)
+	return ok && browserNames[comm]
+}
+
 func folderOfWindowPID(pid int) (string, bool) {
-	if pid <= 0 {
+	if pid <= 0 || isBrowserPID(pid) {
 		return "", false
 	}
 	desc := procDescendants(pid)
