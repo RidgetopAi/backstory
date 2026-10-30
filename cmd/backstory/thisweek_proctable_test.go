@@ -101,3 +101,35 @@ func TestNilProcTableReadsFresh(t *testing.T) {
 		t.Errorf("after 101 became fish, nil table's comm(101) = %q; want a fresh read, fish", got)
 	}
 }
+
+// TestThisWeekRunSharesOneProcTable: one `this-week --here auto` run reads the
+// process table once and shares it between here and the windows. The fake
+// hyprctl re-parents bar's shell to pid 1 on its second `clients` call, which
+// comes after here's first read and before the windows are matched: a shared
+// snapshot still has the shell under bar's terminal and finds bar's window, a
+// fresh read per window would not. (Folders are read live; the snapshot holds
+// the parent links and names.)
+func TestThisWeekRunSharesOneProcTable(t *testing.T) {
+	e := newHereEnv(t)
+	clients := `[{"address":"0xf","class":"ghostty","pid":401,"focusHistoryID":0},` +
+		`{"address":"0xb","class":"ghostty","pid":402,"focusHistoryID":1}]`
+	count := filepath.Join(t.TempDir(), "clients-calls")
+	writeScript(t, filepath.Join(e.fakeBin, "hyprctl"), `case "$1" in
+activewindow) echo '{"address":"0xf","class":"ghostty","pid":401}';;
+clients) n=$(( $(cat '`+count+`' 2>/dev/null || echo 0) + 1 )); echo $n > '`+count+`'
+  [ $n = 2 ] && printf 'Name:\tbash\nPPid:\t1\n' > '`+filepath.Join(e.proc, "412", "status")+`'
+  echo '`+clients+`';;
+esac`)
+	e.addProc(t, 401, 1, "ghostty", e.home, "")
+	e.addProc(t, 411, 401, "bash", e.foo, "/dev/pts/1")
+	e.addProc(t, 402, 1, "ghostty", e.home, "")
+	e.addProc(t, 412, 402, "bash", e.bar, "/dev/pts/2")
+
+	m := mustRun(t, e, "--here", "auto")
+	if h := hereOf(t, m); h["project_key"] != e.fooKey || h["source"] != "focused" {
+		t.Fatalf("here = %v; want foo, the focused terminal", h)
+	}
+	if w := windowsByKey(t, m)[e.barKey]; w != "0xb" {
+		t.Errorf("bar's window = %q; want 0xb from the run's one snapshot of /proc (its shell was re-parented mid-run)", w)
+	}
+}
