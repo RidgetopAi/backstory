@@ -1,7 +1,9 @@
 import QtQuick
+import qs.Commons
 
 // Minimal stand-in for qs.Ui.PanelActionButton — an icon-glyph button (see
-// qs/Commons/Style.qml's own doc comment for why this stays minimal).
+// qs/Commons/Style.qml's own doc comment for why this stays minimal). It
+// grows with the font and spacing, as the real one does.
 Item {
   id: root
 
@@ -9,8 +11,8 @@ Item {
   property string tooltipText: ""
   property color foreground: "black"
   property color hoverColor: "black"
-  property real size: 24
-  property real fontSize: 14
+  property real fontSize: Style.testFontPx(14)
+  property real size: Math.max(Style.space(24), fontSize + Style.space(10))
 
   signal clicked()
 

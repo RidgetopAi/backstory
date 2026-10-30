@@ -100,6 +100,14 @@ TestCase {
     compare(dot(widget), null)
   }
 
+  // The bar lines its slots up at their top, so a widget shorter than the
+  // bar sits above the icons beside it: it takes the bar's own thickness.
+  function test_fills_the_bar_thickness() {
+    var widget = start(fixture())
+    widget.bar = { barSize: 31 }
+    compare(widget.implicitHeight, 31)
+  }
+
   function test_glyph_only_when_no_here() {
     var widget = start(fixture(function (d) { delete d.here }))
     act.settled(function () { var l = barLabel(widget); return l !== null && l.text !== "foo" && l.text !== "" }, "glyph-only label never rendered")

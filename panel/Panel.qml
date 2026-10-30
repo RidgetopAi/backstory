@@ -422,10 +422,11 @@ Item {
                 font.pixelSize: Style.font.heading
                 font.bold: true
                 color: Color.popups.text
-                width: parent.width - Style.space(56)
+                width: parent.width - groupsButton.width - closeButton.width
               }
 
               PanelActionButton {
+                id: groupsButton
                 iconText: Glyphs.gear()
                 tooltipText: "Groups"
                 foreground: Color.popups.text
@@ -434,6 +435,7 @@ Item {
               }
 
               PanelActionButton {
+                id: closeButton
                 iconText: Glyphs.close()
                 tooltipText: "Close"
                 foreground: Color.popups.text

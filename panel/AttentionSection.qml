@@ -47,6 +47,7 @@ Column {
       rightPadding: Style.spacing.rowPaddingX
 
       Text {
+        id: glyph
         textFormat: Text.PlainText
         text: Glyphs.attention()
         font.family: Style.font.family
@@ -60,7 +61,8 @@ Column {
         font.family: Style.font.family
         font.pixelSize: Style.font.bodySmall
         color: Color.foreground
-        width: itemRow.width - Style.space(24) - (dismissButton.visible ? dismissButton.width + itemRow.spacing : 0)
+        width: itemRow.width - itemRow.leftPadding - itemRow.rightPadding - glyph.width - itemRow.spacing
+          - (dismissButton.visible ? dismissButton.width + itemRow.spacing : 0)
         wrapMode: Text.WordWrap
       }
 

@@ -37,6 +37,10 @@ Item {
 
   property int refreshIntervalMs: 60000
   property var payload: null
+  // Injected by the host. Its slots line up at their top, so the widget
+  // takes the bar's full thickness to sit level with the icons beside it
+  // ($OMARCHY_PATH/shell/plugins/bar/README.md, "Custom user modules").
+  property var bar: null
 
   readonly property var hereData: root.payload ? Model.topHere(root.payload) : null
   readonly property var hereProject: root.payload ? Derive.hereSummary(root.payload) : null
@@ -44,7 +48,7 @@ Item {
   readonly property bool needsAttention: root.payload ? Model.topAttention(root.payload).length > 0 : false
 
   implicitWidth: label.implicitWidth + (attentionDot.visible ? attentionDot.width + Style.spacing.controlGap : 0) + Style.space(12)
-  implicitHeight: label.implicitHeight + Style.space(6)
+  implicitHeight: root.bar ? root.bar.barSize : Style.bar.sizeHorizontal
 
   function refresh() {
     continueAction.refreshDefaultAgent()
