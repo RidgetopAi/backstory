@@ -71,3 +71,33 @@ func TestProcTableReadsTheProcessTableOnce(t *testing.T) {
 		t.Errorf("a new table sees chromium (103) after it left /proc; want a fresh read")
 	}
 }
+
+// TestNilProcTableReadsFresh: a zero-value hereResolver (a future test, say)
+// carries a nil *procTable. Asking it must read the process table, not
+// panic; with nowhere to keep a snapshot, each call reads afresh.
+func TestNilProcTableReadsFresh(t *testing.T) {
+	proc := t.TempDir()
+	orig := thisWeekProcRoot
+	thisWeekProcRoot = proc
+	t.Cleanup(func() { thisWeekProcRoot = orig })
+
+	writeFakeProc(t, proc, 100, 1, "foot")
+	writeFakeProc(t, proc, 101, 100, "zsh")
+	writeFakeProc(t, proc, 103, 1, "chromium")
+
+	var procs *procTable
+	if got := descendantPIDs(procs.descendants(100)); !got[101] || len(got) != 1 {
+		t.Errorf("nil table's descendants(100) = %v; want 101", got)
+	}
+	if got := procs.comm(101); got != "zsh" {
+		t.Errorf("nil table's comm(101) = %q; want zsh", got)
+	}
+	if !isBrowserPID(procs, 103) {
+		t.Errorf("nil table does not see chromium (103) as a browser")
+	}
+
+	writeFakeProc(t, proc, 101, 100, "fish")
+	if got := procs.comm(101); got != "fish" {
+		t.Errorf("after 101 became fish, nil table's comm(101) = %q; want a fresh read, fish", got)
+	}
+}

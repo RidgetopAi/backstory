@@ -156,7 +156,8 @@ func procStartTicks(pid int) uint64 {
 // procTable is one run's snapshot of the process tree. It reads every
 // <proc>/<pid> on first use and answers each later descendants call from that
 // snapshot: windowsByProject asks about every open window, and re-reading the
-// whole table each time cost about 55 ms per run on a desktop.
+// whole table each time cost about 55 ms per run on a desktop. A nil table
+// has nowhere to keep a snapshot, so it reads afresh on every call.
 type procTable struct {
 	children map[int][]procNode
 	comms    map[int]string
@@ -171,12 +172,18 @@ func (t *procTable) load() {
 
 // comm is pid's process name in the snapshot, "" when it was not running.
 func (t *procTable) comm(pid int) string {
+	if t == nil {
+		t = &procTable{}
+	}
 	t.load()
 	return t.comms[pid]
 }
 
 // descendants returns every descendant of root (excluding root).
 func (t *procTable) descendants(root int) []procNode {
+	if t == nil {
+		t = &procTable{}
+	}
 	t.load()
 	var out []procNode
 	seen := map[int]bool{root: true}
