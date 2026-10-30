@@ -220,9 +220,21 @@ func (s *Store) LatestLocalCWDForProject(projectKey string) (string, error) {
 	return cwd, nil
 }
 
+// sessionColumns are the sessions columns scanSession reads, in its order.
+const sessionColumns = `id, agent, harness_session_id, pid, cwd, project_key, workspace, window, started_at, origin`
+
 // getSession reads back a single sessions row by id, the shared scan logic
 // LatestSessionForProject uses.
 func (s *Store) getSession(id string) (Session, error) {
+	sess, err := scanSession(s.db.QueryRow(`SELECT `+sessionColumns+` FROM sessions WHERE id = ?`, id))
+	if err != nil {
+		return Session{}, fmt.Errorf("store: get session %s: %w", id, err)
+	}
+	return sess, nil
+}
+
+// scanSession reads one row of sessionColumns.
+func scanSession(sc interface{ Scan(...any) error }) (Session, error) {
 	var (
 		sess              Session
 		harnessSessionID  sql.NullString
@@ -232,12 +244,9 @@ func (s *Store) getSession(id string) (Session, error) {
 		startedAt         int64
 		origin            string
 	)
-	err := s.db.QueryRow(`SELECT id, agent, harness_session_id, pid, cwd, project_key, workspace, window, started_at, origin
-		FROM sessions WHERE id = ?`, id).
-		Scan(&sess.ID, &sess.Agent, &harnessSessionID, &pid, &sess.CWD,
-			&projectKey, &workspace, &window, &startedAt, &origin)
-	if err != nil {
-		return Session{}, fmt.Errorf("store: get session %s: %w", id, err)
+	if err := sc.Scan(&sess.ID, &sess.Agent, &harnessSessionID, &pid, &sess.CWD,
+		&projectKey, &workspace, &window, &startedAt, &origin); err != nil {
+		return Session{}, err
 	}
 	sess.HarnessSessionID = harnessSessionID.String
 	if pid.Valid {

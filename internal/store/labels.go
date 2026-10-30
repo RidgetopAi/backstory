@@ -235,24 +235,24 @@ func sessionHomeKey(sess Session, workspaces []string) string {
 // aliases. Order is unspecified; callers care about membership, not
 // sequence.
 func (s *Store) sessionsForHome(homeKey string, workspaces []string) ([]Session, error) {
-	rows, err := s.db.Query(`SELECT id FROM sessions WHERE project_key IS NOT NULL`)
+	rows, err := s.db.Query(`SELECT ` + sessionColumns + ` FROM sessions WHERE project_key IS NOT NULL`)
 	if err != nil {
 		return nil, fmt.Errorf("store: sessions for home %s: %w", homeKey, err)
 	}
-	ids, err := scanIDs(rows)
-	if err != nil {
-		return nil, fmt.Errorf("store: sessions for home %s: %w", homeKey, err)
-	}
+	defer func() { _ = rows.Close() }()
 
 	var out []Session
-	for _, id := range ids {
-		sess, err := s.getSession(id)
+	for rows.Next() {
+		sess, err := scanSession(rows)
 		if err != nil {
 			return nil, fmt.Errorf("store: sessions for home %s: %w", homeKey, err)
 		}
 		if sessionHomeKey(sess, workspaces) == homeKey {
 			out = append(out, sess)
 		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("store: sessions for home %s: %w", homeKey, err)
 	}
 	return out, nil
 }
