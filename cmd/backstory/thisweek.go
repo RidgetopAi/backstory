@@ -55,8 +55,11 @@ func runThisWeek(args []string, stdout, stderr io.Writer) int {
 	// (task 482b2320, decision f3fa04c7's clause 7).
 	workspaceDirs := resolveWorkspaceDirs()
 	projectRoots := project.DefaultProjectRoots()
+	// One cache for the whole run: Build, here and windows resolve the same
+	// folders many times, and each RealGit.Repo runs four git commands.
+	git := project.NewCachedGit(project.RealGit{})
 
-	result, err := week.Build(week.Params{Store: st, Git: project.RealGit{}, WorkspaceDirs: workspaceDirs, ProjectRoots: projectRoots, Locations: thisWeekLocations(), Now: thisWeekNow(), ExtraAttention: append(codexApprovalAttention(), syncFailingAttention(st, thisWeekNow())...)})
+	result, err := week.Build(week.Params{Store: st, Git: git, WorkspaceDirs: workspaceDirs, ProjectRoots: projectRoots, Locations: thisWeekLocations(), Now: thisWeekNow(), ExtraAttention: append(codexApprovalAttention(), syncFailingAttention(st, thisWeekNow())...)})
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory this-week:", err)
 		return 1
@@ -66,7 +69,7 @@ func runThisWeek(args []string, stdout, stderr io.Writer) int {
 		var here *hereJSON
 		var windows map[string]windowRef
 		if *hereFlag != "" {
-			r := hereResolver{git: project.RealGit{}, workspaces: workspaceDirs, result: result,
+			r := hereResolver{git: git, workspaces: workspaceDirs, result: result,
 				inScope: func(key, dir string) bool { return projectOrDirInScope(st, projectRoots, key, dir) },
 				displayName: func(key, dir string) string {
 					if proj, ok, err := st.GetProject(key); err == nil && ok {
@@ -74,7 +77,7 @@ func runThisWeek(args []string, stdout, stderr io.Writer) int {
 							return name
 						}
 					}
-					return project.Label(dir, project.RealGit{}, workspaceDirs)
+					return project.Label(dir, git, workspaceDirs)
 				}}
 			here, err = r.resolveHere(*hereFlag)
 			if err != nil {
