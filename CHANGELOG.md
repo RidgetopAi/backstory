@@ -26,6 +26,7 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 ### Changed
 
+- `this-week` is faster: migration 0023 adds an index on `sessions(project_key)`. `LastActivity` and `EventsForTimeline` run once per project and selected a project's sessions with no index, so SQLite scanned every session or walked every timeline event and checked each one's session. On a store with 110k events and 32 projects, `this-week` (which the panel and the bar run) took about 1.4 s, and 0.5 s with the index. No data changes.
 - Sync serves a session stub only when a record the same feed would serve belongs to that session (task 7b489b17, brian 2026-10-22). Sessions in the home directory, scratch repos and other projects with no sync identity no longer leak when and how much you worked. A session whose project later gains a remote or link is served then, with its records. Stubs a peer already holds are left alone.
 - README rewritten as a short front page for people new to Linux: a three-step install, what `make install` does, and links into the manual. All install, update, uninstall and privacy facts are kept. Both now say where to set `BACKSTORY_PROJECT_ROOTS` on Omarchy: `~/.config/uwsm/env.d/`, then log out and back in.
 

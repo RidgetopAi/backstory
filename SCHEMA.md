@@ -122,6 +122,7 @@ CREATE TABLE sessions (
   exit_kind           TEXT,                -- NULL while live or unobserved
   origin_device       TEXT                 -- NULL = this device (migration 0016)
 );
+CREATE INDEX sessions_project ON sessions(project_key);  -- per-project lookups in this-week (migration 0023)
 
 CREATE TABLE timeline_events (
   id          INTEGER PRIMARY KEY,         -- rowid: the ONLY ordering
