@@ -22,7 +22,7 @@ var (
 
 func readRepoFile(t *testing.T, rel string) string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join("..", rel))
+	b, err := os.ReadFile(filepath.Join("..", rel)) //nolint:gosec // fixed repo-relative path
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -109,7 +109,7 @@ func TestWorkflowsPinnedToSHA(t *testing.T) {
 		t.Fatal("no workflows found")
 	}
 	for _, f := range files {
-		b, _ := os.ReadFile(f)
+		b, _ := os.ReadFile(f) //nolint:gosec // glob of tracked workflow files
 		if bad := unpinnedUses(string(b)); len(bad) > 0 {
 			t.Errorf("%s: uses: not pinned to a 40-hex SHA: %v", f, bad)
 		}
@@ -125,7 +125,7 @@ func TestReleaseWorkflowRules(t *testing.T) {
 func TestWorkflowWritePermissionsOnlyReleaseJob(t *testing.T) {
 	files, _ := filepath.Glob("../.github/workflows/*.yml")
 	for _, f := range files {
-		b, _ := os.ReadFile(f)
+		b, _ := os.ReadFile(f) //nolint:gosec // glob of tracked workflow files
 		for _, s := range writeScopes(string(b)) {
 			if filepath.Base(f) != "release.yml" || s != "release" {
 				t.Errorf("%s: write permission held by %q; only release.yml's release job may", f, s)
