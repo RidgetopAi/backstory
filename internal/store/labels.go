@@ -234,8 +234,27 @@ func sessionHomeKey(sess Session, workspaces []string) string {
 // (one per repo under a workspace), not just homeKey's own project_key
 // aliases. Order is unspecified; callers care about membership, not
 // sequence.
+//
+// It reads only candidates, a superset of the members (sessionHomeKey still
+// decides): sessions with project_key homeKey, and, when homeKey is a
+// workspace's own key, every session whose folder starts with that
+// workspace or is spelled unclean (filepath.Clean could move it inside).
+// HandoffFreshness calls this once per handoff, and reading every session
+// each time cost about 33 ms of this-week with 2,400 sessions.
 func (s *Store) sessionsForHome(homeKey string, workspaces []string) ([]Session, error) {
-	rows, err := s.db.Query(`SELECT ` + sessionColumns + ` FROM sessions WHERE project_key IS NOT NULL`)
+	cond, args := `project_key = ?`, []any{homeKey}
+	inWorkspace := false
+	for _, w := range workspaces {
+		if key, _ := project.WorkspaceHome(w, []string{w}); key == homeKey {
+			cond += ` OR instr(cwd, ?) = 1`
+			args = append(args, filepath.Clean(w))
+			inWorkspace = true
+		}
+	}
+	if inWorkspace {
+		cond += ` OR ` + uncleanCWD
+	}
+	rows, err := s.db.Query(`SELECT `+sessionColumns+` FROM sessions WHERE project_key IS NOT NULL AND (`+cond+`)`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("store: sessions for home %s: %w", homeKey, err)
 	}
@@ -256,6 +275,11 @@ func (s *Store) sessionsForHome(homeKey string, workspaces []string) ([]Session,
 	}
 	return out, nil
 }
+
+// uncleanCWD matches a cwd that filepath.Clean would rewrite inside the path
+// (a doubled slash, or a "." or ".." element), so a prefix test on the raw
+// value cannot tell whether it lies inside a workspace.
+const uncleanCWD = `(cwd LIKE '%//%' OR cwd LIKE '%/./%' OR cwd LIKE '%/../%' OR cwd LIKE '%/.' OR cwd LIKE '%/..')`
 
 // maxHandoffScanForLabel bounds HandoffsByWriter's newest-first scan of a
 // home's handoffs — the read-side safety cap RecordsForProject's own limit
