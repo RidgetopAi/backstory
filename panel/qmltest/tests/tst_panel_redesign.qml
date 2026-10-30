@@ -158,7 +158,9 @@ TestCase {
     ]
   }
 
-  // Nothing is cut off by the scroller (Dismiss included), the HERE card's
+  // Nothing is cut off by the scroller (Dismiss included), Dismiss ends
+  // exactly at its row's right padding whatever width the warning glyph
+  // draws at (a font without it draws a narrow box), the HERE card's
   // buttons pad like the card, and Continue's label lies inside its button
   // (shrunk or elided as qs.Ui Button does when there is too little room).
   function test_layout_at_text_sizes(row) {
@@ -171,6 +173,11 @@ TestCase {
     }))
     act.quiescent(function () { return TestUtil.collectClipped(panel.testContentItem) }, row.tag + ": never settled")
     compare(JSON.stringify(TestUtil.collectClipped(panel.testContentItem)), "[]", row.tag + ": clipped by the scroller")
+    var dismiss = named("attentionDismiss")
+    var dismissRow = dismiss.parent
+    verify(Math.abs(dismiss.x + dismiss.width - (dismissRow.width - dismissRow.rightPadding)) < 0.5,
+      row.tag + ": Dismiss ends at " + (dismiss.x + dismiss.width) + ", want the row's width minus its right padding ("
+      + (dismissRow.width - dismissRow.rightPadding) + ")")
     assertHereCardGaps(row.tag)
     var button = named("hereContinue")
     var label = TestUtil.findFirst(button, function (n) { return n.text === "Continue in Claude Code" })
