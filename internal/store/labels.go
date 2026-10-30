@@ -254,6 +254,7 @@ func (s *Store) sessionsForHome(homeKey string, workspaces []string) ([]Session,
 	if inWorkspace {
 		cond += ` OR ` + uncleanCWD
 	}
+	//nolint:gosec // only fixed SQL and "?" placeholders are concatenated; every value is bound
 	rows, err := s.db.Query(`SELECT `+sessionColumns+` FROM sessions WHERE project_key IS NOT NULL AND (`+cond+`)`, args...)
 	if err != nil {
 		return nil, fmt.Errorf("store: sessions for home %s: %w", homeKey, err)
