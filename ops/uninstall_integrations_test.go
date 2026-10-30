@@ -95,7 +95,6 @@ func TestUninstallDisablesPanelPluginBeforeRemovingIt(t *testing.T) {
 	mustNotExist(t, f.panelDir())
 
 	g := newInstallFixture(t)
-	g.withoutOmarchy()
 	g.mustMake("install")
 	out := g.mustMake("uninstall")
 	if !strings.Contains(out, "plugin disable backstory.this-week") {
