@@ -347,6 +347,22 @@ Item {
       borderSpec: Border.surfaceSpec("popups", "border", Color.popups.border, Math.max(1, Style.space(2)))
       radius: Style.cornerRadius
 
+      // Fades in on every open, growing from just under full size, as
+      // Omarchy's own panels do (Ui/PopupCard.qml); closing hides it at once.
+      // Style.duration (Omarchy 4.5+) makes it 0 when `omarchy toggle
+      // animations` is off; 4.0 has no such helper, so it always fades there.
+      property real shown: root.opened ? 1 : 0
+      Behavior on shown {
+        id: showing
+        NumberAnimation {
+          duration: showing.targetValue > 0 ? (typeof Style.duration === "function" ? Style.duration(180) : 180) : 0
+          easing.type: Easing.OutCubic
+        }
+      }
+      opacity: shown
+      scale: 0.97 + 0.03 * shown
+      transformOrigin: Item.Top
+
       // Key handling lives on the card so a key reaches it from anywhere in
       // the panel's own subtree; a child that accepts a key (a text field)
       // keeps it.
