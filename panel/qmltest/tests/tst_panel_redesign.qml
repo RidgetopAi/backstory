@@ -321,6 +321,54 @@ TestCase {
     act.pressKey(key)
   }
 
+  // j/k (and the arrows) move the highlight through Recent; the highlighted
+  // row must stay in view, scrolling the card as it goes past either edge.
+  function test_keyboard_selection_stays_in_view() {
+    open(payload(function (d) {
+      for (var i = 0; i < 25; i++) {
+        var row = JSON.parse(JSON.stringify(d.where_left_off[0]))
+        row.project.project_key = "extra-" + i
+        row.project.display_name = "extra-" + i
+        row.project.window = ""
+        // The last row has six agents, so walking into its expanded
+        // sub-rows must scroll past the bottom edge too.
+        if (i === 24) row.project.agents = ["claude", "codex", "copilot", "hermes", "opencode", "pi"].map(function (a) {
+          return { agent: a, last_activity: row.project.agents[0].last_activity, session_count: 1 }
+        })
+        d.where_left_off.push(row)
+      }
+    }))
+    var scroller = panel.testScroller
+    verify(scroller.contentHeight > scroller.height + 200, "fixture does not overflow the card: content " + scroller.contentHeight + ", view " + scroller.height)
+    function checkInView(step) {
+      var row = TestUtil.findFirst(panel.testContentItem, function (n) { return n.selected === true })
+      verify(row !== null, step + ": no selected row found")
+      var top = row.mapToItem(scroller, 0, 0).y
+      verify(top >= -1 && top + row.height <= scroller.height + 1,
+             step + ": selected row spans " + top + ".." + (top + row.height) + ", view is 0.." + scroller.height)
+    }
+    var last = panel.navRows.length - 1
+    for (var i = 1; i <= last; i++) {
+      press(Qt.Key_J)
+      act.settledEq(panel, "selectedIndex", i)
+      checkInView("j to row " + i)
+    }
+    // Into the last row's agent sub-rows: expand it, then j through them.
+    press(Qt.Key_Right)
+    tryVerify(function () { return panel.navRows.length > last + 1 }, 2000, "expanding the last row added no agent sub-rows")
+    for (var a = last + 1; a < panel.navRows.length; a++) {
+      press(Qt.Key_J)
+      act.settledEq(panel, "selectedIndex", a)
+      checkInView("j to agent sub-row " + a)
+    }
+    last = panel.navRows.length - 1
+    for (var k = last - 1; k >= 0; k--) {
+      press(Qt.Key_K)
+      act.settledEq(panel, "selectedIndex", k)
+      checkInView("k to row " + k)
+    }
+  }
+
   function test_keys_select_continue_terminal_memory_and_close() {
     open(payload())
     act.settledEq(panel, "selectedIndex", 0)
