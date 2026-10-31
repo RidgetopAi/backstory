@@ -3,7 +3,10 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 BIN     := bin/backstory
 GO      ?= go
 
-QMLTESTRUNNER ?= qmltestrunner
+# Qt 6's runner where the distro installs it (Arch, Debian/Ubuntu: /usr/lib/qt6/bin;
+# Fedora: /usr/lib64/qt6/bin), ahead of a `qmltestrunner` on PATH, which on Arch
+# with qt5-declarative installed is Qt 5's and won't load the panel.
+QMLTESTRUNNER ?= $(firstword $(wildcard /usr/lib/qt6/bin/qmltestrunner /usr/lib64/qt6/bin/qmltestrunner) qmltestrunner)
 
 .PHONY: check-go install uninstall build fmt-check vet lint test integration panel-qml-test check hygiene-check release-check clean
 

@@ -282,10 +282,10 @@ Omarchy installs with LUKS full-disk encryption by default (measured on Omarchy 
 `make build` writes `bin/backstory`; `make check` (fmt + vet + lint + race tests + the
 Quickshell panel's QML suite) is the gate CI runs on every push.
 
-The panel suite needs Qt 6's `qmltestrunner`. Omarchy's default `qmltestrunner` on `PATH` is
-the Qt 5 one and won't load the panel; point the target at Qt 6's:
-`make check QMLTESTRUNNER=/usr/lib/qt6/bin/qmltestrunner` (or `make panel-qml-test
-QMLTESTRUNNER=...`). Check with `qmltestrunner -version`.
+The panel suite needs Qt 6's `qmltestrunner`. `make` uses `/usr/lib/qt6/bin/qmltestrunner`
+(or `/usr/lib64/qt6/bin/qmltestrunner`) when it exists, ahead of any `qmltestrunner` on `PATH`,
+which on Omarchy is the Qt 5 one and won't load the panel. Elsewhere, point the target at
+Qt 6's: `make check QMLTESTRUNNER=/path/to/qmltestrunner`.
 
 Bare `backstory install` detects the agent harnesses on the machine (Claude Code: `~/.claude`
 or `~/.claude.json`; Codex: `~/.codex`; Hermes: `$HERMES_HOME`, else `~/.hermes`; Pi:
