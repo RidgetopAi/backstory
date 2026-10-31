@@ -60,7 +60,7 @@ Then open the panel with **`CTRL + SHIFT + B`** and check everything is connecte
 needs a restart) are under [What works today](#what-works-today).
 
 This builds `main`, and `backstory version` prints a commit from `git describe`. To install a
-release instead, run `git checkout <tag>` (for example `v1.1.0`) before `make install`.
+release instead, run `git checkout <tag>` (for example `v1.2.0`) before `make install`.
 
 ### What `make install` does
 
@@ -109,7 +109,7 @@ From your `backstory` folder:
 
 ```
 git fetch --tags
-git checkout <new tag>   # e.g. v1.1.0; or `git pull` to follow main
+git checkout <new tag>   # e.g. v1.2.0; or `git pull` to follow main
 make install
 backstory version
 ```
