@@ -20,12 +20,14 @@ import (
 
 // installFixture is an empty HOME plus recording fakes for systemctl, pgrep
 // (the session-lock probe) and omarchy-restart-shell, put first on PATH so
-// the test never touches the runner's real systemd or shell.
+// the test never touches the runner's real systemd or shell. The rest of
+// PATH is hostTools: the runner's tools minus its omarchy CLI.
 type installFixture struct {
 	t      *testing.T
 	home   string
 	cfg    string
 	fakes  string
+	host   string
 	log    string
 	binOut string
 	run    string   // XDG_RUNTIME_DIR: the daemon socket lives under it
@@ -39,16 +41,18 @@ func newInstallFixture(t *testing.T) *installFixture {
 		t:      t,
 		home:   filepath.Join(root, "home"),
 		fakes:  filepath.Join(root, "fakes"),
+		host:   filepath.Join(root, "host"),
 		log:    filepath.Join(root, "calls.log"),
 		binOut: filepath.Join(root, "build", "backstory"),
 		run:    filepath.Join(root, "run"),
 	}
 	f.cfg = filepath.Join(f.home, ".config")
-	for _, d := range []string{f.home, f.fakes} {
+	for _, d := range []string{f.home, f.fakes, f.host} {
 		if err := os.MkdirAll(d, 0o755); err != nil { //nolint:gosec // fixture path under t.TempDir
 			t.Fatal(err)
 		}
 	}
+	hostTools(t, f.host)
 	// enable --now / restart "start the unit": mark it active and run the
 	// installed daemon detached (unless FAKE_NODAEMON), as systemd would.
 	f.fake("systemctl", `echo "systemctl $*" >> "$FAKE_LOG"
@@ -138,7 +142,7 @@ func (f *installFixture) make(target string) (string, error) {
 		"XDG_DATA_HOME="+filepath.Join(f.home, ".local", "share"),
 		"XDG_RUNTIME_DIR="+f.run,
 		"BACKSTORY_HEALTH_TIMEOUT="+fixtureHealthTimeout,
-		"PATH="+f.fakes+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"PATH="+f.fakes+string(os.PathListSeparator)+f.host,
 		"FAKE_LOG="+f.log,
 		"FAKE_ACTIVE="+filepath.Join(filepath.Dir(f.log), "active"),
 		"FAKE_LOCKED="+filepath.Join(filepath.Dir(f.log), "locked"),
@@ -779,16 +783,33 @@ func (f *installFixture) fakeOmarchy() {
 echo "omarchy $* [plugin-dir $d]" >> "$FAKE_LOG"`)
 }
 
-// withoutOmarchy puts a PATH on the make environment that has the fakes and no
-// directory holding a real omarchy CLI.
-func (f *installFixture) withoutOmarchy() {
-	var keep []string
+// hostTools links every executable on the runner's PATH into dir, the first
+// PATH entry winning, except the omarchy* tools. Since omarchy 4.5 they sit in
+// /usr/bin beside coreutils, so no PATH entry can be dropped whole; and a
+// fixture that reached the real lock probe or CLI would test the runner's
+// session instead of its fakes.
+func hostTools(t *testing.T, dir string) {
+	t.Helper()
+	seen := map[string]bool{}
 	for _, d := range filepath.SplitList(os.Getenv("PATH")) {
-		if _, err := os.Stat(filepath.Join(d, "omarchy")); err != nil { //nolint:gosec // PATH entries of the test process
-			keep = append(keep, d)
+		if !filepath.IsAbs(d) {
+			continue
+		}
+		entries, err := os.ReadDir(d)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			name := e.Name()
+			if seen[name] || strings.HasPrefix(name, "omarchy") {
+				continue
+			}
+			seen[name] = true
+			if err := os.Symlink(filepath.Join(d, name), filepath.Join(dir, name)); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
-	f.extra = append(f.extra, "PATH="+f.fakes+string(os.PathListSeparator)+strings.Join(keep, string(os.PathListSeparator)))
 }
 
 func TestInstallEnablesPanelPluginBeforeShellRestart(t *testing.T) {
@@ -819,7 +840,6 @@ func TestInstallTwiceEnablesEachTime(t *testing.T) {
 
 func TestInstallWithoutOmarchyCLIStillSucceedsAndNamesCommand(t *testing.T) {
 	f := newInstallFixture(t)
-	f.withoutOmarchy()
 	out := f.mustMake("install")
 	if !strings.Contains(out, "plugin enable backstory.this-week") {
 		t.Errorf("output does not name the enable command:\n%s", out)
