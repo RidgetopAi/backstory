@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -178,5 +179,41 @@ func TestCaptureOnAndOffAreIdempotent(t *testing.T) {
 	}
 	if out, exitCode := runCaptureSubprocess(t, bin, env, "status"); exitCode != 0 || !strings.Contains(out, "capture: off") {
 		t.Fatalf("capture status = %q (exit %d), want it to contain %q and exit 0", out, exitCode, "capture: off")
+	}
+	// End on: capture off records an open pause window; leave none behind.
+	if out, exitCode := runCaptureSubprocess(t, bin, env, "on"); exitCode != 0 || !strings.Contains(out, "capture: on") {
+		t.Fatalf("final capture on = %q (exit %d), want it to contain %q and exit 0", out, exitCode, "capture: on")
+	}
+}
+
+// TestCaptureSequenceNeverTouchesRealHome is the guard for GitHub issue #2:
+// capture off/on records pause windows into the store, and a test env that
+// kept the developer's real HOME wrote them into the real
+// ~/.local/share/backstory/backstory.db. It runs the sequence through the
+// package's normal env helper and asserts the real HOME's store is unchanged.
+func TestCaptureSequenceNeverTouchesRealHome(t *testing.T) {
+	if realHome == "" {
+		t.Skip("no real HOME was set when the test process started")
+	}
+	realDB := filepath.Join(realHome, ".local", "share", "backstory", "backstory.db")
+	before, beforeErr := os.Stat(realDB)
+
+	bin := buildBackstory(t)
+	env := testXDGEnv("XDG_RUNTIME_DIR=" + t.TempDir())
+	for _, sub := range []string{"on", "off", "off", "on"} {
+		if out, exitCode := runCaptureSubprocess(t, bin, env, sub); exitCode != 0 {
+			t.Fatalf("capture %s = %q (exit %d), want exit 0", sub, out, exitCode)
+		}
+	}
+
+	after, afterErr := os.Stat(realDB)
+	switch {
+	case beforeErr != nil && afterErr == nil:
+		t.Fatalf("capture off/on created %s under the real HOME", realDB)
+	case beforeErr == nil && afterErr != nil:
+		t.Fatalf("%s existed before the run and is gone after: %v", realDB, afterErr)
+	case beforeErr == nil && (!after.ModTime().Equal(before.ModTime()) || after.Size() != before.Size()):
+		t.Fatalf("capture off/on modified %s under the real HOME (mtime %v -> %v, size %d -> %d)",
+			realDB, before.ModTime(), after.ModTime(), before.Size(), after.Size())
 	}
 }
