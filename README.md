@@ -23,9 +23,24 @@ License: MIT.
 
 ## Install from source
 
-Before you install: [what Backstory touches](docs/WHAT-BACKSTORY-TOUCHES.md) (every file it writes and
-reads, and that it makes no network connections of its own) and [SECURITY.md](SECURITY.md)
-(private vulnerability reports, and how to verify a release).
+Clone it, read it, run `make install`. Why you can trust that:
+
+- **Home folder only, no sudo.** It installs under `~/.local/bin` and `~/.config`, and never
+  calls `sudo`. See [what it never does](docs/WHAT-BACKSTORY-TOUCHES.md#what-it-never-does) and
+  [every path it writes](docs/WHAT-BACKSTORY-TOUCHES.md#the-program-and-its-service-make-install).
+- **A user-level service.** The background service is a `systemd --user` unit, not a system
+  one. See [the program and its service](docs/WHAT-BACKSTORY-TOUCHES.md#the-program-and-its-service-make-install).
+- **No network of its own.** The only outside connection is ssh sync, and only if you set it up.
+  A test fails the build if shipped code opens one. See
+  [what it never does](docs/WHAT-BACKSTORY-TOUCHES.md#what-it-never-does).
+- **One local SQLite file** holds your memory. See
+  [your memory and runtime files](docs/WHAT-BACKSTORY-TOUCHES.md#your-memory-and-runtime-files).
+- **Agent configs change only as listed**, and `make uninstall` takes them back out. See
+  [agent configuration](docs/WHAT-BACKSTORY-TOUCHES.md#agent-configuration-backstory-install) and
+  [how to remove it](docs/WHAT-BACKSTORY-TOUCHES.md#how-to-remove-it).
+
+Full list: [what Backstory touches](docs/WHAT-BACKSTORY-TOUCHES.md). To report a vulnerability,
+see [SECURITY.md](SECURITY.md).
 
 ### Prerequisites
 
@@ -105,6 +120,25 @@ omarchy restart shell
 backstory install
 backstory install bash
 ```
+
+### Other ways to install
+
+**Download a release.** Each [GitHub Release](https://github.com/RidgetopAi/backstory/releases)
+has a prebuilt `backstory` binary for x86_64 Linux, a `SHA256SUMS` file and a build-provenance
+attestation. Check the download before you run it:
+
+```
+sha256sum -c SHA256SUMS
+gh attestation verify backstory-<version>-linux-amd64.tar.gz --repo RidgetopAi/backstory
+```
+
+The first line confirms the file matches the published checksum. The second confirms it was
+built by this repository's CI from the tagged commit (it needs GitHub CLI 2.49 or newer). The
+tarball holds the program, its `systemd --user` unit, `LICENSE` and this README. The panel and
+the keyboard-shortcut file come with install from source, so for the full setup, use
+`make install` above.
+
+**AUR:** coming, not available yet.
 
 ## Updating
 
