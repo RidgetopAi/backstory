@@ -20,6 +20,10 @@ License: MIT.
 
 ## Install from source
 
+Before you install: [what Backstory touches](docs/WHAT-BACKSTORY-TOUCHES.md) (every file it writes and
+reads, and that it makes no network connections of its own) and [SECURITY.md](SECURITY.md)
+(private vulnerability reports, and how to verify a release).
+
 ### Prerequisites
 
 [Omarchy](https://omarchy.org), plus `git`, `make` and Go 1.27 or newer (the version in
