@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Ui
 import qs.Commons
+import qs.Commons as Commons
 import "js/model.js" as Model
 import "js/derive.js" as Derive
 import "js/format.js" as Format
@@ -41,9 +42,9 @@ Rectangle {
 
   implicitHeight: column.implicitHeight + Style.spacing.rowGap * 2
   radius: Style.cornerRadius
-  color: Util.alpha(Color.accent, 0.14)
+  color: Util.alpha(Commons.Color.accent, 0.14)
   border.width: 1
-  border.color: Color.accent
+  border.color: Commons.Color.accent
 
   Column {
     id: column
@@ -63,13 +64,13 @@ Rectangle {
         font.family: Style.font.family
         font.pixelSize: Style.font.title
         font.bold: true
-        color: Color.popups.text
+        color: Commons.Color.popups.text
       }
 
       Rectangle {
         anchors.verticalCenter: parent.verticalCenter
         radius: height / 2
-        color: Color.accent
+        color: Commons.Color.accent
         width: chip.implicitWidth + Style.spacing.rowPaddingX * 2
         height: chip.implicitHeight + Style.space(2)
 
@@ -80,7 +81,7 @@ Rectangle {
           text: "here"
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
-          color: Color.popups.background
+          color: Commons.Color.popups.background
         }
       }
     }
@@ -91,7 +92,7 @@ Rectangle {
       text: root.facts
       font.family: Style.font.family
       font.pixelSize: Style.font.bodySmall
-      color: Qt.darker(Color.popups.text, 1.3)
+      color: Qt.darker(Commons.Color.popups.text, 1.3)
       elide: Text.ElideRight
     }
 
@@ -115,7 +116,7 @@ Rectangle {
       text: Format.nextPrefix(root.handoffAgent) + root.next
       font.family: Style.font.family
       font.pixelSize: Style.font.body
-      color: Color.popups.text
+      color: Commons.Color.popups.text
       wrapMode: Text.WordWrap
     }
 

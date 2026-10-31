@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Ui
 import qs.Commons
+import qs.Commons as Commons
 import "js/model.js" as Model
 import "js/format.js" as Format
 
@@ -42,10 +43,10 @@ Column {
       Rectangle {
         anchors.fill: parent
         radius: Style.cornerRadius
-        color: sub.selected ? Util.alpha(Color.accent, 0.18)
-          : (subMouse.containsMouse ? Style.hoverFillFor(Color.foreground, Color.foreground) : "transparent")
+        color: sub.selected ? Util.alpha(Commons.Color.accent, 0.18)
+          : (subMouse.containsMouse ? Style.hoverFillFor(Commons.Color.foreground, Commons.Color.foreground) : "transparent")
         border.width: sub.selected ? 1 : 0
-        border.color: Color.accent
+        border.color: Commons.Color.accent
       }
 
       MouseArea {
@@ -70,7 +71,7 @@ Column {
           font.family: Style.font.family
           font.pixelSize: Style.font.bodySmall
           font.bold: true
-          color: Color.foreground
+          color: Commons.Color.foreground
         }
 
         Text {
@@ -78,7 +79,7 @@ Column {
           text: sub.detail
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
-          color: Qt.darker(Color.foreground, 1.3)
+          color: Qt.darker(Commons.Color.foreground, 1.3)
           anchors.verticalCenter: parent.verticalCenter
         }
       }

@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 
 // A small labelled button: the text is the label, `primary` fills it with
 // the accent colour.
@@ -15,10 +16,10 @@ Rectangle {
   implicitHeight: text.implicitHeight + Style.spacing.controlGap * 2
   radius: Style.cornerRadius
   color: root.primary
-    ? (mouse.containsMouse ? Qt.lighter(Color.accent, 1.1) : Color.accent)
-    : (mouse.containsMouse ? Style.hoverFillFor(Color.foreground, Color.foreground) : "transparent")
+    ? (mouse.containsMouse ? Qt.lighter(Commons.Color.accent, 1.1) : Commons.Color.accent)
+    : (mouse.containsMouse ? Style.hoverFillFor(Commons.Color.foreground, Commons.Color.foreground) : "transparent")
   border.width: root.primary ? 0 : 1
-  border.color: Color.popups.border
+  border.color: Commons.Color.popups.border
 
   // Held narrower than its natural width, the label fits as qs.Ui Button's
   // does: it spends half the padding, then shrinks to fit, and elides only
@@ -36,7 +37,7 @@ Rectangle {
     font.family: Style.font.family
     font.pixelSize: Style.font.bodySmall
     font.bold: root.primary
-    color: root.primary ? Color.popups.background : Color.popups.text
+    color: root.primary ? Commons.Color.popups.background : Commons.Color.popups.text
   }
 
   MouseArea {

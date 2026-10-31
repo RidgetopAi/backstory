@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Ui
 import qs.Commons
+import qs.Commons as Commons
 import "js/model.js" as Model
 import "js/derive.js" as Derive
 import "js/launchers.js" as Launchers
@@ -84,7 +85,7 @@ Item {
   Rectangle {
     anchors.fill: parent
     radius: Style.cornerRadius
-    color: mouse.containsMouse ? Style.hoverFillFor(Color.foreground, Color.foreground) : "transparent"
+    color: mouse.containsMouse ? Style.hoverFillFor(Commons.Color.foreground, Commons.Color.foreground) : "transparent"
   }
 
   MouseArea {
@@ -117,7 +118,7 @@ Item {
       text: root.hereName !== "" ? root.hereName : Glyphs.week()
       font.family: Style.font.family
       font.pixelSize: Style.font.body
-      color: Color.foreground
+      color: Commons.Color.foreground
     }
 
     Rectangle {
@@ -128,7 +129,7 @@ Item {
       width: Style.space(7)
       height: width
       radius: width / 2
-      color: Color.urgent
+      color: Commons.Color.urgent
     }
   }
 }

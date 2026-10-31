@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Ui
 import qs.Commons
+import qs.Commons as Commons
 import "js/model.js" as Model
 import "js/derive.js" as Derive
 import "js/launchers.js" as Launchers
@@ -24,12 +25,10 @@ Item {
   // the "panel" kind contract's own open()/close()/toggle() below, the
   // same functions IpcHandler answers).
   property bool opened: false
-  property var data: null
+  property var weekData: null
   property bool loading: false
   // A fresh panel (the shell unloads it on a bar or keybind close) has no
   // data until this-week first answers; until then it shows no empty state.
-  // Not `data === null`: on Qt 6.12 an unassigned `data` reads as Item's own
-  // `data` list.
   property bool hasLoaded: false
   readonly property bool waitingForFirstData: root.loading && !root.hasLoaded
   property bool groupEditorOpen: false
@@ -39,11 +38,11 @@ Item {
   property string memoryDisplayName: ""
   property string memoryLocation: ""
 
-  readonly property var attentionItems: root.data ? Model.topAttention(root.data) : []
-  readonly property var whereLeftOffRows: root.data ? Model.topWhereLeftOff(root.data) : []
-  readonly property var weekDays: root.data ? Model.topWeek(root.data) : []
-  readonly property var hereData: root.data ? Model.topHere(root.data) : null
-  readonly property var hereProject: root.data ? Derive.hereSummary(root.data) : null
+  readonly property var attentionItems: root.weekData ? Model.topAttention(root.weekData) : []
+  readonly property var whereLeftOffRows: root.weekData ? Model.topWhereLeftOff(root.weekData) : []
+  readonly property var weekDays: root.weekData ? Model.topWeek(root.weekData) : []
+  readonly property var hereData: root.weekData ? Model.topHere(root.weekData) : null
+  readonly property var hereProject: root.weekData ? Derive.hereSummary(root.weekData) : null
   readonly property string hereName: root.hereData ? Model.shortName(Model.hereDisplayName(root.hereData)) : ""
   readonly property string summaryText: Format.summaryLine(Derive.weekTotals(root.weekDays))
   property real nowMs: Date.now()
@@ -310,10 +309,10 @@ Item {
         root.loading = false
         root.hasLoaded = true
         try {
-          root.data = JSON.parse(text || "{}")
+          root.weekData = JSON.parse(text || "{}")
           root.resetSelection()
         } catch (e) {
-          root.data = null
+          root.weekData = null
         }
       }
     }
@@ -350,8 +349,8 @@ Item {
       id: card
       width: panel.width
       height: panel.height
-      color: Util.alpha(Color.popups.background, 0.98)
-      borderSpec: Border.surfaceSpec("popups", "border", Color.popups.border, Math.max(1, Style.space(2)))
+      color: Util.alpha(Commons.Color.popups.background, 0.98)
+      borderSpec: Border.surfaceSpec("popups", "border", Commons.Color.popups.border, Math.max(1, Style.space(2)))
       radius: Style.cornerRadius
 
       // Fades in on every open, growing from just under full size, as
@@ -421,7 +420,7 @@ Item {
                 font.family: Style.font.family
                 font.pixelSize: Style.font.heading
                 font.bold: true
-                color: Color.popups.text
+                color: Commons.Color.popups.text
                 width: parent.width - groupsButton.width - closeButton.width
               }
 
@@ -429,8 +428,8 @@ Item {
                 id: groupsButton
                 iconText: Glyphs.gear()
                 tooltipText: "Groups"
-                foreground: Color.popups.text
-                hoverColor: Color.accent
+                foreground: Commons.Color.popups.text
+                hoverColor: Commons.Color.accent
                 onClicked: root.groupEditorOpen = !root.groupEditorOpen
               }
 
@@ -438,8 +437,8 @@ Item {
                 id: closeButton
                 iconText: Glyphs.close()
                 tooltipText: "Close"
-                foreground: Color.popups.text
-                hoverColor: Color.urgent
+                foreground: Commons.Color.popups.text
+                hoverColor: Commons.Color.urgent
                 onClicked: root.close()
               }
             }
@@ -468,7 +467,7 @@ Item {
               width: parent.width
               spacing: Style.spacing.labelGap
 
-              PanelSectionHeader { text: "NEEDS YOU"; foreground: Color.popups.text }
+              PanelSectionHeader { text: "NEEDS YOU"; foreground: Commons.Color.popups.text }
               AttentionSection { items: root.attentionItems; width: parent.width; onDismissed: root.refresh() }
             }
 
@@ -476,7 +475,7 @@ Item {
               width: parent.width
               spacing: Style.spacing.labelGap
 
-              PanelSectionHeader { text: "RECENT"; foreground: Color.popups.text }
+              PanelSectionHeader { text: "RECENT"; foreground: Commons.Color.popups.text }
               WhereLeftOffSection {
                 id: recentSection
                 rows: root.whereLeftOffRows
@@ -504,7 +503,7 @@ Item {
               visible: !root.waitingForFirstData
               font.family: Style.font.family
               font.pixelSize: Style.font.caption
-              color: Qt.darker(Color.popups.text, 1.3)
+              color: Qt.darker(Commons.Color.popups.text, 1.3)
               wrapMode: Text.WordWrap
             }
 
@@ -514,7 +513,7 @@ Item {
               text: root.footerHint
               font.family: Style.font.family
               font.pixelSize: Style.font.caption
-              color: Qt.darker(Color.popups.text, 1.3)
+              color: Qt.darker(Commons.Color.popups.text, 1.3)
               wrapMode: Text.WordWrap
             }
           }

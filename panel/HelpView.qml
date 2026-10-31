@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Ui
 import qs.Commons
+import qs.Commons as Commons
 import "js/launchers.js" as Launchers
 import "js/glyphs.js" as Glyphs
 
@@ -49,7 +50,7 @@ Item {
   }
 
   component HelpHeading: PanelSectionHeader {
-    foreground: Color.foreground
+    foreground: Commons.Color.foreground
     width: content.width
   }
 
@@ -58,7 +59,7 @@ Item {
     textFormat: Text.PlainText
     font.family: Style.font.family
     font.pixelSize: Style.font.bodySmall
-    color: Color.foreground
+    color: Commons.Color.foreground
     wrapMode: Text.WordWrap
   }
 
@@ -76,14 +77,14 @@ Item {
         font.family: Style.font.family
         font.pixelSize: Style.font.title
         font.bold: true
-        color: Color.foreground
+        color: Commons.Color.foreground
         width: parent.width - Style.space(24)
       }
       PanelActionButton {
         iconText: Glyphs.back()
         tooltipText: "Back"
-        foreground: Color.foreground
-        hoverColor: Color.accent
+        foreground: Commons.Color.foreground
+        hoverColor: Commons.Color.accent
         onClicked: root.closeRequested()
       }
     }
@@ -109,7 +110,7 @@ Item {
           font.family: Style.font.family
           font.pixelSize: Style.font.body
           font.bold: true
-          color: Color.foreground
+          color: Commons.Color.foreground
         }
         HelpText { text: modelData.description }
       }

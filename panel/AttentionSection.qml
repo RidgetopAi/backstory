@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell.Io
 import qs.Ui
 import qs.Commons
+import qs.Commons as Commons
 import "js/model.js" as Model
 import "js/glyphs.js" as Glyphs
 import "js/launchers.js" as Launchers
@@ -52,7 +53,7 @@ Column {
         text: Glyphs.attention()
         font.family: Style.font.family
         font.pixelSize: Style.font.bodySmall
-        color: Color.urgent
+        color: Commons.Color.urgent
       }
 
       Text {
@@ -60,7 +61,7 @@ Column {
         text: Model.attentionReason(itemRow.modelData)
         font.family: Style.font.family
         font.pixelSize: Style.font.bodySmall
-        color: Color.foreground
+        color: Commons.Color.foreground
         width: itemRow.width - itemRow.leftPadding - itemRow.rightPadding - glyph.width - itemRow.spacing
           - (dismissButton.visible ? dismissButton.width + itemRow.spacing : 0)
         wrapMode: Text.WordWrap

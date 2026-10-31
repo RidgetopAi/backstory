@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Ui
 import qs.Commons
+import qs.Commons as Commons
 import "js/glyphs.js" as Glyphs
 
 // One project row inside GroupEditor.qml — a group's member, or an
@@ -30,8 +31,8 @@ Item {
     anchors.fill: parent
     radius: Style.cornerRadius
     color: root.selected
-      ? Util.alpha(Color.accent, 0.25)
-      : (rowMouse.containsMouse ? Style.hoverFillFor(Color.foreground, Color.foreground) : "transparent")
+      ? Util.alpha(Commons.Color.accent, 0.25)
+      : (rowMouse.containsMouse ? Style.hoverFillFor(Commons.Color.foreground, Commons.Color.foreground) : "transparent")
   }
 
   MouseArea {
@@ -49,7 +50,7 @@ Item {
     font.family: Style.font.family
     font.pixelSize: Style.font.bodySmall
     font.bold: root.selected
-    color: Color.foreground
+    color: Commons.Color.foreground
     elide: Text.ElideRight
     anchors.verticalCenter: parent.verticalCenter
     anchors.left: parent.left
@@ -64,8 +65,8 @@ Item {
     anchors.verticalCenter: parent.verticalCenter
     iconText: Glyphs.close()
     tooltipText: "Remove from group"
-    foreground: Color.foreground
-    hoverColor: Color.urgent
+    foreground: Commons.Color.foreground
+    hoverColor: Commons.Color.urgent
     size: Style.space(16)
     fontSize: Style.font.caption
     onClicked: root.removeRequested()

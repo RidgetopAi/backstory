@@ -25,9 +25,15 @@ const (
 var rawQMLAction = regexp.MustCompile(`\bmouse(Click|Press|Release|DoubleClick|Move|Wheel|Drag)\s*\(|\.clicked\s*\(\s*\)`)
 
 // findRawQMLActions returns "file:line: text" for every line of src that
-// calls a raw pointer API. Comment-only lines are skipped so prose may name
-// the call; code after a trailing // is still checked.
+// calls a raw pointer API.
 func findRawQMLActions(name, src string) []string {
+	return findQMLCode(name, src, rawQMLAction)
+}
+
+// findQMLCode returns "file:line: text" for every line of src whose code
+// matches re. Comment-only lines are skipped so prose may name what re
+// matches; the trailing // comment after code is dropped before matching.
+func findQMLCode(name, src string, re *regexp.Regexp) []string {
 	var hits []string
 	for i, line := range strings.Split(src, "\n") {
 		code := line
@@ -37,7 +43,7 @@ func findRawQMLActions(name, src string) []string {
 		if cut := strings.Index(code, "//"); cut >= 0 && !strings.Contains(code[:cut], "\"") {
 			code = code[:cut]
 		}
-		if rawQMLAction.MatchString(code) {
+		if re.MatchString(code) {
 			hits = append(hits, name+":"+strconv.Itoa(i+1)+": "+strings.TrimSpace(line))
 		}
 	}

@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Ui
 import qs.Commons
+import qs.Commons as Commons
 import "js/model.js" as Model
 import "js/derive.js" as Derive
 import "js/glyphs.js" as Glyphs
@@ -33,7 +34,7 @@ Item {
     var n = summary ? Model.shortName(Model.summaryDisplayName(summary)) : ""
     return root.workspaceRow ? n + " \u00b7 workspace notes" : n
   }
-  readonly property color nameColor: root.workspaceRow ? Qt.darker(Color.foreground, 1.3) : Color.foreground
+  readonly property color nameColor: root.workspaceRow ? Qt.darker(Commons.Color.foreground, 1.3) : Commons.Color.foreground
   readonly property string recentLabel: summary
     ? Format.recentActionLabel(Model.summaryLastActivity(summary), root.nowMs, !!Model.summaryWindow(summary)) : ""
   readonly property var stripDays: Format.stripDays(root.nowMs)
@@ -58,10 +59,10 @@ Item {
   Rectangle {
     anchors.fill: parent
     radius: Style.cornerRadius
-    color: root.selected ? Util.alpha(Color.accent, 0.18)
-      : (rowMouse.containsMouse ? Style.hoverFillFor(Color.foreground, Color.foreground) : "transparent")
+    color: root.selected ? Util.alpha(Commons.Color.accent, 0.18)
+      : (rowMouse.containsMouse ? Style.hoverFillFor(Commons.Color.foreground, Commons.Color.foreground) : "transparent")
     border.width: root.selected ? 1 : 0
-    border.color: Color.accent
+    border.color: Commons.Color.accent
   }
 
   MouseArea {
@@ -90,7 +91,7 @@ Item {
         text: root.stale ? Glyphs.attention() : Glyphs.terminal()
         font.family: Style.font.family
         font.pixelSize: Style.font.bodySmall
-        color: root.stale ? Color.urgent : Color.foreground
+        color: root.stale ? Commons.Color.urgent : Commons.Color.foreground
       }
 
       Text {
@@ -110,7 +111,7 @@ Item {
         text: root.summary ? Format.relativeTime(Model.summaryLastActivity(root.summary), root.nowMs) : ""
         font.family: Style.font.family
         font.pixelSize: Style.font.caption
-        color: Qt.darker(Color.foreground, 1.3)
+        color: Qt.darker(Commons.Color.foreground, 1.3)
         anchors.verticalCenter: parent.verticalCenter
       }
     }
@@ -143,7 +144,7 @@ Item {
           width: Style.space(10)
           height: Style.space(6)
           radius: Style.space(2)
-          color: shaded ? Util.alpha(Color.accent, strength) : Util.alpha(Color.foreground, 0.12)
+          color: shaded ? Util.alpha(Commons.Color.accent, strength) : Util.alpha(Commons.Color.foreground, 0.12)
         }
       }
     }
@@ -154,7 +155,7 @@ Item {
       text: root.nextText
       font.family: Style.font.family
       font.pixelSize: Style.font.caption
-      color: Qt.darker(Color.foreground, 1.3)
+      color: Qt.darker(Commons.Color.foreground, 1.3)
       elide: Text.ElideRight
       width: parent.width
     }
@@ -166,8 +167,8 @@ Item {
     anchors.verticalCenter: parent.verticalCenter
     iconText: Glyphs.memory()
     tooltipText: "Memory"
-    foreground: Color.foreground
-    hoverColor: Color.accent
+    foreground: Commons.Color.foreground
+    hoverColor: Commons.Color.accent
     onClicked: root.openMemory(Model.summaryProjectKey(root.summary), Model.summaryDisplayName(root.summary), Model.summaryCwd(root.summary) || "")
   }
 
@@ -188,8 +189,8 @@ Item {
     anchors.verticalCenter: parent.verticalCenter
     iconText: Glyphs.resume()
     tooltipText: "Continue"
-    foreground: Color.foreground
-    hoverColor: Color.accent
+    foreground: Commons.Color.foreground
+    hoverColor: Commons.Color.accent
     onClicked: root.continueRequested()
   }
 }
