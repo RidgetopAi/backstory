@@ -25,12 +25,10 @@ Item {
   // the "panel" kind contract's own open()/close()/toggle() below, the
   // same functions IpcHandler answers).
   property bool opened: false
-  property var data: null
+  property var weekData: null
   property bool loading: false
   // A fresh panel (the shell unloads it on a bar or keybind close) has no
   // data until this-week first answers; until then it shows no empty state.
-  // Not `data === null`: on Qt 6.12 an unassigned `data` reads as Item's own
-  // `data` list.
   property bool hasLoaded: false
   readonly property bool waitingForFirstData: root.loading && !root.hasLoaded
   property bool groupEditorOpen: false
@@ -40,11 +38,11 @@ Item {
   property string memoryDisplayName: ""
   property string memoryLocation: ""
 
-  readonly property var attentionItems: root.data ? Model.topAttention(root.data) : []
-  readonly property var whereLeftOffRows: root.data ? Model.topWhereLeftOff(root.data) : []
-  readonly property var weekDays: root.data ? Model.topWeek(root.data) : []
-  readonly property var hereData: root.data ? Model.topHere(root.data) : null
-  readonly property var hereProject: root.data ? Derive.hereSummary(root.data) : null
+  readonly property var attentionItems: root.weekData ? Model.topAttention(root.weekData) : []
+  readonly property var whereLeftOffRows: root.weekData ? Model.topWhereLeftOff(root.weekData) : []
+  readonly property var weekDays: root.weekData ? Model.topWeek(root.weekData) : []
+  readonly property var hereData: root.weekData ? Model.topHere(root.weekData) : null
+  readonly property var hereProject: root.weekData ? Derive.hereSummary(root.weekData) : null
   readonly property string hereName: root.hereData ? Model.shortName(Model.hereDisplayName(root.hereData)) : ""
   readonly property string summaryText: Format.summaryLine(Derive.weekTotals(root.weekDays))
   property real nowMs: Date.now()
@@ -311,10 +309,10 @@ Item {
         root.loading = false
         root.hasLoaded = true
         try {
-          root.data = JSON.parse(text || "{}")
+          root.weekData = JSON.parse(text || "{}")
           root.resetSelection()
         } catch (e) {
-          root.data = null
+          root.weekData = null
         }
       }
     }
