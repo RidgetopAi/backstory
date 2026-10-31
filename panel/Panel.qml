@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Ui
 import qs.Commons
+import qs.Commons as Commons
 import "js/model.js" as Model
 import "js/derive.js" as Derive
 import "js/launchers.js" as Launchers
@@ -350,8 +351,8 @@ Item {
       id: card
       width: panel.width
       height: panel.height
-      color: Util.alpha(Color.popups.background, 0.98)
-      borderSpec: Border.surfaceSpec("popups", "border", Color.popups.border, Math.max(1, Style.space(2)))
+      color: Util.alpha(Commons.Color.popups.background, 0.98)
+      borderSpec: Border.surfaceSpec("popups", "border", Commons.Color.popups.border, Math.max(1, Style.space(2)))
       radius: Style.cornerRadius
 
       // Fades in on every open, growing from just under full size, as
@@ -421,7 +422,7 @@ Item {
                 font.family: Style.font.family
                 font.pixelSize: Style.font.heading
                 font.bold: true
-                color: Color.popups.text
+                color: Commons.Color.popups.text
                 width: parent.width - groupsButton.width - closeButton.width
               }
 
@@ -429,8 +430,8 @@ Item {
                 id: groupsButton
                 iconText: Glyphs.gear()
                 tooltipText: "Groups"
-                foreground: Color.popups.text
-                hoverColor: Color.accent
+                foreground: Commons.Color.popups.text
+                hoverColor: Commons.Color.accent
                 onClicked: root.groupEditorOpen = !root.groupEditorOpen
               }
 
@@ -438,8 +439,8 @@ Item {
                 id: closeButton
                 iconText: Glyphs.close()
                 tooltipText: "Close"
-                foreground: Color.popups.text
-                hoverColor: Color.urgent
+                foreground: Commons.Color.popups.text
+                hoverColor: Commons.Color.urgent
                 onClicked: root.close()
               }
             }
@@ -468,7 +469,7 @@ Item {
               width: parent.width
               spacing: Style.spacing.labelGap
 
-              PanelSectionHeader { text: "NEEDS YOU"; foreground: Color.popups.text }
+              PanelSectionHeader { text: "NEEDS YOU"; foreground: Commons.Color.popups.text }
               AttentionSection { items: root.attentionItems; width: parent.width; onDismissed: root.refresh() }
             }
 
@@ -476,7 +477,7 @@ Item {
               width: parent.width
               spacing: Style.spacing.labelGap
 
-              PanelSectionHeader { text: "RECENT"; foreground: Color.popups.text }
+              PanelSectionHeader { text: "RECENT"; foreground: Commons.Color.popups.text }
               WhereLeftOffSection {
                 id: recentSection
                 rows: root.whereLeftOffRows
@@ -504,7 +505,7 @@ Item {
               visible: !root.waitingForFirstData
               font.family: Style.font.family
               font.pixelSize: Style.font.caption
-              color: Qt.darker(Color.popups.text, 1.3)
+              color: Qt.darker(Commons.Color.popups.text, 1.3)
               wrapMode: Text.WordWrap
             }
 
@@ -514,7 +515,7 @@ Item {
               text: root.footerHint
               font.family: Style.font.family
               font.pixelSize: Style.font.caption
-              color: Qt.darker(Color.popups.text, 1.3)
+              color: Qt.darker(Commons.Color.popups.text, 1.3)
               wrapMode: Text.WordWrap
             }
           }

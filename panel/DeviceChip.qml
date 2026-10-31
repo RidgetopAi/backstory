@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 
 // A small "from <device>" chip for a record or handoff that came from another
 // device. `device` is the origin_device_name read through js/model.js or
@@ -15,7 +16,7 @@ Rectangle {
   radius: height / 2
   color: "transparent"
   border.width: 1
-  border.color: Qt.darker(Color.foreground, 1.6)
+  border.color: Qt.darker(Commons.Color.foreground, 1.6)
 
   Text {
     id: label
@@ -25,6 +26,6 @@ Rectangle {
     text: "from " + root.device
     font.family: Style.font.family
     font.pixelSize: Style.font.caption
-    color: Qt.darker(Color.foreground, 1.3)
+    color: Qt.darker(Commons.Color.foreground, 1.3)
   }
 }

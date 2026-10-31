@@ -1,6 +1,7 @@
 import QtQuick
 import qs.Ui
 import qs.Commons
+import qs.Commons as Commons
 import "js/model.js" as Model
 import "js/glyphs.js" as Glyphs
 
@@ -80,7 +81,7 @@ Column {
             text: root.expandedGroups[Model.rowGroup(rowDelegate.modelData)] ? Glyphs.chevronDown() : Glyphs.chevronRight()
             font.family: Style.font.family
             font.pixelSize: Style.font.bodySmall
-            color: Color.foreground
+            color: Commons.Color.foreground
           }
 
           Text {
@@ -89,7 +90,7 @@ Column {
             font.family: Style.font.family
             font.pixelSize: Style.font.body
             font.bold: true
-            color: Color.foreground
+            color: Commons.Color.foreground
           }
         }
       }
@@ -166,7 +167,7 @@ Column {
     text: "Nothing this week."
     font.family: Style.font.family
     font.pixelSize: Style.font.bodySmall
-    color: Qt.darker(Color.foreground, 1.3)
+    color: Qt.darker(Commons.Color.foreground, 1.3)
     leftPadding: Style.spacing.rowPaddingX
   }
 }

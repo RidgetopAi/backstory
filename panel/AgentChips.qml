@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 import "js/model.js" as Model
 import "js/glyphs.js" as Glyphs
 import "js/format.js" as Format
@@ -64,7 +65,7 @@ Item {
       text: root.expanded ? Glyphs.chevronDown() : Glyphs.chevronRight()
       font.family: Style.font.family
       font.pixelSize: Style.font.caption
-      color: Qt.darker(Color.foreground, 1.3)
+      color: Qt.darker(Commons.Color.foreground, 1.3)
     }
 
     Repeater {
@@ -79,7 +80,7 @@ Item {
         readonly property string timeText: Format.relativeTime(Model.agentLastActivity(modelData), root.nowMs)
         anchors.verticalCenter: parent.verticalCenter
         radius: height / 2
-        color: Util.alpha(Color.accent, 0.18)
+        color: Util.alpha(Commons.Color.accent, 0.18)
         width: chipRow.implicitWidth + Style.spacing.rowPaddingX
         height: chipRow.implicitHeight + Style.space(2)
         visible: index < root.fitCount
@@ -97,7 +98,7 @@ Item {
             text: chip.agentText
             font.family: Style.font.family
             font.pixelSize: Style.font.caption
-            color: Color.foreground
+            color: Commons.Color.foreground
           }
 
           Text {
@@ -105,7 +106,7 @@ Item {
             text: chip.timeText
             font.family: Style.font.family
             font.pixelSize: Style.font.caption
-            color: Qt.darker(Color.foreground, 1.3)
+            color: Qt.darker(Commons.Color.foreground, 1.3)
           }
         }
       }
@@ -116,7 +117,7 @@ Item {
       objectName: "agentChipMore"
       anchors.verticalCenter: parent.verticalCenter
       radius: height / 2
-      color: Util.alpha(Color.foreground, 0.12)
+      color: Util.alpha(Commons.Color.foreground, 0.12)
       width: moreText.implicitWidth + Style.spacing.rowPaddingX
       height: moreText.implicitHeight + Style.space(2)
 
@@ -128,7 +129,7 @@ Item {
         text: "+" + root.foldedCount
         font.family: Style.font.family
         font.pixelSize: Style.font.caption
-        color: Color.foreground
+        color: Commons.Color.foreground
       }
     }
   }

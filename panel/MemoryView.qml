@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Ui
 import qs.Commons
+import qs.Commons as Commons
 import "js/launchers.js" as Launchers
 import "js/records.js" as Records
 import "js/memory.js" as Memory
@@ -225,8 +226,8 @@ Item {
       PanelActionButton {
         iconText: Glyphs.back()
         tooltipText: "Back"
-        foreground: Color.popups.text
-        hoverColor: Color.accent
+        foreground: Commons.Color.popups.text
+        hoverColor: Commons.Color.accent
         onClicked: root.closeRequested()
       }
 
@@ -236,7 +237,7 @@ Item {
         font.family: Style.font.family
         font.pixelSize: Style.font.heading
         font.bold: true
-        color: Color.popups.text
+        color: Commons.Color.popups.text
         elide: Text.ElideRight
         width: parent.width - Style.space(56)
         anchors.verticalCenter: parent.verticalCenter
@@ -245,8 +246,8 @@ Item {
       PanelActionButton {
         iconText: Glyphs.history()
         tooltipText: root.showHistory ? "Hide history" : "Show history"
-        foreground: root.showHistory ? Color.accent : Color.popups.text
-        hoverColor: Color.accent
+        foreground: root.showHistory ? Commons.Color.accent : Commons.Color.popups.text
+        hoverColor: Commons.Color.accent
         onClicked: root.toggleHistory()
       }
     }
@@ -260,7 +261,7 @@ Item {
       width: parent.width
       font.family: Style.font.family
       font.pixelSize: Style.font.caption
-      color: Color.urgent
+      color: Commons.Color.urgent
     }
 
     Text {
@@ -271,7 +272,7 @@ Item {
       width: parent.width
       font.family: Style.font.family
       font.pixelSize: Style.font.bodySmall
-      color: Qt.darker(Color.foreground, 1.3)
+      color: Qt.darker(Commons.Color.foreground, 1.3)
       leftPadding: Style.spacing.rowPaddingX
     }
 
@@ -322,7 +323,7 @@ Item {
                 text: Glyphs.recordKind(Records.recordKind(rec.modelData))
                 font.family: Style.font.family
                 font.pixelSize: Style.font.bodySmall
-                color: Color.foreground
+                color: Commons.Color.foreground
               }
 
               Text {
@@ -331,7 +332,7 @@ Item {
                 font.family: Style.font.family
                 font.pixelSize: Style.font.caption
                 font.bold: true
-                color: Color.foreground
+                color: Commons.Color.foreground
               }
 
               Text {
@@ -340,7 +341,7 @@ Item {
                 font.family: Style.font.family
                 font.pixelSize: Style.font.caption
                 font.bold: true
-                color: Color.foreground
+                color: Commons.Color.foreground
               }
 
               DeviceChip {
@@ -354,7 +355,7 @@ Item {
                 text: rec.mark
                 font.family: Style.font.family
                 font.pixelSize: Style.font.caption
-                color: Color.urgent
+                color: Commons.Color.urgent
               }
 
               Text {
@@ -362,7 +363,7 @@ Item {
                 text: Memory.relativeAge(Records.recordTs(rec.modelData), root.now())
                 font.family: Style.font.family
                 font.pixelSize: Style.font.caption
-                color: Qt.darker(Color.foreground, 1.3)
+                color: Qt.darker(Commons.Color.foreground, 1.3)
               }
             }
 
@@ -374,16 +375,16 @@ Item {
               PanelActionButton {
                 iconText: Glyphs.edit()
                 tooltipText: "Edit"
-                foreground: Color.foreground
-                hoverColor: Color.accent
+                foreground: Commons.Color.foreground
+                hoverColor: Commons.Color.accent
                 onClicked: root.editRecord(rec.rid)
               }
 
               PanelActionButton {
                 iconText: Glyphs.trash()
                 tooltipText: "Delete"
-                foreground: Color.foreground
-                hoverColor: Color.urgent
+                foreground: Commons.Color.foreground
+                hoverColor: Commons.Color.urgent
                 enabled: !root.busy
                 onClicked: root.askDelete(rec.rid)
               }
@@ -400,7 +401,7 @@ Item {
             width: parent.width
             font.family: Style.font.family
             font.pixelSize: Style.font.body
-            color: Color.foreground
+            color: Commons.Color.foreground
           }
 
           Flow {
@@ -414,13 +415,13 @@ Item {
               text: "Forget this record?"
               font.family: Style.font.family
               font.pixelSize: Style.font.caption
-              color: Color.urgent
+              color: Commons.Color.urgent
             }
 
             MemoryButton {
               label: "Forget"
-              foreground: Color.urgent
-              hoverColor: Color.urgent
+              foreground: Commons.Color.urgent
+              hoverColor: Commons.Color.urgent
               onClicked: root.deleteRecord(rec.rid)
             }
 
@@ -437,7 +438,7 @@ Item {
       objectName: "forgetDivider"
       width: parent.width
       height: 1
-      color: Qt.darker(Color.foreground, 2.5)
+      color: Qt.darker(Commons.Color.foreground, 2.5)
     }
 
     Column {
@@ -456,7 +457,7 @@ Item {
         font.family: Style.font.family
         font.pixelSize: Style.font.body
         font.bold: true
-        color: Color.foreground
+        color: Commons.Color.foreground
       }
 
       Text {
@@ -467,7 +468,7 @@ Item {
         width: parent.width
         font.family: Style.font.family
         font.pixelSize: Style.font.caption
-        color: Qt.darker(Color.foreground, 1.3)
+        color: Qt.darker(Commons.Color.foreground, 1.3)
       }
 
       Flow {
@@ -495,7 +496,7 @@ Item {
         width: parent.width
         font.family: Style.font.family
         font.pixelSize: Style.font.caption
-        color: Qt.darker(Color.foreground, 1.3)
+        color: Qt.darker(Commons.Color.foreground, 1.3)
       }
 
       Column {
@@ -514,7 +515,7 @@ Item {
           width: parent.width
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
-          color: Color.urgent
+          color: Commons.Color.urgent
         }
 
         Row {
@@ -522,8 +523,8 @@ Item {
 
           MemoryButton {
             label: "Forget"
-            foreground: Color.urgent
-            hoverColor: Color.urgent
+            foreground: Commons.Color.urgent
+            hoverColor: Commons.Color.urgent
             onClicked: root.confirmPurge()
           }
 

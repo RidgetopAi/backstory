@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import qs.Commons as Commons
 
 // A small text button (PanelActionButton is glyph-only) for MemoryView's
 // confirm and scope controls.
@@ -7,8 +8,8 @@ Rectangle {
   id: root
 
   property string label: ""
-  property color foreground: Color.foreground
-  property color hoverColor: Color.accent
+  property color foreground: Commons.Color.foreground
+  property color hoverColor: Commons.Color.accent
 
   signal clicked()
 
@@ -16,7 +17,7 @@ Rectangle {
   implicitHeight: labelText.implicitHeight + Style.space(8)
   radius: Style.cornerRadius
   border.width: 1
-  border.color: mouse.containsMouse ? root.hoverColor : Color.popups.border
+  border.color: mouse.containsMouse ? root.hoverColor : Commons.Color.popups.border
   color: "transparent"
 
   Text {

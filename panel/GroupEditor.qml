@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Ui
 import qs.Commons
+import qs.Commons as Commons
 import "js/launchers.js" as Launchers
 import "js/groups.js" as Groups
 import "js/glyphs.js" as Glyphs
@@ -126,7 +127,7 @@ Item {
   Rectangle {
     anchors.fill: parent
     radius: Style.cornerRadius
-    color: Color.popups.background
+    color: Commons.Color.popups.background
   }
 
   Column {
@@ -143,14 +144,14 @@ Item {
         font.family: Style.font.family
         font.pixelSize: Style.font.title
         font.bold: true
-        color: Color.foreground
+        color: Commons.Color.foreground
         width: parent.width - Style.space(24)
       }
       PanelActionButton {
         iconText: Glyphs.back()
         tooltipText: "Back"
-        foreground: Color.foreground
-        hoverColor: Color.accent
+        foreground: Commons.Color.foreground
+        hoverColor: Commons.Color.accent
         onClicked: root.closeRequested()
       }
     }
@@ -169,7 +170,7 @@ Item {
           font.family: Style.font.family
           font.pixelSize: Style.font.body
           font.bold: true
-          color: Color.foreground
+          color: Commons.Color.foreground
         }
 
         Repeater {
@@ -196,7 +197,7 @@ Item {
       font.family: Style.font.family
       font.pixelSize: Style.font.caption
       font.bold: true
-      color: Qt.darker(Color.foreground, 1.3)
+      color: Qt.darker(Commons.Color.foreground, 1.3)
     }
 
     Repeater {
@@ -224,8 +225,8 @@ Item {
           required property var modelData
           radius: Style.cornerRadius
           border.width: 1
-          border.color: Color.popups.border
-          color: root.newGroupName === modelData.group ? Util.alpha(Color.accent, 0.3) : "transparent"
+          border.color: Commons.Color.popups.border
+          color: root.newGroupName === modelData.group ? Util.alpha(Commons.Color.accent, 0.3) : "transparent"
           implicitWidth: chipLabel.implicitWidth + Style.space(16)
           implicitHeight: chipLabel.implicitHeight + Style.space(8)
 
@@ -236,7 +237,7 @@ Item {
             text: chip.modelData.group
             font.family: Style.font.family
             font.pixelSize: Style.font.caption
-            color: Color.foreground
+            color: Commons.Color.foreground
           }
 
           MouseArea {
@@ -257,7 +258,7 @@ Item {
       text: "Selected: " + Groups.displayNameForKey(root.groupsData.projects || [], root.selectedProjectKey)
       font.family: Style.font.family
       font.pixelSize: Style.font.caption
-      color: Qt.darker(Color.foreground, 1.2)
+      color: Qt.darker(Commons.Color.foreground, 1.2)
     }
 
     Row {
@@ -268,14 +269,14 @@ Item {
         id: groupField
         width: Style.spacing.dropdownWidth
         placeholderText: "group name"
-        color: Color.foreground
-        placeholderTextColor: Qt.darker(Color.foreground, 1.4)
-        selectionColor: Color.accent
+        color: Commons.Color.foreground
+        placeholderTextColor: Qt.darker(Commons.Color.foreground, 1.4)
+        selectionColor: Commons.Color.accent
         background: Rectangle {
           radius: Style.cornerRadius
-          color: Color.popups.background
+          color: Commons.Color.popups.background
           border.width: 1
-          border.color: Color.popups.border
+          border.color: Commons.Color.popups.border
         }
         onTextChanged: root.newGroupName = text
       }
@@ -283,8 +284,8 @@ Item {
       PanelActionButton {
         iconText: Glyphs.addProject()
         tooltipText: root.selectedProjectKey === "" ? "Pick a project above first" : "Set group"
-        foreground: Color.foreground
-        hoverColor: Color.accent
+        foreground: Commons.Color.foreground
+        hoverColor: Commons.Color.accent
         enabled: Groups.canSubmitGroup(root.selectedProjectKey, root.newGroupName) && !root.busy
         onClicked: root.setGroup(root.newGroupName, root.selectedProjectKey)
       }
@@ -298,7 +299,7 @@ Item {
       width: parent.width
       font.family: Style.font.family
       font.pixelSize: Style.font.caption
-      color: Color.urgent
+      color: Commons.Color.urgent
     }
   }
 }
