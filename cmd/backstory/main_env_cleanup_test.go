@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -77,5 +78,36 @@ func TestRemoveSandboxFailureIsLoud(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), root) {
 		t.Errorf("error %q does not name the path %s", err, root)
+	}
+}
+
+// Independent of TestMain's own variables: ask the go tool what it would use
+// under the test's environment and actually run a build. Unpinned caches land
+// under the sandbox HOME (go/pkg/mod, .cache/go-build) and fail this test.
+func TestGoToolCachesStayOutsideSandboxHome(t *testing.T) {
+	home := os.Getenv("HOME")
+	if home == "" || !strings.Contains(filepath.Base(home), "backstory-test-home-") {
+		t.Fatalf("HOME = %q is not the TestMain sandbox", home)
+	}
+	out, err := exec.Command("go", "env", "GOMODCACHE", "GOCACHE", "GOPATH").Output() //nolint:gosec // fixed args
+	if err != nil {
+		t.Fatalf("go env: %v", err)
+	}
+	for _, v := range strings.Fields(string(out)) {
+		if within(home, v) {
+			t.Errorf("go tool would use %s inside sandbox HOME %s", v, home)
+		}
+	}
+	src := filepath.Join(t.TempDir(), "main.go")
+	if err := os.WriteFile(src, []byte("package main\n\nfunc main() {}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if b, err := exec.Command("go", "build", "-o", filepath.Join(t.TempDir(), "x"), src).CombinedOutput(); err != nil { //nolint:gosec // fixed args
+		t.Fatalf("go build: %v\n%s", err, b)
+	}
+	for _, rel := range []string{filepath.Join("go", "pkg", "mod"), filepath.Join(".cache", "go-build")} {
+		if _, err := os.Stat(filepath.Join(home, rel)); err == nil {
+			t.Errorf("go build created %s under the sandbox HOME", rel)
+		}
 	}
 }
