@@ -58,7 +58,7 @@ TestCase {
     ProcessController.respond(Launchers.thisWeekCommand(), { stdout: JSON.stringify(data), stderr: "", exitCode: 0 })
     ProcessController.respond(Launchers.defaultAgentCommand(), { stdout: defaultAgent === undefined ? "claude\n" : defaultAgent, stderr: "", exitCode: 0 })
     panel.open("{}")
-    tryCompare(panel, "loading", false, 2000)
+    tryCompare(panel.view, "loading", false, 2000)
     act.quiescent(function () { return [texts(), panel.testImplicitHeight] }, "panel never finished rendering")
   }
 
@@ -113,7 +113,7 @@ TestCase {
   function test_here_card_shows_project_chip_next_and_buttons() {
     open(payload())
     var tree = texts()
-    compare(tree[0], "Backstory")
+    compare(tree.slice(0, 2), [panel.view.scrollGlyph, "Backstory"])
     verify(hasText("foo"), "card title 'foo' missing: " + JSON.stringify(tree))
     verify(hasText("here"), "'here' chip missing")
     verify(hasText("Next: Wire the bar"))
@@ -404,6 +404,84 @@ TestCase {
 
   // j/k (and the arrows) move the highlight through Recent; the highlighted
   // row must stay in view, scrolling the card as it goes past either edge.
+  // ---- Snapshot and restore (the bar popup's pop-out into the window) ----
+  function reopen(data) {
+    panel.close()
+    ProcessController.respond(Launchers.thisWeekCommand(), { stdout: JSON.stringify(data), stderr: "", exitCode: 0 })
+    panel.open("{}")
+  }
+
+  function test_snapshot_names_the_view_selection_and_scroll() {
+    open(longRecentPayload())
+    press(Qt.Key_Down)
+    press(Qt.Key_Down)
+    var snap = panel.view.snapshot()
+    compare(snap.view, "main")
+    compare(snap.selectedId, panel.view.selectedId)
+    compare(snap.scrollY, panel.testScroller.contentY)
+    panel.view.helpOpen = true
+    compare(panel.view.snapshot().view, "help")
+  }
+
+  function test_restore_keeps_the_selection_through_the_data_load() {
+    var data = longRecentPayload()
+    open(data)
+    var start = panel.view.selectedIndex
+    var want = start === 3 ? 2 : 3
+    panel.view.selectedIndex = want
+    var snap = JSON.parse(JSON.stringify(panel.view.snapshot()))
+    // The test harness answers a run at once, so mark a load in flight by
+    // hand: restore() must wait for it rather than select on stale rows.
+    panel.view.selectedIndex = start
+    panel.view.loading = true
+    panel.view.restore(snap)
+    compare(panel.view.selectedIndex, start, "restore selected before the data arrived")
+    panel.view.refresh()
+    act.settledEq(panel.view, "selectedIndex", want)
+  }
+
+  function test_restore_scrolls_back() {
+    var data = longRecentPayload()
+    open(data)
+    var scroller = panel.testScroller
+    scroller.contentY = Math.min(200, scroller.contentHeight - scroller.height)
+    var snap = JSON.parse(JSON.stringify(panel.view.snapshot()))
+    verify(snap.scrollY > 0, "fixture does not scroll")
+    reopen(data)
+    panel.testScroller.contentY = 0
+    panel.view.restore(snap)
+    act.settled(function () { return Math.abs(panel.testScroller.contentY - snap.scrollY) < 1 },
+      "never scrolled back to " + snap.scrollY)
+  }
+
+  function test_restore_opens_memory_for_that_project() {
+    open(payload())
+    panel.view.restore({ view: "memory", memory: { projectKey: "k-1", displayName: "kay", location: "/x/k", state: { history: false, expanded: [] } } })
+    compare(panel.view.memoryOpen, true)
+    compare(panel.view.memoryProjectKey, "k-1")
+    compare(panel.view.memoryDisplayName, "kay")
+    compare(panel.view.memoryLocation, "/x/k")
+  }
+
+  function test_restore_opens_groups() {
+    open(payload())
+    panel.view.restore({ view: "groups" })
+    compare(panel.view.groupEditorOpen, true)
+    act.settled(function () { return TestUtil.slideDone(panel.testContentItem, "groupsPage") }, "Groups never showed")
+  }
+
+  function test_restore_ignores_bad_values() {
+    open(payload())
+    panel.view.restore(null)
+    panel.view.restore([1, 2])
+    panel.view.restore({ view: "memory", memory: { projectKey: 7 }, selectedId: {}, expandedRows: "x", expandedGroups: [1, null], scrollY: "far" })
+    compare(panel.view.memoryOpen, false)
+    compare(panel.view.groupEditorOpen, false)
+    compare(panel.view.helpOpen, false)
+    compare(JSON.stringify(panel.view.expandedRows), "{}")
+    compare(JSON.stringify(panel.view.expandedGroups), "{}")
+  }
+
   function test_keyboard_selection_stays_in_view() {
     open(longRecentPayload())
     var scroller = panel.testScroller
@@ -415,26 +493,42 @@ TestCase {
       verify(top >= -1 && top + row.height <= scroller.height + 1,
              step + ": selected row spans " + top + ".." + (top + row.height) + ", view is 0.." + scroller.height)
     }
-    var last = panel.navRows.length - 1
+    var last = panel.view.navRows.length - 1
     for (var i = 1; i <= last; i++) {
       press(Qt.Key_J)
-      act.settledEq(panel, "selectedIndex", i)
+      act.settledEq(panel.view, "selectedIndex", i)
       checkInView("j to row " + i)
     }
     // Into the last row's agent sub-rows: expand it, then j through them.
     press(Qt.Key_Right)
-    tryVerify(function () { return panel.navRows.length > last + 1 }, 2000, "expanding the last row added no agent sub-rows")
-    for (var a = last + 1; a < panel.navRows.length; a++) {
+    tryVerify(function () { return panel.view.navRows.length > last + 1 }, 2000, "expanding the last row added no agent sub-rows")
+    for (var a = last + 1; a < panel.view.navRows.length; a++) {
       press(Qt.Key_J)
-      act.settledEq(panel, "selectedIndex", a)
+      act.settledEq(panel.view, "selectedIndex", a)
       checkInView("j to agent sub-row " + a)
     }
-    last = panel.navRows.length - 1
+    last = panel.view.navRows.length - 1
     for (var k = last - 1; k >= 0; k--) {
       press(Qt.Key_K)
-      act.settledEq(panel, "selectedIndex", k)
+      act.settledEq(panel.view, "selectedIndex", k)
       checkInView("k to row " + k)
     }
+  }
+
+  // The header stays put; HERE, Needs you and Recent scroll under it.
+  function test_header_stays_put_while_here_and_the_lists_scroll() {
+    open(longRecentPayload())
+    function y(item) { return item.mapToItem(panel.testContentItem, 0, 0).y }
+    var title = TestUtil.findFirst(panel.testContentItem, function (n) { return n.text === "Backstory" })
+    var here = TestUtil.findFirst(panel.testContentItem, function (n) { return n.objectName === "hereCard" })
+    verify(title !== null && here !== null, "no header title or HERE card")
+    var titleY = y(title), hereY = y(here)
+    var scroller = panel.testScroller
+    scroller.contentY = Math.min(200, scroller.contentHeight - scroller.height)
+    verify(scroller.contentY > 100, "fixture too short to scroll")
+    act.quiescent(function () { return [scroller.contentY, y(title), y(here)] }, "never stopped scrolling")
+    verify(Math.abs(y(title) - titleY) < 0.5, "the header scrolled: " + titleY + " -> " + y(title))
+    verify(y(here) < hereY - 100, "the HERE card did not scroll")
   }
 
   // Back on the first Recent row, up (k or the arrow) scrolls the whole card
@@ -442,25 +536,72 @@ TestCase {
   function test_up_on_first_row_scrolls_to_top() {
     open(longRecentPayload())
     var scroller = panel.testScroller
-    var last = panel.navRows.length - 1
+    var last = panel.view.navRows.length - 1
     for (var i = 1; i <= last; i++) press(Qt.Key_J)
-    act.settledEq(panel, "selectedIndex", last)
+    act.settledEq(panel.view, "selectedIndex", last)
     for (var k = last - 1; k >= 0; k--) press(Qt.Key_K)
-    act.settledEq(panel, "selectedIndex", 0)
+    act.settledEq(panel.view, "selectedIndex", 0)
     verify(scroller.contentY > 0, "first row already shows the top of the card (contentY " + scroller.contentY + "): fixture too short")
     press(Qt.Key_K)
     act.settledEq(scroller, "contentY", 0)
-    compare(panel.selectedIndex, 0)
+    compare(panel.view.selectedIndex, 0)
     press(Qt.Key_Up)
     act.settledEq(scroller, "contentY", 0)
-    compare(panel.selectedIndex, 0)
+    compare(panel.view.selectedIndex, 0)
+  }
+
+  // ---- The selection is a row, not a place in the list ----
+  function selectedName() { return panel.view.selectedSummary ? panel.view.selectedSummary.display_name : null }
+
+  function reloadWith(data) {
+    ProcessController.respond(Launchers.thisWeekCommand(), { stdout: JSON.stringify(data), stderr: "", exitCode: 0 })
+    press(Qt.Key_R)
+    tryCompare(panel.view, "loading", false, 2000)
+  }
+
+  function test_expanding_a_row_above_keeps_the_selection_on_its_row() {
+    open(payload())
+    press(Qt.Key_J)
+    press(Qt.Key_J)
+    compare(selectedName(), "projects/notes")
+    act.clickWhenReady(function () { return named("hereAgentChips") },
+      { desc: "the HERE card's agents", until: function () { return panel.view.navRows.length === 4 } })
+    compare(selectedName(), "projects/notes", "expanding foo's agents moved the selection")
+    compare(panel.view.selectedAgent, "")
+    act.moveAway(panel.testContentItem)
+  }
+
+  function test_a_reload_keeps_the_selection_on_its_row() {
+    open(payload())
+    press(Qt.Key_J)
+    compare(selectedName(), "bar")
+    reloadWith(payload(function (d) { d.where_left_off.push(d.where_left_off.splice(1, 1)[0]) }))
+    compare(panel.view.navRows[2].summary.display_name, "bar", "the reload did not move bar")
+    compare(selectedName(), "bar", "the reload moved the selection off its row")
+  }
+
+  function test_a_reload_without_the_selected_row_selects_the_next_one() {
+    open(payload())
+    press(Qt.Key_J)
+    compare(selectedName(), "bar")
+    reloadWith(payload(function (d) { d.where_left_off.splice(1, 1) }))
+    compare(selectedName(), "projects/notes")
+  }
+
+  function test_opening_the_panel_again_selects_here() {
+    open(payload())
+    press(Qt.Key_J)
+    compare(selectedName(), "bar")
+    panel.close()
+    open(payload())
+    compare(selectedName(), "projects/foo")
   }
 
   function test_keys_select_continue_terminal_memory_and_close() {
     open(payload())
-    act.settledEq(panel, "selectedIndex", 0)
+    act.settledEq(panel.view, "selectedIndex", 0)
     press(Qt.Key_J)
-    act.settledEq(panel, "selectedIndex", 1)
+    act.settledEq(panel.view, "selectedIndex", 1)
     // row 2 is bar (cwd /home/brian/bar), codex, no handoff
     press(Qt.Key_Return)
     var a = act.launchedCount(isTermRun, 1, "Enter on bar")
@@ -474,13 +615,152 @@ TestCase {
     compare(last.workingDirectory, "/home/brian/bar")
 
     press(Qt.Key_M)
-    act.settledEq(panel, "memoryOpen", true)
-    act.settledEq(panel, "memoryProjectKey", "bar-key")
-    act.settledEq(panel, "memoryLocation", "/home/brian/bar")
+    act.settledEq(panel.view, "memoryOpen", true)
+    act.settledEq(panel.view, "memoryProjectKey", "bar-key")
+    act.settledEq(panel.view, "memoryLocation", "/home/brian/bar")
 
     press(Qt.Key_Escape)
     act.settledEq(panel, "opened", false)
-    act.settledEq(panel, "memoryOpen", false)
+    act.settledEq(panel.view, "memoryOpen", false)
+  }
+
+  function recentRows() {
+    return TestUtil.findAll(panel.testContentItem, function (n) { return n.visible && n.summary && n.stripCounts !== undefined })
+  }
+
+  function test_hovering_a_row_moves_the_one_selection() {
+    open(payload())
+    var rows = recentRows()
+    verify(rows.length >= 3, "expected at least 3 recent rows, got " + rows.length)
+    act.hover(rows[2], { until: function () { return panel.view.selectedIndex === 2 }, desc: "hovering row 2" })
+    var lit = recentRows().filter(function (r) { return r.selected === true })
+    compare(lit.length, 1)
+    compare(lit[0], rows[2])
+    // A cursor left over a row would select it in the next test's panel.
+    act.moveAway(panel.testContentItem)
+  }
+
+  // The pointer rests over row 1 while the keys move on, open Memory and
+  // come back: the row sliding back under the still pointer isn't a hover.
+  function test_rows_sliding_under_a_still_pointer_keep_the_keys_selection() {
+    open(payload())
+    var rows = recentRows()
+    act.hover(rows[1], { until: function () { return panel.view.selectedIndex === 1 }, desc: "hovering row 1" })
+    press(Qt.Key_J)
+    act.settledEq(panel.view, "selectedIndex", 2)
+    press(Qt.Key_M)
+    act.settled(function () { return TestUtil.slideDone(panel.testContentItem, "memoryPage") }, "Memory never slid in")
+    press(Qt.Key_U)
+    act.settled(function () { return TestUtil.slideDone(panel.testContentItem, "mainPage") }, "main never slid back")
+    wait(200)
+    compare(panel.view.selectedIndex, 2)
+    act.moveAway(panel.testContentItem)
+  }
+
+  // j scrolls the list under the still pointer; the rows passing under it
+  // aren't hovers.
+  function test_rows_scrolling_under_a_still_pointer_keep_the_keys_selection() {
+    open(longRecentPayload())
+    var rows = recentRows()
+    act.hover(rows[1], { until: function () { return panel.view.selectedIndex === 1 }, desc: "hovering row 1" })
+    var top = panel.testScroller.contentY
+    var n = 1
+    while (panel.testScroller.contentY === top && n < panel.view.navRows.length - 1) {
+      press(Qt.Key_J)
+      n++
+      act.settledEq(panel.view, "selectedIndex", n)
+    }
+    verify(panel.testScroller.contentY > top, "j never scrolled the list")
+    wait(200)
+    compare(panel.view.selectedIndex, n)
+    act.moveAway(panel.testContentItem)
+  }
+
+  // The pointer moved off the rows (onto the top of the card) and rests
+  // there; j scrolls rows up under it. The gate last saw it on row 1, so
+  // without a reset on each key the row arriving would count as a move.
+  function test_rows_scrolling_under_a_pointer_resting_off_the_rows_keep_the_keys_selection() {
+    open(longRecentPayload())
+    var rows = recentRows()
+    act.hover(rows[1], { until: function () { return panel.view.selectedIndex === 1 }, desc: "hovering row 1" })
+    act.hover(panel.testScroller, { x: 40, y: 4 })
+    var n = 1
+    function rowUnderPointer() {
+      return recentRows().some(function (r) { var p = r.mapFromItem(panel.testScroller, 40, 4); return p.y >= 0 && p.y < r.height })
+    }
+    while (!rowUnderPointer() && n < panel.view.navRows.length - 1) {
+      press(Qt.Key_J)
+      n++
+      act.settledEq(panel.view, "selectedIndex", n)
+    }
+    verify(rowUnderPointer(), "j never scrolled a row under the pointer")
+    wait(200)
+    compare(panel.view.selectedIndex, n)
+    act.moveAway(panel.testContentItem)
+  }
+
+  // The pointer moves off the rows and rests below them; a reload brings
+  // more rows under it. Rows arriving under a still pointer aren't a hover:
+  // the selection stays where the load put it.
+  function test_rows_reloading_under_a_pointer_resting_below_them_keep_the_loads_selection() {
+    open(payload())
+    var rows = recentRows()
+    act.hover(rows[1], { until: function () { return panel.view.selectedIndex === 1 }, desc: "hovering row 1" })
+    var last = rows[rows.length - 1]
+    var restY = Math.min(last.mapToItem(panel.testScroller, 0, last.height).y + 20, panel.testScroller.height - 5)
+    function rowUnderPointer() {
+      return recentRows().some(function (r) { var p = r.mapFromItem(panel.testScroller, 40, restY); return p.y >= 0 && p.y < r.height })
+    }
+    act.hover(panel.testScroller, { x: 40, y: restY })
+    verify(!rowUnderPointer(), "the pointer rests on a row")
+    ProcessController.respond(Launchers.thisWeekCommand(), { stdout: JSON.stringify(longRecentPayload()), stderr: "", exitCode: 0 })
+    panel.view.refresh()
+    tryCompare(panel.view, "loading", false, 2000)
+    var loaded = panel.view.selectedIndex
+    act.settled(rowUnderPointer, "the reload never put a row under the pointer")
+    wait(200)
+    compare(panel.view.selectedIndex, loaded)
+    act.moveAway(panel.testContentItem)
+  }
+
+  // After a key, the first real move onto another row counts at once.
+  function test_a_real_move_after_a_key_moves_the_selection() {
+    open(payload())
+    var rows = recentRows()
+    act.hover(rows[1], { until: function () { return panel.view.selectedIndex === 1 }, desc: "hovering row 1" })
+    press(Qt.Key_J)
+    act.settledEq(panel.view, "selectedIndex", 2)
+    act.hover(rows[0], { until: function () { return panel.view.selectedIndex === 0 }, desc: "moving onto row 0" })
+    act.moveAway(panel.testContentItem)
+  }
+
+  function test_needs_you_shows_the_thing_then_a_label_and_details() {
+    open(payload(function (d) {
+      d.attention.push({ kind: "possibly-stale-handoff", project_key: "foo", reason: "foo: handoff possibly stale — cargo test failed (exit 101) after it", handoff_id: "h-foo", evidence_ids: ["7"] })
+    }))
+    verify(hasText("foo: handoff possibly stale"), "attention line missing: " + JSON.stringify(texts()))
+    verify(hasText("Command failed."), "detail label missing")
+    verify(hasText("Details"), "Details link missing")
+    compare(textContaining("cargo test failed"), "", "the raw detail belongs in the Details tooltip, not the panel")
+  }
+
+  function staleHandoff(key) {
+    return { kind: "possibly-stale-handoff", project_key: key, reason: key + ": handoff possibly stale", handoff_id: "h-" + key, evidence_ids: ["7"] }
+  }
+
+  function heroStatusText() {
+    var n = TestUtil.findFirst(panel.testContentItem, function (n) { return n.objectName === "heroStatus" })
+    return n ? n.text : null
+  }
+
+  function test_hero_status_counts_what_needs_you_in_number() {
+    open(payload(function (d) { d.attention = [staleHandoff("foo")] }))
+    compare(heroStatusText(), "1 needs you")
+  }
+
+  function test_hero_status_plural_for_more_than_one() {
+    open(payload(function (d) { d.attention = [staleHandoff("foo"), staleHandoff("bar")] }))
+    compare(heroStatusText(), "2 need you")
   }
 
   function test_k_and_arrows_move_and_clamp() {
@@ -488,12 +768,12 @@ TestCase {
     press(Qt.Key_Down)
     press(Qt.Key_Down)
     press(Qt.Key_Down)
-    act.settledEq(panel, "selectedIndex", 2)
+    act.settledEq(panel.view, "selectedIndex", 2)
     press(Qt.Key_K)
-    act.settledEq(panel, "selectedIndex", 1)
+    act.settledEq(panel.view, "selectedIndex", 1)
     press(Qt.Key_Up)
     press(Qt.Key_Up)
-    act.settledEq(panel, "selectedIndex", 0)
+    act.settledEq(panel.view, "selectedIndex", 0)
   }
 
   function test_r_refreshes() {
@@ -507,8 +787,8 @@ TestCase {
 
   function test_row_keys_inert_while_memory_view_open() {
     open(payload())
-    panel.openMemory("foo-key", "projects/foo", "/home/brian/projects/foo")
-    act.settledEq(panel, "memoryOpen", true)
+    panel.view.openMemory("foo-key", "projects/foo", "/home/brian/projects/foo")
+    act.settledEq(panel.view, "memoryOpen", true)
     var before = Quickshell.execDetachedCalls.length
     press(Qt.Key_T)
     act.drain()
@@ -547,16 +827,16 @@ TestCase {
 
   function test_layout_memory_open() {
     open(payload())
-    panel.openMemory("foo-key", "projects/foo", "/home/brian/projects/foo")
-    act.settledEq(panel, "memoryOpen", true)
+    panel.view.openMemory("foo-key", "projects/foo", "/home/brian/projects/foo")
+    act.settledEq(panel.view, "memoryOpen", true)
     assertWithinBounds("memory open")
   }
 
   function test_layout_group_editor_open() {
     open(payload())
     ProcessController.respond(Launchers.groupListCommand(), { stdout: JSON.stringify({ groups: [], ungrouped: [] }), stderr: "", exitCode: 0 })
-    panel.groupEditorOpen = true
-    act.settledEq(panel, "groupEditorOpen", true)
+    panel.view.groupEditorOpen = true
+    act.settledEq(panel.view, "groupEditorOpen", true)
     assertWithinBounds("group editor open")
   }
 }

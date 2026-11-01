@@ -42,7 +42,7 @@ Rectangle {
 
   implicitHeight: column.implicitHeight + Style.spacing.rowGap * 2
   radius: Style.cornerRadius
-  color: Util.alpha(Commons.Color.accent, 0.14)
+  color: Util.alpha(Commons.Color.accent, 0.18)
   border.width: 1
   border.color: Commons.Color.accent
 
@@ -67,22 +67,16 @@ Rectangle {
         color: Commons.Color.popups.text
       }
 
-      Rectangle {
+      Text {
         anchors.verticalCenter: parent.verticalCenter
-        radius: height / 2
+        textFormat: Text.PlainText
+        text: "here"
+        font.family: Style.font.family
+        font.pixelSize: Style.font.caption
+        font.bold: true
+        font.letterSpacing: 1.2
+        font.capitalization: Font.AllUppercase
         color: Commons.Color.accent
-        width: chip.implicitWidth + Style.spacing.rowPaddingX * 2
-        height: chip.implicitHeight + Style.space(2)
-
-        Text {
-          id: chip
-          anchors.centerIn: parent
-          textFormat: Text.PlainText
-          text: "here"
-          font.family: Style.font.family
-          font.pixelSize: Style.font.caption
-          color: Commons.Color.popups.background
-        }
       }
     }
 
@@ -131,7 +125,6 @@ Rectangle {
         objectName: "hereContinue"
         width: buttons.width - terminalButton.width - memoryButton.width - buttons.spacing * 2
         label: root.continueLabel
-        primary: true
         onClicked: root.continueRequested()
       }
       LabelButton { id: terminalButton; label: "Terminal"; onClicked: root.terminalRequested() }

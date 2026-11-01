@@ -8,6 +8,10 @@ QtObject {
   readonly property color accent: "#5fb0ff"
   readonly property color urgent: "#ff5f5f"
 
+  readonly property QtObject bar: QtObject {
+    readonly property color active: "#ff5f5f"
+  }
+
   readonly property QtObject popups: QtObject {
     readonly property color background: "#202020"
     readonly property color border: "#3a3a3a"

@@ -25,11 +25,13 @@ TestCase {
     "GroupEditor.qml",
     "GroupProjectRow.qml",
     "HereCard.qml",
+    "HeroHeader.qml",
     "LabelButton.qml",
     "MemoryButton.qml",
     "MemoryView.qml",
     "Panel.qml",
     "ProjectRow.qml",
+    "ThisWeekView.qml",
     "WhereLeftOffSection.qml"
   ]
 

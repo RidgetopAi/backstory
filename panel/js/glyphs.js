@@ -15,9 +15,13 @@ function addProject() { return "" }   // nf-fa-plus
 function week() { return "" }        // nf-fa-calendar
 function back() { return "" } // nf-fa-arrow_left
 function memory() { return "\uf02d" }       // nf-fa-book
+function popOut() { return "\uf08e" }       // nf-fa-external_link
 function edit() { return "\uf044" }         // nf-fa-pencil_square_o
 function trash() { return "\uf1f8" }        // nf-fa-trash
 function history() { return "\uf1da" }      // nf-fa-history
+function check() { return "\uf00c" }        // nf-fa-check
+function pin() { return String.fromCodePoint(0xF0403) }        // nf-md-pin
+function pinOutline() { return String.fromCodePoint(0xF0931) } // nf-md-pin_outline
 
 // One glyph per record kind the store defines (SCHEMA.md records.kind CHECK).
 var RECORD_KIND_GLYPHS = {

@@ -4,3 +4,10 @@ BorderSurface 1.0 BorderSurface.qml
 PanelActionButton 1.0 PanelActionButton.qml
 PanelSectionHeader 1.0 PanelSectionHeader.qml
 TextField 1.0 TextField.qml
+BarIconButton 1.0 BarIconButton.qml
+PanelSeparator 1.0 PanelSeparator.qml
+PanelToolTip 1.0 PanelToolTip.qml
+Panel 1.0 Panel.qml
+KeyboardPanel 1.0 KeyboardPanel.qml
+OverlayWindow 1.0 OverlayWindow.qml
+PointerMoveGate 1.0 PointerMoveGate.qml

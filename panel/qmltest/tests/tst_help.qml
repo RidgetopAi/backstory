@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Io
 import "testutil.js" as TestUtil
 import "../../js/launchers.js" as Launchers
+import "../../js/glyphs.js" as Glyphs
 
 // The "?" help pane (task bcc469a2). The tool list below is a FIXTURE for
 // Launchers.toolsCommand(); the pane must render exactly what that response
@@ -56,7 +57,7 @@ TestCase {
     panel = loader.item
     panel.testContentItem.parent = loader
     panel.open("{}")
-    tryCompare(panel, "loading", false, 2000)
+    tryCompare(panel.view, "loading", false, 2000)
     act.settled(function () { return bodyVisible() }, "panel body never rendered")
   }
 
@@ -76,17 +77,17 @@ TestCase {
   function bodyVisible() { return texts().indexOf("RECENT") >= 0 }
 
   function test_question_opens_help_and_hides_body() {
-    compare(panel.helpOpen, false)
+    compare(panel.view.helpOpen, false)
     verify(bodyVisible())
     press(Qt.Key_Question)
-    act.settled(function () { return panel.helpOpen }, "help never opened")
+    act.settled(function () { return panel.view.helpOpen }, "help never opened")
     act.settled(function () { return !bodyVisible() }, "main body still visible with help open")
   }
 
   function test_navigation_keys_inert_while_help_open() {
     press(Qt.Key_Question)
-    act.settled(function () { return panel.helpOpen }, "help never opened")
-    var before = panel.selectedIndex
+    act.settled(function () { return panel.view.helpOpen }, "help never opened")
+    var before = panel.view.selectedIndex
     var execs = Quickshell.execDetachedCalls.length
     var runs = ProcessController.runs.length
     press(Qt.Key_J)
@@ -95,30 +96,107 @@ TestCase {
     press(Qt.Key_T)
     press(Qt.Key_M)
     act.drain()
-    compare(panel.selectedIndex, before)
+    compare(panel.view.selectedIndex, before)
     compare(Quickshell.execDetachedCalls.length, execs)
     compare(ProcessController.runs.length, runs)
-    compare(panel.memoryOpen, false)
-    compare(panel.helpOpen, true)
+    compare(panel.view.memoryOpen, false)
+    compare(panel.view.helpOpen, true)
   }
 
   function test_j_moves_selection_when_help_closed() {
-    compare(panel.selectedIndex, 0)
+    compare(panel.view.selectedIndex, 0)
     press(Qt.Key_J)
-    act.settled(function () { return panel.selectedIndex === 1 }, "J never moved the selection")
+    act.settled(function () { return panel.view.selectedIndex === 1 }, "J never moved the selection")
   }
 
   function test_escape_closes_panel_from_help() {
     press(Qt.Key_Question)
     press(Qt.Key_Escape)
-    act.settled(function () { return panel.opened === false && panel.helpOpen === false }, "Escape never closed the panel from help")
+    act.settled(function () { return panel.opened === false && panel.view.helpOpen === false }, "Escape never closed the panel from help")
   }
 
   function test_question_again_returns_to_body() {
     press(Qt.Key_Question)
-    act.settled(function () { return panel.helpOpen }, "help never opened")
+    act.settled(function () { return panel.view.helpOpen }, "help never opened")
     press(Qt.Key_Question)
-    act.settled(function () { return !panel.helpOpen && bodyVisible() }, "second ? never returned to the body")
+    act.settled(function () { return !panel.view.helpOpen && bodyVisible() }, "second ? never returned to the body")
+  }
+
+  function visibleRules() {
+    return TestUtil.findAll(panel.testContentItem, function (n) { return n.visible && n.strength !== undefined })
+  }
+
+  function footerText() {
+    var n = TestUtil.findFirst(panel.testContentItem, function (node) { return node.objectName === "footerHint" })
+    return n === null ? null : n.text
+  }
+
+  function test_footer_lists_helps_keys() {
+    press(Qt.Key_Question)
+    act.settledEq(panel.view, "helpOpen", true)
+    act.settled(function () { return footerText() === "j/k scroll · u or ? back · p pin · Esc close" }, "footer never listed Help's keys; got " + footerText())
+  }
+
+  function test_j_and_k_scroll_help() {
+    press(Qt.Key_Question)
+    act.settled(function () { return texts().indexOf("GROUPS") >= 0 }, "help never rendered")
+    var area = panel.view.scrollArea
+    act.settled(function () { return area.contentHeight > area.height }, "help never grew taller than its view")
+    function y(item) { return item.mapToItem(panel.testContentItem, 0, 0).y }
+    var title = TestUtil.findFirst(panel.testContentItem, function (n) { return n.text === "Help" })
+    var titleY = y(title)
+    press(Qt.Key_J)
+    act.settled(function () { return area.contentY > 0 }, "j never scrolled down")
+    verify(Math.abs(y(title) - titleY) < 0.5, "the header scrolled with the text: " + titleY + " -> " + y(title))
+    press(Qt.Key_K)
+    act.settledEq(area, "contentY", 0)
+  }
+
+  function page(name) {
+    return TestUtil.findFirst(panel.testContentItem, function (n) { return n.objectName === name })
+  }
+
+  // Opening Help slides the main body out to the left; going back slides
+  // Help out to the right. Each records every place it passes through.
+  function test_help_slides_the_main_body_out_left_and_goes_back_out_right() {
+    var main = page("mainPage")
+    var mainSeen = []
+    main.offsetChanged.connect(function () { mainSeen.push(main.offset) })
+    press(Qt.Key_Question)
+    act.settled(function () { return TestUtil.slideDone(panel.testContentItem, "helpPage") }, "the slide into Help never finished")
+    verify(mainSeen.some(function (v) { return v > -1 && v < 0 }), "the main body never slid left: " + mainSeen)
+    compare(main.offset, -1)
+
+    var help = page("helpPage")
+    var helpSeen = []
+    help.offsetChanged.connect(function () { helpSeen.push(help.offset) })
+    press(Qt.Key_U)
+    act.settled(function () { return TestUtil.slideDone(panel.testContentItem, "mainPage") }, "the slide back never finished")
+    verify(helpSeen.some(function (v) { return v > 0 && v < 1 }), "Help never slid right: " + helpSeen)
+    compare(help.offset, 1)
+  }
+
+  function test_u_goes_back_to_the_main_view() {
+    press(Qt.Key_Question)
+    act.settledEq(panel.view, "helpOpen", true)
+    press(Qt.Key_U)
+    act.settledEq(panel.view, "helpOpen", false)
+    act.settled(function () { return texts().indexOf("Backstory") >= 0 }, "main view never came back")
+  }
+
+  function test_a_rule_before_each_section() {
+    press(Qt.Key_Question)
+    act.settled(function () { return texts().indexOf("GROUPS") >= 0 }, "help never rendered")
+    act.settled(function () { return TestUtil.slideDone(panel.testContentItem, "helpPage") }, "the slide into Help never finished")
+    compare(visibleRules().length, 4)
+  }
+
+  function test_help_header_is_a_hero_row() {
+    press(Qt.Key_Question)
+    act.settled(function () { return texts().indexOf("Help") >= 0 }, "help header never rendered")
+    var t = texts()
+    var i = t.indexOf("Help")
+    compare(t.slice(i - 1, i + 2), [Glyphs.back(), "Help", "Keys, agent tools and groups"])
   }
 
   function test_help_renders_fixture_tools_and_sections() {
@@ -140,7 +218,7 @@ TestCase {
   }
 
   function test_footer_hint_lists_help() {
-    verify(panel.footerHint.indexOf("? help") >= 0)
+    verify(panel.view.footerHint.indexOf("? help") >= 0)
     verify(texts().filter(function (t) { return t.indexOf("? help") >= 0 }).length >= 1)
   }
 
@@ -150,14 +228,30 @@ TestCase {
     act.settled(function () {
       bad = TestUtil.collectOutOfBounds(panel.testContentItem, panel.testContentItem,
         panel.testImplicitWidth, panel.testImplicitHeight)
-      return panel.helpOpen && bad.length === 0
+      return panel.view.helpOpen && bad.length === 0
     }, "item(s) out of bounds with help open: " + JSON.stringify(bad).slice(0, 2000))
+  }
+
+  // The latest view asked for opens: Help set open over Groups or Memory
+  // shows alone. No key does that today (keys reach Help only from the main
+  // body, and restore() goes back to it first), so set the view's
+  // helpOpen, as the host may.
+  function test_help_opened_over_groups_or_memory_shows_alone() {
+    press(Qt.Key_G)
+    act.settledEq(panel.view, "groupEditorOpen", true)
+    panel.view.helpOpen = true
+    verify(!panel.view.groupEditorOpen, "Groups stayed open under Help")
+    panel.view.showMain()
+    panel.view.openMemory("one-key", "one", "/home/brian/one")
+    act.settledEq(panel.view, "memoryOpen", true)
+    panel.view.helpOpen = true
+    verify(!panel.view.memoryOpen, "Memory stayed open under Help")
   }
 
   function test_close_resets_help() {
     press(Qt.Key_Question)
-    act.settled(function () { return panel.helpOpen }, "help never opened")
+    act.settled(function () { return panel.view.helpOpen }, "help never opened")
     panel.close()
-    act.settled(function () { return !panel.helpOpen }, "close never reset help")
+    act.settled(function () { return !panel.view.helpOpen }, "close never reset help")
   }
 }

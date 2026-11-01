@@ -172,6 +172,10 @@ func TestNewFieldsAreReadOnlyThroughModelJS(t *testing.T) {
 		}
 	}
 	direct := regexp.MustCompile(`\.(handoff_next|last_agent|window|tmux|here)\b`)
+	// hl.dsp.window.* is Hyprland's window dispatcher namespace inside a
+	// dispatch string (js/launchers.js), and Window.window is Qt's attached
+	// Window (GrabHandle.qml): neither reads the payload's window.
+	hyprlandWindowDispatch := regexp.MustCompile(`hl\.dsp\.window\.|\bWindow\.window\b`)
 	for _, pattern := range []string{"*.qml", "js/*.js"} {
 		files, err := filepath.Glob(pattern)
 		if err != nil {
@@ -186,7 +190,8 @@ func TestNewFieldsAreReadOnlyThroughModelJS(t *testing.T) {
 				t.Fatal(err)
 			}
 			for i, line := range strings.Split(string(raw), "\n") {
-				if m := direct.FindString(lineCommentPattern.ReplaceAllString(line, "")); m != "" {
+				code := hyprlandWindowDispatch.ReplaceAllString(lineCommentPattern.ReplaceAllString(line, ""), "")
+				if m := direct.FindString(code); m != "" {
 					t.Errorf("%s:%d reads %s directly; use js/model.js", path, i+1, m)
 				}
 			}

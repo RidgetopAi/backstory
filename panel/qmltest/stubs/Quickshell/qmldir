@@ -6,3 +6,4 @@ PanelWindowMargins 1.0 PanelWindowMargins.qml
 PanelWindow 1.0 PanelWindow.qml
 IpcHandler 1.0 IpcHandler.qml
 FloatingWindow 1.0 FloatingWindow.qml
+Region 1.0 Region.qml

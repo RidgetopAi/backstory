@@ -17,11 +17,23 @@ Item {
   id: root
 
   signal closeRequested()
+  // Where the view is shown: the bar popup sets canPopOut, the window
+  // canPin and pinned; the header then offers those buttons (HostButtons).
+  property bool canPopOut: false
+  property bool canPin: false
+  property bool pinned: false
+  signal popOutRequested()
+  signal pinRequested()
 
   property var tools: []
   property string errorText: ""
 
-  implicitHeight: content.implicitHeight
+  implicitHeight: page.implicitHeight
+  // The scrolling part under the header (ScrollPage), for the host and tests.
+  readonly property alias flickable: page.flickable
+
+  // Help is text, not a list: j/k scroll it.
+  function scrollBy(dy) { page.scrollBy(dy) }
 
   function refresh() {
     toolsProcess.running = false
@@ -51,11 +63,11 @@ Item {
 
   component HelpHeading: PanelSectionHeader {
     foreground: Commons.Color.foreground
-    width: content.width
+    width: page.width
   }
 
   component HelpText: Text {
-    width: content.width
+    width: page.width
     textFormat: Text.PlainText
     font.family: Style.font.family
     font.pixelSize: Style.font.bodySmall
@@ -63,31 +75,28 @@ Item {
     wrapMode: Text.WordWrap
   }
 
-  Column {
-    id: content
-    width: parent.width
+  // The header and the rule under it stay put; the rest scrolls.
+  ScrollPage {
+    id: page
+    anchors.fill: parent
     spacing: Style.spacing.panelGap
 
-    Row {
-      width: parent.width
+    header: [HeroHeader {
+      showBack: true
+      title: "Help"
+      status: "Keys, agent tools and groups"
+      onBack: root.closeRequested()
 
-      Text {
-        textFormat: Text.PlainText
-        text: "Help"
-        font.family: Style.font.family
-        font.pixelSize: Style.font.title
-        font.bold: true
-        color: Commons.Color.foreground
-        width: parent.width - Style.space(24)
+      HostButtons {
+        canPopOut: root.canPopOut
+        canPin: root.canPin
+        pinned: root.pinned
+        onPopOutRequested: root.popOutRequested()
+        onPinRequested: root.pinRequested()
       }
-      PanelActionButton {
-        iconText: Glyphs.back()
-        tooltipText: "Back"
-        foreground: Commons.Color.foreground
-        hoverColor: Commons.Color.accent
-        onClicked: root.closeRequested()
-      }
-    }
+    },
+
+    PanelSeparator { width: parent.width; foreground: Commons.Color.popups.text }]
 
     HelpHeading { text: "AGENT TOOLS" }
 
@@ -101,7 +110,7 @@ Item {
 
       delegate: Column {
         required property var modelData
-        width: content.width
+        width: page.width
         spacing: Style.spacing.labelGap / 2
 
         Text {
@@ -116,24 +125,29 @@ Item {
       }
     }
 
+    PanelSeparator { width: parent.width; foreground: Commons.Color.popups.text }
     HelpHeading { text: "MEMORY NAVIGATION" }
     HelpText {
-      text: "Select a row with j/k, then press m or click its Memory button. Click a record to expand "
-        + "it; Edit, Forget and the history toggle act on it."
+      text: "Select a row with j/k, then press m or click its Memory button. Click a record, or move "
+        + "to it with j/k and press \u2192, to expand it; \u2190 folds it. Edit, Forget and the "
+        + "history toggle act on it."
     }
 
+    PanelSeparator { width: parent.width; foreground: Commons.Color.popups.text }
     HelpHeading { text: "HOW TO USE" }
     HelpText {
       text: "The top card is the project you are in. Each row's chips are the agents used there, "
         + "newest first. Continue resumes the newest one; \u2192 (or a click on the chips) expands one "
         + "sub-row per agent, \u2190 folds them, and Enter on a sub-row opens that agent in the folder. "
-        + "Enter on a row continues it, t opens a terminal there, r refreshes."
+        + "Enter on a row continues it, t opens a terminal there, r refreshes. In Groups, Memory "
+        + "and Help, u goes back to the main view."
     }
 
+    PanelSeparator { width: parent.width; foreground: Commons.Color.popups.text }
     HelpHeading { text: "GROUPS" }
     HelpText {
-      text: "A group folds related projects into one RECENT row; you set it, one per project. Click "
-        + "the gear for the group editor, or run `backstory group set <group> <project>`."
+      text: "A group folds related projects into one RECENT row; you set it, one per project. Press g "
+        + "or click the gear for the group editor, or run `backstory group set <group> <project>`."
     }
 
   }

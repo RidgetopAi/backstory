@@ -178,6 +178,29 @@ QtObject {
 
   // ---- effects ----
 
+  // Moves the pointer over target (default its centre) and waits for
+  // opts.until, the hover's effect, when given. Pair with moveAway(): a
+  // cursor left over a row hovers it in the next test's panel. It arrives
+  // in three steps inside target, as a real move does: Omarchy's
+  // PointerMoveGate takes a row's first sample as where the pointer is, not
+  // as a move, and Qt 6.4 reports the step that enters a row as an enter
+  // alone, with no position change.
+  function hover(target, opts) {
+    var o = opts || {}
+    var x = o.x === undefined ? target.width / 2 : o.x
+    var y = o.y === undefined ? target.height / 2 : o.y
+    var step = x >= 6 ? -3 : 3
+    testCase.mouseMove(target, x + 2 * step, y)
+    testCase.mouseMove(target, x + step, y)
+    testCase.mouseMove(target, x, y)
+    if (o.until) root.settled(o.until, (o.desc || "hover") + ": its effect never showed")
+  }
+
+  // Parks the pointer at item's top-left corner, off any row.
+  function moveAway(item) {
+    testCase.mouseMove(item, 0, 0)
+  }
+
   // Wait for a UI condition to hold.
   function settled(pred, msg) {
     testCase.tryVerify(pred, root.timeoutMs, msg === undefined ? "condition never settled" : msg)

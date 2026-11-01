@@ -17,6 +17,8 @@ Column {
   property real nowMs: Date.now()
 
   signal launchRequested(string agent)
+  // Each pointer move over a sub-row, for the view's PointerMoveGate.
+  signal hoveredAgent(string agent, var item, var mouse)
 
   width: parent ? parent.width : Style.space(360)
   spacing: 0
@@ -43,8 +45,7 @@ Column {
       Rectangle {
         anchors.fill: parent
         radius: Style.cornerRadius
-        color: sub.selected ? Util.alpha(Commons.Color.accent, 0.18)
-          : (subMouse.containsMouse ? Style.hoverFillFor(Commons.Color.foreground, Commons.Color.foreground) : "transparent")
+        color: sub.selected ? Util.alpha(Commons.Color.accent, 0.18) : "transparent"
         border.width: sub.selected ? 1 : 0
         border.color: Commons.Color.accent
       }
@@ -53,6 +54,7 @@ Column {
         id: subMouse
         anchors.fill: parent
         hoverEnabled: true
+        onPositionChanged: (mouse) => root.hoveredAgent(sub.agentId, subMouse, mouse)
         cursorShape: Qt.PointingHandCursor
         onClicked: root.launchRequested(sub.agentId)
       }

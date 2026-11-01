@@ -107,6 +107,31 @@ hypr_signature() {
 	return 0
 }
 
+# reload_hyprland: apply the newly installed backstory.lua at once and check
+# it, as Omarchy's own Hyprland changes do (its agent skill, hyprland.md:
+# `hyprctl reload`, then `hyprctl configerrors`). A config error is a warning,
+# not a failure: the daemon and the panel installed fine. Skipped when no
+# Hyprland can be reached.
+reload_hyprland() {
+	command -v hyprctl >/dev/null 2>&1 || return 0
+	sig="$(hypr_signature "$HYPR_RUN_DIR")"
+	[ -n "$sig" ] || return 0
+	if ! HYPRLAND_INSTANCE_SIGNATURE="$sig" hyprctl reload >/dev/null 2>&1; then
+		echo "warning: could not reload Hyprland; the keybind applies at its next reload"
+		return 0
+	fi
+	if ! errors="$(HYPRLAND_INSTANCE_SIGNATURE="$sig" hyprctl configerrors 2>/dev/null)"; then
+		echo "warning: reloaded Hyprland but could not check its config"
+		return 0
+	fi
+	if [ -n "$(printf '%s' "$errors" | tr -d '[:space:]')" ]; then
+		echo "warning: Hyprland reports config errors after reloading:"
+		printf '%s\n' "$errors"
+	else
+		echo "reloaded Hyprland"
+	fi
+}
+
 # session_locked LOCK_PROC: the shell must NOT be restarted now. Three-state
 # with Omarchy's own probe: exit 1 = definitely unlocked (restart now); 0 =
 # locked and 2 = undetermined both defer. Without the probe, a process by that
@@ -235,6 +260,7 @@ do_install() {
 	echo "installed $HYPR_FILE"
 	if hyprland_loads_backstory; then
 		echo "keybind already loaded from hyprland.lua"
+		reload_hyprland
 	else
 		echo "To open the panel on its keybind, add this line to your hyprland.lua:"
 		echo "    $HYPR_LINE"

@@ -59,6 +59,16 @@ TestCase {
     loader.destroy()
   }
 
+  // Hyprland draws the window's border, corners and shadow, as on any other
+  // window; the card adds no border or rounded corners of its own.
+  function test_the_card_draws_no_border_or_corners() {
+    var loader = makePanel()
+    var card = loader.item.testKeyItem
+    compare(card.radius, 0)
+    compare(card.border.width, 0)
+    loader.destroy()
+  }
+
   // The card fades in on every open, as Omarchy's own panels do (PopupCard:
   // opacity 0 -> 1 with a slight grow), instead of popping in or relying on
   // Hyprland's slower window animation. Closing hides it at once.

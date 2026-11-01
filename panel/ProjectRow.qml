@@ -49,6 +49,8 @@ Item {
   // this project's cwd (AGENT-CONTRACT.md "same-agent resume is reopening
   // a terminal at the session's cwd"); the buttons are Continue and Memory.
   signal openTerminal(string cwd)
+  // Each pointer move over the row, for the view's PointerMoveGate.
+  signal hovered(var item, var mouse)
   signal continueRequested()
   signal toggleExpanded()
   signal openMemory(string projectKey, string displayName, string cwd)
@@ -59,8 +61,7 @@ Item {
   Rectangle {
     anchors.fill: parent
     radius: Style.cornerRadius
-    color: root.selected ? Util.alpha(Commons.Color.accent, 0.18)
-      : (rowMouse.containsMouse ? Style.hoverFillFor(Commons.Color.foreground, Commons.Color.foreground) : "transparent")
+    color: root.selected ? Util.alpha(Commons.Color.accent, 0.18) : "transparent"
     border.width: root.selected ? 1 : 0
     border.color: Commons.Color.accent
   }
@@ -69,6 +70,7 @@ Item {
     id: rowMouse
     anchors.fill: parent
     hoverEnabled: true
+    onPositionChanged: (mouse) => root.hovered(rowMouse, mouse)
     cursorShape: Qt.PointingHandCursor
     onClicked: root.openTerminal(Model.summaryCwd(root.summary))
   }
@@ -131,6 +133,9 @@ Item {
     }
 
     Row {
+      // Evens the gap above the strip with the one below it, where the
+      // Next line's own leading adds space.
+      topPadding: Style.spaceReal(1.6)
       spacing: Style.space(2)
 
       Repeater {

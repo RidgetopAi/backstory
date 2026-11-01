@@ -35,7 +35,7 @@ TestCase {
     panel.testContentItem.parent = loader
     ProcessController.respond(Launchers.thisWeekCommand(), { stdout: "{}", stderr: "", exitCode: 0 })
     panel.open("{}")
-    tryCompare(panel, "loading", false, 2000)
+    tryCompare(panel.view, "loading", false, 2000)
     panel.testWindow.width = 380
     panel.testWindow.height = 640
     act.settledEq(panel, "zoom", 1.0)
@@ -112,7 +112,7 @@ TestCase {
     press(Qt.Key_J)
     press(Qt.Key_K)
     act.drain()
-    act.settledEq(panel, "selectedIndex", 0)
+    act.settledEq(panel.view, "selectedIndex", 0)
     press(Qt.Key_Escape)
     act.settledEq(panel, "opened", false)
   }

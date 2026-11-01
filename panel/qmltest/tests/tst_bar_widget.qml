@@ -2,15 +2,14 @@ import QtQuick
 import QtTest
 import Quickshell
 import Quickshell.Io
+import Quickshell.Hyprland
 import "testutil.js" as TestUtil
 import "../../js/launchers.js" as Launchers
 
 // BarWidget.qml: shows the `here` project's short name (glyph only when
 // there is none) and an attention dot iff Attention is non-empty. Left
-// click issues the toggle argv (task 4fe02e30 round 4 desk defect A, via
-// js/launchers.js's barToggleCommand(), the same MEASURED FIX
-// ridgetopai.omarcade's own Marquee.qml:253 uses), right click is Continue
-// on `here`, middle click a refresh (task fc1f340d).
+// click toggles its popup (a KeyboardPanel holding ThisWeekView), right
+// click is Continue on `here`, middle click a refresh (task fc1f340d).
 TestCase {
   id: testCase
   name: "BarWidget"
@@ -43,6 +42,7 @@ TestCase {
   function start(data, defaultAgent) {
     ProcessController.reset()
     Quickshell.reset()
+    Hyprland.reset()
     ProcessController.respond(Launchers.thisWeekCommand(), { stdout: JSON.stringify(data), stderr: "", exitCode: 0 })
     ProcessController.respond(Launchers.defaultAgentCommand(), { stdout: defaultAgent === undefined ? "claude\n" : defaultAgent, stderr: "", exitCode: 0 })
     loader = barWidgetComponent.createObject(testCase)
@@ -104,22 +104,218 @@ TestCase {
   // bar sits above the icons beside it: it takes the bar's own thickness.
   function test_fills_the_bar_thickness() {
     var widget = start(fixture())
-    widget.bar = { barSize: 31 }
+    widget.bar = fakeBar(31)
     compare(widget.implicitHeight, 31)
   }
 
   function test_glyph_only_when_no_here() {
     var widget = start(fixture(function (d) { delete d.here }))
-    act.settled(function () { var l = barLabel(widget); return l !== null && l.text !== "foo" && l.text !== "" }, "glyph-only label never rendered")
+    var glyph = TestUtil.findFirst(widget, function (n) { return n.objectName === "barGlyph" })
+    verify(glyph !== null && glyph.text !== "", "glyph never rendered")
+    verify(barLabel(widget) === null, "label shown with no here project")
   }
 
-  function test_left_click_toggles_via_omarchy_shell() {
-    var widget = start(fixture())
-    act.clickWhenReady(widget, { button: Qt.LeftButton, desc: "bar widget" })
+  // The bar a Panel root is given: barSize, the label font, and the
+  // panel-switching hook Tab calls (it records each direction).
+  function fakeBar(size) {
+    return Qt.createQmlObject('import QtQuick; QtObject { property int barSize: ' + size
+      + '; property string fontFamily: "sans-serif"; property string position: "top"; property var switched: []; '
+      + 'function switchPanelFrom(panel, direction) { switched = switched.concat([direction]); return true } }', testCase)
+  }
 
-    var last = act.detachedNext(function (c) { return JSON.stringify(c.command) === JSON.stringify(Launchers.barToggleCommand()) }, "left click toggle")
-    compare(JSON.stringify(last.command), JSON.stringify(Launchers.barToggleCommand()))
-    compare(JSON.stringify(last.command), JSON.stringify(["omarchy-shell", "shell", "toggle", "backstory.this-week", "{}"]))
+  function openPopup(widget) {
+    act.clickWhenReady(widget, { button: Qt.LeftButton, desc: "bar widget", until: function () { return widget.opened } })
+    act.settled(function () { return widget.testPopup.loadedContent !== null }, "popup content never built")
+    return widget.testPopup.loadedContent
+  }
+
+  function test_left_click_opens_the_popup_with_this_week() {
+    var widget = start(fixture())
+    var content = openPopup(widget)
+    verify(typeof content.handleKey === "function", "popup content has no key handler")
+    compare(Quickshell.execDetachedCalls.length, 0, "a left click ran a command: " + JSON.stringify(Quickshell.execDetachedCalls))
+    act.clickWhenReady(widget, { button: Qt.LeftButton, desc: "bar widget again", until: function () { return !widget.opened } })
+  }
+
+  // With the window open, the icon focuses it instead of opening the popup,
+  // so the two never show together; a second click focuses it again.
+  function test_left_click_focuses_the_open_window_instead_of_the_popup() {
+    var widget = start(fixture())
+    Hyprland.toplevels = { values: [{ address: "55aa", title: "backstory", activated: false, workspace: { id: 2 }, wayland: { appId: "org.quickshell" } }] }
+    for (var i = 0; i < 2; i++) {
+      act.clickWhenReady(widget, { button: Qt.LeftButton, desc: "bar widget", until: function () { return Quickshell.execDetachedCalls.length === i + 1 } })
+      compare(JSON.stringify(Quickshell.execDetachedCalls[i].command), JSON.stringify(Launchers.windowFocusCommand()))
+    }
+    wait(50)
+    compare(widget.opened, false, "the popup opened beside the window")
+  }
+
+  // Another app's window titled "backstory" is not ours.
+  function test_left_click_opens_the_popup_beside_another_apps_backstory_window() {
+    var widget = start(fixture())
+    Hyprland.toplevels = { values: [{ address: "55aa", title: "backstory", activated: false, workspace: { id: 2 }, wayland: { appId: "org.other" } }] }
+    openPopup(widget)
+    compare(Quickshell.execDetachedCalls.length, 0)
+  }
+
+  function test_esc_in_the_popup_closes_it() {
+    var widget = start(fixture())
+    var content = openPopup(widget)
+    verify(content.handleKey(Qt.Key_Escape, Qt.NoModifier))
+    compare(widget.opened, false)
+  }
+
+  // Real keys: the popup's content takes focus as the popup opens, and its
+  // own key handler sends them to the view (Esc closes).
+  function test_keys_typed_in_the_popup_reach_its_view() {
+    var widget = start(fixture())
+    widget.testPopup.testScene = testCase
+    var content = openPopup(widget)
+    act.settled(function () { return content.activeFocus }, "the popup's content never took focus")
+    act.pressKey(Qt.Key_Escape)
+    compare(widget.opened, false, "Esc typed in the popup did not close it")
+  }
+
+  // One bar per monitor, each with the popup's IPC target: only the one on
+  // the focused monitor answers the shortcut.
+  function test_only_the_bar_on_the_focused_monitor_answers_the_shortcut() {
+    var widget = start(fixture())
+    var ipc = null
+    for (var i = 0; i < widget.resources.length; i++)
+      if (widget.resources[i].target === "backstory.this-week.popup") ipc = widget.resources[i]
+    verify(ipc !== null, "no popup IPC target")
+    widget.testPopup.screen = { name: "DP-1", x: 0, y: 0, width: 2560, height: 1440 }
+    Hyprland.focusedMonitor = { name: "DP-1" }
+    compare(ipc.enabled, true, "the bar on the focused monitor does not answer")
+    Hyprland.focusedMonitor = { name: "HDMI-A-1" }
+    compare(ipc.enabled, false, "a bar on another monitor answers")
+  }
+
+  function test_o_pops_out_from_a_sub_view() {
+    var widget = start(fixture())
+    var content = openPopup(widget)
+    var view = TestUtil.findFirst(content, function (n) { return n.canPopOut !== undefined })
+    view.memoryOpen = true
+    verify(view.footerHint.indexOf("o pop out") >= 0, "footer never listed o: " + view.footerHint)
+    verify(content.handleKey(Qt.Key_O, Qt.NoModifier))
+    var run = act.detachedNext(function (c) { return c.command[2] === "summon" }, "window summon")
+    compare(JSON.parse(run.command[4]).view, "memory")
+  }
+
+  function test_pop_out_summons_the_window_where_the_popup_is() {
+    var widget = start(fixture())
+    var content = openPopup(widget)
+    // The popup's content is outside the test scene, so the button can't be
+    // clicked here; tst_panel's test_pop_out_button_asks_the_host clicks it.
+    var view = TestUtil.findFirst(content, function (n) { return n.canPopOut !== undefined })
+    verify(view !== null && view.canPopOut === true, "the popup's view offers no pop-out")
+    verify(TestUtil.findFirst(content, function (n) { return n.tooltipText === "Pop out" }) !== null, "no pop-out button in the popup")
+    compare(TestUtil.findFirst(content, function (n) { return n.objectName === "pinButton" }), null, "the popup offers a pin")
+    widget.bar = fakeBar(26)
+    widget.bar.position = "left"
+    widget.testPopup.screen = { x: 0, y: 0, width: 4096, height: 2160 }
+    widget.testPopup.cardOrigin = Qt.point(3700, 34)
+    widget.testPopup.barThickness = 26
+    widget.testPopup.gap = 8
+    view.helpOpen = true
+    view.popOutRequested()
+    var run = act.detachedNext(function (c) { return c.command[2] === "summon" }, "window summon")
+    compare(JSON.stringify(run.command.slice(0, 4)), JSON.stringify(["omarchy-shell", "shell", "summon", "backstory.this-week"]))
+    // The window opens where you were in the popup, and where its card is.
+    var payload = JSON.parse(run.command[4])
+    compare(payload.view, "help")
+    compare(JSON.stringify(payload.from), JSON.stringify({ x: 3700, y: 34, w: widget.testPopup.contentWidth, h: widget.testPopup.drawnHeight, bar: 26, gap: 8, monX: 0, monY: 0, monW: 4096, monH: 2160, edge: "left" }))
+  }
+
+  // On a monitor right of and below another, the card's place is in screen
+  // coordinates: the monitor's origin plus where the card sits on it.
+  function test_pop_out_from_a_monitor_off_the_origin_sends_screen_coordinates() {
+    var widget = start(fixture())
+    var content = openPopup(widget)
+    widget.testPopup.screen = { name: "DP-2", x: 2560, y: 360, width: 1920, height: 1080 }
+    widget.testPopup.cardOrigin = Qt.point(1500, 34)
+    verify(content.handleKey(Qt.Key_O, Qt.NoModifier))
+    var run = act.detachedNext(function (c) { return c.command[2] === "summon" }, "window summon")
+    var from = JSON.parse(run.command[4]).from
+    compare([from.x, from.y, from.monX, from.monY, from.monW, from.monH], [4060, 394, 2560, 360, 1920, 1080])
+  }
+
+  // The popup stays up until the window, in its place, closes it, so
+  // nothing blinks between them.
+  function test_popup_stays_up_until_the_window_closes_it() {
+    var widget = start(fixture())
+    var content = openPopup(widget)
+    verify(content.handleKey(Qt.Key_O, Qt.NoModifier))
+    act.detachedNext(function (c) { return c.command[2] === "summon" }, "window summon")
+    compare(widget.opened, true, "the popup closed before the window took its place")
+    widget.closeAfterPopOut()
+    compare(widget.opened, false)
+  }
+
+  // If the window never takes its place, the popup closes anyway.
+  function test_popup_closes_when_the_window_never_comes() {
+    var widget = start(fixture())
+    widget.popOutGiveUpMs = 100
+    var content = openPopup(widget)
+    verify(content.handleKey(Qt.Key_O, Qt.NoModifier))
+    compare(widget.opened, true)
+    act.settledEq(widget, "opened", false)
+  }
+
+  function summons() {
+    return Quickshell.execDetachedCalls.filter(function (c) { return c.command[2] === "summon" }).length
+  }
+
+  // p twice (or p then the button) sends one summon: a second would find
+  // the window open but still hidden, and close the popup at once.
+  function test_a_second_pop_out_while_one_is_pending_sends_nothing() {
+    var widget = start(fixture())
+    var content = openPopup(widget)
+    verify(content.handleKey(Qt.Key_O, Qt.NoModifier))
+    act.detachedNext(function (c) { return c.command[2] === "summon" }, "window summon")
+    verify(content.handleKey(Qt.Key_O, Qt.NoModifier))
+    wait(50)
+    compare(summons(), 1, "a second pop-out was sent while the first was pending")
+  }
+
+  // Closed by hand while a pop-out is pending, the popup is done with it: a
+  // pop-out from the popup opened again goes out, and the first one's
+  // give-up does not close the new popup.
+  function test_closing_the_popup_by_hand_ends_its_pending_pop_out() {
+    var widget = start(fixture())
+    widget.popOutGiveUpMs = 300
+    var content = openPopup(widget)
+    verify(content.handleKey(Qt.Key_O, Qt.NoModifier))
+    act.detachedNext(function (c) { return c.command[2] === "summon" }, "window summon")
+    verify(content.handleKey(Qt.Key_Escape, Qt.NoModifier))
+    compare(widget.opened, false)
+    content = openPopup(widget)
+    verify(content.handleKey(Qt.Key_O, Qt.NoModifier))
+    compare(summons(), 2, "the reopened popup's pop-out was not sent")
+  }
+
+  // The other half: with no pop-out from the reopened popup, the first
+  // one's give-up passes and the popup stays up.
+  function test_a_popup_opened_again_outlives_the_closed_ones_give_up() {
+    var widget = start(fixture())
+    widget.popOutGiveUpMs = 300
+    var content = openPopup(widget)
+    verify(content.handleKey(Qt.Key_O, Qt.NoModifier))
+    act.detachedNext(function (c) { return c.command[2] === "summon" }, "window summon")
+    verify(content.handleKey(Qt.Key_Escape, Qt.NoModifier))
+    compare(widget.opened, false)
+    openPopup(widget)
+    wait(widget.popOutGiveUpMs + 200)
+    verify(widget.opened, "the first pop-out's give-up closed the reopened popup")
+  }
+
+  function test_tab_moves_to_the_next_bar_panel() {
+    var widget = start(fixture())
+    widget.bar = fakeBar(26)
+    var content = openPopup(widget)
+    verify(content.handleKey(Qt.Key_Tab, Qt.NoModifier))
+    verify(content.handleKey(Qt.Key_Backtab, Qt.ShiftModifier))
+    compare(widget.bar.switched, [1, -1])
   }
 
   function test_label_drops_projects_prefix() {

@@ -54,10 +54,46 @@ Item {
 
   signal changed()
   signal closeRequested()
+  // Where the view is shown: the bar popup sets canPopOut, the window
+  // canPin and pinned; the header then offers those buttons (HostButtons).
+  property bool canPopOut: false
+  property bool canPin: false
+  property bool pinned: false
+  signal popOutRequested()
+  signal pinRequested()
+  // The scrolling part under the header (ScrollPage), for the host and tests.
+  readonly property alias flickable: page.flickable
+  readonly property bool hasGroups: (root.groupsData.groups || []).length > 0
+  readonly property bool hasUngrouped: Groups.ungroupedProjects(root.groupsData.projects || []).length > 0
 
   property var groupsData: ({ groups: [], ungrouped: [], projects: [] })
   property string selectedProjectKey: ""
+  // The one highlighted project row's key, which the keys act on and hover
+  // moves; null before there is one (a project's key can be "").
+  property var cursorKey: null
+  // The host's gate: hover moves the highlight only on a real pointer move.
+  property PointerMoveGate pointer: null
+
+  function hoverRow(key, item, mouse) {
+    if (root.pointer.moved(item, mouse)) root.cursorKey = key
+  }
+
+  // Every row's project key, top to bottom: each group's members, then the
+  // ungrouped projects.
+  readonly property var rowKeys: {
+    var all = root.groupsData.projects || []
+    var keys = []
+    var groups = root.groupsData.groups || []
+    for (var i = 0; i < groups.length; i++)
+      Groups.projectsInGroup(all, groups[i].group).forEach(function (p) { keys.push(p.key) })
+    Groups.ungroupedProjects(all).forEach(function (p) { keys.push(p.key) })
+    return keys
+  }
+  onRowKeysChanged: if (root.rowKeys.indexOf(root.cursorKey) < 0) root.cursorKey = root.rowKeys.length > 0 ? root.rowKeys[0] : null
   property string newGroupName: ""
+  // True while the group-name field has the keys; the host takes them back
+  // when it leaves Groups.
+  readonly property bool typing: groupField.activeFocus
   property string errorText: ""
   property bool busy: false
 
@@ -66,8 +102,67 @@ Item {
     listProcess.running = true
   }
 
+  // Set while Groups is the view showing. Each opening fetches the list
+  // afresh (a project grouped in a terminal shows up) and starts with no
+  // pick, name or error from the last.
+  property bool shown: false
+  onShownChanged: {
+    if (!root.shown) return
+    root.selectedProjectKey = ""
+    root.newGroupName = ""
+    groupField.text = ""
+    root.errorText = ""
+    root.refresh()
+  }
+
+  // "" is no pick, so a project whose key is "" never shows as picked.
+  function isPicked(projectKey) {
+    return root.selectedProjectKey !== "" && root.selectedProjectKey === projectKey
+  }
+
   function pickProject(projectKey) {
     root.selectedProjectKey = (root.selectedProjectKey === projectKey) ? "" : projectKey
+  }
+
+  // j/k and the arrows move the highlight, as on the main view: up from the
+  // first row shows the header again. Enter or Space picks the highlighted
+  // project, as a click does. Returns whether it used the key.
+  function handleKey(key) {
+    switch (key) {
+    case Qt.Key_J: case Qt.Key_Down: root.moveCursor(1); return true
+    case Qt.Key_K: case Qt.Key_Up: root.moveCursor(-1); return true
+    case Qt.Key_Return: case Qt.Key_Enter: case Qt.Key_Space:
+      if (root.cursorKey !== null) root.pickProject(root.cursorKey)
+      return true
+    }
+    return false
+  }
+
+  function moveCursor(delta) {
+    var i = root.rowKeys.indexOf(root.cursorKey)
+    if (i < 0) return
+    if (delta < 0 && i === 0) { page.scrollToTop(); return }
+    root.cursorKey = root.rowKeys[Math.max(0, Math.min(root.rowKeys.length - 1, i + delta))]
+    var row = root.rowFor(root.cursorKey, page)
+    if (row) page.reveal(row)
+  }
+
+  function rowFor(projectKey, item) {
+    for (var i = 0; i < item.children.length; i++) {
+      var child = item.children[i]
+      if (child.projectKey === projectKey) return child
+      var found = root.rowFor(projectKey, child)
+      if (found) return found
+    }
+    return null
+  }
+
+  // The + is enabled, and Enter in the group name adds the group, once a
+  // project is picked and a name typed.
+  readonly property bool canSubmit: Groups.canSubmitGroup(root.selectedProjectKey, root.newGroupName) && !root.busy
+
+  function submit() {
+    if (root.canSubmit) root.setGroup(root.newGroupName, root.selectedProjectKey)
   }
 
   function setGroup(groupName, projectKey) {
@@ -119,10 +214,8 @@ Item {
     }
   }
 
-  Component.onCompleted: root.refresh()
-
   implicitWidth: Style.space(360)
-  implicitHeight: content.implicitHeight + Style.spacing.panelPadding * 2
+  implicitHeight: page.implicitHeight + Style.spacing.panelPadding * 2
 
   Rectangle {
     anchors.fill: parent
@@ -130,39 +223,47 @@ Item {
     color: Commons.Color.popups.background
   }
 
-  Column {
-    id: content
+  // The header and the rule under it stay put; the groups, the ungrouped
+  // projects and the form scroll. The rule under the header is the first
+  // group's (or the ungrouped list's, or the form's), so each later section
+  // draws its own.
+  ScrollPage {
+    id: page
     anchors.fill: parent
     anchors.margins: Style.spacing.panelPadding
     spacing: Style.spacing.rowGap
 
-    Row {
-      width: parent.width
-      Text {
-        textFormat: Text.PlainText
-        text: "Groups"
-        font.family: Style.font.family
-        font.pixelSize: Style.font.title
-        font.bold: true
-        color: Commons.Color.foreground
-        width: parent.width - Style.space(24)
+    header: [HeroHeader {
+      id: header
+      readonly property int groupCount: (root.groupsData.groups || []).length
+      readonly property int projectCount: (root.groupsData.projects || []).length
+      showBack: true
+      title: "Groups"
+      onBack: root.closeRequested()
+      status: header.groupCount + (header.groupCount === 1 ? " group · " : " groups · ")
+        + header.projectCount + (header.projectCount === 1 ? " project this week" : " projects this week")
+
+      HostButtons {
+        canPopOut: root.canPopOut
+        canPin: root.canPin
+        pinned: root.pinned
+        onPopOutRequested: root.popOutRequested()
+        onPinRequested: root.pinRequested()
       }
-      PanelActionButton {
-        iconText: Glyphs.back()
-        tooltipText: "Back"
-        foreground: Commons.Color.foreground
-        hoverColor: Commons.Color.accent
-        onClicked: root.closeRequested()
-      }
-    }
+    },
+
+    PanelSeparator { width: parent.width; foreground: Commons.Color.popups.text }]
 
     Repeater {
       model: root.groupsData.groups || []
 
       delegate: Column {
         required property var modelData
-        width: content.width
+        required property int index
+        width: page.width
         spacing: Style.spacing.labelGap / 2
+
+        PanelSeparator { visible: index > 0; width: parent.width; foreground: Commons.Color.popups.text }
 
         Text {
           textFormat: Text.PlainText
@@ -177,17 +278,25 @@ Item {
           model: Groups.projectsInGroup(root.groupsData.projects || [], modelData.group)
           delegate: GroupProjectRow {
             required property var modelData
-            width: content.width
+            width: page.width
             projectKey: modelData.key
             displayName: modelData.display_name
-            selected: root.selectedProjectKey === modelData.key
+            selected: root.isPicked(modelData.key)
+            current: root.cursorKey === modelData.key
             removable: true
             indent: Style.space(12)
+            onHovered: (item, mouse) => root.hoverRow(modelData.key, item, mouse)
             onPicked: root.pickProject(modelData.key)
             onRemoveRequested: root.clearGroup(modelData.key)
           }
         }
       }
+    }
+
+    PanelSeparator {
+      width: parent.width
+      visible: root.hasGroups && root.hasUngrouped
+      foreground: Commons.Color.popups.text
     }
 
     Text {
@@ -204,13 +313,21 @@ Item {
       model: Groups.ungroupedProjects(root.groupsData.projects || [])
       delegate: GroupProjectRow {
         required property var modelData
-        width: content.width
+        width: page.width
         projectKey: modelData.key
         displayName: modelData.display_name
-        selected: root.selectedProjectKey === modelData.key
+        selected: root.isPicked(modelData.key)
+        current: root.cursorKey === modelData.key
         removable: false
+        onHovered: (item, mouse) => root.hoverRow(modelData.key, item, mouse)
         onPicked: root.pickProject(modelData.key)
       }
+    }
+
+    PanelSeparator {
+      width: parent.width
+      visible: root.hasGroups || root.hasUngrouped
+      foreground: Commons.Color.popups.text
     }
 
     Flow {
@@ -279,6 +396,10 @@ Item {
           border.color: Commons.Color.popups.border
         }
         onTextChanged: root.newGroupName = text
+        // Enter here is the form's, never the rows' pick: the field keeps
+        // it rather than let it reach the view's keys.
+        Keys.onReturnPressed: (event) => { root.submit(); event.accepted = true }
+        Keys.onEnterPressed: (event) => { root.submit(); event.accepted = true }
       }
 
       PanelActionButton {
@@ -286,8 +407,8 @@ Item {
         tooltipText: root.selectedProjectKey === "" ? "Pick a project above first" : "Set group"
         foreground: Commons.Color.foreground
         hoverColor: Commons.Color.accent
-        enabled: Groups.canSubmitGroup(root.selectedProjectKey, root.newGroupName) && !root.busy
-        onClicked: root.setGroup(root.newGroupName, root.selectedProjectKey)
+        enabled: root.canSubmit
+        onClicked: root.submit()
       }
     }
 

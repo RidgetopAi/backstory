@@ -51,7 +51,8 @@ integration:
 
 # panel-qml-test is the QML half of task 4fe02e30's DONE WHEN clause (1):
 # it loads every panel/*.qml against panel/qmltest/stubs's stand-ins for
-# qs.Ui, qs.Commons, Quickshell, Quickshell.Io and Quickshell.Wayland, and
+# qs.Ui, qs.Commons, Quickshell, Quickshell.Io, Quickshell.Wayland and
+# QtQuick.Effects (Qt 6.5+, missing from CI's Ubuntu Qt 6.4), and
 # runs panel/qmltest/tests under QtTest. QT_FATAL_WARNINGS=1 is this
 # harness's "fails on ANY QML warning" gate — a QML runtime warning (a
 # binding TypeError, a binding loop) aborts the whole run with a non-zero

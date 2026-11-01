@@ -8,4 +8,5 @@ import QtQuick
 // functions directly (IpcHandler itself spawns nothing to record).
 QtObject {
   property string target: ""
+  property bool enabled: true
 }

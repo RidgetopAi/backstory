@@ -2,7 +2,7 @@
 
 // launchers.js is the ONLY place in this plugin that names an external
 // binary to invoke. Every process this plugin ever spawns is one of the
-// three calls below — nothing else — so `git diff panel/` is enough to
+// calls below — nothing else — so `git diff panel/` is enough to
 // audit that claim by eye (the task's own proof for it) without having to
 // read every .qml file.
 //
@@ -23,22 +23,27 @@
 //     omarchy-launch-or-focus does (Continue when `window` is set).
 //   - `tmux select-window` / `select-pane`: after that focus, jump to the
 //     tmux window holding the project (Continue when `tmux` is set).
-//   - `omarchy-shell shell toggle backstory.this-week {}`: the bar widget's
-//     click (round 4 desk defect A). MEASURED ON BRIAN'S DESK: BarWidget
-//     used to flip a shared PanelState singleton directly, but the host
-//     only ever shows a plugin panel through its OWN toggle — the host's
-//     own plugin, ridgetopai.omarcade's Marquee.qml:253, does exactly this
-//     `Quickshell.execDetached(["omarchy-shell", "shell", "toggle", ...])`
-//     to open its own panel, confirmed working. this-week's own IpcHandler
-//     (Panel.qml) still answers the "panel" kind contract's open()/close()/
-//     toggle() the host may also call directly.
+//   - `omarchy-shell shell summon backstory.this-week <snapshot>`: the bar
+//     popup's pop-out opens the window where the popup was, through the
+//     host's own summon (the host shows a plugin panel only through its own
+//     summon/toggle), and `omarchy-shell backstory.this-week.popup close`:
+//     the window, once in the popup's place, closes the popup.
+//   - `omarchy-shell backstory.this-week focus`: the bar icon, while the
+//     window is open, focuses it instead of opening the popup.
+//   - Hyprland dispatch requests (Hyprland.dispatch, not a process): pin,
+//     move, resize and focus the window itself, its address checked by
+//     isWindowAddress first.
+
+// windowSummonCommand opens the plugin's window (its "panel" kind): the
+// shell routes summon to the panel loader for a plugin that is also a bar
+// widget, so this never reopens the bar popup. payloadJson, when given, is
+// the view snapshot the window opens at (Panel.qml open()).
+function windowSummonCommand(payloadJson) {
+  return ["omarchy-shell", "shell", "summon", "backstory.this-week", payloadJson || "{}"]
+}
 
 function thisWeekCommand() {
   return ["backstory", "this-week", "--json", "--here", "auto"]
-}
-
-function barToggleCommand() {
-  return ["omarchy-shell", "shell", "toggle", "backstory.this-week", "{}"]
 }
 
 // affirmCommand dismisses a stale handoff's Needs You row: the CLI writes a
@@ -185,7 +190,63 @@ function isWindowAddress(addr) {
 // for a Hyprland without the hl.dsp Lua dispatcher. The address is checked
 // by isWindowAddress before either is built.
 function focusWindowCommand(addr) {
-  return ["hyprctl", "dispatch", 'hl.dsp.focus({ window = "address:' + addr + '" })']
+  return ["hyprctl", "dispatch", focusWindowDispatch(addr)]
+}
+
+// pinWindowDispatch / moveWindowDispatch / focusWindowDispatch are Hyprland
+// dispatch requests (Hyprland.dispatch) for the window's own address,
+// checked by isWindowAddress first: pin or unpin it (pinned, it shows on
+// every workspace), move it to a workspace id, and focus it.
+function pinWindowDispatch(addr, on) {
+  return 'hl.dsp.window.pin({ action = "' + (on ? "on" : "off") + '", window = "address:' + addr + '" })'
+}
+
+function moveWindowDispatch(addr, workspaceId) {
+  return 'hl.dsp.window.move({ workspace = "' + Math.floor(workspaceId) + '", window = "address:' + addr + '" })'
+}
+
+function focusWindowDispatch(addr) {
+  return 'hl.dsp.focus({ window = "address:' + addr + '" })'
+}
+
+// resizeWindowDispatch / moveWindowToDispatch size and place the window (the
+// pop-out); windowAnimDispatch lets Hyprland animate it ("0") or hands back
+// to its rule ("unset"). Sizes and positions are rounded to whole pixels.
+function resizeWindowDispatch(addr, w, h) {
+  return 'hl.dsp.window.resize({ x = ' + Math.round(w) + ', y = ' + Math.round(h) + ', window = "address:' + addr + '" })'
+}
+
+function moveWindowToDispatch(addr, x, y) {
+  return 'hl.dsp.window.move({ x = ' + Math.round(x) + ', y = ' + Math.round(y) + ', window = "address:' + addr + '" })'
+}
+
+function windowAnimDispatch(addr, animate) {
+  return 'hl.dsp.window.set_prop({ prop = "no_anim", value = "' + (animate ? "0" : "unset") + '", window = "address:' + addr + '" })'
+}
+
+// popupCloseCommand: the window, once it sits where the bar popup's card is,
+// closes the popup, which fades out over it (BarWidget.qml's IPC target).
+function popupCloseCommand() {
+  return ["omarchy-shell", "backstory.this-week.popup", "close"]
+}
+
+// The window (Panel.qml): its title, the title it maps under during a
+// pop-out, and Quickshell's app id, as ops/hyprland/backstory.lua matches it.
+// Panel.qml's windowTitle is the source (the ops tests read it there);
+// tst_panel.qml checks these match it.
+var WINDOW_TITLE = "backstory"
+var WINDOW_POPOUT_TITLE = WINDOW_TITLE + "-popout"
+
+// isPanelWindow: whether a Hyprland toplevel is the window.
+function isPanelWindow(t) {
+  return !!t && (t.title === WINDOW_TITLE || t.title === WINDOW_POPOUT_TITLE)
+    && !!t.wayland && t.wayland.appId === "org.quickshell"
+}
+
+// windowFocusCommand: the bar icon, while the window is open, focuses it
+// (Panel.qml's IPC target) instead of opening the popup beside it.
+function windowFocusCommand() {
+  return ["omarchy-shell", "backstory.this-week", "focus"]
 }
 
 function focusWindowFallbackCommand(addr) {

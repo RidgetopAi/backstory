@@ -122,6 +122,22 @@ function handoffPrompt(displayName, handoffId, next) {
   return text
 }
 
+// An attention reason is "<what>: <state> \u2014 <detail>" for stale
+// handoffs; other kinds have no detail.
+function attentionMain(reason) {
+  var i = reason.indexOf(" \u2014 ")
+  return i < 0 ? reason : reason.slice(0, i)
+}
+function attentionDetail(reason) {
+  var i = reason.indexOf(" \u2014 ")
+  return i < 0 ? "" : reason.slice(i + 3)
+}
+function attentionDetailLabel(detail) {
+  if (detail.indexOf(" failed") >= 0) return "Command failed."
+  if (detail.indexOf("later-activity") === 0) return "Work continued after it."
+  return ""
+}
+
 function summaryLine(totals) {
   return "This week: " + totals.projects + " projects \u00b7 " + totals.sessions + " sessions \u00b7 "
     + totals.files + " files \u00b7 " + totals.notes + " notes"

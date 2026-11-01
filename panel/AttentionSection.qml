@@ -6,6 +6,7 @@ import qs.Commons as Commons
 import "js/model.js" as Model
 import "js/glyphs.js" as Glyphs
 import "js/launchers.js" as Launchers
+import "js/format.js" as Format
 
 // Attention: positive evidence only, rendered only when non-empty — an
 // empty attention array is itself "nothing to flag this week", not the
@@ -56,15 +57,57 @@ Column {
         color: Commons.Color.urgent
       }
 
-      Text {
-        textFormat: Text.PlainText
-        text: Model.attentionReason(itemRow.modelData)
-        font.family: Style.font.family
-        font.pixelSize: Style.font.bodySmall
-        color: Commons.Color.foreground
+      Column {
+        readonly property string reason: Model.attentionReason(itemRow.modelData)
+        readonly property string detail: Format.attentionDetail(reason)
+        id: texts
         width: itemRow.width - itemRow.leftPadding - itemRow.rightPadding - glyph.width - itemRow.spacing
           - (dismissButton.visible ? dismissButton.width + itemRow.spacing : 0)
-        wrapMode: Text.WordWrap
+        spacing: Style.space(2)
+
+        Text {
+          textFormat: Text.PlainText
+          text: Format.attentionMain(texts.reason)
+          font.family: Style.font.family
+          font.pixelSize: Style.font.bodySmall
+          color: Commons.Color.foreground
+          width: parent.width
+          wrapMode: Text.WordWrap
+        }
+        Row {
+          visible: texts.detail !== ""
+          spacing: Style.space(6)
+
+          Text {
+            textFormat: Text.PlainText
+            text: Format.attentionDetailLabel(texts.detail)
+            visible: text !== ""
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+            color: Qt.darker(Commons.Color.foreground, 1.4)
+          }
+          Text {
+            objectName: "attentionDetails"
+            textFormat: Text.PlainText
+            text: "Details"
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+            font.underline: true
+            color: detailsMouse.containsMouse ? Commons.Color.accent : Qt.darker(Commons.Color.foreground, 1.4)
+
+            MouseArea {
+              id: detailsMouse
+              anchors.fill: parent
+              hoverEnabled: true
+            }
+            PanelToolTip {
+              visible: detailsMouse.containsMouse
+              text: texts.detail
+              delay: 0
+              width: Math.min(implicitWidth, Style.space(300))
+            }
+          }
+        }
       }
 
       LabelButton {

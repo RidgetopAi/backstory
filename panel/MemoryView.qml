@@ -13,7 +13,7 @@ import "js/glyphs.js" as Glyphs
 // edit, delete — plus "Forget activity and saved records". A CLI CLIENT like the rest of the
 // panel: it runs `backstory records|edit|delete|purge` and reads stdout,
 // never the store. Swapped in for the This Week body by Panel.qml (same
-// pattern as GroupEditor). Refreshes whenever it becomes visible, so a
+// pattern as GroupEditor). Refreshes whenever it is opened (shown), so a
 // record edited in a terminal shows up on the next open (no polling).
 Item {
   id: root
@@ -26,14 +26,34 @@ Item {
 
   signal changed()
   signal closeRequested()
-  // Asks the scroll view to show `target` (the confirm, note or error a
-  // click just produced), so nobody scrolls to find the result of a click.
-  signal reveal(Item target)
+  // Where the view is shown: the bar popup sets canPopOut, the window
+  // canPin and pinned; the header then offers those buttons (HostButtons).
+  property bool canPopOut: false
+  property bool canPin: false
+  property bool pinned: false
+  signal popOutRequested()
+  signal pinRequested()
+  // The scrolling part under the header (ScrollPage), for the host and tests.
+  readonly property alias flickable: page.flickable
 
   property var payload: ({})
   property bool showHistory: false
+  // Which records show their full text, keyed by record id. Opening the view
+  // again for the same project keeps them and the highlight; another project
+  // starts with none expanded and the first record highlighted; a snapshot
+  // handed to restore() (the bar popup's pop-out) sets pendingExpanded,
+  // which the next opening takes instead.
+  property var expandedIds: ({})
+  property var pendingExpanded: null
+  // The project and folder last shown: records are kept per folder
+  // (--location), and two folders can share a project key.
+  property string shownScope: ""
   property string errorText: ""
   property bool busy: false
+  // The one highlighted record, which the keys act on and hover moves.
+  property int cursorIndex: 0
+  // The host's gate: hover moves the highlight only on a real pointer move.
+  property PointerMoveGate pointer: null
 
   // id of the record whose inline "Forget this record?" confirm is open.
   property string confirmingId: ""
@@ -46,22 +66,100 @@ Item {
   property var now: function () { return Date.now() }
 
   readonly property var records: Records.topRecords(root.payload)
+  // Fewer records than before (one deleted, history hidden) keep a highlight.
+  onRecordsChanged: if (root.cursorIndex >= root.records.length) root.cursorIndex = Math.max(0, root.records.length - 1)
+
+  // The folder the records on show belong to; the host slides Memory in
+  // once they are this folder's, so it never shows another's or an empty
+  // page that is only still loading.
+  readonly property string scope: root.projectKey + "\n" + root.location
+  property string loadedScope: ""
+  property string requestScope: ""
+  readonly property bool ready: root.loadedScope === root.scope
 
   function refresh() {
     if (root.projectKey === "") return
+    root.requestScope = root.scope
+    // A run still going is stopped, and ends (a crash, with what it wrote
+    // so far) before the new one starts: that end is not this request's.
+    if (listProcess.running) listProcess.superseded = true
     listProcess.command = Launchers.recordsCommand(root.projectKey, root.location, root.showHistory)
     listProcess.running = false
     listProcess.running = true
   }
 
-  onVisibleChanged: {
-    if (root.visible) {
+  // Set while Memory is the view showing. Opening runs on this, not on
+  // visible: the page stays visible while it slides out, so going back in
+  // during the slide would not count as opening it.
+  property bool shown: false
+
+  onShownChanged: {
+    if (root.shown) {
+      if (root.pendingExpanded !== null) {
+        root.expandedIds = root.pendingExpanded
+        root.pendingExpanded = null
+        root.cursorIndex = 0
+      } else if (root.projectKey + "\n" + root.location !== root.shownScope) {
+        root.expandedIds = {}
+        root.cursorIndex = 0
+        page.scrollToTop()
+      }
+      root.shownScope = root.projectKey + "\n" + root.location
+      if (!root.ready) root.payload = ({})
       root.errorText = ""
       root.confirmingId = ""
       root.pendingPurge = null
       root.purgeNote = ""
       root.refresh()
     }
+  }
+
+  function setExpanded(recordId, expanded) {
+    if (!!root.expandedIds[recordId] !== expanded) root.toggleExpanded(recordId)
+  }
+
+  // j/k and the arrows move the highlight, as on the main view: up from the
+  // first record shows the header again. Right expands the highlighted
+  // record, Left folds it, Enter toggles it. Returns whether it used the key.
+  function handleKey(key) {
+    var rec = recordRepeater.itemAt(root.cursorIndex)
+    switch (key) {
+    case Qt.Key_J: case Qt.Key_Down: root.moveCursor(1); return true
+    case Qt.Key_K: case Qt.Key_Up: root.moveCursor(-1); return true
+    case Qt.Key_Right: if (rec) root.setExpanded(rec.rid, true); return true
+    case Qt.Key_Left: if (rec) root.setExpanded(rec.rid, false); return true
+    case Qt.Key_Return: case Qt.Key_Enter: if (rec) root.toggleExpanded(rec.rid); return true
+    }
+    return false
+  }
+
+  function moveCursor(delta) {
+    if (root.records.length === 0) return
+    if (delta < 0 && root.cursorIndex === 0) { page.scrollToTop(); return }
+    root.cursorIndex = Math.max(0, Math.min(root.records.length - 1, root.cursorIndex + delta))
+    var rec = recordRepeater.itemAt(root.cursorIndex)
+    if (rec) page.reveal(rec)
+  }
+
+  function toggleExpanded(recordId) {
+    var next = Object.assign({}, root.expandedIds)
+    if (next[recordId]) delete next[recordId]
+    else next[recordId] = true
+    root.expandedIds = next
+  }
+
+  // What the view shows beyond its project: the history toggle and the
+  // expanded records. restore() takes effect when the view next opens.
+  function snapshot() {
+    return { history: root.showHistory, expanded: Object.keys(root.expandedIds) }
+  }
+
+  function restore(state) {
+    root.showHistory = state.history === true
+    var ids = {}
+    var list = Array.isArray(state.expanded) ? state.expanded : []
+    for (var i = 0; i < list.length; i++) if (typeof list[i] === "string") ids[list[i]] = true
+    root.pendingExpanded = ids
   }
 
   function toggleHistory() {
@@ -95,7 +193,7 @@ Item {
       for (var p = target; p; p = p.parent) {
         if (typeof p.forceLayout === "function") p.forceLayout()
       }
-      root.reveal(target)
+      page.reveal(target)
     }
   }
 
@@ -151,17 +249,29 @@ Item {
 
   Process {
     id: listProcess
+    // Set while the run ending next is one refresh() stopped.
+    property bool superseded: false
     stdout: StdioCollector {
       onStreamFinished: {
+        if (listProcess.superseded) return
+        // New records are a list change, not a hover: the pointer may have
+        // moved over the loading page, and they come in under it.
+        if (root.pointer) root.pointer.reset()
         try {
           root.payload = JSON.parse(text || "{}")
         } catch (e) {
           root.payload = ({})
         }
+        root.loadedScope = root.requestScope
       }
     }
     stderr: StdioCollector { id: listStderr }
     onExited: (exitCode, exitStatus) => {
+      if (listProcess.superseded) {
+        listProcess.superseded = false
+        return
+      }
+      root.loadedScope = root.requestScope
       if (exitCode !== 0) {
         root.fail(listStderr.text.length > 0 ? listStderr.text : ("backstory records exited " + exitCode))
       }
@@ -213,34 +323,28 @@ Item {
   }
 
   implicitWidth: Style.space(360)
-  implicitHeight: content.implicitHeight
+  implicitHeight: page.implicitHeight
 
-  Column {
-    id: content
-    width: parent.width
+  // The header and the rule under it stay put; the records and Forget scroll.
+  ScrollPage {
+    id: page
+    anchors.fill: parent
     spacing: Style.spacing.rowGap
 
-    Row {
-      width: parent.width
+    header: [HeroHeader {
+      id: header
+      showBack: true
+      title: root.displayName
+      status: !root.ready ? "Memory"
+        : "Memory · " + root.records.length + (root.records.length === 1 ? " saved record" : " saved records")
+      onBack: root.closeRequested()
 
-      PanelActionButton {
-        iconText: Glyphs.back()
-        tooltipText: "Back"
-        foreground: Commons.Color.popups.text
-        hoverColor: Commons.Color.accent
-        onClicked: root.closeRequested()
-      }
-
-      Text {
-        textFormat: Text.PlainText
-        text: "Memory · " + root.displayName
-        font.family: Style.font.family
-        font.pixelSize: Style.font.heading
-        font.bold: true
-        color: Commons.Color.popups.text
-        elide: Text.ElideRight
-        width: parent.width - Style.space(56)
-        anchors.verticalCenter: parent.verticalCenter
+      HostButtons {
+        canPopOut: root.canPopOut
+        canPin: root.canPin
+        pinned: root.pinned
+        onPopOutRequested: root.popOutRequested()
+        onPinRequested: root.pinRequested()
       }
 
       PanelActionButton {
@@ -250,7 +354,9 @@ Item {
         hoverColor: Commons.Color.accent
         onClicked: root.toggleHistory()
       }
-    }
+    },
+
+    PanelSeparator { width: parent.width; foreground: Commons.Color.popups.text }]
 
     Text {
       id: errorLabel
@@ -265,7 +371,18 @@ Item {
     }
 
     Text {
-      visible: root.records.length === 0
+      visible: !root.ready
+      textFormat: Text.PlainText
+      text: "Loading records\u2026"
+      width: parent.width
+      font.family: Style.font.family
+      font.pixelSize: Style.font.bodySmall
+      color: Qt.darker(Commons.Color.foreground, 1.3)
+      leftPadding: Style.spacing.rowPaddingX
+    }
+
+    Text {
+      visible: root.ready && root.records.length === 0
       textFormat: Text.PlainText
       text: "Nothing saved for " + root.displayName + " yet."
       wrapMode: Text.WordWrap
@@ -283,20 +400,34 @@ Item {
       delegate: Item {
         id: rec
         required property var modelData
+        required property int index
         readonly property string rid: Records.recordId(modelData)
         readonly property string mark: Memory.statusMark(Records.recordStatus(modelData))
         readonly property bool deleted: Records.recordStatus(modelData) === "deleted"
         readonly property string body: Records.recordText(modelData)
         readonly property Item confirmFlow: recordConfirm
-        property bool expanded: false
+        readonly property bool expanded: !!root.expandedIds[rec.rid]
+        readonly property bool current: rec.index === root.cursorIndex
 
-        width: content.width
+        width: page.width
         height: recColumn.implicitHeight + Style.spacing.rowGap
 
-        MouseArea {
+        // Drawn like the main view's selected row (ProjectRow.qml).
+        Rectangle {
           anchors.fill: parent
+          radius: Style.cornerRadius
+          color: rec.current ? Util.alpha(Commons.Color.accent, 0.18) : "transparent"
+          border.width: rec.current ? 1 : 0
+          border.color: Commons.Color.accent
+        }
+
+        MouseArea {
+          id: recMouse
+          anchors.fill: parent
+          hoverEnabled: true
           cursorShape: Qt.PointingHandCursor
-          onClicked: rec.expanded = !rec.expanded
+          onPositionChanged: (mouse) => { if (root.pointer.moved(recMouse, mouse)) root.cursorIndex = rec.index }
+          onClicked: root.toggleExpanded(rec.rid)
         }
 
         Column {
@@ -434,11 +565,10 @@ Item {
       }
     }
 
-    Rectangle {
+    PanelSeparator {
       objectName: "forgetDivider"
       width: parent.width
-      height: 1
-      color: Qt.darker(Commons.Color.foreground, 2.5)
+      foreground: Commons.Color.popups.text
     }
 
     Column {
