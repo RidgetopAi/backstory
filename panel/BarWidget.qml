@@ -23,6 +23,15 @@ import "js/format.js" as Format
 // ($OMARCHY_PATH/shell/shell.qml isBarWidgetPanelPlugin). CTRL+SHIFT+B
 // reaches this popup through its own IPC target below.
 //
+// Omarchy 4.0 and 4.5 differ in what the popup and the icon button are made
+// of, so what only 4.5 has lives in its own file, probed with
+// Qt.createComponent where it is used and never named here: BarPopup.qml
+// (KeyboardPanel's `content`) and BarLabeledButton.qml (BarIconButton's
+// `labelText`). Where one will not load, the widget falls back to what it
+// was before the popup: a left click toggles the window through the shell
+// (barToggleCommand), and BarPlainButton.qml draws the label in the glyph's
+// text. No version string is read.
+//
 // It shows the `here` project's short name beside the glyph. Left click
 // toggles the popup, right click is Continue on `here`, middle click
 // refreshes; it refreshes on every click and every refreshIntervalMs.
@@ -49,8 +58,16 @@ Ui.Panel {
   // ($OMARCHY_PATH/shell/plugins/bar/README.md, "Custom user modules").
   implicitHeight: root.bar ? root.bar.barSize : Style.bar.sizeHorizontal
 
-  // Test-only handle onto the popup (its content is built on first open).
-  readonly property var testPopup: popup
+  // The popup (BarPopup.qml) where this Omarchy can build it (4.5+), else
+  // null and a left click toggles the window.
+  readonly property Component popupComponent: Qt.createComponent("BarPopup.qml")
+  readonly property bool popupSupported: root.popupComponent.status === Component.Ready
+  property var popupHost: null
+  readonly property var popup: root.popupHost ? root.popupHost.panel : null
+
+  // Test-only handle onto the popup's KeyboardPanel (its content is built on
+  // first open).
+  readonly property var testPopup: root.popup
 
   // The popup's pop-out button: open the window, which you can move and
   // which stays open when other bar panels open, at the snapshot the popup's
@@ -83,13 +100,17 @@ Ui.Panel {
   // The popup's card on screen (logical px), the bar's thickness and the
   // card's gap below it, and the monitor's origin.
   function cardOnScreen() {
-    var scr = popup.screen
+    var card = root.popup
+    var scr = card.screen
     var monX = scr ? scr.x : 0
     var monY = scr ? scr.y : 0
+    // drawnHeight and barThickness are 4.5.0-rc2+; an earlier popup has the
+    // card's own height and the bar's size.
     return {
-      x: monX + popup.cardOrigin.x, y: monY + popup.cardOrigin.y,
-      w: popup.contentWidth, h: popup.drawnHeight,
-      bar: popup.barThickness, gap: popup.gap, monX: monX, monY: monY,
+      x: monX + card.cardOrigin.x, y: monY + card.cardOrigin.y,
+      w: card.contentWidth, h: card.drawnHeight !== undefined ? card.drawnHeight : card.contentHeight,
+      bar: card.barThickness !== undefined ? card.barThickness : (root.bar ? root.bar.barSize : 0),
+      gap: card.gap, monX: monX, monY: monY,
       monW: scr ? scr.width : 0, monH: scr ? scr.height : 0,
       edge: root.bar && root.bar.position ? root.bar.position : "top"
     }
@@ -109,7 +130,10 @@ Ui.Panel {
     dataProcess.running = true
   }
 
-  Component.onCompleted: root.refresh()
+  Component.onCompleted: {
+    if (root.popupSupported) root.popupHost = root.popupComponent.createObject(root, { host: root, anchorItem: button })
+    root.refresh()
+  }
 
   // The shortcut opens or closes this popup when the window is not open
   // (ops/hyprland/backstory.lua): the shell routes its own summon and
@@ -118,7 +142,9 @@ Ui.Panel {
   // the bar window's), the monitor cardOnScreen() measures too.
   IpcHandler {
     target: "backstory.this-week.popup"
-    enabled: !Hyprland.focusedMonitor || !popup.screen || popup.screen.name === Hyprland.focusedMonitor.name
+    // Without the popup there is nothing here to toggle: the target stays
+    // disabled and the shortcut's chain goes on to the window.
+    enabled: root.popup !== null && (!Hyprland.focusedMonitor || !root.popup.screen || root.popup.screen.name === Hyprland.focusedMonitor.name)
     function toggle(): string {
       root.toggle()
       if (root.opened) root.refresh()
@@ -160,23 +186,41 @@ Ui.Panel {
     text: root.labelText
   }
 
-  BarIconButton {
+  // The bar button: BarLabeledButton where BarIconButton has `labelText`
+  // (4.5+), BarPlainButton where it has not.
+  readonly property Component labeledButtonComponent: Qt.createComponent("BarLabeledButton.qml")
+  readonly property Component plainButtonComponent: Qt.createComponent("BarPlainButton.qml")
+
+  Loader {
     id: button
     anchors.fill: parent
-    bar: root.bar
-    text: root.scrollGlyph
-    labelText: root.labelText
-    slotSize: Style.bar.iconSlot + (root.labelText !== "" ? labelMetrics.advanceWidth + Style.space(4) : 0)
-    tooltipText: ""
-    onPressed: function(mouseButton) {
+    sourceComponent: root.labeledButtonComponent.status === Component.Ready ? root.labeledButtonComponent : root.plainButtonComponent
+  }
+
+  // The button's own properties by name: its type is not known here.
+  Binding { target: button.item; property: "bar"; value: root.bar }
+  Binding { target: button.item; property: "glyph"; value: root.scrollGlyph }
+  Binding { target: button.item; property: "label"; value: root.labelText }
+  Binding {
+    target: button.item
+    property: "slotSize"
+    value: Style.bar.iconSlot + (root.labelText !== "" ? labelMetrics.advanceWidth + Style.space(4) : 0)
+  }
+
+  Connections {
+    target: button.item
+    function onPressed(mouseButton) {
       if (mouseButton === Qt.RightButton) {
         continueAction.continueOn(root.hereProject)
       } else if (mouseButton === Qt.MiddleButton) {
         root.refresh()
       } else if (root.windowOpen()) {
         Quickshell.execDetached(Launchers.windowFocusCommand())
-      } else {
+      } else if (root.popup) {
         root.toggle()
+        root.refresh()
+      } else {
+        Quickshell.execDetached(Launchers.barToggleCommand())
         root.refresh()
       }
     }
@@ -201,44 +245,6 @@ Ui.Panel {
       anchors.top: parent.top
       anchors.rightMargin: -Style.space(1)
       borderSpec: Border.flat(Commons.Color.popups.background, Style.spacing.hairline)
-    }
-  }
-
-  KeyboardPanel {
-    id: popup
-    anchorItem: button
-    owner: root
-    bar: root.bar
-    open: root.opened
-    focusTarget: popup.loadedContent
-    contentWidth: popup.fittedContentWidth(Style.space(380))
-    contentHeight: popup.fittedContentHeight(popup.loadedContentHeight, Style.space(640))
-
-    content: Item {
-      implicitHeight: view.implicitHeight
-      focus: true
-
-      // Tab and Shift+Tab move to the next bar panel; the view takes the rest.
-      function handleKey(key, modifiers) {
-        if (key === Qt.Key_Tab || key === Qt.Key_Backtab) {
-          root.switchPanel(key === Qt.Key_Backtab || (modifiers & Qt.ShiftModifier) ? -1 : 1)
-          return true
-        }
-        return view.handleKey(key, modifiers)
-      }
-
-      Keys.onPressed: (event) => { event.accepted = handleKey(event.key, event.modifiers) }
-
-      ThisWeekView {
-        id: view
-        anchors.fill: parent
-        edge: 0
-        footerBottomMargin: 0
-        active: root.opened
-        canPopOut: true
-        onCloseRequested: root.close()
-        onPopOutRequested: root.popOut(view.snapshot())
-      }
     }
   }
 }

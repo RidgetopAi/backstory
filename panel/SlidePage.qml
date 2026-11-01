@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import "js/compat.js" as Compat
 
 // One page of ThisWeekView: the main body, or Memory, Groups or Help. It
 // waits off to one side (`side`: -1 left, the main body; 1 right, a
@@ -17,7 +18,7 @@ Item {
   property bool animate: true
   Behavior on offset {
     enabled: page.animate
-    NumberAnimation { duration: Style.duration(200); easing.type: Easing.OutCubic }
+    NumberAnimation { duration: Compat.duration(Style, 200); easing.type: Easing.OutCubic }
   }
 
   // Fills the space the pages share; the view in it is as tall as the page,
