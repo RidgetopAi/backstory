@@ -62,6 +62,11 @@ integration:
 # This target FAILS (never skips) when qmltestrunner isn't on PATH — a
 # Node-less/Qt-less machine must not appear to pass this gate silently, the
 # same discipline js_runtime_test.go's requireNode already holds JS to.
+# The suite runs twice: against stubs (Omarchy 4.5) with panel/qmltest/tests,
+# and against stubs-4.0.4 (task aa64900b) with tests-4.0.4: the 4.5 stubs with
+# stubs-4.0.4 laid over them, OverlayWindow and Style.duration taken out. The
+# panel must load there and fall back to the window (see stubs-4.0.4/README.md).
+QML_STUBS_40 = panel/qmltest/stubs-4.0.4
 panel-qml-test:
 	@command -v $(QMLTESTRUNNER) >/dev/null 2>&1 || { \
 		echo "panel-qml-test: qmltestrunner not found on PATH (set QMLTESTRUNNER=/path/to/qmltestrunner, or install qt6-declarative-dev-tools / your distro's Qt6 QML test tools)"; \
@@ -69,6 +74,14 @@ panel-qml-test:
 	}
 	QT_QPA_PLATFORM=offscreen QML_XHR_ALLOW_FILE_READ=1 QT_FATAL_WARNINGS=1 \
 		$(QMLTESTRUNNER) -import panel/qmltest/stubs -input panel/qmltest/tests
+	@tree=$$(mktemp -d) && trap 'rm -rf "$$tree"' EXIT && \
+		cp -r panel/qmltest/stubs/. "$$tree" && \
+		rm "$$tree/qs/Ui/OverlayWindow.qml" && \
+		sed -i '/^OverlayWindow /d' "$$tree/qs/Ui/qmldir" && \
+		sed -i '/function duration(/d' "$$tree/qs/Commons/Style.qml" && \
+		cp -r $(QML_STUBS_40)/qs/. "$$tree/qs" && \
+		QT_QPA_PLATFORM=offscreen QML_XHR_ALLOW_FILE_READ=1 QT_FATAL_WARNINGS=1 \
+			$(QMLTESTRUNNER) -import "$$tree" -input panel/qmltest/tests-4.0.4
 
 # hygiene-check fails if build-loop critic/mutation evidence is tracked.
 hygiene-check:

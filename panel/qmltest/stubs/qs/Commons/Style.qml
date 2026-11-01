@@ -23,7 +23,8 @@ QtObject {
 
   readonly property int cornerRadius: 8
 
-  // The real one returns 0 when Hyprland's animations are off.
+  // Omarchy 4.5+ only (stubs-4.0.4 drops this line): 0 when Hyprland's
+  // animations are off.
   function duration(ms) { return ms }
 
   readonly property QtObject font: QtObject {
@@ -54,8 +55,9 @@ QtObject {
     readonly property int dropdownWidth: style.space(160)
   }
 
-  function space(n) { return Math.max(1, Math.round(n * style.testSpacingScale)) }
+  // As the real one: 0 stays 0, anything else is at least 1.
+  function space(n) { return n === 0 ? 0 : Math.max(1, Math.round(n * style.testSpacingScale)) }
   function spaceReal(n) { return n > 0 ? n * style.testSpacingScale : 0 }
 
-  function hoverFillFor(fg, bg) { return Qt.rgba(fg.r, fg.g, fg.b, 0.12) }
+  function hoverFillFor(fg, accent, urgent) { return Qt.rgba(fg.r, fg.g, fg.b, 0.12) }
 }
