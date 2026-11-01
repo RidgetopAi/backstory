@@ -29,7 +29,7 @@ func TestMakeUninstallLeavesNoHarnessReferencingBackstory(t *testing.T) {
 	f.mustMake("install")
 	installed := f.path(".local", "bin", "backstory")
 	cmd := exec.Command(installed, "install", "bash") //nolint:gosec // the binary this test just built and installed
-	cmd.Env = append(os.Environ(), "HOME="+f.home)
+	cmd.Env = f.env()
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("install bash: %v\n%s", err, out)
 	}
