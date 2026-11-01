@@ -118,11 +118,46 @@ func (f *installFixture) flag(name string, on bool) {
 
 func goEnv(t *testing.T, key string) string {
 	t.Helper()
-	out, err := exec.Command("go", "env", key).Output() //nolint:gosec // fixture path under t.TempDir
+	cmd := exec.Command("go", "env", key) //nolint:gosec // fixed args
+	// the go tool writes telemetry under XDG_CONFIG_HOME; keep that out of any dir a test watches
+	cmd.Env = append(os.Environ(), "XDG_CONFIG_HOME="+t.TempDir())
+	out, err := cmd.Output()
 	if err != nil {
 		t.Fatal(err)
 	}
 	return strings.TrimSpace(string(out))
+}
+
+// env returns os.Environ() with HOME and every XDG base dir (CONFIG, DATA,
+// STATE, CACHE, RUNTIME) dropped and re-pointed under the fixture, then
+// overrides appended. Every test subprocess that runs the installer or the
+// installed binary builds its env through this, so no inherited XDG_* value
+// can send a write (usage file, config, cache) to the developer's real dirs.
+func (f *installFixture) env(overrides ...string) []string {
+	owned := map[string]bool{"HOME": true, "XDG_CONFIG_HOME": true, "XDG_DATA_HOME": true, "XDG_STATE_HOME": true, "XDG_CACHE_HOME": true, "XDG_RUNTIME_DIR": true}
+	var out []string
+	for _, e := range os.Environ() {
+		if k, _, _ := strings.Cut(e, "="); !owned[k] {
+			out = append(out, e)
+		}
+	}
+	out = append(out,
+		"HOME="+f.home,
+		"XDG_CONFIG_HOME="+f.cfg,
+		"XDG_DATA_HOME="+filepath.Join(f.home, ".local", "share"),
+		"XDG_STATE_HOME="+filepath.Join(f.home, ".local", "state"),
+		"XDG_CACHE_HOME="+filepath.Join(f.home, ".cache"),
+		"XDG_RUNTIME_DIR="+f.run,
+	)
+	return append(out, overrides...)
+}
+
+// status runs the installed `backstory status` (read-only) from dir.
+func (f *installFixture) status(dir string) ([]byte, error) {
+	ctl := exec.Command(f.path(".local", "bin", "backstory"), "status") //nolint:gosec // fixture path under t.TempDir
+	ctl.Dir = dir
+	ctl.Env = f.env()
+	return ctl.CombinedOutput()
 }
 
 // fixtureHealthTimeout is the daemon health wait (seconds) for fixture installs.
@@ -136,11 +171,7 @@ const fixtureHealthTimeout = "60"
 func (f *installFixture) make(target string) (string, error) {
 	f.t.Helper()
 	cmd := exec.Command("make", "-C", "..", target, "BIN="+f.binOut) //nolint:gosec // fixture path under t.TempDir
-	cmd.Env = append(os.Environ(),
-		"HOME="+f.home,
-		"XDG_CONFIG_HOME="+f.cfg,
-		"XDG_DATA_HOME="+filepath.Join(f.home, ".local", "share"),
-		"XDG_RUNTIME_DIR="+f.run,
+	cmd.Env = f.env(
 		"BACKSTORY_HEALTH_TIMEOUT="+fixtureHealthTimeout,
 		"PATH="+f.fakes+string(os.PathListSeparator)+f.host,
 		"FAKE_LOG="+f.log,
@@ -481,10 +512,7 @@ func TestInstallerRecordsNoProjectForBuildDir(t *testing.T) {
 
 	// A plain `backstory status` from the clone dir is a read-only call and
 	// mints no session either.
-	ctl := exec.Command(f.path(".local", "bin", "backstory"), "status") //nolint:gosec // fixture path under t.TempDir
-	ctl.Dir = clone
-	ctl.Env = append(os.Environ(), "HOME="+f.home, "XDG_RUNTIME_DIR="+f.run, "XDG_DATA_HOME="+filepath.Join(f.home, ".local", "share"))
-	if out, err := ctl.CombinedOutput(); err != nil {
+	if out, err := f.status(clone); err != nil {
 		t.Fatalf("control status: %v\n%s", err, out)
 	}
 	if n := sessionsAt(); n != 0 {
@@ -1020,4 +1048,38 @@ func TestDeferredWaiterDerivesSignatureAndRestartsOnceOnExit1(t *testing.T) {
 	if n := countLines(f.calls(), "omarchy-restart-shell"); n != 1 {
 		t.Errorf("omarchy-restart-shell calls = %d, want exactly 1:\n%s", n, f.calls())
 	}
+}
+
+// TestFixtureInstallLeavesDecoyXDGDirsEmpty is the guard for issue #8: with the
+// parent env's XDG_STATE_HOME and XDG_CONFIG_HOME (and the other XDG dirs)
+// aimed at a decoy, the fixture install and the status control must write
+// nothing there. Before the fix the installed daemon's usage file landed in
+// $XDG_STATE_HOME/omarchy/agents/usage/.
+func TestFixtureInstallLeavesDecoyXDGDirsEmpty(t *testing.T) {
+	// resolve the Go dirs before the decoy exists: the default GOCACHE derives
+	// from XDG_CACHE_HOME, and the build must not be pointed into the decoy.
+	for _, k := range []string{"GOCACHE", "GOMODCACHE"} {
+		t.Setenv(k, goEnv(t, k))
+	}
+	decoy := t.TempDir()
+	for _, k := range []string{"XDG_STATE_HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME"} {
+		d := filepath.Join(decoy, k)
+		if err := os.MkdirAll(d, 0o755); err != nil { //nolint:gosec // decoy path under t.TempDir
+			t.Fatal(err)
+		}
+		t.Setenv(k, d)
+	}
+	f := newInstallFixture(t)
+	f.mustMake("install")
+	if out, err := f.status(t.TempDir()); err != nil {
+		t.Fatalf("status: %v\n%s", err, out)
+	}
+	_ = filepath.WalkDir(decoy, func(p string, d fs.DirEntry, err error) error {
+		if err == nil && p != decoy && !d.IsDir() {
+			t.Errorf("fixture wrote into the developer's XDG dir: %s", p)
+		} else if err == nil && p != decoy && filepath.Dir(p) != decoy {
+			t.Errorf("fixture created %s under the developer's XDG dir", p)
+		}
+		return nil
+	})
 }

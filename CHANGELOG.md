@@ -11,6 +11,10 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 ## [Unreleased]
 
+### Fixed
+
+- Ops install tests no longer write the usage file (or temp files) into the developer's real `XDG_STATE_HOME`; every test subprocess env is built under the fixture. Thanks @brettlj for the report (#8, task 8fd2cf75).
+
 ### Changed
 
 - README: Install leads with install from source and a short trust block (home folder only, no sudo, a user-level service, no network of its own, one local SQLite file, agent configs changed only as listed), each linking to its part of `docs/WHAT-BACKSTORY-TOUCHES.md`. "Other ways to install" covers the GitHub Release download and how to verify it; the AUR package is marked as coming (task b0440411).
