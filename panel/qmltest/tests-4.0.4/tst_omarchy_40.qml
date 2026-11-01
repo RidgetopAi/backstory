@@ -114,4 +114,19 @@ TestCase {
     verify(ipc !== null, "no popup IPC target")
     compare(ipc.enabled, false)
   }
+
+  // The animations' durations come from Style.duration where it exists; on
+  // 4.0 it is a missing function, and calling it is a TypeError the moment
+  // the animation starts.
+  function test_slide_page_and_grab_handle_animate_without_style_duration() {
+    var page = load("SlidePage.qml")
+    page.current = true
+    tryCompare(page, "offset", 0, 2000)
+    page.current = false
+    tryCompare(page, "offset", 1, 2000)
+    loader.destroy()
+    var handle = load("GrabHandle.qml")
+    handle.shown = true
+    tryCompare(handle, "height", handle.fullHeight, 3000)
+  }
 }
