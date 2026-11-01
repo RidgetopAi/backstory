@@ -106,7 +106,7 @@ func TestGoToolCachesStayOutsideSandboxHome(t *testing.T) {
 		t.Fatalf("go build: %v\n%s", err, b)
 	}
 	for _, rel := range []string{filepath.Join("go", "pkg", "mod"), filepath.Join(".cache", "go-build")} {
-		if _, err := os.Stat(filepath.Join(home, rel)); err == nil {
+		if _, err := os.Stat(filepath.Join(home, rel)); err == nil { //nolint:gosec // test-only stat of fixed relative paths under the sandbox
 			t.Errorf("go build created %s under the sandbox HOME", rel)
 		}
 	}
