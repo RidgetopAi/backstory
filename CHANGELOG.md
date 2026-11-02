@@ -20,7 +20,7 @@ See `RELEASING.md` for the release flow and its approval gates.
   probe (`BarPopup.qml`, `BarLabeledButton.qml`, `PopOutGlow.qml`), never by
   a version string. `make panel-qml-test` runs the QML suite against 4.5 and
   against a 4.0.4 stub tree.
-
+- This Week no longer drops workspace sessions in non-git folders that edit nothing there (task c8b80c12). A session with no real, included edit location (research-only, notes-only, or edits only into a scratchpad or Claude's memory dir) is labelled by its own cwd under the workspace (`projects/freax`, or `projects` for the workspace root), and its sessions count on the week bars for any real-work event that day, not just file edits. Edit-derived labels still win; excluded locations never become rows.
 - Ops install tests no longer write the usage file (or temp files) into the developer's real `XDG_STATE_HOME`; every test subprocess env is built under the fixture. Thanks @brettlj for the report (#8, task 8fd2cf75).
 
 ### Changed

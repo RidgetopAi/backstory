@@ -293,6 +293,8 @@ func Build(p Params) (Result, error) {
 		}
 		locs, err := p.Store.ActiveHomeLabels(home, since, now, p.Git, workspaces, func(sess store.Session) (bool, error) {
 			return p.Store.SessionHasRealWork(sess, since, RealWork)
+		}, func(dir string) bool {
+			return !p.Locations.Excluded(dir) && project.InRoots(p.ProjectRoots, dir)
 		})
 		if err != nil {
 			return Result{}, fmt.Errorf("week: active home labels for %s: %w", home, err)
@@ -778,7 +780,7 @@ func buildHomeLabelWeekGrid(st *store.Store, units []homeLabelUnit, since, now t
 
 		for _, day := range days {
 			dayEnd := day.AddDate(0, 0, 1)
-			stats := homeLabelDayStats(events, records, u.loc.Label, day, dayEnd, now, git, workspaces)
+			stats := homeLabelDayStats(events, records, u.loc, day, dayEnd, now, git, workspaces)
 			if stats.Sessions == 0 && stats.FilesTouched == 0 && stats.RecordsWritten == 0 {
 				continue
 			}
@@ -802,9 +804,19 @@ func buildHomeLabelWeekGrid(st *store.Store, units []homeLabelUnit, since, now t
 // is already scoped to those): a session that notes one handoff covering
 // several labels attributes that one record to each label its session
 // touched, since the record itself names no single repo of its own.
-func homeLabelDayStats(events []store.TimelineEvent, records []store.Record, label string, dayStart, dayEnd, now time.Time, git project.Git, workspaces []string) DayProjectStats {
+func homeLabelDayStats(events []store.TimelineEvent, records []store.Record, loc store.ActiveWorkLocation, dayStart, dayEnd, now time.Time, git project.Git, workspaces []string) DayProjectStats {
 	if dayEnd.After(now) {
 		dayEnd = now
+	}
+
+	label := loc.Label
+	byCWD := map[string]bool{}
+	for _, id := range loc.CWDSessionIDs {
+		byCWD[id] = true
+	}
+	realWork := map[string]bool{}
+	for _, k := range RealWork.EventKinds {
+		realWork[k] = true
 	}
 
 	sessions := map[string]bool{}
@@ -814,6 +826,12 @@ func homeLabelDayStats(events []store.TimelineEvent, records []store.Record, lab
 	for _, e := range events {
 		if e.TS.Before(dayStart) || !e.TS.Before(dayEnd) {
 			continue
+		}
+		// A cwd-attributed session's every real-work event counts toward
+		// its label's sessions; files below still need a mutating path
+		// inside the label.
+		if byCWD[e.SessionID] && realWork[e.Kind] {
+			sessions[e.Run()] = true
 		}
 		if e.Kind != payload.KindToolUse {
 			continue
