@@ -13,6 +13,10 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 ### Added
 
+- `backstory restore PATH [--yes]` verifies a backup (SQLite, `integrity_check`,
+  not a newer schema), stops the daemon and sync units, keeps the current
+  store aside as `backstory.db.pre-restore-<UTC time>`, swaps the backup in,
+  and restarts the units; any failure after the stop puts the old store back.
 - `backstory backup [--out PATH] [--force] [--json]` writes a consistent,
   integrity-checked snapshot of the store (SQLite `VACUUM INTO`, safe while
   the daemon writes) to `~/.local/share/backstory/backups/` by default, and

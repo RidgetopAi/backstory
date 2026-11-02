@@ -298,6 +298,7 @@ no agent can run on your behalf through Backstory's tools.
 | [`backfill`](#backfill) | Import past sessions from an agent's history |
 | [`export`](#export) | Write a project's memory to a markdown file |
 | [`backup`](#backup) | Write a safe, checked copy of your memory |
+| [`restore`](#restore) | Swap a backup in, keeping the current memory aside |
 | [`pair`](#pair) | Pair with another computer over ssh |
 | [`sync`](#sync) | Share memory with your paired computers |
 | [`install`](#install) | Connect Backstory to your agents, or check or remove that |
@@ -617,6 +618,24 @@ backstory backup --json                # the same facts as a JSON object
 
 It prints the path, size, schema version, and how many projects, sessions and records the copy
 holds. The backups folder is private to you (`0700`, files `0600`).
+
+### restore
+
+Replaces your memory with a backup made by `backstory backup`. It checks the backup first (it
+must be a Backstory database, pass SQLite's integrity check, and not come from a newer
+Backstory) and changes nothing if it does not. It shows what the backup holds next to what you
+have now and asks before going on; with no terminal it refuses unless you pass `--yes`.
+
+```
+backstory restore ~/safe/mem.db        # asks first
+backstory restore ~/safe/mem.db --yes  # no question
+```
+
+It stops the Backstory daemon and sync units, saves a consistent copy of your current memory as
+`backstory.db.pre-restore-<UTC time>` beside the store (restore never deletes it), swaps the
+backup in, opens it once, and starts the units again. If anything fails after the stop, your
+previous memory is put back, the units are restarted, and the command exits non-zero. Without a
+systemd user session it refuses while a daemon is running.
 
 ### install
 
