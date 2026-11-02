@@ -29,6 +29,8 @@ type BackupInfo struct {
 	Projects      int    `json:"projects"`
 	Sessions      int    `json:"sessions"`
 	Records       int    `json:"records"`
+	// Newest is the ts of the newest record, empty when there are none.
+	Newest string `json:"newest,omitempty"`
 }
 
 // Backup writes a consistent snapshot of the store to dest with VACUUM INTO,
@@ -119,6 +121,9 @@ func VerifyBackup(path string) (BackupInfo, error) {
 		if err := db.QueryRow(c.query).Scan(c.dst); err != nil {
 			return BackupInfo{}, fmt.Errorf("store: verify backup: %w", err)
 		}
+	}
+	if err := db.QueryRow(`SELECT COALESCE(MAX(ts), '') FROM records`).Scan(&info.Newest); err != nil {
+		return BackupInfo{}, fmt.Errorf("store: verify backup: %w", err)
 	}
 	return info, nil
 }
