@@ -5,6 +5,7 @@ import Quickshell.Wayland
 import qs.Ui
 import qs.Commons
 import qs.Commons as Commons
+import "js/compat.js" as Compat
 
 // The pop-out's glow-flash: a blurred accent ring around the window, larger
 // than it and fading both outward and inward, that travels with it from the
@@ -23,7 +24,7 @@ OverlayWindow {
   shown: root.playing
 
   readonly property real pad: Style.space(30)
-  readonly property int moveMs: Style.duration(380)
+  readonly property int moveMs: Compat.duration(Style, 380)
   // Set by light() or play() and cleared when the glow is done; the
   // animation itself waits for the surface (started).
   property bool playing: false
@@ -117,7 +118,7 @@ OverlayWindow {
 
   NumberAnimation {
     id: lightAnim
-    target: glowBox; property: "opacity"; to: 1; duration: Style.duration(240); easing.type: Easing.InQuad
+    target: glowBox; property: "opacity"; to: 1; duration: Compat.duration(Style, 240); easing.type: Easing.InQuad
   }
 
   ParallelAnimation {
@@ -141,8 +142,8 @@ OverlayWindow {
     }
     SequentialAnimation {
       // From wherever light() got to: a lit glow holds, then goes.
-      NumberAnimation { target: glowBox; property: "opacity"; to: 1; duration: Style.duration(240); easing.type: Easing.InQuad }
-      NumberAnimation { target: glowBox; property: "opacity"; to: 0; duration: Style.duration(120); easing.type: Easing.OutQuad }
+      NumberAnimation { target: glowBox; property: "opacity"; to: 1; duration: Compat.duration(Style, 240); easing.type: Easing.InQuad }
+      NumberAnimation { target: glowBox; property: "opacity"; to: 0; duration: Compat.duration(Style, 120); easing.type: Easing.OutQuad }
     }
   }
 }

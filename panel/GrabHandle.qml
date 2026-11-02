@@ -1,5 +1,6 @@
 import QtQuick
 import qs.Commons
+import "js/compat.js" as Compat
 import qs.Commons as Commons
 
 // The window's grab handle after a pop-out: a strip along its top with a
@@ -18,7 +19,7 @@ Item {
   // Grows in; goes at once (the window is closing).
   Behavior on height {
     enabled: root.shown
-    NumberAnimation { duration: Style.duration(450); easing.type: Easing.OutQuint }
+    NumberAnimation { duration: Compat.duration(Style, 450); easing.type: Easing.OutQuint }
   }
 
   Rectangle {

@@ -7,6 +7,7 @@ import qs.Commons
 import qs.Commons as Commons
 import "js/launchers.js" as Launchers
 import "js/popout.js" as Popout
+import "js/compat.js" as Compat
 
 // Backstory: a CLIENT-only panel, the floating window around ThisWeekView
 // (the HERE card, Needs you, and Recent). The host injects
@@ -63,7 +64,7 @@ Item {
   // bounds walker (task 4fe02e30 DONE WHEN clause 3) uses these.
   readonly property Item testContentItem: panel.contentItem
   readonly property var testWindow: panel
-  readonly property var testGlow: glow
+  readonly property var testGlow: root.glow
   readonly property Item testKeyItem: card
   readonly property Item testScroller: view.scrollArea
   readonly property real testImplicitWidth: panel.implicitWidth
@@ -123,7 +124,7 @@ Item {
     root.cardRevealed = false
     popPlace.tries = 0
     popPlace.start()
-    glow.light(Qt.rect(from.x - from.monX, from.y - from.monY, from.w, from.h))
+    if (root.glow) root.glow.light(Qt.rect(from.x - from.monX, from.y - from.monY, from.w, from.h))
   }
 
   // The window is placed or given up on: show it and close the popup.
@@ -138,7 +139,7 @@ Item {
     popReveal.stop()
     popMove.stop()
     popAnimDone.stop()
-    glow.stop()
+    if (root.glow) root.glow.stop()
     root.popping = false
     root.cardRevealed = true
   }
@@ -154,7 +155,7 @@ Item {
       popPlace.tries++
       if (a === "" && popPlace.tries < 60) return
       popPlace.stop()
-      if (a === "") { glow.stop(); root.revealPopOut(); return }
+      if (a === "") { if (root.glow) root.glow.stop(); root.revealPopOut(); return }
       root.popAddr = a
       // Resize first: Hyprland keeps a resized window centered, so a move
       // after it lands where it says.
@@ -196,7 +197,7 @@ Item {
       // keyboard back to the window focused before it: take it.
       Hyprland.dispatch(Launchers.focusWindowDispatch(a))
       var f = root.popFrom
-      glow.play(Qt.rect(f.x - f.monX, f.y - f.monY, f.w, f.h), Qt.rect(rest.x - f.monX, rest.y - f.monY, rest.w, rest.h))
+      if (root.glow) root.glow.play(Qt.rect(f.x - f.monX, f.y - f.monY, f.w, f.h), Qt.rect(rest.x - f.monX, rest.y - f.monY, rest.w, rest.h))
       popAnimDone.start()
     }
   }
@@ -286,8 +287,17 @@ Item {
     return "ok"
   }
 
-  // Flashes around the window as it moves to rest after a pop-out.
-  PopOutGlow { id: glow }
+  // Flashes around the window as it moves to rest after a pop-out. It roots
+  // on qs.Ui.OverlayWindow (Omarchy 4.5+), a type 4.0 lacks, so naming it here
+  // would stop this file loading there: PopOutGlow.qml is probed instead, and
+  // where it will not load the pop-out runs with no glow (root.glow is null).
+  readonly property Component glowComponent: Qt.createComponent("PopOutGlow.qml")
+  readonly property var glow: glowLoader.item
+  Loader {
+    id: glowLoader
+    active: root.glowComponent.status === Component.Ready
+    sourceComponent: root.glowComponent
+  }
 
   IpcHandler {
     target: "backstory.this-week"
@@ -330,12 +340,13 @@ Item {
       // Fades in on every open, growing from just under full size, as
       // Omarchy's own panels do (Ui/PopupCard.qml); closing hides it at once.
       // Style.duration (Omarchy 4.5+) makes it 0 when `omarchy toggle
-      // animations` is off; 4.0 has no such helper, so it always fades there.
+      // animations` is off; 4.0 has no such helper, so it always fades there
+      // (js/compat.js).
       property real shown: root.opened ? 1 : 0
       Behavior on shown {
         id: showing
         NumberAnimation {
-          duration: showing.targetValue > 0 ? (typeof Style.duration === "function" ? Style.duration(180) : 180) : 0
+          duration: showing.targetValue > 0 ? Compat.duration(Style, 180) : 0
           easing.type: Easing.OutCubic
         }
       }

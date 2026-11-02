@@ -42,6 +42,12 @@ function windowSummonCommand(payloadJson) {
   return ["omarchy-shell", "shell", "summon", "backstory.this-week", payloadJson || "{}"]
 }
 
+// barToggleCommand toggles the window through the shell: a bar click where
+// the bar popup is not available (Omarchy 4.0, BarWidget.qml).
+function barToggleCommand() {
+  return ["omarchy-shell", "shell", "toggle", "backstory.this-week", "{}"]
+}
+
 function thisWeekCommand() {
   return ["backstory", "this-week", "--json", "--here", "auto"]
 }

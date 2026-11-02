@@ -13,6 +13,14 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 ### Fixed
 
+- The panel works on Omarchy 4.0 and 4.5. The bar popup (a bar click opens
+  it) and the pop-out glow need 4.5; on 4.0 a bar click opens or toggles the
+  window, as before the popup, the pop-out runs with no glow, and the bar
+  icon shows the project name beside the glyph. The 4.5-only pieces load by
+  probe (`BarPopup.qml`, `BarLabeledButton.qml`, `PopOutGlow.qml`), never by
+  a version string. `make panel-qml-test` runs the QML suite against 4.5 and
+  against a 4.0.4 stub tree.
+
 - Ops install tests no longer write the usage file (or temp files) into the developer's real `XDG_STATE_HOME`; every test subprocess env is built under the fixture. Thanks @brettlj for the report (#8, task 8fd2cf75).
 
 ### Changed
