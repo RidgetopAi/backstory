@@ -155,8 +155,13 @@ func TestVerifyBackupRejectsCorruptCopy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Keep the header (so it still opens) and trash everything after it.
-	for i := 4096; i < len(b); i++ {
+	// Trash one interior page: the file still opens and the count queries
+	// still answer, so only integrity_check can tell it is damaged.
+	const page = 4096
+	if len(b) < 14*page {
+		t.Fatalf("snapshot too small (%d bytes) to corrupt page 12", len(b))
+	}
+	for i := 12 * page; i < 13*page; i++ {
 		b[i] = byte(i * 31)
 	}
 	if err := os.WriteFile(dest, b, 0o600); err != nil {
