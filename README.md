@@ -202,6 +202,8 @@ If you checked out a tag, git leaves you on that tag rather than on a branch, so
   `affirm` fix or forget it; `group` folds related projects into one row; `export` writes a
   project's memory as markdown for another tool. All of them are explained, with examples, in
   the [User Manual](docs/USER-MANUAL.md#6-command-reference).
+- **If something goes wrong**: `backstory backup` saves your memory to one file and `backstory restore`
+  brings it back. See [If something goes wrong](docs/USER-MANUAL.md#10-if-something-goes-wrong).
 
 ## Project roots
 
