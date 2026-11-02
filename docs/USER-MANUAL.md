@@ -297,6 +297,7 @@ no agent can run on your behalf through Backstory's tools.
 | [`group`](#group) | Group related projects into one row |
 | [`backfill`](#backfill) | Import past sessions from an agent's history |
 | [`export`](#export) | Write a project's memory to a markdown file |
+| [`backup`](#backup) | Write a safe, checked copy of your memory |
 | [`pair`](#pair) | Pair with another computer over ssh |
 | [`sync`](#sync) | Share memory with your paired computers |
 | [`install`](#install) | Connect Backstory to your agents, or check or remove that |
@@ -599,6 +600,23 @@ backstory export --out ~/notes/my-app.md  # write it to a file
 ```
 
 `--altitude headline` makes it shorter.
+
+### backup
+
+Writes a consistent snapshot of your whole memory to a single file. It is safe while the
+daemon is running (a plain `cp` of the database can miss recent writes) and works with the
+daemon stopped. The copy is opened and checked before the command reports success; a bad
+copy is deleted and the command exits non-zero.
+
+```
+backstory backup                       # ~/.local/share/backstory/backups/backstory-<UTC time>.db
+backstory backup --out ~/safe/mem.db   # write exactly there
+backstory backup --out ~/safe/mem.db --force   # replace an existing file
+backstory backup --json                # the same facts as a JSON object
+```
+
+It prints the path, size, schema version, and how many projects, sessions and records the copy
+holds. The backups folder is private to you (`0700`, files `0600`).
 
 ### install
 

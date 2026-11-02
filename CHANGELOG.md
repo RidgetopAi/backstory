@@ -11,6 +11,13 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 ## [Unreleased]
 
+### Added
+
+- `backstory backup [--out PATH] [--force] [--json]` writes a consistent,
+  integrity-checked snapshot of the store (SQLite `VACUUM INTO`, safe while
+  the daemon writes) to `~/.local/share/backstory/backups/` by default, and
+  reports its path, size, schema version and project/session/record counts.
+
 ### Fixed
 
 - The panel works on Omarchy 4.0 and 4.5. The bar popup (a bar click opens
