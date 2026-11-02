@@ -37,6 +37,7 @@ commands:
   sync       share memory with every paired computer ("sync [--dry-run] [<peer>]")
   sync-serve serve this store's changes to a paired device over stdin/stdout (sync protocol v1; run by the peer, not by hand)
   export     write a project's markdown mirror for another tool to read
+  backup     write a checked snapshot of the store ("backup [--out PATH] [--force] [--json]")
   tools      print the agent tools' names and descriptions ("tools --json")
   this-week  print Attention, Where you left off, and The week, read-only
 `
@@ -97,6 +98,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runSyncServe(args[1:], stdin, stdout, stderr)
 	case "export":
 		return runExport(args[1:], stdout, stderr)
+	case "backup":
+		return runBackup(args[1:], stdout, stderr)
 	case "tools":
 		return runTools(args[1:], stdout, stderr)
 	case "this-week":
