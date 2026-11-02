@@ -92,23 +92,39 @@ Ui.Panel {
     return Hyprland.toplevels.values.some(function (t) { return Launchers.isPanelWindow(t) })
   }
 
+  // The window has taken the popup's place with the same view under it
+  // (Panel.qml revealPopOut): the popup's view goes at once, as Omarchy's
+  // card shrinks while it fades and would slide the text over the window's.
+  // Cleared when the popup opens again.
+  property bool handedOver: false
+
+  function handOver() {
+    root.handedOver = true
+    root.closeAfterPopOut()
+  }
+
   function closeAfterPopOut() {
     popOutGiveUp.stop()
     root.close()
   }
 
-  // The popup's card on screen (logical px), the bar's thickness and the
-  // card's gap below it, and the monitor's origin.
+  // The popup's card on screen (logical px) inside its border, the bar's
+  // thickness and the card's gap below it, and the monitor's origin. Inside
+  // the border: the window's own border is Hyprland's, outside it, so the
+  // window lands with its content where the card's was.
   function cardOnScreen() {
     var card = root.popup
     var scr = card.screen
     var monX = scr ? scr.x : 0
     var monY = scr ? scr.y : 0
+    var b = card.borderSpec
+    var left = Border.left(b), top = Border.top(b)
     // drawnHeight and barThickness are 4.5.0-rc2+; an earlier popup has the
     // card's own height and the bar's size.
+    var h = card.drawnHeight !== undefined ? card.drawnHeight : card.contentHeight
     return {
-      x: monX + card.cardOrigin.x, y: monY + card.cardOrigin.y,
-      w: card.contentWidth, h: card.drawnHeight !== undefined ? card.drawnHeight : card.contentHeight,
+      x: monX + card.cardOrigin.x + left, y: monY + card.cardOrigin.y + top,
+      w: card.contentWidth - left - Border.right(b), h: h - top - Border.bottom(b),
       bar: card.barThickness !== undefined ? card.barThickness : (root.bar ? root.bar.barSize : 0),
       gap: card.gap, monX: monX, monY: monY,
       monW: scr ? scr.width : 0, monH: scr ? scr.height : 0,
@@ -122,7 +138,10 @@ Ui.Panel {
     onTriggered: root.close()
   }
   // Closed by hand, the popup is done with its pop-out.
-  onOpenedChanged: if (!root.opened) popOutGiveUp.stop()
+  onOpenedChanged: {
+    if (!root.opened) popOutGiveUp.stop()
+    else root.handedOver = false
+  }
 
   function refresh() {
     continueAction.refreshDefaultAgent()
@@ -152,6 +171,10 @@ Ui.Panel {
     }
     function close(): string {
       root.closeAfterPopOut()
+      return "ok"
+    }
+    function handOver(): string {
+      root.handOver()
       return "ok"
     }
   }

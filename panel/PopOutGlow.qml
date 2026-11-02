@@ -10,8 +10,8 @@ import "js/compat.js" as Compat
 // The pop-out's glow-flash: a blurred accent ring around the window, larger
 // than it and fading both outward and inward, that travels with it from the
 // popup's card to its rest at Hyprland's window animation (Omarchy's
-// looknfeel.lua "windows": easeOutQuint, speed 3.79, about 380 ms). It eases
-// in, then goes twice as fast. It lights around the card the moment the
+// looknfeel.lua "windows": easeOutQuint, speed 3.79, about 380 ms). It brightens
+// quickly, then goes twice as fast. It lights around the card the moment the
 // pop-out starts (light()) and holds there until the window moves (play()).
 // Hyprland's shadow settings are global, so one
 // window's can't flash; this is a click-through overlay instead, as Omarchy's
@@ -25,6 +25,8 @@ OverlayWindow {
 
   readonly property real pad: Style.space(30)
   readonly property int moveMs: Compat.duration(Style, 380)
+  // The pop: the ring springs out this much past the window as it goes.
+  readonly property real popScale: 1.04
   // Set by light() or play() and cleared when the glow is done; the
   // animation itself waits for the surface (started).
   property bool playing: false
@@ -64,6 +66,7 @@ OverlayWindow {
       lightAnim.stop()
       anim.restart()
     } else {
+      glowBox.scale = 1
       glowBox.x = root.fromRect.x - root.pad
       glowBox.y = root.fromRect.y - root.pad
       glowBox.width = root.fromRect.width + root.pad * 2
@@ -77,6 +80,7 @@ OverlayWindow {
     lightAnim.stop()
     anim.stop()
     glowBox.opacity = 0
+    glowBox.scale = 1
     root.playing = false
   }
 
@@ -85,6 +89,7 @@ OverlayWindow {
   Item {
     id: glowBox
     opacity: 0
+    transformOrigin: Item.Center
 
     Rectangle {
       id: ring
@@ -118,7 +123,7 @@ OverlayWindow {
 
   NumberAnimation {
     id: lightAnim
-    target: glowBox; property: "opacity"; to: 1; duration: Compat.duration(Style, 240); easing.type: Easing.InQuad
+    target: glowBox; property: "opacity"; to: 1; duration: Compat.duration(Style, 180); easing.type: Easing.OutCubic
   }
 
   ParallelAnimation {
@@ -140,10 +145,14 @@ OverlayWindow {
       target: glowBox; property: "height"; duration: root.moveMs; easing.type: Easing.OutQuint
       from: root.fromRect.height + root.pad * 2; to: root.toRect.height + root.pad * 2
     }
+    NumberAnimation {
+      target: glowBox; property: "scale"; from: 1; to: root.popScale
+      duration: Compat.duration(Style, 180); easing.type: Easing.OutBack
+    }
     SequentialAnimation {
       // From wherever light() got to: a lit glow holds, then goes.
-      NumberAnimation { target: glowBox; property: "opacity"; to: 1; duration: Compat.duration(Style, 240); easing.type: Easing.InQuad }
-      NumberAnimation { target: glowBox; property: "opacity"; to: 0; duration: Compat.duration(Style, 120); easing.type: Easing.OutQuad }
+      NumberAnimation { target: glowBox; property: "opacity"; to: 1; duration: Compat.duration(Style, 180); easing.type: Easing.OutCubic }
+      NumberAnimation { target: glowBox; property: "opacity"; to: 0; duration: Compat.duration(Style, 90); easing.type: Easing.OutQuad }
     }
   }
 }

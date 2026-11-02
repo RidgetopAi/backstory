@@ -46,6 +46,7 @@ Item {
       ThisWeekView {
         id: view
         anchors.fill: parent
+        visible: !(root.host && root.host.handedOver)
         edge: 0
         footerBottomMargin: 0
         active: root.host ? root.host.opened : false

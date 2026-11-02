@@ -6,7 +6,8 @@ import "testutil.js" as TestUtil
 import "../../js/launchers.js" as Launchers
 
 // Task eb7188fa: the card fills the window and content scales with the
-// window width (zoom = width / 380 x userZoom); Ctrl+= / Ctrl+- / Ctrl+0
+// window width (zoom = width / panel.baseWidth x userZoom; baseWidth is the
+// popup card's 380 inside its border); Ctrl+= / Ctrl+- / Ctrl+0
 // adjust userZoom within [0.75, 2.5].
 TestCase {
   id: testCase
@@ -36,7 +37,7 @@ TestCase {
     ProcessController.respond(Launchers.thisWeekCommand(), { stdout: "{}", stderr: "", exitCode: 0 })
     panel.open("{}")
     tryCompare(panel.view, "loading", false, 2000)
-    panel.testWindow.width = 380
+    panel.testWindow.width = panel.baseWidth
     panel.testWindow.height = 640
     act.settledEq(panel, "zoom", 1.0)
     act.drain()
@@ -72,7 +73,7 @@ TestCase {
     verify(base > 0)
 
     var win = panel.testWindow
-    win.width = 760
+    win.width = 2 * panel.baseWidth
     win.height = 900
     act.settledEq(panel, "zoom", 2.0)
     var card = panel.testKeyItem

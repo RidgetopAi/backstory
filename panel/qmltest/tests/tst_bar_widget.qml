@@ -224,7 +224,8 @@ TestCase {
     // The window opens where you were in the popup, and where its card is.
     var payload = JSON.parse(run.command[4])
     compare(payload.view, "help")
-    compare(JSON.stringify(payload.from), JSON.stringify({ x: 3700, y: 34, w: widget.testPopup.contentWidth, h: widget.testPopup.drawnHeight, bar: 26, gap: 8, monX: 0, monY: 0, monW: 4096, monH: 2160, edge: "left" }))
+    // Inside the card's 2 px border.
+    compare(JSON.stringify(payload.from), JSON.stringify({ x: 3702, y: 36, w: widget.testPopup.contentWidth - 4, h: widget.testPopup.drawnHeight - 4, bar: 26, gap: 8, monX: 0, monY: 0, monW: 4096, monH: 2160, edge: "left" }))
   }
 
   // On a monitor right of and below another, the card's place is in screen
@@ -237,7 +238,7 @@ TestCase {
     verify(content.handleKey(Qt.Key_O, Qt.NoModifier))
     var run = act.detachedNext(function (c) { return c.command[2] === "summon" }, "window summon")
     var from = JSON.parse(run.command[4]).from
-    compare([from.x, from.y, from.monX, from.monY, from.monW, from.monH], [4060, 394, 2560, 360, 1920, 1080])
+    compare([from.x, from.y, from.monX, from.monY, from.monW, from.monH], [4062, 396, 2560, 360, 1920, 1080])
   }
 
   // The popup stays up until the window, in its place, closes it, so
@@ -250,6 +251,20 @@ TestCase {
     compare(widget.opened, true, "the popup closed before the window took its place")
     widget.closeAfterPopOut()
     compare(widget.opened, false)
+  }
+
+  // Handed over, the popup's view goes at once (the window's is under it)
+  // and comes back the next time the popup opens.
+  function test_hand_over_hides_the_popups_view_at_once_until_it_opens_again() {
+    var widget = start(fixture())
+    var content = openPopup(widget)
+    var view = TestUtil.findFirst(content, function (n) { return n.canPopOut === true })
+    verify(view.visible)
+    widget.handOver()
+    compare(widget.opened, false)
+    verify(!view.visible, "the popup's view stayed while its card fades")
+    widget.toggle()
+    verify(view.visible, "the popup's view stayed hidden on the next open")
   }
 
   // If the window never takes its place, the popup closes anyway.

@@ -4,6 +4,7 @@ import Quickshell
 import Quickshell.Io
 import Quickshell.Hyprland
 import Quickshell.Wayland
+import qs.Commons
 import "testutil.js" as TestUtil
 import "../../js/launchers.js" as Launchers
 import "../../js/glyphs.js" as Glyphs
@@ -132,6 +133,20 @@ TestCase {
   function test_window_offers_no_pop_out() {
     openWith(readFixture(goldenUrl))
     compare(popOutButton(), null)
+  }
+
+  // The window's text sits where the popup card's did, so a pop-out
+  // doesn't rewrap it under the fading popup.
+  // A pop-out opens the window at the popup card's width inside its 2 px
+  // border: there it shows the view at 1x, as the popup does.
+  function test_a_window_the_popup_cards_inside_width_shows_the_view_at_1x() {
+    compare(panel.baseWidth, Style.space(380) - 2 * Math.max(1, Style.space(2)))
+  }
+
+  function test_window_insets_its_view_as_the_popup_card_does() {
+    openWith(readFixture(goldenUrl))
+    compare(panel.view.edge, Style.spacing.popupPadding)
+    compare(panel.view.footerBottomMargin, Style.spacing.popupPadding, "the footer would sit apart from the popup's")
   }
 
   function test_window_ignores_o() {
@@ -286,12 +301,15 @@ TestCase {
     act.settled(function () { return Hyprland.dispatched.length >= 2 }, "the window was never placed")
     compare(Hyprland.dispatched.slice(0, 2), place)
     act.settled(function () { return panel.testKeyItem.visible && panel.testWindow.title === "backstory" }, "the window never showed")
-    verify(Quickshell.execDetachedCalls.some(function (c) { return JSON.stringify(c.command) === JSON.stringify(Launchers.popupCloseCommand()) }), "the popup was never closed")
+    verify(Quickshell.execDetachedCalls.some(function (c) { return JSON.stringify(c.command) === JSON.stringify(Launchers.popupHandOverCommand()) }), "the popup was never handed over")
     var rest = Popout.restRect(Popout.fromRect(popFrom), panel.popOutGrow)
     // It takes the keyboard back once the popup has closed: the popup's
     // layer held it, and closing hands it to the window focused before.
+    // The pointer stays where it was (no warp to the window's middle), or
+    // over the window moves straight onto the middle of the grab handle.
     var move = [Launchers.windowAnimDispatch(a, true), Launchers.resizeWindowDispatch(a, rest.w, rest.h),
-                Launchers.moveWindowToDispatch(a, rest.x, rest.y), Launchers.focusWindowDispatch(a)]
+                Launchers.moveWindowToDispatch(a, rest.x, rest.y),
+                Launchers.popOutFocusDispatch(a, rest.x, rest.w, rest.y + panel.popOutGrow / 2)]
     act.settled(function () { return Hyprland.dispatched.length >= 6 }, "the window never moved to rest")
     compare(Hyprland.dispatched.slice(2, 6), move)
     act.settled(function () { return Hyprland.dispatched.length >= 7 }, "the rule's no_anim never came back")
