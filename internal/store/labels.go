@@ -121,6 +121,10 @@ type ActiveWorkLocation struct {
 	// those keep rejected: agents[] counts them all (decision 7026e48e),
 	// while SessionIDs/LastActivity and row inclusion use only kept ones.
 	AgentSessionIDs []string
+	// CWDSessionIDs is the subset of SessionIDs attributed by the cwd
+	// fallback (no edit-derived label survived include): every real-work
+	// event of such a session belongs to the label, not just file edits.
+	CWDSessionIDs []string
 }
 
 // ActiveHomeLabels returns every work-location label (sessionLabels) with
@@ -129,7 +133,13 @@ type ActiveWorkLocation struct {
 // label scan: a home's active work locations are the union of every one of
 // its sessions' own OBSERVED labels, independent of whether that session's
 // own project_key happens to equal a per-repo key. Sorted by label.
-func (s *Store) ActiveHomeLabels(home string, since, asOf time.Time, git project.Git, workspaces []string, keep func(Session) (bool, error)) ([]ActiveWorkLocation, error) {
+//
+// include judges a label's directory (nil includes everything). Edit-derived
+// labels win, but only the included ones: a session whose edits all land in
+// excluded locations (a /tmp scratchpad, Claude's memory dir) or that edited
+// nothing falls back to the label of its own cwd, provided that is included
+// too. A label is never invented from an excluded location.
+func (s *Store) ActiveHomeLabels(home string, since, asOf time.Time, git project.Git, workspaces []string, keep func(Session) (bool, error), include func(dir string) bool) ([]ActiveWorkLocation, error) {
 	sessions, err := s.sessionsForHome(home, workspaces)
 	if err != nil {
 		return nil, fmt.Errorf("store: active home labels for %s: %w", home, err)
@@ -153,9 +163,20 @@ func (s *Store) ActiveHomeLabels(home string, since, asOf time.Time, git project
 		if !ok || last.Before(since) {
 			continue
 		}
-		dirs, err := s.sessionLabelDirs(sess, git, workspaces)
+		edited, err := s.sessionEditedDirs(sess.ID, git, workspaces)
 		if err != nil {
 			return nil, fmt.Errorf("store: active home labels for %s: %w", home, err)
+		}
+		dirs := map[string]string{}
+		for label, dir := range edited {
+			if include == nil || include(dir) {
+				dirs[label] = dir
+			}
+		}
+		byCWD := false
+		if len(dirs) == 0 && (include == nil || include(sess.CWD)) {
+			dirs[project.Label(sess.CWD, git, workspaces)] = sess.CWD
+			byCWD = true
 		}
 		for label, dir := range dirs {
 			loc, ok := byLabel[label]
@@ -169,6 +190,9 @@ func (s *Store) ActiveHomeLabels(home string, since, asOf time.Time, git project
 			}
 			keptLabel[label] = true
 			loc.SessionIDs = append(loc.SessionIDs, sess.ID)
+			if byCWD {
+				loc.CWDSessionIDs = append(loc.CWDSessionIDs, sess.ID)
+			}
 			if last.After(loc.LastActivity) {
 				loc.LastActivity = last
 			}
@@ -182,6 +206,7 @@ func (s *Store) ActiveHomeLabels(home string, since, asOf time.Time, git project
 		}
 		sort.Strings(loc.SessionIDs)
 		sort.Strings(loc.AgentSessionIDs)
+		sort.Strings(loc.CWDSessionIDs)
 		out = append(out, *loc)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Label < out[j].Label })
