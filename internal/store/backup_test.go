@@ -151,7 +151,7 @@ func TestVerifyBackupRejectsCorruptCopy(t *testing.T) {
 	if _, err := s.Backup(dest, false); err != nil {
 		t.Fatal(err)
 	}
-	b, err := os.ReadFile(dest)
+	b, err := os.ReadFile(dest) //nolint:gosec // test temp path
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,9 +162,9 @@ func TestVerifyBackupRejectsCorruptCopy(t *testing.T) {
 		t.Fatalf("snapshot too small (%d bytes) to corrupt page 12", len(b))
 	}
 	for i := 12 * page; i < 13*page; i++ {
-		b[i] = byte(i * 31)
+		b[i] = byte(i % 251) //nolint:gosec // reduced mod 251
 	}
-	if err := os.WriteFile(dest, b, 0o600); err != nil {
+	if err := os.WriteFile(dest, b, 0o600); err != nil { //nolint:gosec // test temp path
 		t.Fatal(err)
 	}
 	if info, err := VerifyBackup(dest); err == nil {
