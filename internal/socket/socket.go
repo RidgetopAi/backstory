@@ -103,7 +103,10 @@ func Listen(path string, resolver *ident.Resolver, handler Handler) (*Server, er
 // Addr returns the socket's filesystem path.
 func (s *Server) Addr() string { return s.ln.Addr().String() }
 
-// Close stops accepting connections and removes the socket file.
+// Close stops accepting connections and removes the socket file. A connection
+// still queued in the accept backlog when Close runs is refused (the kernel
+// resets it), by design: it was never accepted, so no request was in flight.
+// Clients redial.
 func (s *Server) Close() error {
 	s.mu.Lock()
 	s.closed = true

@@ -56,6 +56,11 @@ func TestDaemonSIGTERMWithIdleClientExitsCleanly(t *testing.T) {
 	if _, err := busy.Write([]byte(statusReq)); err != nil {
 		t.Fatalf("busy write: %v", err)
 	}
+	// A successful dial only means the kernel queued the connection; closing
+	// the listener before Accept takes it resets it. Each accepted connection
+	// logs one identity line, so wait for the second (idle, then busy) before
+	// signalling: the busy request is then genuinely in the daemon's hands.
+	waitForIdentityLines(t, out.String, 2, 5*time.Second)
 	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatalf("signal SIGTERM: %v", err)
 	}
@@ -82,4 +87,18 @@ func TestDaemonSIGTERMWithIdleClientExitsCleanly(t *testing.T) {
 	if _, err := idleR.ReadString('\n'); err == nil {
 		t.Error("idle client read succeeded after daemon exit, want EOF")
 	}
+}
+
+// waitForIdentityLines blocks until the daemon's output holds at least want
+// per-connection identity log lines (one per accepted connection).
+func waitForIdentityLines(t *testing.T, get func() string, want int, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if strings.Count(get(), "identity: ") >= want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("timed out waiting for %d identity log lines; output:\n%s", want, get())
 }
