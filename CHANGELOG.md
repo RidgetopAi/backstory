@@ -24,6 +24,11 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 ### Fixed
 
+- `backstory restore` and `backstory backup` show the newest activity as a
+  local date (`2026-11-02 21:08`, or `none`) instead of raw nanoseconds, and
+  `backup` text now prints it. `backup --json` `newest` changes format: it is
+  now RFC 3339 UTC (`2026-11-02T21:08:32Z`) rather than a nanosecond count,
+  and is omitted when the store has no records.
 - The panel works on Omarchy 4.0 and 4.5. The bar popup (a bar click opens
   it) and the pop-out glow need 4.5; on 4.0 a bar click opens or toggles the
   window, as before the popup, the pop-out runs with no glow, and the bar

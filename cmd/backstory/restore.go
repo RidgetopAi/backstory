@@ -216,11 +216,16 @@ func reverse(s []string) []string {
 }
 
 func describeStore(i store.BackupInfo) string {
-	newest := i.Newest
-	if newest == "" {
-		newest = "none"
+	return fmt.Sprintf("%d projects, %d sessions, %d records, newest activity %s", i.Projects, i.Sessions, i.Records, newestActivityText(i.Newest))
+}
+
+// newestActivityText renders a store's newest record time as local
+// `YYYY-MM-DD HH:MM` (the format `backstory projects` uses), or "none".
+func newestActivityText(t time.Time) string {
+	if t.IsZero() {
+		return "none"
 	}
-	return fmt.Sprintf("%d projects, %d sessions, %d records, newest activity %s", i.Projects, i.Sessions, i.Records, newest)
+	return t.Local().Format(projectsActivityLayout)
 }
 
 func sameFile(a, b string) (bool, error) {

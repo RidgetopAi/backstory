@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 // BackupDirMode and BackupFileMode are the modes a backup directory the
@@ -29,8 +30,9 @@ type BackupInfo struct {
 	Projects      int    `json:"projects"`
 	Sessions      int    `json:"sessions"`
 	Records       int    `json:"records"`
-	// Newest is the ts of the newest record, empty when there are none.
-	Newest string `json:"newest,omitempty"`
+	// Newest is the ts of the newest record (UTC); zero, and omitted from
+	// JSON as RFC 3339, when there are none.
+	Newest time.Time `json:"newest,omitzero"`
 }
 
 // Backup writes a consistent snapshot of the store to dest with VACUUM INTO,
@@ -122,8 +124,12 @@ func VerifyBackup(path string) (BackupInfo, error) {
 			return BackupInfo{}, fmt.Errorf("store: verify backup: %w", err)
 		}
 	}
-	if err := db.QueryRow(`SELECT COALESCE(MAX(ts), '') FROM records`).Scan(&info.Newest); err != nil {
+	var newest sql.NullInt64
+	if err := db.QueryRow(`SELECT MAX(ts) FROM records`).Scan(&newest); err != nil {
 		return BackupInfo{}, fmt.Errorf("store: verify backup: %w", err)
+	}
+	if newest.Valid {
+		info.Newest = tsFromNanos(newest.Int64)
 	}
 	return info, nil
 }
