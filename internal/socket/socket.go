@@ -56,6 +56,13 @@ type Server struct {
 	mu     sync.Mutex
 	closed bool
 	conns  sync.WaitGroup
+	open   map[net.Conn]struct{} // accepted, handler not yet returned; guarded by mu
+
+	// ShutdownGrace bounds how long Wait lets handlers finish on their own
+	// (an in-flight request completing its response) before it closes every
+	// still-open connection so idle handlers blocked reading their next
+	// line return. Listen sets it to the package's ShutdownGrace constant.
+	ShutdownGrace time.Duration
 
 	// FirstLineDeadline bounds how long handle waits, per accepted
 	// connection, for the connecting peer to send its complete first
@@ -90,7 +97,7 @@ func Listen(path string, resolver *ident.Resolver, handler Handler) (*Server, er
 		_ = ln.Close()
 		return nil, fmt.Errorf("socket: chmod %s: %w", path, err)
 	}
-	return &Server{ln: ln, resolver: resolver, handler: handler, FirstLineDeadline: FirstLineDeadline}, nil
+	return &Server{ln: ln, resolver: resolver, handler: handler, FirstLineDeadline: FirstLineDeadline, ShutdownGrace: ShutdownGrace, open: map[net.Conn]struct{}{}}, nil
 }
 
 // Addr returns the socket's filesystem path.
@@ -119,12 +126,13 @@ func (s *Server) Serve() error {
 			}
 			return fmt.Errorf("socket: accept: %w", err)
 		}
-		if !s.track() {
+		if !s.track(conn) {
 			_ = conn.Close()
 			return nil
 		}
 		go func() {
 			defer s.conns.Done()
+			defer s.untrack(conn)
 			s.handle(conn)
 		}()
 	}
@@ -133,21 +141,56 @@ func (s *Server) Serve() error {
 // track counts one accepted connection before its handler goroutine is
 // started. It reports false once Close has been called, in which case the
 // connection is not counted and must be dropped.
-func (s *Server) track() bool {
+func (s *Server) track(conn net.Conn) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
 		return false
 	}
 	s.conns.Add(1)
+	s.open[conn] = struct{}{}
 	return true
+}
+
+// untrack forgets a connection whose handler has returned.
+func (s *Server) untrack(conn net.Conn) {
+	s.mu.Lock()
+	delete(s.open, conn)
+	s.mu.Unlock()
+}
+
+// closeOpen closes every connection whose handler has not yet returned, so a
+// handler blocked reading its next line sees a closed connection and returns.
+func (s *Server) closeOpen() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for c := range s.open {
+		_ = c.Close()
+	}
 }
 
 // Wait blocks until every connection accepted before Close has finished its
 // Handler. Call it after Close (Close stops new connections from being
 // counted); it lets an owner tear down state the Handler uses, such as a
 // store, only once no handler can still touch it.
-func (s *Server) Wait() { s.conns.Wait() }
+//
+// Handlers get ShutdownGrace to finish on their own (an in-flight request
+// still gets its response). After that every still-open connection is
+// closed, so a long-lived idle client cannot keep its handler, and so the
+// daemon, alive forever; Wait then returns once those handlers return.
+func (s *Server) Wait() {
+	done := make(chan struct{})
+	go func() { s.conns.Wait(); close(done) }()
+	timer := time.NewTimer(s.ShutdownGrace)
+	defer timer.Stop()
+	select {
+	case <-done:
+		return
+	case <-timer.C:
+	}
+	s.closeOpen()
+	<-done
+}
 
 // handle resolves the connecting peer's Identity and hands (Identity, conn)
 // to the Server's Handler.

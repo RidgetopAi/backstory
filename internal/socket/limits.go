@@ -13,3 +13,7 @@ const FirstLineDeadline = 5 * time.Second
 // sends more than this many bytes without a '\n' is disconnected instead of
 // letting the read buffer grow without bound (critic T1 on task 73333c8c).
 const MaxLineLength = 1 << 20 // 1 MiB
+
+// ShutdownGrace is how long Wait lets in-flight handlers finish after Close
+// before it closes the connections still open.
+const ShutdownGrace = 3 * time.Second
