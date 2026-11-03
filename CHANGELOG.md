@@ -30,6 +30,7 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 ### Fixed
 
+- The panel pop-out always puts the user's `cursor.no_warps` back, even when the focus dispatch raises, and moves the pointer onto the grab handle only when it is on the window's own monitor (a pointer on a vertically stacked monitor at a matching x stays put) (GitHub #10 follow-up).
 - `backstory restore` and `backstory backup` show the newest activity as a
   local date (`2026-11-02 21:08`, or `none`) instead of raw nanoseconds, and
   `backup` text now prints it. `backup --json` `newest` changes format: it is

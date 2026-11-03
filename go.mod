@@ -4,6 +4,7 @@ go 1.27
 
 require (
 	github.com/google/uuid v1.6.0
+	github.com/yuin/gopher-lua v1.1.2
 	modernc.org/sqlite v1.59.0
 )
 

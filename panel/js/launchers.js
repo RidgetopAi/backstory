@@ -218,14 +218,18 @@ function focusWindowDispatch(addr) {
 // popOutFocusDispatch focuses the popped-out window without Hyprland's
 // warp to its middle (focus always warps unless cursor.no_warps is set, so
 // this one Lua call sets it around the focus and puts the user's own value
-// back). Then, when the pointer is over the window's width (x to x + w), it
-// moves straight up or down to grabY, the grab handle, so a drag there moves
-// the window rather than resizing it from a border.
-function popOutFocusDispatch(addr, x, w, grabY) {
+// back, even when the focus raises: it runs under pcall). Then, when the
+// pointer is over the window's width (x to x + w) and on the window's
+// monitor (monY to monY + monH), it moves straight up or down to grabY, the
+// grab handle, so a drag there moves the window rather than resizing it from
+// a border. A pointer on another monitor stays put.
+function popOutFocusDispatch(addr, x, w, grabY, monY, monH) {
   var left = Math.round(x), right = Math.round(x + w)
+  var top = Math.round(monY), bottom = Math.round(monY + monH)
   return 'function() local w = hl.get_config("cursor.no_warps"); hl.config({ cursor = { no_warps = true } }); ' +
-    'hl.dispatch(' + focusWindowDispatch(addr) + '); hl.config({ cursor = { no_warps = w } }); ' +
-    'local p = hl.get_cursor_pos(); if p and p.x >= ' + left + ' and p.x < ' + right + ' then ' +
+    'pcall(function() hl.dispatch(' + focusWindowDispatch(addr) + ') end); hl.config({ cursor = { no_warps = w } }); ' +
+    'local p = hl.get_cursor_pos(); if p and p.x >= ' + left + ' and p.x < ' + right +
+    ' and p.y >= ' + top + ' and p.y < ' + bottom + ' then ' +
     'hl.dispatch(hl.dsp.cursor.move({ x = p.x, y = ' + Math.round(grabY) + ' })) end end'
 }
 

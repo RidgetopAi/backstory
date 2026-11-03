@@ -309,7 +309,7 @@ TestCase {
     // over the window moves straight onto the middle of the grab handle.
     var move = [Launchers.windowAnimDispatch(a, true), Launchers.resizeWindowDispatch(a, rest.w, rest.h),
                 Launchers.moveWindowToDispatch(a, rest.x, rest.y),
-                Launchers.popOutFocusDispatch(a, rest.x, rest.w, rest.y + panel.popOutGrow / 2)]
+                Launchers.popOutFocusDispatch(a, rest.x, rest.w, rest.y + panel.popOutGrow / 2, popFrom.monY, popFrom.monH)]
     act.settled(function () { return Hyprland.dispatched.length >= 6 }, "the window never moved to rest")
     compare(Hyprland.dispatched.slice(2, 6), move)
     act.settled(function () { return Hyprland.dispatched.length >= 7 }, "the rule's no_anim never came back")
