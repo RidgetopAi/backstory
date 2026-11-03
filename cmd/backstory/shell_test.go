@@ -579,7 +579,10 @@ func TestShellEmitHonoursBackstoryIgnoreMarker(t *testing.T) {
 // file lives under $XDG_RUNTIME_DIR when set and under the temp dir when not,
 // is mode 0600 while the shell runs, and is gone once the shell exits.
 // The environment is built explicitly, so the result never depends on what
-// the invoking environment happens to export.
+// the invoking environment happens to export. The shell's `backstory` is
+// backstoryStandIn, a function: with XDG_RUNTIME_DIR unset, a real
+// `backstory shell emit` falls back to /run/user/<uid> and reaches the
+// user's live daemon.
 func TestShellStateFileLocationModeAndCleanup(t *testing.T) {
 	bin := buildBackstory(t)
 	snippet := initSnippet(t, bin)
@@ -590,14 +593,16 @@ func TestShellStateFileLocationModeAndCleanup(t *testing.T) {
 	}{{"xdg-runtime-dir-set", true}, {"xdg-runtime-dir-unset", false}} {
 		t.Run(tc.name, func(t *testing.T) {
 			xdg, tmp := t.TempDir(), t.TempDir()
-			env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "TMPDIR=" + tmp}
+			emitLog := filepath.Join(t.TempDir(), "calls.log")
+			env := []string{"PATH=" + os.Getenv("PATH"), "HOME=" + t.TempDir(), "TMPDIR=" + tmp, "STANDIN_LOG=" + emitLog}
 			wantDir := tmp
 			if tc.withXDG {
 				env = append(env, "XDG_RUNTIME_DIR="+xdg)
 				wantDir = xdg
 			}
 
-			script := "eval \"$(cat <<'BSEOF'\n" + snippet + "BSEOF\n)\"\n" +
+			script := backstoryStandIn +
+				"eval \"$(cat <<'BSEOF'\n" + snippet + "BSEOF\n)\"\n" +
 				"echo STATEFILE=$_backstory_state_file\n" +
 				"echo MODE=$(stat -c %a \"$_backstory_state_file\")\n" +
 				"exit 0\n"
@@ -625,6 +630,15 @@ func TestShellStateFileLocationModeAndCleanup(t *testing.T) {
 			if _, err := os.Stat(path); !os.IsNotExist(err) {
 				t.Errorf("state file %q still exists after the shell exited (stat err = %v)", path, err)
 			}
+			readLog := func() string { b, _ := os.ReadFile(emitLog); return string(b) } //nolint:gosec // emitLog is in t.TempDir()
+			waitForSubstring(t, readLog, "shell emit", 2*time.Second)
 		})
 	}
 }
+
+// backstoryStandIn defines `backstory` in a test shell as a function that
+// appends its arguments to $STANDIN_LOG and does nothing else. Bash runs a
+// function before any PATH lookup, and the snippet's backgrounded emits run
+// in forks of the shell that inherit it, so no emit can run a real binary
+// that could dial a daemon, even after the test's temp dirs are removed.
+const backstoryStandIn = `backstory() { echo "$*" >> "$STANDIN_LOG"; }` + "\n"
