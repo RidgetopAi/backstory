@@ -1,7 +1,13 @@
 package mcp
 
 import (
+	"net"
+	"os"
+	"path/filepath"
+
 	"encoding/json"
+	"github.com/RidgetopAi/backstory/internal/ident"
+	"github.com/RidgetopAi/backstory/internal/socket"
 	"testing"
 	"time"
 
@@ -103,5 +109,48 @@ func TestShimThatNeverCallsAToolCreatesNoSession(t *testing.T) {
 
 	if got := countSessions(t, st); got != 0 {
 		t.Errorf("session count = %d for a shim that never called a tool, want 0", got)
+	}
+}
+
+// TestCallToolSucceedsAfterDaemonRestart pins the restart story for a
+// long-lived `backstory mcp`: the daemon stops (Close + Wait, which now closes
+// the idle shim connection), a new daemon binds the same socket path, and the
+// shim's next tool call succeeds against it via its redial.
+func TestCallToolSucceedsAfterDaemonRestart(t *testing.T) {
+	st := mustOpenStore(t)
+	selfPID := os.Getpid()
+	procfs := fakeProcFS{
+		status: map[int]ident.Status{selfPID: {PPid: 1, Name: "claude"}},
+		cwd:    map[int]string{selfPID: "/home/brian/proj"},
+	}
+	resolver := &ident.Resolver{ProcFS: procfs, ProjectKey: func(string) string { return "proj-key" }}
+	sockPath := filepath.Join(t.TempDir(), "sock")
+	sessions := NewSessionRegistry()
+	start := func() *socket.Server {
+		srv, err := socket.Listen(sockPath, resolver, func(id ident.Identity, conn net.Conn) {
+			defer func() { _ = conn.Close() }()
+			ServeDaemonConn(id, conn, st, procfs, fakeGit{}, nil, sessions, captureNeverOff, nil)
+		})
+		if err != nil {
+			t.Fatalf("socket.Listen: %v", err)
+		}
+		srv.ShutdownGrace = 100 * time.Millisecond
+		go func() { _ = srv.Serve() }()
+		return srv
+	}
+
+	first := start()
+	shim := dialShim(t, sockPath)
+	if _, rerr := shim.CallTool(ToolStatus, nil); rerr != nil {
+		t.Fatalf("CallTool(status) before restart: %v", rerr)
+	}
+
+	_ = first.Close()
+	first.Wait()
+	second := start()
+	t.Cleanup(func() { _ = second.Close(); second.Wait() })
+
+	if _, rerr := shim.CallTool(ToolNote, json.RawMessage(`{"kind":"note","text":"after restart"}`)); rerr != nil {
+		t.Fatalf("CallTool(note) after daemon restart: %v, want redial against the new daemon", rerr)
 	}
 }
