@@ -171,15 +171,21 @@ func TestBackupAutoSettings(t *testing.T) {
 	}
 
 	// Bad dirs exit non-zero and change nothing.
-	bads := []string{filepath.Join(t.TempDir(), "missing")}
-	ro := t.TempDir()
-	if os.Geteuid() != 0 { // root ignores directory modes, so a read-only dir cannot fail for it
-		bads = append(bads, ro)
+	// A path under a regular file (ENOTDIR) is unwritable for root too; the
+	// read-only dir below only fails for non-root, which ignores no modes.
+	blocker := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
 	}
+	bads := []string{filepath.Join(t.TempDir(), "missing"), filepath.Join(blocker, "sub")}
+	ro := t.TempDir()
 	if err := os.Chmod(ro, 0o500); err != nil { //nolint:gosec // read-only dir is the failure under test
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(ro, 0o700) }) //nolint:gosec // restore for TempDir cleanup
+	if checkBackupDir(ro) != nil {                // the mode only bites non-root; the ENOTDIR cases bite everyone
+		bads = append(bads, ro)
+	}
 	for _, bad := range bads {
 		if code, _, e := runAutoCLI(t, "backup", "auto", "--dir", bad); code == 0 || !strings.Contains(e, "nothing changed") {
 			t.Fatalf("--dir %s: exit %d stderr %q", bad, code, e)
@@ -212,9 +218,6 @@ func TestBackupAutoSettings(t *testing.T) {
 
 // A failing backup keeps what exists; past 48h status and this-week say so.
 func TestAutoBackupFailureKeepsBackupsAndRaisesAttention(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("root ignores directory modes; a read-only backup dir cannot fail for it")
-	}
 	st, dir := openBackupEnvStore(t)
 	def, _ := defaultBackupDir()
 	for d := 0; d < 2; d++ {
@@ -223,10 +226,15 @@ func TestAutoBackupFailureKeepsBackupsAndRaisesAttention(t *testing.T) {
 		}
 	}
 	lastOK := autoT0.Add(24 * time.Hour)
-	if err := os.Chmod(dir, 0o500); err != nil { //nolint:gosec // read-only dir is the failure under test
-		t.Fatal(err)
+	// Every attempt hour finds a folder where its backup file would go, so the
+	// write fails with "exists" for root too (a read-only dir would not).
+	// Folders are not backups: they are not listed or counted.
+	for h := 24; h <= 47; h++ {
+		blocked := filepath.Join(dir, store.AutoBackupName(lastOK.Add(time.Duration(h)*time.Hour)))
+		if err := os.Mkdir(blocked, 0o700); err != nil {
+			t.Fatal(err)
+		}
 	}
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) }) //nolint:gosec // restore for TempDir cleanup
 
 	oldB, oldW := backupNow, thisWeekNow
 	t.Cleanup(func() { backupNow, thisWeekNow = oldB, oldW })
@@ -264,7 +272,7 @@ func TestAutoBackupFailureKeepsBackupsAndRaisesAttention(t *testing.T) {
 	}
 	for h := 24; h <= 47; h++ { // due from 24h on; every attempt fails
 		if _, err := st.AutoBackupCheck(lastOK.Add(time.Duration(h)*time.Hour), def); err == nil {
-			t.Fatalf("hour %d: backup into a read-only dir succeeded", h)
+			t.Fatalf("hour %d: backup over a blocked name succeeded", h)
 		}
 	}
 	if n := countAuto(t, dir); n != 2 {
@@ -283,9 +291,6 @@ func TestAutoBackupFailureKeepsBackupsAndRaisesAttention(t *testing.T) {
 	}
 
 	// Off: the line says so and there is no attention item.
-	if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // writable again
-		t.Fatal(err)
-	}
 	if code, _, e := runAutoCLI(t, "backup", "auto", "--off"); code != 0 {
 		t.Fatal(e)
 	}
