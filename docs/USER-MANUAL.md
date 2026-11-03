@@ -24,6 +24,7 @@ one). Type or paste them and press Enter. `~` means your home folder, for exampl
 7. [Privacy: pausing, fixing and forgetting](#7-privacy-pausing-fixing-and-forgetting)
 8. [Settings](#8-settings)
 9. [Troubleshooting](#9-troubleshooting)
+10. [If something goes wrong](#10-if-something-goes-wrong)
 
 ---
 
@@ -331,7 +332,7 @@ backstory this-week
 
 ```
 Where you left off:
-- my-app (/home/you/projects/my-app) — last activity 2026-10-19T00:50:16Z; handoff (id 255bf26b-…): Login form works and is committed. Next: password-reset email.
+- my-app (/home/you/projects/my-app) - last activity 2026-10-19T00:50:16Z; handoff (id 255bf26b-…): Login form works and is committed. Next: password-reset email.
 
 The week:
 2026-10-17 · my-app: 3 session(s), 12 file(s) touched, 2 record(s) written
@@ -827,3 +828,73 @@ systemctl --user stop backstory
 cp ~/.local/bin/backstory.prev ~/.local/bin/backstory
 systemctl --user start backstory
 ```
+
+---
+
+## 10. If something goes wrong
+
+Short answer: restore your latest backup with `backstory restore <file>`. This section
+explains each step. If you have no backup yet, make one now with `backstory backup`.
+
+### Where your memory lives
+
+Everything Backstory remembers is in one file, `~/.local/share/backstory/backstory.db`
+(or `$XDG_DATA_HOME/backstory/backstory.db` if you set `XDG_DATA_HOME`). Do not copy that file
+by hand while Backstory runs: a plain copy can miss recent writes. Use `backstory backup`.
+
+### Back up
+
+```
+backstory backup                       # into ~/.local/share/backstory/backups/
+backstory backup --out /mnt/usb/mem.db # to another drive or a synced folder
+```
+
+The backup is a single file. Backstory opens and checks it before it says it worked. Back up
+before you upgrade, and keep a copy somewhere off this computer. The default folder is on the
+same disk as your memory, so it does not protect you if the disk fails. See
+[backup](#backup) for every flag.
+
+### Restore
+
+```
+backstory restore ~/safe/mem.db
+```
+
+Restore checks the file first. It must be a Backstory database, pass SQLite's integrity check,
+and not come from a newer Backstory. If any check fails, nothing changes. Then it shows what the
+backup holds next to what you have now, and asks before it goes on. See [restore](#restore)
+for every flag.
+
+Your current memory is not thrown away. Restore keeps it beside the store as
+`backstory.db.pre-restore-<time>`, in `~/.local/share/backstory/`.
+
+**To undo a restore**, restore that file:
+
+```
+backstory restore ~/.local/share/backstory/backstory.db.pre-restore-<time>
+```
+
+Use the real file name from that folder. This keeps your newer memory aside as another
+`.pre-restore-` file, so you can switch back again.
+
+### What is not a backup
+
+- **`backstory export`** writes one project as markdown for reading. It leaves out the other
+  projects and cannot be restored.
+- **`backstory sync`** copies shared projects to your other computers. It does not copy
+  projects you have not shared, and a delete here is forgotten there too, so it is not a way to
+  get deleted memory back.
+- **The `.pre-` files** (`backstory.db.pre-restore-`, `pre-sweep-`, `pre-identity-`) appear
+  only when Backstory is about to change the store. They are not made on a schedule, so the
+  newest one may be old or missing.
+
+### Deleted text and backups
+
+A purge does not reach into backups you made. If you purged something sensitive, delete old
+backup files and `.pre-` files that still hold it. See
+[Deleted text and backups](#7-privacy-pausing-fixing-and-forgetting) in section 7.
+
+### If a new install breaks
+
+`make install` keeps the previous program as `~/.local/bin/backstory.prev`. The steps to put it
+back are under [Undo an update](#9-troubleshooting) in Troubleshooting.
