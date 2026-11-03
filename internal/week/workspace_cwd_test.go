@@ -168,3 +168,15 @@ func TestBuildSessionShowsUnderItsStartFolderWhenItEditedElsewhere(t *testing.T)
 		t.Errorf("foo sessions = %d, want 2 (the edit-only session and the away one)", n)
 	}
 }
+
+// A session working only in an excluded cwd never invents a row.
+func TestBuildWorkspaceExcludedCWDNeverLabelled(t *testing.T) {
+	d := newWSDesk(t)
+	d.work(t, "dot", filepath.Join(d.home, ".claude", "projects", "X"), d.dayA, [2]string{"Bash", ""})
+	res := d.build(t)
+	for name := range rowNames(res) {
+		if name == "X" {
+			t.Fatalf("excluded cwd became a row: %v", rowNames(res))
+		}
+	}
+}
