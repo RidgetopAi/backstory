@@ -16,7 +16,9 @@ build:
 # install: binary -> ~/.local/bin, user unit, hypr keybind file, Omarchy panel
 # plugin; first install and upgrade alike (ops/install.sh). HOME and
 # XDG_CONFIG_HOME pick the target; uninstall leaves the memory store alone.
-install: check-go build
+install: check-go
+	@echo "building backstory (first build downloads Go modules, can take a minute)..."
+	@$(MAKE) --no-print-directory build
 	./ops/install.sh install $(BIN)
 
 # check-go fails before anything is built when Go is missing or older than go.mod's.

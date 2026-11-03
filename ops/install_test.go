@@ -179,6 +179,17 @@ const fixtureHealthTimeout = "60"
 // combined output and the exit error.
 func (f *installFixture) make(target string) (string, error) {
 	f.t.Helper()
+	cmd := f.makeCmd(target)
+	out, err := cmd.CombinedOutput()
+	if err != nil && strings.Contains(string(out), "not healthy") {
+		return string(out) + f.healthDiagnostics(), err
+	}
+	return string(out), err
+}
+
+// makeCmd builds (without starting) the `make <target>` command make runs.
+func (f *installFixture) makeCmd(target string) *exec.Cmd {
+	f.t.Helper()
 	cmd := exec.Command("make", "-C", "..", target, "BIN="+f.binOut) //nolint:gosec // fixture path under t.TempDir
 	cmd.Env = f.env(
 		"BACKSTORY_HEALTH_TIMEOUT="+fixtureHealthTimeout,
@@ -195,11 +206,7 @@ func (f *installFixture) make(target string) (string, error) {
 		"GOMODCACHE="+goEnv(f.t, "GOMODCACHE"),
 	)
 	cmd.Env = append(cmd.Env, f.extra...)
-	out, err := cmd.CombinedOutput()
-	if err != nil && strings.Contains(string(out), "not healthy") {
-		return string(out) + f.healthDiagnostics(), err
-	}
-	return string(out), err
+	return cmd
 }
 
 // healthDiagnostics is what a failed health wait needs to explain itself: the
@@ -1179,4 +1186,155 @@ func TestFixtureInstallLeavesDecoyXDGDirsEmpty(t *testing.T) {
 		}
 		return nil
 	})
+}
+
+// announceStub makes the fake `name` print "STUB <name> <args>" to stdout
+// before it runs its recorded body, so the captured install output carries
+// the moment each stub was called and can be ordered against the doing lines.
+func (f *installFixture) announceStub(name string) {
+	f.t.Helper()
+	b, err := os.ReadFile(filepath.Join(f.fakes, name)) //nolint:gosec // fixture path under t.TempDir
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	body := strings.TrimPrefix(string(b), "#!/bin/sh\n")
+	f.fake(name, `echo "STUB `+name+` $*"`+"\n"+body)
+}
+
+// announceGo points GO at a wrapper that prints "STUB go build" before the
+// real go builds.
+func (f *installFixture) announceGo() {
+	f.t.Helper()
+	realGo, err := exec.LookPath("go")
+	if err != nil {
+		f.t.Fatal(err)
+	}
+	f.fake("go-announce", `[ "$1" = build ] && echo "STUB go build"
+exec "`+realGo+`" "$@"`)
+	f.extra = append(f.extra, "GO="+filepath.Join(f.fakes, "go-announce"))
+}
+
+func indexOf(t *testing.T, out, sub string) int {
+	t.Helper()
+	i := strings.Index(out, sub)
+	if i < 0 {
+		t.Fatalf("output lacks %q:\n%s", sub, out)
+	}
+	return i
+}
+
+// TestInstallPrintsDoingLinesBeforeEachSlowStep: every slow step announces
+// itself before the stub for that step is called, on a first install and on
+// an upgrade (restart path).
+func TestInstallPrintsDoingLinesBeforeEachSlowStep(t *testing.T) {
+	f := newInstallFixture(t)
+	f.withHarness()
+	f.announceGo()
+	for _, n := range []string{"systemctl", "omarchy-restart-shell"} {
+		f.announceStub(n)
+	}
+	first := f.mustMake("install")
+	upgrade := f.mustMake("install")
+
+	steps := []struct{ doing, stub string }{
+		{"building backstory (first build downloads Go modules, can take a minute)...", "STUB go build"},
+		{"restarting the Omarchy shell...", "STUB omarchy-restart-shell"},
+	}
+	for _, out := range []string{first, upgrade} {
+		for _, st := range steps {
+			if d, s := indexOf(t, out, st.doing), indexOf(t, out, st.stub); d >= s {
+				t.Errorf("%q printed after %q:\n%s", st.doing, st.stub, out)
+			}
+		}
+		if a, b := indexOf(t, out, "waiting for the daemon to answer..."), indexOf(t, out, "connecting your agents..."); a >= b {
+			t.Errorf("connecting agents line before the daemon wait:\n%s", out)
+		}
+		// `backstory install` is the real binary: its first harness line marks
+		// the call, and the connecting line must precede it.
+		c, h := indexOf(t, out, "connecting your agents..."), len(out)
+		for _, m := range []string{"\nclaude: ", "\ncodex: ", "\nhermes: ", "\npi: "} {
+			if i := strings.Index(out, m); i >= 0 && i < h {
+				h = i
+			}
+		}
+		if h == len(out) || c >= h {
+			t.Errorf("connecting agents line not before the backstory install output:\n%s", out)
+		}
+		// The wait's own is-active poll is the last service-manager call.
+		if d, s := indexOf(t, out, "waiting for the daemon to answer..."), strings.LastIndex(out, "STUB systemctl --user is-active"); d >= s {
+			t.Errorf("daemon wait line printed after its is-active poll:\n%s", out)
+		}
+	}
+	if d, s := indexOf(t, first, "starting backstory.service..."), indexOf(t, first, "STUB systemctl --user enable --now backstory"); d >= s {
+		t.Errorf("start line printed after the enable call:\n%s", first)
+	}
+	if d, s := indexOf(t, upgrade, "restarting backstory.service..."), indexOf(t, upgrade, "STUB systemctl --user restart backstory"); d >= s {
+		t.Errorf("restart line printed after the restart call:\n%s", upgrade)
+	}
+	if !strings.Contains(first, "installed ") || !strings.Contains(upgrade, "restarted backstory.service") || !strings.Contains(upgrade, "restarted the Omarchy shell") {
+		t.Errorf("existing done lines changed:\n%s\n%s", first, upgrade)
+	}
+	// Plain style: new lines carry no ANSI escapes and no em dashes.
+	for _, out := range []string{first, upgrade} {
+		for _, line := range strings.Split(out, "\n") {
+			if strings.HasSuffix(line, "...") && (strings.Contains(line, "\x1b") || strings.Contains(line, "\u2014")) {
+				t.Errorf("doing line has ANSI or an em dash: %q", line)
+			}
+		}
+		if strings.Contains(out, "\x1b[") {
+			t.Errorf("install output has ANSI escapes:\n%q", out)
+		}
+	}
+}
+
+// TestInstallRestartLineAppearsWhileRestartIsStillRunning reads the output
+// incrementally: the line must be out while the service-manager stub sleeps.
+func TestInstallRestartLineAppearsWhileRestartIsStillRunning(t *testing.T) {
+	f := newInstallFixture(t)
+	f.mustMake("install") // unit now active: the next install restarts
+	f.announceStub("systemctl")
+	b, _ := os.ReadFile(filepath.Join(f.fakes, "systemctl"))
+	slow := strings.Replace(string(b), "*\"enable --now\"*|*restart*)", "*\"enable --now\"*|*restart*)\n\tcase \"$*\" in *restart*) echo \"STUB sleeping\"; sleep 2 ;; esac", 1)
+	if slow == string(b) {
+		t.Fatal("systemctl stub has no restart branch to slow down")
+	}
+	f.fake("systemctl", strings.TrimPrefix(slow, "#!/bin/sh\n"))
+
+	cmd := f.makeCmd("install")
+	pr, pw, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cmd.Stdout, cmd.Stderr = pw, pw
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	_ = pw.Close()
+	var seen strings.Builder
+	buf := make([]byte, 4096)
+	sawLine, sawSleep := false, false
+	for {
+		n, rerr := pr.Read(buf)
+		seen.WriteString(string(buf[:n]))
+		if !sawLine && strings.Contains(seen.String(), "restarting backstory.service...") {
+			sawLine = true
+		}
+		if strings.Contains(seen.String(), "STUB sleeping") {
+			sawSleep = true
+			break // the stub is mid-sleep; the doing line must already be here
+		}
+		if rerr != nil {
+			break
+		}
+	}
+	if !sawSleep {
+		t.Fatalf("never saw the stub start sleeping:\n%s", seen.String())
+	}
+	if !sawLine {
+		t.Errorf("restart line was not in the output while the restart stub was sleeping:\n%s", seen.String())
+	}
+	_, _ = bytes.NewBuffer(nil).ReadFrom(pr)
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("make install: %v", err)
+	}
 }
