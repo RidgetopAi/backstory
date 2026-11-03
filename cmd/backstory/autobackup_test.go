@@ -118,7 +118,7 @@ func TestAutoBackupDailyKeepSevenManualUntouched(t *testing.T) {
 			t.Errorf("kept[%d] = %s, want %s", i, f.At, want)
 		}
 	}
-	if b, err := os.ReadFile(manual); err != nil || string(b) != "manual" {
+	if b, err := os.ReadFile(manual); err != nil || string(b) != "manual" { //nolint:gosec // test-owned temp file
 		t.Fatalf("manual backup touched: %q %v", b, err)
 	}
 }
@@ -172,10 +172,10 @@ func TestBackupAutoSettings(t *testing.T) {
 
 	// Bad dirs exit non-zero and change nothing.
 	ro := t.TempDir()
-	if err := os.Chmod(ro, 0o500); err != nil {
+	if err := os.Chmod(ro, 0o500); err != nil { //nolint:gosec // read-only dir is the failure under test
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.Chmod(ro, 0o700) })
+	t.Cleanup(func() { _ = os.Chmod(ro, 0o700) }) //nolint:gosec // restore for TempDir cleanup
 	for _, bad := range []string{filepath.Join(t.TempDir(), "missing"), ro} {
 		if code, _, e := runAutoCLI(t, "backup", "auto", "--dir", bad); code == 0 || !strings.Contains(e, "nothing changed") {
 			t.Fatalf("--dir %s: exit %d stderr %q", bad, code, e)
@@ -216,10 +216,10 @@ func TestAutoBackupFailureKeepsBackupsAndRaisesAttention(t *testing.T) {
 		}
 	}
 	lastOK := autoT0.Add(24 * time.Hour)
-	if err := os.Chmod(dir, 0o500); err != nil {
+	if err := os.Chmod(dir, 0o500); err != nil { //nolint:gosec // read-only dir is the failure under test
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) }) //nolint:gosec // restore for TempDir cleanup
 
 	oldB, oldW := backupNow, thisWeekNow
 	t.Cleanup(func() { backupNow, thisWeekNow = oldB, oldW })
@@ -276,7 +276,7 @@ func TestAutoBackupFailureKeepsBackupsAndRaisesAttention(t *testing.T) {
 	}
 
 	// Off: the line says so and there is no attention item.
-	if err := os.Chmod(dir, 0o700); err != nil {
+	if err := os.Chmod(dir, 0o700); err != nil { //nolint:gosec // writable again
 		t.Fatal(err)
 	}
 	if code, _, e := runAutoCLI(t, "backup", "auto", "--off"); code != 0 {
