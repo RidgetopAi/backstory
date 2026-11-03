@@ -661,7 +661,8 @@ systemd user session it refuses while a daemon is running.
 ### install
 
 Connects Backstory to your agents. `make install` already runs it once. Run it again after you
-install a new agent.
+install a new agent. `make install` prints each of its steps as it starts, and a first install
+takes about a minute or two.
 
 ```
 backstory install                  # set up every agent found on this computer

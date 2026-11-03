@@ -116,6 +116,7 @@ reload_hyprland() {
 	command -v hyprctl >/dev/null 2>&1 || return 0
 	sig="$(hypr_signature "$HYPR_RUN_DIR")"
 	[ -n "$sig" ] || return 0
+	echo "reloading Hyprland..."
 	if ! HYPRLAND_INSTANCE_SIGNATURE="$sig" hyprctl reload >/dev/null 2>&1; then
 		echo "warning: could not reload Hyprland; the keybind applies at its next reload"
 		return 0
@@ -248,9 +249,11 @@ do_install() {
 	install -Dm644 "$SRC/ops/backstory.service" "$UNIT"
 	systemctl --user daemon-reload
 	if systemctl --user is-active --quiet "$APP"; then
+		echo "restarting $APP.service..."
 		systemctl --user restart "$APP"
 		echo "restarted $APP.service"
 	else
+		echo "starting $APP.service..."
 		systemctl --user enable --now "$APP"
 		echo "enabled and started $APP.service"
 	fi
@@ -288,17 +291,19 @@ do_install() {
 		else
 			echo "session is locked: run \`omarchy restart shell\` to load the new panel"
 		fi
-	elif omarchy-restart-shell; then
+	elif echo "restarting the Omarchy shell..." && omarchy-restart-shell; then
 		echo "restarted the Omarchy shell"
 	else
 		echo "backstory: the shell restart did not complete; run \`omarchy restart shell\` to load the new panel"
 	fi
 
 	# The hook verification below needs a live daemon: wait for it first.
+	echo "waiting for the daemon to answer..."
 	wait_for_daemon || exit 1
 
 	# Harness integrations (upgrades its own outdated files). It exits
 	# non-zero when no harness is detected, which is not an install failure.
+	echo "connecting your agents..."
 	"$BIN" install || echo "backstory: no agent harness set up (see 'backstory install --help'); continuing"
 
 	echo "backstory $("$BIN" version) installed"

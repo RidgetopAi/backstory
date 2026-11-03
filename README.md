@@ -82,6 +82,10 @@ release instead, run `git checkout <tag>` (for example `v1.2.0`) before `make in
 
 ### What `make install` does
 
+It prints a line as each step starts (building, restarting the service, restarting the shell,
+connecting your agents), so a slow step never looks frozen. A first install takes about a
+minute or two, mostly the Go build and its module downloads; an upgrade is faster.
+
 - builds the program and puts it at `~/.local/bin/backstory`
 - installs and starts the background service (`systemd --user` unit `backstory`)
 - installs the panel into `~/.config/omarchy/plugins/backstory.this-week` and turns it on with
