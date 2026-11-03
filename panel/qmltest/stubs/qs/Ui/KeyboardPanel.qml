@@ -17,6 +17,9 @@ QtObject {
   property bool contentRequested: false
   // Where the card sits on screen, as the real one computes it.
   property point cardOrigin: Qt.point(0, 0)
+  // The card's border, drawn inside it: 2 px on every side, as Omarchy's
+  // default (Border.surfaceSpec's shape here).
+  property var borderSpec: ({ width: 2 })
   property real drawnHeight: contentHeight
   property real barThickness: 0
   property int gap: 0

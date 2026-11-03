@@ -30,8 +30,11 @@ Item {
 
   // Zoom: the card fills the window and content renders at
   // (window width / baseWidth) x userZoom. userZoom is the Ctrl+= / Ctrl+- /
-  // Ctrl+0 factor, clamped to [minUserZoom, maxUserZoom].
-  readonly property real baseWidth: Style.space(380)
+  // Ctrl+0 factor, clamped to [minUserZoom, maxUserZoom]. baseWidth is the
+  // bar popup's card inside its border, the window a pop-out opens at, so
+  // it shows the popup's view at 1x.
+  readonly property var popupBorder: Border.surfaceSpec("popups", "border", Commons.Color.popups.border, Math.max(1, Style.space(2)))
+  readonly property real baseWidth: Style.space(380) - Border.left(root.popupBorder) - Border.right(root.popupBorder)
   readonly property real baseHeight: Style.space(640)
   readonly property real minUserZoom: 0.75
   readonly property real maxUserZoom: 2.5
@@ -127,11 +130,12 @@ Item {
     if (root.glow) root.glow.light(Qt.rect(from.x - from.monX, from.y - from.monY, from.w, from.h))
   }
 
-  // The window is placed or given up on: show it and close the popup.
-  function revealPopOut() {
+  // The window is placed (handOver: it sits on the popup's card) or given
+  // up on: show it and close the popup.
+  function revealPopOut(handOver) {
     root.cardRevealed = true
     root.popping = false
-    Quickshell.execDetached(Launchers.popupCloseCommand())
+    Quickshell.execDetached(handOver ? Launchers.popupHandOverCommand() : Launchers.popupCloseCommand())
   }
 
   function stopPopOut() {
@@ -176,7 +180,7 @@ Item {
       popReveal.tries++
       if ((view.loading || !view.hasLoaded) && popReveal.tries < 40) return
       popReveal.stop()
-      root.revealPopOut()
+      root.revealPopOut(true)
       popMove.start()
     }
   }
@@ -194,8 +198,9 @@ Item {
       Hyprland.dispatch(Launchers.resizeWindowDispatch(a, rest.w, rest.h))
       Hyprland.dispatch(Launchers.moveWindowToDispatch(a, rest.x, rest.y))
       // The popup has closed by now, and closing its layer handed the
-      // keyboard back to the window focused before it: take it.
-      Hyprland.dispatch(Launchers.focusWindowDispatch(a))
+      // keyboard back to the window focused before it: take it. The pointer
+      // stays put, or over the window it moves straight onto the grab handle.
+      Hyprland.dispatch(Launchers.popOutFocusDispatch(a, rest.x, rest.w, rest.y + handle.fullHeight / 2))
       var f = root.popFrom
       if (root.glow) root.glow.play(Qt.rect(f.x - f.monX, f.y - f.monY, f.w, f.h), Qt.rect(rest.x - f.monX, rest.y - f.monY, rest.w, rest.h))
       popAnimDone.start()
@@ -204,7 +209,7 @@ Item {
 
   Timer {
     id: popAnimDone
-    interval: 800
+    interval: 450
     onTriggered: Hyprland.dispatch(Launchers.windowAnimDispatch(root.popAddr, false))
   }
 
@@ -378,6 +383,11 @@ Item {
         height: (card.height - handle.height) / root.zoom
         scale: root.zoom
         transformOrigin: Item.TopLeft
+        // The popup card's inset inside its border (KeyboardPanel's
+        // popupPadding), so a pop-out lands with the text where the popup
+        // had it, not rewrapped or shifted.
+        edge: Style.spacing.popupPadding
+        footerBottomMargin: Style.spacing.popupPadding
         active: root.opened
         canPin: true
         pinned: root.pinned

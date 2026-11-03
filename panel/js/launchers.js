@@ -215,6 +215,20 @@ function focusWindowDispatch(addr) {
   return 'hl.dsp.focus({ window = "address:' + addr + '" })'
 }
 
+// popOutFocusDispatch focuses the popped-out window without Hyprland's
+// warp to its middle (focus always warps unless cursor.no_warps is set, so
+// this one Lua call sets it around the focus and puts the user's own value
+// back). Then, when the pointer is over the window's width (x to x + w), it
+// moves straight up or down to grabY, the grab handle, so a drag there moves
+// the window rather than resizing it from a border.
+function popOutFocusDispatch(addr, x, w, grabY) {
+  var left = Math.round(x), right = Math.round(x + w)
+  return 'function() local w = hl.get_config("cursor.no_warps"); hl.config({ cursor = { no_warps = true } }); ' +
+    'hl.dispatch(' + focusWindowDispatch(addr) + '); hl.config({ cursor = { no_warps = w } }); ' +
+    'local p = hl.get_cursor_pos(); if p and p.x >= ' + left + ' and p.x < ' + right + ' then ' +
+    'hl.dispatch(hl.dsp.cursor.move({ x = p.x, y = ' + Math.round(grabY) + ' })) end end'
+}
+
 // resizeWindowDispatch / moveWindowToDispatch size and place the window (the
 // pop-out); windowAnimDispatch lets Hyprland animate it ("0") or hands back
 // to its rule ("unset"). Sizes and positions are rounded to whole pixels.
@@ -234,6 +248,13 @@ function windowAnimDispatch(addr, animate) {
 // closes the popup, which fades out over it (BarWidget.qml's IPC target).
 function popupCloseCommand() {
   return ["omarchy-shell", "backstory.this-week.popup", "close"]
+}
+
+// popupHandOverCommand: the window sits where the popup's card is, showing
+// the same view: the popup hides its view at once and closes, so only its
+// card fades (BarWidget.qml's IPC target).
+function popupHandOverCommand() {
+  return ["omarchy-shell", "backstory.this-week.popup", "handOver"]
 }
 
 // The window (Panel.qml): its title, the title it maps under during a
