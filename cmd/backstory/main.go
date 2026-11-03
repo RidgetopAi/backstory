@@ -37,7 +37,7 @@ commands:
   sync       share memory with every paired computer ("sync [--dry-run] [<peer>]")
   sync-serve serve this store's changes to a paired device over stdin/stdout (sync protocol v1; run by the peer, not by hand)
   export     write a project's markdown mirror for another tool to read
-  backup     write a checked snapshot of the store ("backup [--out PATH] [--force] [--json]")
+  backup     write a checked snapshot of the store ("backup [--out PATH] [--force] [--json]"; "backup auto [--on|--off] [--dir PATH] [--keep N]" sets the daily automatic backup)
   restore    swap a backup in, keeping the current store aside ("restore PATH [--yes]")
   tools      print the agent tools' names and descriptions ("tools --json")
   this-week  print Attention, Where you left off, and The week, read-only

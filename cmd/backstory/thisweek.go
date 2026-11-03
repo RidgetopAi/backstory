@@ -59,7 +59,7 @@ func runThisWeek(args []string, stdout, stderr io.Writer) int {
 	// folders many times, and each RealGit.Repo runs four git commands.
 	git := project.NewCachedGit(project.RealGit{})
 
-	result, err := week.Build(week.Params{Store: st, Git: git, WorkspaceDirs: workspaceDirs, ProjectRoots: projectRoots, Locations: thisWeekLocations(), Now: thisWeekNow(), ExtraAttention: append(codexApprovalAttention(), syncFailingAttention(st, thisWeekNow())...)})
+	result, err := week.Build(week.Params{Store: st, Git: git, WorkspaceDirs: workspaceDirs, ProjectRoots: projectRoots, Locations: thisWeekLocations(), Now: thisWeekNow(), ExtraAttention: append(append(codexApprovalAttention(), syncFailingAttention(st, thisWeekNow())...), backupFailingAttention(st, thisWeekNow())...)})
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory this-week:", err)
 		return 1

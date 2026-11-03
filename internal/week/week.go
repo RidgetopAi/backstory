@@ -88,6 +88,10 @@ const (
 	// paired device and not syncing (sync.Health). Caller-computed;
 	// ProjectKey is "sync", EvidenceIDs the sync_attempts row ids.
 	AttentionSyncFailing AttentionKind = "sync-failing"
+	// AttentionBackupFailing is environment state too: automatic backups are
+	// on and the newest is older than 48h. Caller-computed; ProjectKey is
+	// "backup", EvidenceIDs empty.
+	AttentionBackupFailing AttentionKind = "backup-failing"
 )
 
 // attentionKindOrder fixes AttentionItem's sort order across kinds — the
@@ -100,6 +104,7 @@ var attentionKindOrder = map[AttentionKind]int{
 	AttentionExpiredClaim:            3,
 	AttentionCodexHooksNotApproved:   4,
 	AttentionSyncFailing:             5,
+	AttentionBackupFailing:           6,
 }
 
 // AttentionItem is one item in the Attention section: positive evidence

@@ -76,6 +76,7 @@ func runStatus(_ []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stdout, "device: %s (%s)\n", result.DeviceName, shortDeviceID(result.DeviceID))
 	}
 	printSyncLines(stdout, stderr)
+	printBackupLines(stdout)
 	if cwd, err := os.Getwd(); err == nil {
 		if note := outsideProjectRootsNote(cwd, project.DefaultProjectRoots()); note != "" {
 			_, _ = fmt.Fprintln(stdout, note)

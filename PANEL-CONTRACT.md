@@ -118,6 +118,9 @@ window (the same set Where-you-left-off lists).
   is installed but not active. Not project evidence: `project_key` is `sync`, `evidence_ids`
   are the `sync_attempts` row ids (decimal strings; empty never, since a peer with no attempt
   is not failing), and `reason` names the peer and the cause. One item per failing peer.
+- `backup-failing` — automatic backups are on and the newest is more than 48 hours old (or
+  none exists 48 hours after they were first checked). Not project evidence: `project_key` is
+  `backup`, `evidence_ids` is empty, `reason` is "automatic backups are failing: last ok ...".
 
 ## Where you left off — `WhereLeftOffRow`
 

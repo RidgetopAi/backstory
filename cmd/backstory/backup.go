@@ -14,10 +14,10 @@ import (
 )
 
 // backupTimeLayout is the UTC stamp in a default backup file name.
-const backupTimeLayout = "20060102T150405Z"
+const backupTimeLayout = store.BackupTimeLayout
 
-// backupDir is <data dir>/backstory/backups, beside the store.
-func backupDir() (string, error) {
+// defaultBackupDir is <data dir>/backstory/backups, beside the store.
+func defaultBackupDir() (string, error) {
 	db, err := storePath()
 	if err != nil {
 		return "", err
@@ -29,8 +29,11 @@ func backupDir() (string, error) {
 // human-path command that opens the store directly (no daemon needed) and
 // writes a checked, consistent snapshot of it (Store.Backup).
 func runBackup(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 && args[0] == "auto" {
+		return runBackupAuto(args[1:], stdout, stderr)
+	}
 	fs := flag.NewFlagSet("backup", flag.ContinueOnError)
-	outFlag := fs.String("out", "", "write the snapshot exactly here (default: <data dir>/backstory/backups/backstory-<UTC time>.db)")
+	outFlag := fs.String("out", "", "write the snapshot exactly here (default: the backup folder, see `backup auto`, as backstory-<UTC time>.db)")
 	force := fs.Bool("force", false, "overwrite --out if it already exists")
 	jsonOut := fs.Bool("json", false, "print the result as a JSON object")
 	fs.SetOutput(stderr)
@@ -40,16 +43,6 @@ func runBackup(args []string, stdout, stderr io.Writer) int {
 	if fs.NArg() > 0 {
 		_, _ = fmt.Fprintf(stderr, "backstory backup: unexpected argument %q\n", fs.Arg(0))
 		return 2
-	}
-
-	dest := *outFlag
-	if dest == "" {
-		dir, err := backupDir()
-		if err != nil {
-			_, _ = fmt.Fprintln(stderr, "backstory backup:", err)
-			return 1
-		}
-		dest = filepath.Join(dir, "backstory-"+time.Now().UTC().Format(backupTimeLayout)+".db")
 	}
 
 	dbPath, err := storePath()
@@ -67,6 +60,16 @@ func runBackup(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	defer func() { _ = st.Close() }()
+
+	dest := *outFlag
+	if dest == "" {
+		dir, err := effectiveBackupDir(st)
+		if err != nil {
+			_, _ = fmt.Fprintln(stderr, "backstory backup:", err)
+			return 1
+		}
+		dest = filepath.Join(dir, "backstory-"+time.Now().UTC().Format(backupTimeLayout)+".db")
+	}
 
 	info, err := st.Backup(dest, *force)
 	if err != nil {
