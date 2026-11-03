@@ -30,7 +30,7 @@ type purgeBackupFixture struct {
 
 func fileHas(t *testing.T, path, s string) bool {
 	t.Helper()
-	b, err := os.ReadFile(path)
+	b, err := os.ReadFile(path) //nolint:gosec // test reads a backup it just wrote
 	if err != nil {
 		t.Fatal(err)
 	}
