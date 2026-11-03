@@ -25,6 +25,24 @@ func defaultBackupDir() (string, error) {
 	return filepath.Join(filepath.Dir(db), "backups"), nil
 }
 
+// defaultBackupDest is backstory-<UTC time>.db in the effective backup folder.
+func defaultBackupDest(st *store.Store) (string, error) {
+	dir, err := effectiveBackupDir(st)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "backstory-"+time.Now().UTC().Format(backupTimeLayout)+".db"), nil
+}
+
+// writeDefaultBackup is what `backstory backup` does with no --out.
+func writeDefaultBackup(st *store.Store) (store.BackupInfo, error) {
+	dest, err := defaultBackupDest(st)
+	if err != nil {
+		return store.BackupInfo{}, err
+	}
+	return st.Backup(dest, false)
+}
+
 // runBackup is `backstory backup [--out PATH] [--force] [--json]`: a
 // human-path command that opens the store directly (no daemon needed) and
 // writes a checked, consistent snapshot of it (Store.Backup).
@@ -63,12 +81,11 @@ func runBackup(args []string, stdout, stderr io.Writer) int {
 
 	dest := *outFlag
 	if dest == "" {
-		dir, err := effectiveBackupDir(st)
-		if err != nil {
+		var err error
+		if dest, err = defaultBackupDest(st); err != nil {
 			_, _ = fmt.Fprintln(stderr, "backstory backup:", err)
 			return 1
 		}
-		dest = filepath.Join(dir, "backstory-"+time.Now().UTC().Format(backupTimeLayout)+".db")
 	}
 
 	info, err := st.Backup(dest, *force)
