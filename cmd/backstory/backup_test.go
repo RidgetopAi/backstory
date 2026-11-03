@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/RidgetopAi/backstory/internal/store"
 )
@@ -90,4 +92,104 @@ func TestBackupWithoutStoreFails(t *testing.T) {
 	if code := run([]string{"backup"}, strings.NewReader(""), &out, &errb); code == 0 {
 		t.Fatalf("exit 0 with no store; stdout %q", out.String())
 	}
+}
+
+// seedRecordAt writes one record whose ts is the given instant.
+func seedRecordAt(t *testing.T, dbPath string, ts time.Time) {
+	t.Helper()
+	st, err := store.Open(dbPath, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	if err := st.UpsertProject(store.Project{Key: "proj-ts", Toplevel: "/tmp/proj-ts", FirstSeen: ts}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.InsertRecord(store.InsertRecordParams{
+		Identity: store.Identity{Kind: store.IdentityAgent, Actor: "seed"}, Kind: store.KindNote,
+		Text: "dated", ProjectKey: "proj-ts",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// The store stamps wall-clock time; pin it (the append-only trigger
+	// is dropped on this throwaway copy to allow it).
+	db, err := sql.Open("sqlite", "file:"+dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	if _, err := db.Exec(`DROP TRIGGER records_no_update`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE records SET ts = ?`, ts.UnixNano()); err != nil {
+		t.Fatal(err)
+	}
+}
+
+var longDigits = regexp.MustCompile(`\d{15,}`)
+
+// TestBackupAndRestoreShowNewestAsDateNotNanoseconds: newest activity is a
+// local YYYY-MM-DD HH:MM in both commands' text, never a nanosecond count;
+// JSON carries RFC 3339 UTC and omits the field for an empty store.
+func TestBackupAndRestoreShowNewestAsDateNotNanoseconds(t *testing.T) {
+	t.Setenv("TZ", "America/New_York")
+	time.Local = time.FixedZone("EST", -5*3600)
+	t.Cleanup(func() { time.Local = time.UTC })
+	instant := time.Date(2026, 11, 2, 21, 8, 32, 0, time.UTC) // 16:08 local
+
+	f := newRestoreFixture(t)
+	seedRecordAt(t, f.dbPath, instant)
+
+	var out, errb bytes.Buffer
+	if code := run([]string{"backup", "--out", filepath.Join(t.TempDir(), "t.db")}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("backup exit %d: %s", code, errb.String())
+	}
+	if !strings.Contains(out.String(), "newest activity: 2026-11-02 16:08") || longDigits.MatchString(out.String()) {
+		t.Errorf("backup text:\n%s", out.String())
+	}
+
+	out.Reset()
+	bak := filepath.Join(t.TempDir(), "j.db")
+	if code := run([]string{"backup", "--json", "--out", bak}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("backup --json exit %d: %s", code, errb.String())
+	}
+	var raw map[string]any
+	if err := json.Unmarshal(out.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	if raw["newest"] != "2026-11-02T21:08:32Z" {
+		t.Errorf("json newest = %v, want 2026-11-02T21:08:32Z", raw["newest"])
+	}
+
+	code, rout, rerr := f.restore(bak, "--yes")
+	if code != 0 {
+		t.Fatalf("restore exit %d: %s", code, rerr)
+	}
+	if !strings.Contains(rout, "newest activity 2026-11-02 16:08") || longDigits.MatchString(rout) {
+		t.Errorf("restore text:\n%s", rout)
+	}
+
+	// Empty store: omitted in JSON, "none" in restore text.
+	empty := newRestoreFixture(t)
+	seedBackupStoreEmpty(t, empty.dbPath)
+	out.Reset()
+	ebak := filepath.Join(t.TempDir(), "e.db")
+	if code := run([]string{"backup", "--json", "--out", ebak}, strings.NewReader(""), &out, &errb); code != 0 {
+		t.Fatalf("empty backup exit %d: %s", code, errb.String())
+	}
+	if strings.Contains(out.String(), `"newest"`) {
+		t.Errorf("empty store json has newest: %s", out.String())
+	}
+	if _, rout, _ := empty.restore(ebak, "--yes"); !strings.Contains(rout, "newest activity none") {
+		t.Errorf("empty restore text:\n%s", rout)
+	}
+}
+
+func seedBackupStoreEmpty(t *testing.T, dbPath string) {
+	t.Helper()
+	st, err := store.Open(dbPath, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = st.Close()
 }

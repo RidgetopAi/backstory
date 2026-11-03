@@ -87,7 +87,7 @@ func runBackup(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintln(stdout, string(b))
 		return 0
 	}
-	_, _ = fmt.Fprintf(stdout, "path: %s\nsize: %d bytes\nschema version: %d\nprojects: %d\nsessions: %d\nrecords: %d\n",
-		info.Path, info.Size, info.SchemaVersion, info.Projects, info.Sessions, info.Records)
+	_, _ = fmt.Fprintf(stdout, "path: %s\nsize: %d bytes\nschema version: %d\nprojects: %d\nsessions: %d\nrecords: %d\nnewest activity: %s\n",
+		info.Path, info.Size, info.SchemaVersion, info.Projects, info.Sessions, info.Records, newestActivityText(info.Newest))
 	return 0
 }
