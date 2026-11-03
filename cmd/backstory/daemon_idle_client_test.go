@@ -31,7 +31,7 @@ func TestDaemonSIGTERMWithIdleClientExitsCleanly(t *testing.T) {
 	sockPath := filepath.Join(runtimeDir, "backstory", "sock")
 	waitForFile(t, sockPath, 5*time.Second)
 
-	const statusReq = `{"method":"status","no_session":true}` + "\n"
+	const statusReq = `{"session":"s1","method":"status"}` + "\n"
 
 	// Idle client: completes one request, then just stays connected.
 	idle, err := net.Dial("unix", sockPath)
