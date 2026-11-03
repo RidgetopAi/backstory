@@ -47,6 +47,12 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 ### Changed
 
+- `backstory purge` now also deletes the backups that still hold the purged text: the
+  `backstory-<time>.db` and `backstory-auto-<time>.db` files in the backup folder and the
+  `.pre-restore-`, `.pre-sweep-` and `.pre-identity-` copies beside the store, then takes a fresh
+  backup. `--dry-run` and the confirmation list them with dates and sizes; backups written
+  elsewhere with `backup --out` are left alone and purge says so. If the erase fails, no backup is
+  touched; symlinks and other files are never deleted (task e65dd0e9).
 - README: Install leads with install from source and a short trust block (home folder only, no sudo, a user-level service, no network of its own, one local SQLite file, agent configs changed only as listed), each linking to its part of `docs/WHAT-BACKSTORY-TOUCHES.md`. "Other ways to install" covers the GitHub Release download and how to verify it; the AUR package is marked as coming (task b0440411).
 - Docs: a new User Manual section, "If something goes wrong", covers where your memory lives, `backstory backup`, `backstory restore` (and undoing one), what export, sync and the `.pre-` files do not cover, deleted text in backups, and `backstory.prev`. The README links to it and `docs/WHAT-BACKSTORY-TOUCHES.md` lists the backups folder and `.pre-restore` files (task 5a4327a2).
 
