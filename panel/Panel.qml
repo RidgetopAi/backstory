@@ -199,8 +199,8 @@ Item {
       Hyprland.dispatch(Launchers.moveWindowToDispatch(a, rest.x, rest.y))
       // The popup has closed by now, and closing its layer handed the
       // keyboard back to the window focused before it: take it. The pointer
-      // stays put, or over the window it moves straight onto the grab handle.
-      Hyprland.dispatch(Launchers.popOutFocusDispatch(a, rest.x, rest.w, rest.y + handle.fullHeight / 2))
+      // stays put, or over the window (on its monitor) it moves straight onto the grab handle.
+      Hyprland.dispatch(Launchers.popOutFocusDispatch(a, rest.x, rest.w, rest.y + handle.fullHeight / 2, root.popFrom.monY, root.popFrom.monH))
       var f = root.popFrom
       if (root.glow) root.glow.play(Qt.rect(f.x - f.monX, f.y - f.monY, f.w, f.h), Qt.rect(rest.x - f.monX, rest.y - f.monY, rest.w, rest.h))
       popAnimDone.start()
