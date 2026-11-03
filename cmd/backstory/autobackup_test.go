@@ -185,6 +185,8 @@ func TestBackupAutoSettings(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(ro, 0o700) }) //nolint:gosec // restore for TempDir cleanup
 	if checkBackupDir(ro) != nil {                // the mode only bites non-root; the ENOTDIR cases bite everyone
 		bads = append(bads, ro)
+	} else {
+		t.Log("read-only dir is still writable here (root); the ENOTDIR cases cover the refusal")
 	}
 	for _, bad := range bads {
 		if code, _, e := runAutoCLI(t, "backup", "auto", "--dir", bad); code == 0 || !strings.Contains(e, "nothing changed") {
