@@ -171,22 +171,27 @@ func TestBackupAutoSettings(t *testing.T) {
 	}
 
 	// Bad dirs exit non-zero and change nothing.
-	// A path under a regular file (ENOTDIR) is unwritable for root too; the
-	// read-only dir below only fails for non-root, which ignores no modes.
+	// A path under a regular file (ENOTDIR) fails the existence check for
+	// root too. /proc/self is an existing folder no one can create a file in,
+	// root included, so it reaches the writability probe for everyone. The
+	// read-only dir only fails for non-root, which ignores no modes; whether it
+	// is included is decided by the test's own probe, never by checkBackupDir.
 	blocker := filepath.Join(t.TempDir(), "file")
 	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	bads := []string{filepath.Join(t.TempDir(), "missing"), filepath.Join(blocker, "sub")}
+	bads := []string{filepath.Join(t.TempDir(), "missing"), filepath.Join(blocker, "sub"), "/proc/self"}
 	ro := t.TempDir()
 	if err := os.Chmod(ro, 0o500); err != nil { //nolint:gosec // read-only dir is the failure under test
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(ro, 0o700) }) //nolint:gosec // restore for TempDir cleanup
-	if checkBackupDir(ro) != nil {                // the mode only bites non-root; the ENOTDIR cases bite everyone
+	if f, err := os.CreateTemp(ro, "probe-*"); err != nil {
 		bads = append(bads, ro)
 	} else {
-		t.Log("read-only dir is still writable here (root); the ENOTDIR cases cover the refusal")
+		_ = f.Close()
+		_ = os.Remove(f.Name())
+		t.Log("read-only dir is still writable here (root); /proc/self covers the writability refusal")
 	}
 	for _, bad := range bads {
 		if code, _, e := runAutoCLI(t, "backup", "auto", "--dir", bad); code == 0 || !strings.Contains(e, "nothing changed") {
