@@ -171,12 +171,16 @@ func TestBackupAutoSettings(t *testing.T) {
 	}
 
 	// Bad dirs exit non-zero and change nothing.
+	bads := []string{filepath.Join(t.TempDir(), "missing")}
 	ro := t.TempDir()
+	if os.Geteuid() != 0 { // root ignores directory modes, so a read-only dir cannot fail for it
+		bads = append(bads, ro)
+	}
 	if err := os.Chmod(ro, 0o500); err != nil { //nolint:gosec // read-only dir is the failure under test
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(ro, 0o700) }) //nolint:gosec // restore for TempDir cleanup
-	for _, bad := range []string{filepath.Join(t.TempDir(), "missing"), ro} {
+	for _, bad := range bads {
 		if code, _, e := runAutoCLI(t, "backup", "auto", "--dir", bad); code == 0 || !strings.Contains(e, "nothing changed") {
 			t.Fatalf("--dir %s: exit %d stderr %q", bad, code, e)
 		}
@@ -208,6 +212,9 @@ func TestBackupAutoSettings(t *testing.T) {
 
 // A failing backup keeps what exists; past 48h status and this-week say so.
 func TestAutoBackupFailureKeepsBackupsAndRaisesAttention(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root ignores directory modes; a read-only backup dir cannot fail for it")
+	}
 	st, dir := openBackupEnvStore(t)
 	def, _ := defaultBackupDir()
 	for d := 0; d < 2; d++ {
