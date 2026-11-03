@@ -1249,6 +1249,17 @@ func TestInstallPrintsDoingLinesBeforeEachSlowStep(t *testing.T) {
 		if a, b := indexOf(t, out, "waiting for the daemon to answer..."), indexOf(t, out, "connecting your agents..."); a >= b {
 			t.Errorf("connecting agents line before the daemon wait:\n%s", out)
 		}
+		// `backstory install` is the real binary: its first harness line marks
+		// the call, and the connecting line must precede it.
+		c, h := indexOf(t, out, "connecting your agents..."), len(out)
+		for _, m := range []string{"\nclaude: ", "\ncodex: ", "\nhermes: ", "\npi: "} {
+			if i := strings.Index(out, m); i >= 0 && i < h {
+				h = i
+			}
+		}
+		if h == len(out) || c >= h {
+			t.Errorf("connecting agents line not before the backstory install output:\n%s", out)
+		}
 		// The wait's own is-active poll is the last service-manager call.
 		if d, s := indexOf(t, out, "waiting for the daemon to answer..."), strings.LastIndex(out, "STUB systemctl --user is-active"); d >= s {
 			t.Errorf("daemon wait line printed after its is-active poll:\n%s", out)
