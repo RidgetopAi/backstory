@@ -38,8 +38,11 @@ func runPopOutFocus(t *testing.T, fake *fakeHL, addr string, x, w, grabY, monY, 
 		return 1
 	}))
 	L.SetField(hl, "config", L.NewFunction(func(L *lua.LState) int {
-		v := L.CheckTable(1).RawGetString("cursor").(*lua.LTable).RawGetString("no_warps")
-		fake.noWarps = lua.LVAsBool(v)
+		cursor, ok := L.CheckTable(1).RawGetString("cursor").(*lua.LTable)
+		if !ok {
+			L.RaiseError("config: cursor is not a table")
+		}
+		fake.noWarps = lua.LVAsBool(cursor.RawGetString("no_warps"))
 		fake.calls = append(fake.calls, fmt.Sprintf("config no_warps=%v", fake.noWarps))
 		return 0
 	}))
