@@ -58,7 +58,7 @@ func workspaceRootItems(t *testing.T, dataDir string) (items []attentionItemJSON
 
 // DONE WHEN (4) and (5): a later agent failure names the project label, the
 // failed command (truncated) and the exit code in text and JSON (evidence ids
-// kept), and the workspace handoff — reached through two label rows — is ONE
+// kept), and the workspace handoff — reached through three label rows (the root it started in, plus omarcade and vidflow it edited) — is ONE
 // attention item.
 func TestThisWeekLaterFailureNamesWhatFailedAndListsHandoffOnce(t *testing.T) {
 	dataDir := t.TempDir()
@@ -67,16 +67,16 @@ func TestThisWeekLaterFailureNamesWhatFailedAndListsHandoffOnce(t *testing.T) {
 	id := appendWorkspaceRootAgentFailure(t, dataDir, "tu-1", long, 101)
 
 	items, text, rows := workspaceRootItems(t, dataDir)
-	if rows != 2 {
-		t.Fatalf("workspace handoff reached through %d rows, want 2 (omarcade, vidflow) for the dedupe to mean anything", rows)
+	if rows != 3 {
+		t.Fatalf("workspace handoff reached through %d rows, want 3 (root, omarcade, vidflow) for the dedupe to mean anything", rows)
 	}
 	if len(items) != 1 {
 		t.Fatalf("handoff listed %d times in attention, want exactly 1: %+v", len(items), items)
 	}
 	it := items[0]
 	trunc := long[:60] + "…"
-	if !strings.HasPrefix(it.Reason, "projects/") || !strings.Contains(it.Reason, trunc+" failed (exit 101) after it") || strings.Contains(it.Reason, long) {
-		t.Fatalf("JSON reason = %q, want a projects/<label> prefix and the truncated command + exit 101", it.Reason)
+	if !strings.HasPrefix(it.Reason, "projects") || !strings.Contains(it.Reason, trunc+" failed (exit 101) after it") || strings.Contains(it.Reason, long) {
+		t.Fatalf("JSON reason = %q, want a projects[/<label>] prefix and the truncated command + exit 101", it.Reason)
 	}
 	if len(it.EvidenceIDs) < 1 || it.EvidenceIDs[len(it.EvidenceIDs)-1] != strconv.FormatInt(id, 10) {
 		t.Fatalf("evidence_ids = %v, want to end with the failing result event %d", it.EvidenceIDs, id)

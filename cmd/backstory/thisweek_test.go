@@ -357,11 +357,11 @@ func TestThisWeekGoldenJSON(t *testing.T) {
 		!strings.Contains(syncItem.Reason, "laptop") || !strings.Contains(syncItem.Reason, "proto 2") {
 		t.Errorf("sync-failing item = %+v, want kind sync-failing, project_key sync, evidence [1], reason naming laptop and the cause", syncItem)
 	}
-	if len(parsed.WhereLeftOff) != 6 {
-		t.Fatalf("where_left_off rows = %d, want 6 (3 standalone + 1 group + omarcade + vidflow; got %+v)", len(parsed.WhereLeftOff), parsed.WhereLeftOff)
+	if len(parsed.WhereLeftOff) != 7 {
+		t.Fatalf("where_left_off rows = %d, want 7 (3 standalone + 1 group + the workspace root + omarcade + vidflow; got %+v)", len(parsed.WhereLeftOff), parsed.WhereLeftOff)
 	}
-	if len(parsed.Week) != 7 {
-		t.Fatalf("week entries = %d, want 7 (got %+v)", len(parsed.Week), parsed.Week)
+	if len(parsed.Week) != 8 {
+		t.Fatalf("week entries = %d, want 8 (got %+v)", len(parsed.Week), parsed.Week)
 	}
 
 	// task 482b2320, decision f3fa04c7's DONE WHEN clause 5: the ONE
