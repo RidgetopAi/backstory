@@ -620,6 +620,26 @@ backstory backup --json                # the same facts as a JSON object
 It prints the path, size, schema version, and how many projects, sessions and records the copy
 holds. The backups folder is private to you (`0700`, files `0600`).
 
+#### Automatic backups
+
+While the daemon runs, Backstory writes a backup for you: when the newest automatic backup is
+more than a day old, checked at start and then every hour. They are named
+`backstory-auto-<UTC time>.db`, so you can tell them from the ones you make
+(`backstory-<UTC time>.db`). Only the newest 7 automatic backups are kept; your own backups
+and any other file in the folder are never deleted.
+
+```
+backstory backup auto                  # show: on/off, folder, keep count, last one, how many kept
+backstory backup auto --off            # stop automatic backups (--on turns them back on)
+backstory backup auto --dir /mnt/usb/backstory   # another drive or a synced folder
+backstory backup auto --keep 14        # keep the newest 14 (at least 1)
+```
+
+`--dir` must be an existing folder you can write to, or nothing is changed. `backstory backup`
+without `--out` writes to the same folder. `backstory status` shows a `backups:` line. If
+automatic backups are on and the newest is more than 48 hours old, `status`, `this-week` and
+the panel show "automatic backups are failing: last ok ..." under NEEDS YOU.
+
 ### restore
 
 Replaces your memory with a backup made by `backstory backup`. It checks the backup first (it
@@ -851,7 +871,11 @@ backstory backup --out /mnt/usb/mem.db # to another drive or a synced folder
 
 The backup is a single file. Backstory opens and checks it before it says it worked. Back up
 before you upgrade, and keep a copy somewhere off this computer. The default folder is on the
-same disk as your memory, so it does not protect you if the disk fails. See
+same disk as your memory, so it does not protect you if the disk fails: point automatic backups
+at another drive or a synced folder with `backstory backup auto --dir PATH`.
+
+Backstory also backs up by itself once a day and keeps the newest 7 (`backstory-auto-*.db`).
+Turn it off, change the folder or the count with `backstory backup auto`. See
 [backup](#backup) for every flag.
 
 ### Restore

@@ -167,6 +167,10 @@ func runDaemon(_ []string, stdout, stderr io.Writer) int {
 		Logger:     logger,
 	})
 
+	backupTicker := time.NewTicker(store.AutoBackupCheckEvery)
+	defer backupTicker.Stop()
+	go runAutoBackups(ctx, st, logger, time.Now, backupTicker.C)
+
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- srv.Serve() }()
 

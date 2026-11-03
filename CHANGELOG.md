@@ -13,6 +13,12 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 ### Added
 
+- Automatic backups: the daemon writes `backstory-auto-<UTC time>.db` when the
+  newest one is over 24h old (checked at start, then hourly), keeps the newest
+  7 and never deletes a manual backup. `backstory backup auto [--on|--off]
+  [--dir PATH] [--keep N]` shows or changes it; `backstory status` shows a
+  `backups:` line, and automatic backups failing for over 48h raise a NEEDS YOU
+  item in status, this-week and the panel (task 76e2c4ab).
 - `backstory restore PATH [--yes]` verifies a backup (SQLite, `integrity_check`,
   not a newer schema), stops the daemon and sync units, keeps the current
   store aside as `backstory.db.pre-restore-<UTC time>`, swaps the backup in,
