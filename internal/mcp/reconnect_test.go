@@ -1,16 +1,15 @@
 package mcp
 
 import (
+	"encoding/json"
 	"net"
 	"os"
 	"path/filepath"
-
-	"encoding/json"
-	"github.com/RidgetopAi/backstory/internal/ident"
-	"github.com/RidgetopAi/backstory/internal/socket"
 	"testing"
 	"time"
 
+	"github.com/RidgetopAi/backstory/internal/ident"
+	"github.com/RidgetopAi/backstory/internal/socket"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
