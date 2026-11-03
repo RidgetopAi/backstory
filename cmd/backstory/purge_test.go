@@ -140,7 +140,7 @@ func TestPurgeSessionYesErasesOnlyThatSession(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("purge exit %d stderr=%s", code, stderr)
 	}
-	if got, want := strings.TrimSpace(stdout), "purged 1 sessions, 3 events, 0 records"; got != want {
+	if got, want := firstLine(stdout), "purged 1 sessions, 3 events, 0 records"; got != want {
 		t.Errorf("stdout = %q, want %q", got, want)
 	}
 	if n := countRows(t, dbPath, `SELECT COUNT(*) FROM timeline_events WHERE session_id = ?`, f.a); n != 0 {
@@ -186,7 +186,7 @@ func TestPurgeDryRunPrintsExactCountsAndChangesNothing(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("dry-run exit %d stderr=%s", code, stderr)
 	}
-	if got, want := strings.TrimSpace(stdout), "would purge 2 sessions, 7 events, 0 records"; got != want {
+	if got, want := firstLine(stdout), "would purge 2 sessions, 7 events, 0 records"; got != want {
 		t.Errorf("dry-run stdout = %q, want %q", got, want)
 	}
 	if after := tableCounts(t, dbPath); after != before {
@@ -197,7 +197,7 @@ func TestPurgeDryRunPrintsExactCountsAndChangesNothing(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("real run exit %d stderr=%s", code, stderr)
 	}
-	if got, want := strings.TrimSpace(stdout), "purged 2 sessions, 7 events, 0 records"; got != want {
+	if got, want := firstLine(stdout), "purged 2 sessions, 7 events, 0 records"; got != want {
 		t.Errorf("real stdout = %q, want %q", got, want)
 	}
 	if n := countRows(t, dbPath, `SELECT COUNT(*) FROM timeline_events`); n != 3 {
@@ -206,7 +206,7 @@ func TestPurgeDryRunPrintsExactCountsAndChangesNothing(t *testing.T) {
 	// Without a window, session-less events are never selected; sessions b and
 	// c are already purged, so only session a is left to count.
 	stdout, _, _ = execPurge(t, bin, env, "--project", purgeProject, "--dry-run")
-	if got, want := strings.TrimSpace(stdout), "would purge 1 sessions, 3 events, 1 records"; got != want {
+	if got, want := firstLine(stdout), "would purge 1 sessions, 3 events, 1 records"; got != want {
 		t.Errorf("windowless dry-run = %q, want %q", got, want)
 	}
 }
@@ -307,7 +307,7 @@ func TestPurgeLocationActsOnlyOnTheRow(t *testing.T) {
 	}
 
 	out, code := f.purge(t, "--project", f.wsKey, "--location", f.feedbackX, "--dry-run")
-	if code != 0 || out != "would purge 1 sessions, 1 events, 2 records\n" {
+	if code != 0 || firstLine(out) != "would purge 1 sessions, 1 events, 2 records" {
 		t.Fatalf("dry-run = %q (exit %d)", out, code)
 	}
 	if n := f.count(t, `SELECT COUNT(*) FROM records WHERE tombstoned_at IS NOT NULL`); n != 0 {
@@ -315,7 +315,7 @@ func TestPurgeLocationActsOnlyOnTheRow(t *testing.T) {
 	}
 
 	out, code = f.purge(t, "--project", f.wsKey, "--location", f.feedbackX, "--yes")
-	if code != 0 || out != "purged 1 sessions, 1 events, 2 records\n" {
+	if code != 0 || firstLine(out) != "purged 1 sessions, 1 events, 2 records" {
 		t.Fatalf("purge = %q (exit %d)", out, code)
 	}
 	if eventsOf(f.fxSess) != 0 || eventsOf(f.rootSess) != 1 || eventsOf(f.appSess) != 1 {
@@ -365,14 +365,14 @@ func TestPurgeRecordsWindowDryRunAndRealRun(t *testing.T) {
 		t.Fatalf("fixture: tiktok note not indexed")
 	}
 	out, code := f.purge(t, append(args, "--dry-run")...)
-	if code != 0 || out != "would purge 0 sessions, 0 events, 2 records\n" {
+	if code != 0 || firstLine(out) != "would purge 0 sessions, 0 events, 2 records" {
 		t.Fatalf("dry-run = %q (exit %d)", out, code)
 	}
 	if n := f.count(t, `SELECT COUNT(*) FROM records WHERE tombstoned_at IS NOT NULL`); n != 0 {
 		t.Fatalf("dry run tombstoned %d records", n)
 	}
 	out, code = f.purge(t, append(args, "--yes")...)
-	if code != 0 || out != "purged 0 sessions, 0 events, 2 records\n" {
+	if code != 0 || firstLine(out) != "purged 0 sessions, 0 events, 2 records" {
 		t.Fatalf("purge = %q (exit %d)", out, code)
 	}
 	if n := f.count(t, `SELECT COUNT(*) FROM records WHERE tombstoned_at IS NOT NULL AND text = ''`); n != 2 {
@@ -430,4 +430,10 @@ func TestPurgeProjectAcceptsPathAndRefusesUnknown(t *testing.T) {
 	if strings.Contains(outBuf.String(), "purged") {
 		t.Errorf("stdout claims a purge: %q", outBuf.String())
 	}
+}
+
+// firstLine is the purge summary line; backup lines follow it.
+func firstLine(out string) string {
+	line, _, _ := strings.Cut(out, "\n")
+	return line
 }

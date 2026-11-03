@@ -720,9 +720,14 @@ so don't paste them into a session you want remembered.
 `BACKSTORY_OFF=1` affects only that one program and anything it starts. Other sessions keep
 recording as normal.
 
-**Deleted text and backups.** Deleting and purging wipe the text from the store. But Backstory
-sometimes keeps a backup copy of the store beside it (files named `backstory.db.pre-…` in
-`~/.local/share/backstory/`), and those still hold the old text until you delete them.
+**Deleted text and backups.** Deleting wipes the text from the store, but backup copies made
+earlier still hold it. A purge cleans up after itself: once the text is erased it also deletes
+the backups Backstory made (the automatic and manual ones in the backup folder, and the
+`backstory.db.pre-…` copies beside the store), then takes one fresh backup so you are never
+left with none. `backstory purge --dry-run` lists those files, with dates and sizes, before
+anything is deleted. Copies you put somewhere else, such as `backstory backup --out`, are yours
+to delete: purge never touches them and says so. Deleting a single record does not remove
+backups.
 
 **Forgetting reaches your other machines.** If you have paired machines, what you delete or
 purge here is forgotten on them at the next sync, and a sync can never bring it back.
@@ -914,8 +919,9 @@ Use the real file name from that folder. This keeps your newer memory aside as a
 
 ### Deleted text and backups
 
-A purge does not reach into backups you made. If you purged something sensitive, delete old
-backup files and `.pre-` files that still hold it. See
+A purge deletes the backups Backstory made (the backup folder and the `.pre-` copies beside
+the store) and takes a fresh one. Copies you wrote elsewhere with `backup --out` are yours to
+delete. See
 [Deleted text and backups](#7-privacy-pausing-fixing-and-forgetting) in section 7.
 
 ### If a new install breaks

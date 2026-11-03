@@ -102,8 +102,25 @@ func runPurge(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintln(stderr, "backstory purge:", err)
 		return 1
 	}
+	backupDir, err := effectiveBackupDir(st)
+	if err != nil {
+		_, _ = fmt.Fprintln(stderr, "backstory purge:", err)
+		return 1
+	}
+	// A purge that matches nothing leaves every backup as it was.
+	nothing := preview.Sessions == 0 && preview.Events == 0 && preview.Records == 0
+	var backups []purgeBackup
+	if !nothing {
+		if backups, err = listPurgeBackups(dbPath, backupDir); err != nil {
+			_, _ = fmt.Fprintln(stderr, "backstory purge:", err)
+			return 1
+		}
+	}
 	if *dryRun {
 		_, _ = fmt.Fprintf(stdout, "would purge %d sessions, %d events, %d records\n", preview.Sessions, preview.Events, preview.Records)
+		if !nothing {
+			printPurgeBackups(stdout, backups)
+		}
 		return 0
 	}
 
@@ -111,6 +128,9 @@ func runPurge(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		if !isTerminal(stdin) {
 			_, _ = fmt.Fprintln(stderr, "backstory purge: refusing to purge without --yes on a non-interactive session")
 			return 1
+		}
+		if !nothing {
+			printPurgeBackups(stdout, backups)
 		}
 		_, _ = fmt.Fprintf(stdout, "purge %d sessions, %d events, %d records? This cannot be undone. [y/N] ", preview.Sessions, preview.Events, preview.Records)
 		scanner := bufio.NewScanner(stdin)
@@ -124,12 +144,21 @@ func runPurge(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 	}
 
-	res, err := st.PurgeSessions(scope, humanIdentity)
+	var res store.PurgeCounts
+	if purgeEraseHook != nil {
+		err = purgeEraseHook()
+	}
+	if err == nil {
+		res, err = st.PurgeSessions(scope, humanIdentity)
+	}
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory purge:", err)
 		return 1
 	}
 	_, _ = fmt.Fprintf(stdout, "purged %d sessions, %d events, %d records\n", res.Sessions, res.Events, res.Records)
 	printAlsoForgotten(st, stdout, stderr)
+	if !nothing && !cleanBackupsAfterPurge(st, dbPath, stdout, stderr) {
+		return 1
+	}
 	return 0
 }
