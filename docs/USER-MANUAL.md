@@ -446,7 +446,9 @@ backstory purge --session SESSION_ID                    # one session; leaves re
 ```
 
 `--since` and `--until` take a duration or a date and time. `--location DIR` limits it to the
-one row the panel shows for that folder. `--yes` skips the confirmation.
+one row the panel shows for that folder. A session counts for the folder it started in and for
+every folder it edited, so forgetting a folder includes the records of sessions that started
+there, even if they only edited files elsewhere. `--yes` skips the confirmation.
 
 ### capture
 
@@ -749,7 +751,8 @@ folders.
   the panel. Nothing stops being recorded; it only changes what's listed.
 - **`BACKSTORY_WORKSPACE_DIRS`**: folders that hold many projects. The default is `~/projects`.
   A session started in such a folder itself, rather than inside one of its projects, is kept as
-  one "workspace" row.
+  one "workspace" row. A session counts for the folder it started in and for each folder it
+  edited, so recall, `records --here` and This Week find its records from either place.
 
 ### Where to set them
 

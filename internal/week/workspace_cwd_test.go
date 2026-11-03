@@ -102,12 +102,15 @@ func TestBuildWorkspaceSessionsLabelledByCWD(t *testing.T) {
 	d := newWSDesk(t)
 	res := d.build(t)
 	rows := rowNames(res)
-	for _, name := range []string{"projects/freax", "projects/personal", "projects", "projects/livestream"} {
+	// The root counts two sessions on two days: the Bash-only root session
+	// and the root session that edited foo (a session always counts for the
+	// folder it started in, decision 1e53165a).
+	for name, want := range map[string]int{"projects/freax": 1, "projects/personal": 1, "projects": 2, "projects/livestream": 1} {
 		if !rows[name] {
 			t.Errorf("where_left_off lacks %q: have %v", name, rows)
 		}
-		if days, n := weekSessions(res, name); days != 1 || n != 1 {
-			t.Errorf("week bars for %q: %d days, %d sessions, want 1 and 1", name, days, n)
+		if days, n := weekSessions(res, name); days != want || n != want {
+			t.Errorf("week bars for %q: %d days, %d sessions, want %d and %d", name, days, n, want, want)
 		}
 	}
 	for name := range rows {
@@ -125,8 +128,8 @@ func TestBuildWorkspaceSessionsLabelledByCWD(t *testing.T) {
 	}
 }
 
-// Edit-derived labels still win over the cwd: a root session editing
-// foo/x.go is foo's, and the root row exists only from the other root session.
+// A root session editing foo/x.go is foo's AND the root's (it started there,
+// decision 1e53165a): the edit-derived label no longer displaces the cwd one.
 func TestBuildWorkspaceEditLabelBeatsCWD(t *testing.T) {
 	d := newWSDesk(t)
 	res := d.build(t)
@@ -136,14 +139,33 @@ func TestBuildWorkspaceEditLabelBeatsCWD(t *testing.T) {
 	if _, n := weekSessions(res, "projects/foo"); n != 1 {
 		t.Errorf("projects/foo sessions = %d, want 1", n)
 	}
-	// The editing session must not also count toward the root.
+	// The editing session also counts toward the root, on the day it ran.
+	var rootEditDay bool
 	for _, w := range res.Week {
-		if w.DisplayName == "projects" && w.Day.Equal(d.dayEdits.UTC().Truncate(24*time.Hour)) {
-			t.Errorf("root bar on the day of the foo edit: %+v", w)
+		if w.DisplayName == "projects" && w.Day.Equal(d.dayEdits.UTC().Truncate(24*time.Hour)) && w.Sessions == 1 {
+			rootEditDay = true
 		}
 	}
-	if days, n := weekSessions(res, "projects"); days != 1 || n != 1 {
-		t.Errorf("root bars: %d days, %d sessions, want 1 and 1", days, n)
+	if !rootEditDay {
+		t.Errorf("no root bar with 1 session on the day of the foo edit")
+	}
+	if days, n := weekSessions(res, "projects"); days != 2 || n != 2 {
+		t.Errorf("root bars: %d days, %d sessions, want 2 and 2", days, n)
+	}
+}
+
+// Decision 1e53165a clause 3: a session that started in projects/personal but
+// edited only outside the workspace (and in a git repo inside it) still shows
+// under personal.
+func TestBuildSessionShowsUnderItsStartFolderWhenItEditedElsewhere(t *testing.T) {
+	d := newWSDesk(t)
+	d.work(t, "away", d.subB, d.dayC, [2]string{"Write", filepath.Join(d.home, ".local", "bin", "cam-watch")}, [2]string{"Edit", filepath.Join(d.foo, "y.go")})
+	res := d.build(t)
+	if days, n := weekSessions(res, "projects/personal"); days != 2 || n != 2 {
+		t.Errorf("personal bars: %d days, %d sessions, want 2 and 2", days, n)
+	}
+	if _, n := weekSessions(res, "projects/foo"); n != 2 {
+		t.Errorf("foo sessions = %d, want 2 (the edit-only session and the away one)", n)
 	}
 }
 

@@ -86,7 +86,9 @@ func TestSessionLabelsFromFileTouchingEvents(t *testing.T) {
 		t.Fatalf("sessionLabels: %v", err)
 	}
 
-	want := []string{"projects/omarcade", "projects/vidflow"}
+	// The session's own cwd label ("projects") joins its edited folders
+	// (decision 1e53165a).
+	want := []string{"projects", "projects/omarcade", "projects/vidflow"}
 	if !reflect.DeepEqual(labels, want) {
 		t.Fatalf("sessionLabels = %v, want exactly %v (never projects/other, never projects/elsewhere)", labels, want)
 	}
@@ -175,4 +177,64 @@ func TestLatestHandoffAtFiltersHomeByRepo(t *testing.T) {
 func tempDBPath(t *testing.T) string {
 	t.Helper()
 	return t.TempDir() + "/backstory.db"
+}
+
+// Decision 1e53165a clause 2: a session started in the non-git folder
+// projects/personal that edited a file in the git repo projects/vidflow is
+// labelled for BOTH, and LocationScope of each folder includes it and its
+// records; a session that edited nothing still maps to its cwd only.
+func TestSessionLabelsIncludeCWDAndEditedDirs(t *testing.T) {
+	s := mustOpen(t, tempDBPath(t))
+	wsKey := "workspace:" + labelsWorkspaceDir
+	mustUpsertProject(t, s, wsKey)
+	personal := labelsWorkspaceDir + "/personal"
+	start := func(cwd string) string {
+		id, err := s.StartSession(StartSessionParams{Agent: "claude", CWD: cwd, ProjectKey: wsKey, StartedAt: time.Now(), Origin: OriginLive})
+		if err != nil {
+			t.Fatalf("StartSession: %v", err)
+		}
+		return id
+	}
+	note := func(sid string) string {
+		id, err := s.InsertRecord(InsertRecordParams{Identity: Identity{Kind: IdentityAgent}, Kind: KindHandoff, Text: "h", SessionID: sid, ProjectKey: wsKey})
+		if err != nil {
+			t.Fatalf("InsertRecord: %v", err)
+		}
+		return id
+	}
+	mixed := start(personal)
+	mustAppendMutatingToolUse(t, s, mixed, "Edit", labelsWorkspaceDir+"/vidflow/app.py")
+	mixedRec := note(mixed)
+	idle := start(personal)
+	idleRec := note(idle)
+
+	for sid, want := range map[string][]string{
+		mixed: {"projects/personal", "projects/vidflow"},
+		idle:  {"projects/personal"},
+	} {
+		sess, err := s.getSession(sid)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := s.sessionLabels(sess, labelsGit, labelsWorkspaces)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("sessionLabels(%s) = %v, want %v", sid, got, want)
+		}
+	}
+
+	for _, dir := range []string{personal, labelsWorkspaceDir + "/vidflow"} {
+		ls, err := s.LocationScope(dir, labelsGit, labelsWorkspaces)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !ls.HasRecord(Record{ID: mixedRec, SessionID: mixed}) {
+			t.Errorf("LocationScope(%s) lacks the mixed session's record", dir)
+		}
+		if wantIdle := dir == personal; ls.HasRecord(Record{ID: idleRec, SessionID: idle}) != wantIdle {
+			t.Errorf("LocationScope(%s) idle session membership = %v, want %v", dir, !wantIdle, wantIdle)
+		}
+	}
 }

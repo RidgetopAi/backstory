@@ -19,8 +19,8 @@ import (
 // timeline events — the file paths their tool_use payloads carry, the same
 // extraction laterEventsTouchingAbout already applies for about[] matching
 // — resolved to the repo/folder each path lives in (project.LabelForPath),
-// NEVER from any record's about[] or text. A session with no file-touching
-// events is labelled with its own folder (project.Label(sess.CWD, ...)).
+// NEVER from any record's about[] or text. A session is always also labelled with
+// the folder it started in (project.Label(sess.CWD, ...)).
 // Labels are returned sorted, for a deterministic result independent of
 // event insertion order.
 func (s *Store) sessionLabels(sess Session, git project.Git, workspaces []string) ([]string, error) {
@@ -43,16 +43,18 @@ func (s *Store) sessionLabels(sess Session, git project.Git, workspaces []string
 // label string, not the directory it decided on). This is ActiveHomeLabels'
 // own need: a label with no direct per-repo project_key of its own still
 // needs a CWD / project.Key input (decision f3fa04c7 clause 5, task
-// 482b2320). A session with no file-touching events maps its one fallback
-// label (project.Label(sess.CWD, ...)) to sess.CWD itself, exactly as
-// sessionLabels' old single-label fallback did.
+// 482b2320). The session's own cwd label (project.Label(sess.CWD, ...)) is
+// always included, mapped to sess.CWD unless an edit already resolved that
+// label to a directory.
 func (s *Store) sessionLabelDirs(sess Session, git project.Git, workspaces []string) (map[string]string, error) {
 	dirs, err := s.sessionEditedDirs(sess.ID, git, workspaces)
 	if err != nil {
 		return nil, err
 	}
-	if len(dirs) == 0 {
-		dirs[project.Label(sess.CWD, git, workspaces)] = sess.CWD
+	// A session always counts for the folder it started in (decision
+	// 1e53165a), in addition to every folder it edited.
+	if cwdLabel := project.Label(sess.CWD, git, workspaces); dirs[cwdLabel] == "" {
+		dirs[cwdLabel] = sess.CWD
 	}
 	return dirs, nil
 }
@@ -173,12 +175,17 @@ func (s *Store) ActiveHomeLabels(home string, since, asOf time.Time, git project
 				dirs[label] = dir
 			}
 		}
-		byCWD := false
-		if len(dirs) == 0 && (include == nil || include(sess.CWD)) {
-			dirs[project.Label(sess.CWD, git, workspaces)] = sess.CWD
-			byCWD = true
+		// The cwd label always counts (decision 1e53165a) when its folder is
+		// included; it is CWD-attributed (every real-work event belongs to
+		// it) unless an edit already resolved to that same label.
+		cwdLabel := project.Label(sess.CWD, git, workspaces)
+		if _, edits := dirs[cwdLabel]; !edits && (include == nil || include(sess.CWD)) {
+			dirs[cwdLabel] = sess.CWD
+		} else {
+			cwdLabel = ""
 		}
 		for label, dir := range dirs {
+			byCWD := label == cwdLabel
 			loc, ok := byLabel[label]
 			if !ok {
 				loc = &ActiveWorkLocation{Label: label, Dir: dir}
