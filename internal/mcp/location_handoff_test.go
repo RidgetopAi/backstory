@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -192,13 +193,13 @@ func TestRecallHonoursProjectKeyAndPath(t *testing.T) {
 
 // Task ed31b744 DONE WHEN 2, the fixture the original three-way split needs:
 // the newest handoff filed from a session AT the workspace root was written
-// while editing a repo (labelled demo, not the root). The block used to
-// resume it (writer's key == home), while This Week's row and `records
-// --location` picked the older one labelled with the root. All three must be
-// the root-labelled one.
+// while editing a repo (labelled demo). Since decision 1e53165a a session
+// always counts for the folder it started in, so it is ALSO the root's
+// newest handoff: the block, This Week's row and `records --location` must
+// all agree on it (they used to pick the older root-only one).
 func TestWorkspaceRootHandoffIgnoresRootSessionEditingARepo(t *testing.T) {
 	f := newLocFixture(t)
-	rootH := f.handoff(f.root, filepath.Join(f.root, "notes.md"), "ROOT-HANDOFF state")
+	f.handoff(f.root, filepath.Join(f.root, "notes.md"), "ROOT-HANDOFF state")
 	strayH := f.handoff(f.root, filepath.Join(f.demo, "a.go"), "STRAY-HANDOFF state") // newest, labelled demo
 
 	ls, err := f.st.LocationScope(f.root, f.git, f.ws)
@@ -217,8 +218,8 @@ func TestWorkspaceRootHandoffIgnoresRootSessionEditingARepo(t *testing.T) {
 		}
 	}
 	week, resume := f.weekRowHandoff(f.root), f.resume(f.root)
-	if rootH == "" || week != rootH || resume != rootH || newest != rootH {
-		t.Errorf("root handoff: this-week=%q block=%q records --location=%q, want all %s (not stray %s)", week, resume, newest, rootH, strayH)
+	if strayH == "" || week != strayH || resume != strayH || newest != strayH {
+		t.Errorf("root handoff: this-week=%q block=%q records --location=%q, want all %s", week, resume, newest, strayH)
 	}
 }
 
@@ -264,5 +265,63 @@ func TestNoteHandoffResultNamesVisibleAt(t *testing.T) {
 	}
 	if want := "the next session in " + f.demo + " will see it"; !strings.Contains(res.Message, want) {
 		t.Fatalf("message = %q, want it to contain %q", res.Message, want)
+	}
+}
+
+// Decision 1e53165a clause 1 (Brian's camera case): a session that started in
+// the non-git folder W/personal but only edited files under HOME/.local/bin
+// and HOME/.config/systemd/user still counts for W/personal, so recall from
+// there returns its handoff for a one-word query and a long multi-word one.
+func TestRecallFindsHandoffOfSessionThatEditedOnlyOutsideItsFolder(t *testing.T) {
+	f := newLocFixture(t)
+	personal := filepath.Join(f.root, "personal")
+	if err := os.MkdirAll(personal, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	key := f.key(personal)
+	if err := f.st.UpsertProject(store.Project{Key: key, Toplevel: personal, FirstSeen: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	sid, err := f.st.StartSession(store.StartSessionParams{Agent: "claude", CWD: personal, ProjectKey: key, StartedAt: time.Now(), Origin: store.OriginLive})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{
+		filepath.Join(home, ".local", "bin", "cam-watch"),
+		filepath.Join(home, ".config", "systemd", "user", "cam.service"),
+	} {
+		pl, _ := json.Marshal(payload.ToolUse{Name: "Write", Path: p})
+		if _, err := f.st.AppendEvent(store.Event{TS: time.Now(), Kind: payload.KindToolUse, SessionID: sid, Source: "shell", Payload: string(pl)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const marker = "Zqxmarkercam"
+	raw, _ := json.Marshal(NoteParams{Kind: "handoff", Text: "camera setup state " + marker, Next: "finish " + marker + " wiring"})
+	resp := handleNote(f.st, f.git, store.Identity{Kind: store.IdentityAgent}, sid, key, personal, f.ws, raw, func() (bool, error) { return false, nil })
+	if resp.Error != nil {
+		t.Fatalf("handleNote: %v", resp.Error)
+	}
+	var note NoteResult
+	if err := json.Unmarshal(resp.Result, &note); err != nil {
+		t.Fatal(err)
+	}
+
+	for name, q := range map[string]string{
+		"one word":   marker,
+		"long query": "cameras RLC-810WA setup network wifi PoE " + marker + " install",
+	} {
+		rp, _ := json.Marshal(RecallParams{Query: q})
+		r := handleRecall(f.st, f.git, ident.Identity{CWD: personal, ProjectKey: key}, rp, f.ws)
+		if r.Error != nil {
+			t.Fatalf("%s: handleRecall: %v", name, r.Error)
+		}
+		var res RecallResult
+		if err := json.Unmarshal(r.Result, &res); err != nil {
+			t.Fatal(err)
+		}
+		if !containsID(res.Items, note.ID) {
+			t.Errorf("recall (%s) from W/personal = %v, want handoff %s", name, recallItemIDs(res.Items), note.ID)
+		}
 	}
 }

@@ -244,3 +244,38 @@ func TestRecordsLocationListsRepoFiledDecisionOnce(t *testing.T) {
 		t.Errorf("records --location app-a lists the decision %d times, want exactly 1", n)
 	}
 }
+
+// Decision 1e53165a clause 3: a session that started in feedback-x but only
+// edited files outside the workspace (HOME/.local/bin) is feedback-x's, so
+// `purge --location` counts its session, events and records; another folder's
+// counts are unchanged.
+func TestPurgeLocationCountsSessionThatStartedThereAndEditedElsewhere(t *testing.T) {
+	f := newLocFixture(t)
+	before, code := f.purge(t, "--project", f.wsKey, "--location", f.appA, "--dry-run")
+	if code != 0 {
+		t.Fatalf("baseline dry-run exit %d", code)
+	}
+	st, err := store.Open(f.dbPath, []string{f.ws}, project.RealGit{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := f.base.Add(40 * time.Minute)
+	sid, err := st.StartSession(store.StartSessionParams{ID: "sess-fx-away", Agent: "claude", CWD: f.feedbackX, ProjectKey: f.wsKey, StartedAt: at, Origin: store.OriginLive})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, _ := json.Marshal(map[string]string{"name": "Write", "path": filepath.Join(f.home, ".local", "bin", "tool")})
+	mustAppendEvent(t, st, store.Event{TS: at.Add(time.Minute), Kind: "tool.use", SessionID: sid, Source: "hook", Payload: string(p)})
+	mustInsertThisWeekRecord(t, st, fixtureRecord{ID: "fx-away-handoff", ProjectKey: f.wsKey, SessionID: sid, TS: at.Add(2 * time.Minute), Kind: store.KindHandoff, Tier: store.TierAgentDeclared, Text: "away handoff"})
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	out, code := f.purge(t, "--project", f.wsKey, "--location", f.feedbackX, "--dry-run")
+	if code != 0 || firstLine(out) != "would purge 2 sessions, 2 events, 3 records" {
+		t.Errorf("feedback-x dry-run = %q (exit %d), want 2 sessions, 2 events, 3 records", out, code)
+	}
+	if after, _ := f.purge(t, "--project", f.wsKey, "--location", f.appA, "--dry-run"); after != before {
+		t.Errorf("app-a dry-run changed: %q -> %q", before, after)
+	}
+}

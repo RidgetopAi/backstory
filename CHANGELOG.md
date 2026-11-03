@@ -30,6 +30,11 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 ### Fixed
 
+- A session now always belongs to the folder it started in, as well as every folder it edited.
+  Before, a session started in a non-git folder (such as `~/projects/personal`) that edited only
+  files elsewhere was missing from that folder's recall, `records --here`, This Week and
+  location-scoped `purge`, so its handoff could not be found from there. Forgetting a location
+  now includes the records of sessions that started in it (task ad108461).
 - The panel pop-out always puts the user's `cursor.no_warps` back, even when the focus dispatch raises, and moves the pointer onto the grab handle only when it is on the window's own monitor (a pointer on a vertically stacked monitor at a matching x stays put) (GitHub #10 follow-up).
 - `backstory restore` and `backstory backup` show the newest activity as a
   local date (`2026-11-02 21:08`, or `none`) instead of raw nanoseconds, and
