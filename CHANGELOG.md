@@ -13,6 +13,8 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 ### Added
 
+- A possibly-stale handoff in NEEDS YOU now shows enough to judge it. `this-week --json` adds `handoff_time`, `handoff_summary` and a `reasons` list (kind, when, where, full text) to the item (PANEL-CONTRACT.md); `reason` is unchanged. The row reads "<project>: handoff from <date> may be out of date", the handoff's first line and a "Since then:" line; click it, or press Enter or Space on it, for every reason in full. The button is now **Still right** (it still runs `backstory affirm`) with a tooltip saying so; the "Command failed." label and hover-only Details are gone.
+
 - Automatic backups: the daemon writes `backstory-auto-<UTC time>.db` when the
   newest one is over 24h old (checked at start, then hourly), keeps the newest
   7 and never deletes a manual backup. `backstory backup auto [--on|--off]

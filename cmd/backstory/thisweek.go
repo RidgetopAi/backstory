@@ -104,8 +104,21 @@ type attentionItemJSON struct {
 	Reason     string `json:"reason"`
 	// HandoffID is set only on a possibly-stale-handoff item: the id
 	// `backstory affirm` takes to dismiss it.
-	HandoffID   string   `json:"handoff_id,omitempty"`
-	EvidenceIDs []string `json:"evidence_ids"`
+	HandoffID string `json:"handoff_id,omitempty"`
+	// HandoffTime, HandoffSummary and Reasons are set only on a
+	// possibly-stale-handoff item (PANEL-CONTRACT.md §Attention).
+	HandoffTime    string            `json:"handoff_time,omitempty"`
+	HandoffSummary string            `json:"handoff_summary,omitempty"`
+	Reasons        []staleReasonJSON `json:"reasons,omitempty"`
+	EvidenceIDs    []string          `json:"evidence_ids"`
+}
+
+// staleReasonJSON is one freshness reason of a possibly-stale handoff.
+type staleReasonJSON struct {
+	Kind  string `json:"kind"`
+	When  string `json:"when"`
+	Where string `json:"where"`
+	Text  string `json:"text"`
 }
 
 // projectSummaryJSON is one project's Where-you-left-off entry, standalone
@@ -192,13 +205,25 @@ func printThisWeekJSON(stdout io.Writer, result week.Result, here *hereJSON, win
 		return s
 	}
 	for _, it := range result.Attention {
-		out.Attention = append(out.Attention, attentionItemJSON{
-			Kind:        string(it.Kind),
-			ProjectKey:  it.ProjectKey,
-			Reason:      it.Reason,
-			HandoffID:   it.HandoffID,
-			EvidenceIDs: it.EvidenceIDs,
-		})
+		item := attentionItemJSON{
+			Kind:           string(it.Kind),
+			ProjectKey:     it.ProjectKey,
+			Reason:         it.Reason,
+			HandoffID:      it.HandoffID,
+			HandoffSummary: it.HandoffSummary,
+			EvidenceIDs:    it.EvidenceIDs,
+		}
+		if !it.HandoffTime.IsZero() {
+			item.HandoffTime = it.HandoffTime.UTC().Format(time.RFC3339)
+		}
+		for _, r := range it.Reasons {
+			when := ""
+			if !r.When.IsZero() {
+				when = r.When.UTC().Format(time.RFC3339)
+			}
+			item.Reasons = append(item.Reasons, staleReasonJSON{Kind: r.Kind, When: when, Where: r.Where, Text: r.Text})
+		}
+		out.Attention = append(out.Attention, item)
 	}
 	for _, row := range result.WhereLeftOff {
 		if row.Group == "" {

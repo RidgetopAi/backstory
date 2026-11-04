@@ -122,20 +122,72 @@ function handoffPrompt(displayName, handoffId, next) {
   return text
 }
 
-// An attention reason is "<what>: <state> \u2014 <detail>" for stale
-// handoffs; other kinds have no detail.
+// A possibly-stale handoff's reason is "<label>: handoff possibly stale
+// \u2014 <detail>"; the label is all the row takes from it. Everything else
+// on the row comes from the structured fields (handoff_time,
+// handoff_summary, reasons).
 function attentionMain(reason) {
   var i = reason.indexOf(" \u2014 ")
   return i < 0 ? reason : reason.slice(0, i)
 }
-function attentionDetail(reason) {
-  var i = reason.indexOf(" \u2014 ")
-  return i < 0 ? "" : reason.slice(i + 3)
+function attentionLabel(reason) {
+  var main = attentionMain(reason)
+  var i = main.indexOf(": handoff possibly stale")
+  return i < 0 ? main : main.slice(0, i)
 }
-function attentionDetailLabel(detail) {
-  if (detail.indexOf(" failed") >= 0) return "Command failed."
-  if (detail.indexOf("later-activity") === 0) return "Work continued after it."
-  return ""
+
+var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+// "Nov 3" for an ISO time, "" when there is none.
+function shortDate(iso) {
+  var d = new Date(iso)
+  if (!iso || isNaN(d.getTime())) return ""
+  return MONTHS[d.getMonth()] + " " + d.getDate()
+}
+// "Nov 3, 14:05" for an ISO time, "" when there is none.
+function shortDateTime(iso) {
+  var date = shortDate(iso)
+  if (date === "") return ""
+  var d = new Date(iso)
+  return date + ", " + (d.getHours() < 10 ? "0" : "") + d.getHours() + ":" + (d.getMinutes() < 10 ? "0" : "") + d.getMinutes()
+}
+
+// The collapsed stale row's headline.
+function staleHeadline(label, handoffTime) {
+  var date = shortDate(handoffTime)
+  return label + ": handoff from " + date + " may be out of date"
+}
+
+// Which reason leads "Since then:", strongest first.
+var STALE_REASON_ORDER = ["contradicted", "later-record", "later-failure", "later-unrecorded-work", "later-activity"]
+function strongestReason(reasons) {
+  var best = null
+  var bestRank = STALE_REASON_ORDER.length
+  for (var i = 0; i < (reasons || []).length; i++) {
+    var rank = STALE_REASON_ORDER.indexOf(reasons[i].kind)
+    if (rank < 0) rank = STALE_REASON_ORDER.length
+    if (best === null || rank < bestRank) { best = reasons[i]; bestRank = rank }
+  }
+  return best
+}
+
+// "Since then: ..." from the strongest structured reason; "" without one.
+function sinceThen(reasons) {
+  var r = strongestReason(reasons)
+  if (r === null) return ""
+  var date = shortDate(r.when)
+  var when = date === "" ? "" : " (" + date + ")"
+  if (r.kind === "later-record") return "Since then: a newer note" + when + ": " + r.text
+  if (r.kind === "later-failure") return "Since then: a command failed" + (r.where ? " in " + r.where : "") + when
+  return "Since then: " + r.text + when
+}
+
+// An expanded reason's small "when, where" line.
+function reasonWhenWhere(reason) {
+  var parts = []
+  var when = shortDateTime(reason.when)
+  if (when !== "") parts.push(when)
+  if (reason.where) parts.push(reason.where)
+  return parts.join(" \u00b7 ")
 }
 
 function summaryLine(totals) {
