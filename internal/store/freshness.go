@@ -147,7 +147,7 @@ func (s *Store) HandoffFreshness(h Record, workspaces []string) ([]FreshnessReas
 		reasons = append(reasons, FreshnessReason{Kind: FreshnessLaterActivity, EventIDs: laterEventIDs})
 	}
 
-	failures, err := s.laterFailureEvents(h.ProjectKey, sessionIDs, boundaryEventCursor)
+	failures, err := s.laterFailureEvents(h, sessionIDs, boundaryEventCursor)
 	if err != nil {
 		return nil, err
 	}
@@ -233,24 +233,66 @@ func (s *Store) laterUnrecordedWork(h Record, sessionIDs []string, boundaryID st
 	return reason, nil
 }
 
+// workspaceKeyPrefix marks a project key that names a workspace folder
+// itself; a non-git folder under a workspace resolves to that key, so the
+// key alone no longer says which folder a session ran in.
+const workspaceKeyPrefix = "workspace:"
+
+// sessionFolder is the folder a session started in, for locating a failure:
+// the git toplevel (its project key) for a session in a repo, else its own
+// cwd. A non-git folder under a workspace has the workspace's key, which
+// every sibling folder shares, so the key cannot tell them apart.
+func sessionFolder(sess Session) string {
+	if !strings.HasPrefix(sess.ProjectKey, workspaceKeyPrefix) {
+		return sess.ProjectKey
+	}
+	if sess.CWD == "" {
+		return ""
+	}
+	return filepath.Clean(sess.CWD)
+}
+
+// handoffFolder is the folder a later failure must have started in to count
+// against h: the writing session's folder; when h has no writing session or
+// that session has no folder, h's project toplevel (the workspace dir for a
+// workspace key), so only sessions started exactly there count.
+func (s *Store) handoffFolder(h Record) (string, error) {
+	if h.SessionID != "" {
+		sess, err := s.getSession(h.SessionID)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return "", fmt.Errorf("store: writing session %s of %s: %w", h.SessionID, h.ID, err)
+		}
+		if err == nil {
+			if f := sessionFolder(sess); f != "" {
+				return f, nil
+			}
+		}
+	}
+	return strings.TrimPrefix(h.ProjectKey, workspaceKeyPrefix), nil
+}
+
 // laterFailureEvents returns, ascending by id, the AGENT tool.result
-// events that are is_error or carry a non-zero exit, from a session of
-// sessionIDs whose own project key is projectKey, after sinceEventCursor.
-// Human shell-capture command events never count (typos, an ssh session
-// ending, grep finding nothing stay on the timeline only), and neither does
-// an agent failure located in another project: a tool.result carries no cwd,
-// so its location is its session's folder, i.e. the session's project key —
-// which for a workspace-homed handoff means only failures at the workspace
-// itself, never at a repo under it. Unlike laterEventsTouchingAbout it
-// needs no about[] path.
-func (s *Store) laterFailureEvents(projectKey string, sessionIDs []string, sinceEventCursor int64) ([]FailureDetail, error) {
+// events that are is_error or carry a non-zero exit, after sinceEventCursor,
+// from a session of sessionIDs that started in the same folder as the
+// session that wrote h (same cwd, or the same git repo toplevel). Human
+// shell-capture command events never count (typos, an ssh session ending,
+// grep finding nothing stay on the timeline only), and neither does an agent
+// failure located in another folder: a tool.result carries no cwd, so its
+// location is its session's folder — not its project key, which every
+// non-git folder under a workspace shares. Unlike laterEventsTouchingAbout
+// it needs no about[] path.
+func (s *Store) laterFailureEvents(h Record, sessionIDs []string, sinceEventCursor int64) ([]FailureDetail, error) {
+	folder, err := s.handoffFolder(h)
+	if err != nil {
+		return nil, err
+	}
 	var own []string
 	for _, id := range sessionIDs {
 		sess, err := s.getSession(id)
 		if err != nil {
 			return nil, fmt.Errorf("store: session %s for later failures: %w", id, err)
 		}
-		if sess.ProjectKey == projectKey {
+		if folder != "" && sessionFolder(sess) == folder {
 			own = append(own, id)
 		}
 	}
