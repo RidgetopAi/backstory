@@ -120,11 +120,31 @@ type AttentionItem struct {
 	// dismiss it, and the key two membership paths to the same handoff are
 	// deduplicated by.
 	HandoffID string
+	// HandoffTime and HandoffSummary (the handoff's first line, trimmed) say
+	// WHICH handoff a AttentionPossiblyStaleHandoff item is about, and
+	// Reasons is one entry per freshness reason: what happened since. Empty
+	// for every other kind.
+	HandoffTime    time.Time
+	HandoffSummary string
+	Reasons        []StaleReason
 	// EvidenceIDs is the positive evidence this item cites: record ids and
 	// timeline event ids (formatted as decimal strings), in the same mixed
 	// list shape block.staleMarker and recall's status labels already use
 	// for a freshness reason's own evidence.
 	EvidenceIDs []string
+}
+
+// StaleReason is one freshness reason behind a possibly-stale handoff, in
+// the structured form the panel renders without parsing Reason.
+type StaleReason struct {
+	// Kind is the store.FreshnessReasonKind slug.
+	Kind string
+	// When is the newest evidence behind the reason; zero when unknown.
+	When time.Time
+	// Where is the folder it happened in, workspace-relative; "" when unknown.
+	Where string
+	// Text is the full, untruncated description.
+	Text string
 }
 
 // ProjectSummary is one project's Where-you-left-off row (or one child of
@@ -486,7 +506,11 @@ func buildProject(st *store.Store, projectKey string, since, now time.Time, git 
 		}
 		if len(reasons) > 0 {
 			summary.HandoffStale = true
-			attention = append(attention, staleHandoffItem(projectKey, summary.DisplayName, handoff.ID, reasons))
+			item, err := staleHandoffItem(st, projectKey, summary.DisplayName, handoff, reasons, workspaces)
+			if err != nil {
+				return ProjectSummary{}, nil, err
+			}
+			attention = append(attention, item)
 		}
 	}
 
@@ -753,7 +777,11 @@ func buildHomeLabelProject(st *store.Store, since, now time.Time, loc store.Acti
 		}
 		if len(reasons) > 0 {
 			summary.HandoffStale = true
-			attention = append(attention, staleHandoffItem(summary.ProjectKey, summary.DisplayName, handoff.ID, reasons))
+			item, err := staleHandoffItem(st, summary.ProjectKey, summary.DisplayName, handoff, reasons, workspaces)
+			if err != nil {
+				return ProjectSummary{}, nil, err
+			}
+			attention = append(attention, item)
 		}
 	}
 
@@ -956,14 +984,110 @@ const failureTextMaxRunes = 60
 // staleHandoffItem builds the AttentionPossiblyStaleHandoff item for
 // handoffID: its reason leads with the project label (so two distinct
 // handoffs are told apart) and says what failed instead of a bare kind slug.
-func staleHandoffItem(projectKey, label, handoffID string, reasons []store.FreshnessReason) AttentionItem {
-	return AttentionItem{
-		Kind:        AttentionPossiblyStaleHandoff,
-		ProjectKey:  projectKey,
-		HandoffID:   handoffID,
-		Reason:      label + ": handoff possibly stale — " + freshnessReasonSummary(reasons),
-		EvidenceIDs: freshnessEvidenceIDs(reasons),
+func staleHandoffItem(st *store.Store, projectKey, label string, handoff store.Record, reasons []store.FreshnessReason, workspaces []string) (AttentionItem, error) {
+	detail, err := staleReasons(st, reasons, workspaces)
+	if err != nil {
+		return AttentionItem{}, fmt.Errorf("week: stale reasons for %s: %w", handoff.ID, err)
 	}
+	return AttentionItem{
+		Kind:           AttentionPossiblyStaleHandoff,
+		ProjectKey:     projectKey,
+		HandoffID:      handoff.ID,
+		HandoffTime:    handoff.TS,
+		HandoffSummary: strings.TrimSpace(firstLine(handoff.Text)),
+		Reasons:        detail,
+		Reason:         label + ": handoff possibly stale — " + freshnessReasonSummary(reasons),
+		EvidenceIDs:    freshnessEvidenceIDs(reasons),
+	}, nil
+}
+
+// staleReasons expands each freshness reason into a StaleReason carrying
+// when and where it happened and its full text, reading the cited records
+// and events from the store.
+func staleReasons(st *store.Store, reasons []store.FreshnessReason, workspaces []string) ([]StaleReason, error) {
+	out := make([]StaleReason, 0, len(reasons))
+	where := func(sessionID string) (string, error) {
+		folder, err := st.SessionFolder(sessionID)
+		if err != nil || folder == "" {
+			return "", err
+		}
+		return project.WorkspaceRelativeName(folder, workspaces), nil
+	}
+	for _, r := range reasons {
+		sr := StaleReason{Kind: string(r.Kind)}
+		switch r.Kind {
+		case store.FreshnessContradicted, store.FreshnessLaterRecord:
+			var newest store.Record
+			for _, id := range r.RecordIDs {
+				rec, err := st.GetRecord(id)
+				if err != nil {
+					return nil, err
+				}
+				if newest.ID == "" || !rec.TS.Before(newest.TS) {
+					newest = rec
+				}
+			}
+			sr.When = newest.TS
+			var err error
+			if sr.Where, err = where(newest.SessionID); err != nil {
+				return nil, err
+			}
+			sr.Text = strings.TrimSpace(firstLine(newest.Text))
+			if r.Kind == store.FreshnessContradicted {
+				sr.Text = "contradicted by a newer record: " + sr.Text
+			}
+			if n := len(r.RecordIDs); n > 1 {
+				sr.Text += fmt.Sprintf(" (+%d more)", n-1)
+			}
+		default:
+			events, err := st.EventsByIDs(r.EventIDs)
+			if err != nil {
+				return nil, err
+			}
+			if len(events) > 0 {
+				last := events[len(events)-1]
+				sr.When = last.TS
+				if sr.Where, err = where(last.SessionID); err != nil {
+					return nil, err
+				}
+			}
+			switch r.Kind {
+			case store.FreshnessLaterFailure:
+				sr.Text = failureText(r.Failures)
+			case store.FreshnessLaterUnrecordedWork:
+				sr.Text = r.UnrecordedWorkClause()
+			default:
+				n := len(r.EventIDs)
+				sr.Text = fmt.Sprintf("%d later %s touched files the handoff names", n, map[bool]string{true: "event", false: "events"}[n == 1])
+			}
+		}
+		out = append(out, sr)
+	}
+	return out, nil
+}
+
+// failureText is failureClause without the truncation: the full command (or
+// tool) and exit code of the most recent failure, counting the rest.
+func failureText(failures []store.FailureDetail) string {
+	if len(failures) == 0 {
+		return "a tool call failed"
+	}
+	f := failures[len(failures)-1]
+	what := f.Command
+	if what == "" {
+		what = f.Tool
+	}
+	if what == "" {
+		what = "a tool call"
+	}
+	out := what + " failed"
+	if f.Exit != nil {
+		out += fmt.Sprintf(" (exit %d)", *f.Exit)
+	}
+	if len(failures) > 1 {
+		out += fmt.Sprintf(" (+%d more)", len(failures)-1)
+	}
+	return out
 }
 
 // dedupeStaleHandoffs keeps the first AttentionPossiblyStaleHandoff item per

@@ -535,3 +535,39 @@ func (s *Store) laterEventsTouchingAbout(sessionIDs []string, sinceEventCursor i
 	}
 	return out, nil
 }
+
+// EventsByIDs returns the timeline events with the given ids, ascending by
+// id; ids that match no event are skipped. It lets a renderer say when and
+// where the events a freshness reason cites happened.
+func (s *Store) EventsByIDs(ids []int64) ([]TimelineEvent, error) {
+	if len(ids) == 0 {
+		return []TimelineEvent{}, nil
+	}
+	marks := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	rows, err := s.db.Query(`SELECT id, ts, kind, session_id, source, payload, workspace, window
+		FROM timeline_events WHERE id IN (`+marks+`) ORDER BY id ASC`, args...)
+	if err != nil {
+		return nil, fmt.Errorf("store: events by id: %w", err)
+	}
+	return s.scanTimelineEvents(rows)
+}
+
+// SessionFolder is the folder a session started in, as a freshness failure
+// locates it (its git toplevel, else its cwd); "" for an unknown session.
+func (s *Store) SessionFolder(sessionID string) (string, error) {
+	if sessionID == "" {
+		return "", nil
+	}
+	sess, err := s.getSession(sessionID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("store: session folder %s: %w", sessionID, err)
+	}
+	return sessionFolder(sess), nil
+}
