@@ -548,8 +548,10 @@ func (s *Store) EventsByIDs(ids []int64) ([]TimelineEvent, error) {
 	for i, id := range ids {
 		args[i] = id
 	}
-	rows, err := s.db.Query(`SELECT id, ts, kind, session_id, source, payload, workspace, window
-		FROM timeline_events WHERE id IN (`+marks+`) ORDER BY id ASC`, args...)
+	//nolint:gosec // the concatenated part is only "?" placeholders (one per id), every value is still bound as a query arg below
+	query := `SELECT id, ts, kind, session_id, source, payload, workspace, window
+		FROM timeline_events WHERE id IN (` + marks + `) ORDER BY id ASC`
+	rows, err := s.db.Query(query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("store: events by id: %w", err)
 	}
