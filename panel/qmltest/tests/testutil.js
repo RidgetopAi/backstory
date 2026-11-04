@@ -124,3 +124,34 @@ function slideDone(root, pageName) {
   var pages = findAll(root, function (n) { return n.side !== undefined && n.offset !== undefined })
   return pages.length === 1 && pages[0].objectName === pageName && pages[0].offset === 0
 }
+
+// controlEdges lists the visible controls under root (any item with a
+// clicked signal) with their left and right edges in reference's coordinates.
+function controlEdges(root, reference) {
+  var out = []
+  walkVisible(root, function (node, path) {
+    if (typeof node.clicked !== "function" || typeof node.mapToItem !== "function") return
+    var p = node.mapToItem(reference, 0, 0)
+    out.push({ node: node, path: path, left: p.x, right: p.x + node.width })
+  })
+  return out
+}
+
+// controlsPinnedToNoEdge compares controlEdges taken before and after the
+// reference widened by dw, and returns the controls on screen both times that
+// kept neither edge: the left edge moved, and the right edge did not move by
+// dw. A control pinned to the left keeps its left edge, one pinned to the
+// right keeps its distance from the right edge, and a stretching one keeps both.
+function controlsPinnedToNoEdge(before, after, dw, epsilon) {
+  var eps = epsilon === undefined ? 0.5 : epsilon
+  var bad = []
+  for (var i = 0; i < before.length; i++) {
+    for (var j = 0; j < after.length; j++) {
+      if (after[j].node !== before[i].node) continue
+      var keptLeft = Math.abs(after[j].left - before[i].left) <= eps
+      var keptRight = Math.abs(after[j].right - before[i].right - dw) <= eps
+      if (!keptLeft && !keptRight) bad.push({ path: before[i].path, before: [before[i].left, before[i].right], after: [after[j].left, after[j].right] })
+    }
+  }
+  return bad
+}

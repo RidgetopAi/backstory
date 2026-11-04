@@ -28,19 +28,20 @@ Item {
   // outside this file).
   readonly property alias view: view
 
-  // Zoom: the card fills the window and content renders at
-  // (window width / baseWidth) x userZoom. userZoom is the Ctrl+= / Ctrl+- /
-  // Ctrl+0 factor, clamped to [minUserZoom, maxUserZoom]. baseWidth is the
-  // bar popup's card inside its border, the window a pop-out opens at, so
-  // it shows the popup's view at 1x.
+  // The card fills the window and its content reflows with the window, as a
+  // web page does: resizing changes the room the view lays out in, not the
+  // size of its text. zoom is the Ctrl+= / Ctrl+- / Ctrl+0 factor (userZoom),
+  // clamped to [minUserZoom, maxUserZoom]. baseWidth is the bar popup's card
+  // inside its border, the size a pop-out opens at.
   readonly property var popupBorder: Border.surfaceSpec("popups", "border", Commons.Color.popups.border, Math.max(1, Style.space(2)))
   readonly property real baseWidth: Style.space(380) - Border.left(root.popupBorder) - Border.right(root.popupBorder)
   readonly property real baseHeight: Style.space(640)
+  readonly property real minWidth: Style.space(200)
   readonly property real minUserZoom: 0.75
   readonly property real maxUserZoom: 2.5
   readonly property real zoomStep: 0.1
   property real userZoom: 1.0
-  readonly property real zoom: panel.width / root.baseWidth * root.userZoom
+  readonly property real zoom: root.userZoom
 
   function setUserZoom(value) {
     var clamped = Math.max(root.minUserZoom, Math.min(root.maxUserZoom, value))
@@ -332,6 +333,7 @@ Item {
     onVisibleChanged: if (!panel.visible && root.opened) root.close()
     implicitWidth: root.baseWidth
     implicitHeight: Math.min(root.baseHeight, view.implicitHeight * root.zoom)
+    minimumSize: Qt.size(root.minWidth, 0)
 
     // The window's fill. Hyprland draws its border, corners and shadow, as
     // on any other window, so the card draws none of its own.
@@ -373,14 +375,15 @@ Item {
         width: card.width
       }
 
-      // Everything scales as one: the view is laid out at card size / zoom
-      // and scaled up by zoom, so text, rows and spacing grow together and
-      // the extra height scrolls in the view's Flickable.
+      // The view is laid out at card size / zoom and scaled up by zoom, so
+      // it always fills the card: at zoom 1 a wider window gives it more
+      // width, and the extra height scrolls in the view's Flickable.
       ThisWeekView {
         id: view
         y: handle.height
         width: card.width / root.zoom
         height: (card.height - handle.height) / root.zoom
+        restingWidth: root.baseWidth
         scale: root.zoom
         transformOrigin: Item.TopLeft
         // The popup card's inset inside its border (KeyboardPanel's

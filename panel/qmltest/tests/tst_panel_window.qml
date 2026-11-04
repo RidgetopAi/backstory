@@ -2,6 +2,7 @@ import QtQuick
 import QtTest
 import Quickshell
 import Quickshell.Io
+import qs.Commons
 
 // Task 93f7c6fd: the panel's top-level window is a regular FloatingWindow
 // (Hyprland-managed, so move/resize binds work), never a layer-shell
@@ -34,6 +35,26 @@ TestCase {
     compare(loader.item.windowTitle, "backstory")
     compare(w.title, "backstory")
     loader.destroy()
+  }
+
+  // The window can be made no narrower than 200 px at the default text
+  // size, and the minimum grows with the text as the popup's width does.
+  function test_window_minimum_width_grows_with_the_text_data() {
+    return [
+      { tag: "base-size 12", fontScale: 1, minWidth: 200 },
+      { tag: "base-size 20", fontScale: 20 / 12, minWidth: 333 }
+    ]
+  }
+
+  function test_window_minimum_width_grows_with_the_text(row) {
+    Style.testFontScale = row.fontScale
+    ProcessController.reset()
+    Quickshell.reset()
+    var loader = panelComponent.createObject(testCase)
+    tryCompare(loader, "status", Loader.Ready, 2000)
+    compare(loader.item.testWindow.minimumSize.width, row.minWidth)
+    loader.destroy()
+    Style.testFontScale = 1
   }
 
   function makePanel() {

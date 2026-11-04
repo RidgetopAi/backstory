@@ -173,6 +173,42 @@ TestCase {
     compare(labels[0].text, "from " + imported[0].origin_device_name)
   }
 
+  // A window narrower than the popup leaves a record's header less room:
+  // its kind, device chip and age stop short of Edit and Delete, never
+  // under them.
+  function test_record_header_stops_short_of_its_buttons_in_a_narrow_window() {
+    openMemory(readFixture(recordsGolden))
+    panel.testWindow.width = Math.round(panel.baseWidth * 0.6)
+    function rows(name) { return TestUtil.findAll(panel.testContentItem, function (n) { return n.objectName === name && n.visible }) }
+    act.settled(function () { return rows("recordInfoRow").length > 0 && rows("recordInfoRow").length === rows("recordActions").length }, "record header rows never rendered")
+    var info = rows("recordInfoRow")
+    var actions = rows("recordActions")
+    for (var i = 0; i < info.length; i++) {
+      var infoRight = info[i].mapToItem(null, info[i].width, 0).x
+      var actionsLeft = actions[i].mapToItem(null, 0, 0).x
+      verify(infoRight <= actionsLeft, "record " + i + " header ends at " + infoRight + ", past its buttons at " + actionsLeft)
+      verify(info[i].clip, "record " + i + " header does not clip")
+    }
+  }
+
+  // As the window widens, every control keeps its place against the left
+  // edge or against the right edge (tst_panel_redesign checks the other views).
+  function test_controls_keep_an_edge_as_the_window_widens() {
+    openMemory(readFixture(recordsGolden))
+    var win = panel.testWindow
+    var card = panel.testKeyItem
+    var dw = Math.round(panel.baseWidth)
+    win.width = Math.round(panel.baseWidth * 1.25)
+    act.settledEq(card, "width", win.width)
+    act.drain()
+    var before = TestUtil.controlEdges(panel.testContentItem, card)
+    verify(before.length > 0, "no controls found")
+    win.width += dw
+    act.settledEq(card, "width", win.width)
+    act.drain()
+    compare(JSON.stringify(TestUtil.controlsPinnedToNoEdge(before, TestUtil.controlEdges(panel.testContentItem, card), dw)), "[]")
+  }
+
   function test_history_toggle_reruns_with_history_and_marks_deleted() {
     var text = readFixture(historyGolden)
     openMemory(readFixture(recordsGolden))

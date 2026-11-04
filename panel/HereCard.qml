@@ -13,6 +13,8 @@ Rectangle {
   id: root
   objectName: "hereCard"
 
+  // The card's width at the bar popup's size.
+  property real restingWidth: width
   property var summary: null
   property string hereName: ""
   property string hereSource: ""
@@ -127,21 +129,49 @@ Rectangle {
       wrapMode: Text.WordWrap
     }
 
-    // Continue takes the width the other two leave, so the row ends at the
-    // card's inner edge whatever the agent's name.
-    Row {
+    // At the popup's size the buttons share one line and Continue takes the
+    // width the other two leave, so the row ends at the card's inner edge.
+    // A wider card keeps the row at that width against the right edge. A
+    // narrower one narrows Continue down to its label, then breaks the
+    // buttons onto more lines, each against the right edge. Labels keep
+    // their size throughout.
+    Item {
       id: buttons
-      width: parent.width
-      spacing: Style.spacing.controlGap
+      objectName: "hereButtons"
+      readonly property real gap: Style.spacing.controlGap
+      readonly property real restingWidth: root.restingWidth - (root.width - column.width)
+      readonly property real othersWidth: terminalButton.width + gap + memoryButton.width
+      readonly property bool oneLine: continueButton.implicitWidth + gap + othersWidth <= width
+      readonly property bool othersOnOneLine: othersWidth <= width
+      width: Math.min(parent.width, restingWidth)
+      x: parent.width - width
+      height: memoryButton.y + memoryButton.height
 
       LabelButton {
+        id: continueButton
         objectName: "hereContinue"
-        width: buttons.width - terminalButton.width - memoryButton.width - buttons.spacing * 2
+        width: buttons.oneLine ? buttons.width - buttons.gap - buttons.othersWidth : Math.min(implicitWidth, buttons.width)
+        x: buttons.oneLine ? 0 : buttons.width - width
         label: root.continueLabel
         onClicked: root.continueRequested()
       }
-      LabelButton { id: terminalButton; label: "Terminal"; onClicked: root.terminalRequested() }
-      LabelButton { id: memoryButton; objectName: "hereMemory"; label: "Memory"; onClicked: root.memoryRequested() }
+      LabelButton {
+        id: terminalButton
+        width: Math.min(implicitWidth, buttons.width)
+        x: buttons.othersOnOneLine ? buttons.width - buttons.othersWidth : buttons.width - width
+        y: buttons.oneLine ? 0 : continueButton.height + buttons.gap
+        label: "Terminal"
+        onClicked: root.terminalRequested()
+      }
+      LabelButton {
+        id: memoryButton
+        objectName: "hereMemory"
+        width: Math.min(implicitWidth, buttons.width)
+        x: buttons.width - width
+        y: buttons.othersOnOneLine ? terminalButton.y : terminalButton.y + terminalButton.height + buttons.gap
+        label: "Memory"
+        onClicked: root.memoryRequested()
+      }
     }
   }
 }
