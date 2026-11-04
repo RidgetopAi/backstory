@@ -190,3 +190,109 @@ func TestLaterFailureHumanAffirmClearsUntilNewFailure(t *testing.T) {
 		t.Fatal("an agent confirm affirm produced a human-declared record")
 	}
 }
+
+// failureFolderFixture: workspace W with NON-git folders A and B (both keyed
+// as the workspace) and a git repo C.
+type failureFolderFixture struct {
+	s          *Store
+	workspaces []string
+	w          string
+	dirA, dirB string
+	dirC       string
+}
+
+func newFailureFolderFixture(t *testing.T) *failureFolderFixture {
+	t.Helper()
+	wsDir := "/tmp/fixture-folder/projects"
+	f := &failureFolderFixture{
+		workspaces: []string{wsDir}, w: "workspace:" + wsDir,
+		dirA: wsDir + "/a", dirB: wsDir + "/b", dirC: wsDir + "/c",
+	}
+	f.s = mustOpen(t, tempDBPath(t))
+	mustUpsertProject(t, f.s, f.w)
+	mustUpsertProject(t, f.s, f.dirC)
+	return f
+}
+
+func (f *failureFolderFixture) session(t *testing.T, cwd, key string) string {
+	t.Helper()
+	id, err := f.s.StartSession(StartSessionParams{Agent: "claude", CWD: cwd, ProjectKey: key, StartedAt: time.Now(), Origin: OriginLive})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+func (f *failureFolderFixture) handoff(t *testing.T, sess, key string) Record {
+	t.Helper()
+	id, err := f.s.InsertRecord(InsertRecordParams{Identity: Identity{Kind: IdentityAgent}, Kind: KindHandoff, Text: "h " + key, SessionID: sess, ProjectKey: key})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec, err := f.s.GetRecord(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return rec
+}
+
+// DONE WHEN (1)+(2): a failure in sibling non-git folder B or repo C never
+// flags a handoff written in non-git folder A; a failure in A does.
+func TestLaterFailureSiblingNonGitFolderDoesNotCount(t *testing.T) {
+	f := newFailureFolderFixture(t)
+	sessA, sessB, sessC := f.session(t, f.dirA, f.w), f.session(t, f.dirB, f.w), f.session(t, f.dirC, f.dirC)
+	hA := f.handoff(t, sessA, f.w)
+
+	mustAppendAgentFailure(t, f.s, sessB, "b1", "adb kill-server; adb devices", 1)
+	mustAppendAgentFailure(t, f.s, sessC, "c1", "make", 2)
+	if got := failureReasons(t, f.s, hA, f.workspaces); len(got) != 0 {
+		t.Fatalf("failure in sibling folder B / repo C flagged A's handoff: %+v", got)
+	}
+
+	sessA2 := f.session(t, f.dirA, f.w)
+	failA := mustAppendAgentFailure(t, f.s, sessA2, "a1", "make", 2)
+	got := failureReasons(t, f.s, hA, f.workspaces)
+	if len(got) != 1 || fmt.Sprint(got[0].EventIDs) != fmt.Sprint([]int64{failA}) {
+		t.Fatalf("failure in A: %+v, want one citing %d", got, failA)
+	}
+}
+
+// DONE WHEN (2): for a handoff written in git repo C, a failure in another
+// session in C counts; one in non-git folder A does not.
+func TestLaterFailureGitRepoSameToplevelCounts(t *testing.T) {
+	f := newFailureFolderFixture(t)
+	sessA, sessC := f.session(t, f.dirA, f.w), f.session(t, f.dirC, f.dirC)
+	// a handoff written from a repo under a workspace is filed under the
+	// workspace's home key (handleNote), so its home covers A, B and C.
+	hC := f.handoff(t, sessC, f.w)
+
+	mustAppendAgentFailure(t, f.s, sessA, "a1", "make", 2)
+	if got := failureReasons(t, f.s, hC, f.workspaces); len(got) != 0 {
+		t.Fatalf("failure in A flagged C's handoff: %+v", got)
+	}
+	sessC2 := f.session(t, f.dirC+"/sub", f.dirC)
+	failC := mustAppendAgentFailure(t, f.s, sessC2, "c1", "go test", 1)
+	got := failureReasons(t, f.s, hC, f.workspaces)
+	if len(got) != 1 || fmt.Sprint(got[0].EventIDs) != fmt.Sprint([]int64{failC}) {
+		t.Fatalf("failure in C: %+v, want one citing %d", got, failC)
+	}
+}
+
+// DONE WHEN (3): a workspace-keyed handoff with no writing session only
+// counts failures from sessions started exactly at the workspace toplevel.
+func TestLaterFailureNoWritingSessionCountsOnlyToplevel(t *testing.T) {
+	f := newFailureFolderFixture(t)
+	wsDir := f.workspaces[0]
+	sessA, sessTop := f.session(t, f.dirA, f.w), f.session(t, wsDir, f.w)
+	h := f.handoff(t, "", f.w)
+
+	mustAppendAgentFailure(t, f.s, sessA, "a1", "make", 2)
+	if got := failureReasons(t, f.s, h, f.workspaces); len(got) != 0 {
+		t.Fatalf("failure in A flagged a session-less workspace handoff: %+v", got)
+	}
+	failTop := mustAppendAgentFailure(t, f.s, sessTop, "t1", "make", 2)
+	got := failureReasons(t, f.s, h, f.workspaces)
+	if len(got) != 1 || fmt.Sprint(got[0].EventIDs) != fmt.Sprint([]int64{failTop}) {
+		t.Fatalf("failure at toplevel: %+v, want one citing %d", got, failTop)
+	}
+}

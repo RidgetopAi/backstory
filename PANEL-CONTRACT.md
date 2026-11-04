@@ -94,7 +94,9 @@ window (the same set Where-you-left-off lists).
   for a later failure, names the failed command/tool (truncated) and its exit code, e.g.
   `wobble-party: handoff possibly stale — cargo test failed (exit 101) after it`. A later
   failure counts only an AGENT `tool.result` (`is_error` / non-zero exit) located in the
-  handoff's own project — human shell-capture commands and other repos never do. A handoff
+  handoff's own folder (the session that wrote it started there: same cwd or same git
+  toplevel; with no such session, only sessions started exactly at its project toplevel) —
+  human shell-capture commands, sibling folders under a workspace, and other repos never do. A handoff
   appears at most once; `backstory affirm <handoff-id>` (human-only) clears it until new
   evidence arrives.
 - `uncommitted-at-session-end` — a `session.git_state` event this week observed the session's
