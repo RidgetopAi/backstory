@@ -556,6 +556,7 @@ Item {
           width: parent.width
           summary: root.hereProject
           hereName: root.hereName
+          hereSource: root.hereData ? (Model.hereSource(root.hereData) || "") : ""
           defaultAgent: continueAction.defaultAgent
           continueLabel: continueAction.labelFor(root.hereProject)
           expanded: root.hereProject !== null && !!root.expandedRows[root.rowId(root.hereProject)]

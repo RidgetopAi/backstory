@@ -142,3 +142,12 @@ function summaryLine(totals) {
   return "This week: " + totals.projects + " projects \u00b7 " + totals.sessions + " sessions \u00b7 "
     + totals.files + " files \u00b7 " + totals.notes + " notes"
 }
+
+// The HERE card's hint: where `here.source` came from. Only the sources
+// this-week really reports get one; arg, none and anything unknown give "".
+function hereSourceHint(source) {
+  if (source === "focused") return "from your focused terminal"
+  if (source === "last_focused") return "from your last focused terminal"
+  if (source === "recent") return "most recent project"
+  return ""
+}

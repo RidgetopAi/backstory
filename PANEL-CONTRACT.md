@@ -40,10 +40,10 @@ byte-for-byte unchanged: no `here` key, no `window` fields.
 
 | Field          | Type   | Meaning |
 |----------------|--------|---------|
-| `project_key`  | string | `internal/project.Key` of the folder — the daemon's own function, so a worktree resolves to its main checkout's key and a non-git folder under a workspace dir to the workspace key. `""` only when `source` is `recent` and there is no activity at all. |
+| `project_key`  | string | `internal/project.Key` of the folder — the daemon's own function, so a worktree resolves to its main checkout's key and a non-git folder under a workspace dir to the workspace key. `""` only when `source` is `none`. |
 | `display_name` | string | The stored project's display name when known, else the folder's label. |
 | `cwd`          | string | The resolved folder (for `recent`: the project's `cwd`). |
-| `source`       | string | `arg` (DIR given), `focused` (the folder of the most recently focused window that is in an in-scope project), `recent` (the most recently active where-you-left-off project — `--here auto` found no such window). |
+| `source`       | string | `arg` (DIR given), `focused` (the folder of the active window), `last_focused` (the folder of an earlier window in Hyprland's focus history, because the active window was Backstory's panel, a browser or out of scope), `recent` (the most recently active where-you-left-off project — `--here auto` found no such window), `none` (no window qualified and there is no activity at all). The panel shows a hint for `focused`, `last_focused` and `recent` only. |
 
 `--here auto` takes the active window (`hyprctl activewindow -j`), then every window in
 Hyprland's focus history (`hyprctl clients -j`, `focusHistoryID` 0 first), and uses the first

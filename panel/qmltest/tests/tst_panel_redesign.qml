@@ -124,6 +124,43 @@ TestCase {
     for (var i = 0; i < tree.length; i++) verify(tree[i].toUpperCase().indexOf("THE WEEK") < 0, "found 'THE WEEK': " + tree[i])
   }
 
+  // The HERE card says where "here" came from, for the real sources only.
+  function test_here_card_source_hint() {
+    var cases = [
+      { source: "focused", hint: "from your focused terminal" },
+      { source: "last_focused", hint: "from your last focused terminal" },
+      { source: "recent", hint: "most recent project" }
+    ]
+    for (var i = 0; i < cases.length; i++) {
+      var c = cases[i]
+      open(payload(function (d) { d.here.source = c.source }))
+      compare(named("hereSourceHint").text, c.hint, "source " + c.source)
+      verify(named("hereSourceHint").visible, "hint hidden for " + c.source)
+      verify(hasText(c.hint), "hint not in visible texts for " + c.source)
+      for (var j = 0; j < cases.length; j++) {
+        if (j !== i) verify(!hasText(cases[j].hint), c.source + " also showed " + cases[j].hint)
+      }
+      panel.close()
+    }
+  }
+
+  function test_here_card_no_hint_for_absent_or_unknown_source() {
+    var variants = [
+      function (d) { delete d.here.source },
+      function (d) { d.here.source = "none" },
+      function (d) { d.here.source = "arg" },
+      function (d) { d.here.source = "mystery" },
+      function (d) { d.here.source = "" }
+    ]
+    for (var i = 0; i < variants.length; i++) {
+      open(payload(variants[i]))
+      verify(named("hereCard") !== null, "HERE card missing for variant " + i)
+      verify(named("hereSourceHint") === null, "hint visible for variant " + i)
+      verify(!hasText("from your focused terminal") && !hasText("from your last focused terminal") && !hasText("most recent project"), "hint text shown for variant " + i)
+      panel.close()
+    }
+  }
+
   // The card's buttons span its inner width: the last ends as far from the
   // card's right edge as the first starts from its left and the row sits
   // from its bottom, whether the Continue label is long or short.

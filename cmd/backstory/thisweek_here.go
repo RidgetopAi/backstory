@@ -24,7 +24,13 @@ const hereAuto = "auto"
 const (
 	hereSourceArg     = "arg"
 	hereSourceFocused = "focused"
-	hereSourceRecent  = "recent"
+	// hereSourceLastFocused is a terminal that was focused earlier: the active
+	// window was Backstory's own panel, a browser or out of scope, and the
+	// folder came from Hyprland's focus history.
+	hereSourceLastFocused = "last_focused"
+	hereSourceRecent      = "recent"
+	// hereSourceNone is a fallback with no activity to name at all.
+	hereSourceNone = "none"
 )
 
 // External-command tunables. hyprctl and tmux are looked up on PATH.
@@ -432,12 +438,17 @@ func (r hereResolver) resolveHere(arg string) (*hereJSON, error) {
 		}
 		return r.recent(), nil
 	}
-	for _, w := range focusOrder() {
+	order, activeFirst := focusOrder()
+	for i, w := range order {
 		if isBackstoryPanel(w) {
 			continue
 		}
 		if dir, ok := folderOfWindowPID(r.procs, w.PID); ok && r.scoped(dir) {
-			h := r.here(dir, hereSourceFocused)
+			source := hereSourceLastFocused
+			if i == 0 && activeFirst {
+				source = hereSourceFocused
+			}
+			h := r.here(dir, source)
 			return &h, nil
 		}
 	}
@@ -449,10 +460,13 @@ func (r hereResolver) resolveHere(arg string) (*hereJSON, error) {
 // of them whose folder is an in-scope project: Backstory's own panel, a
 // browser or an out-of-scope window in front is passed over, not taken as
 // "no project here".
-func focusOrder() []hyprWindow {
-	var out []hyprWindow
+//
+// activeFirst reports that out[0] is the active window itself, so a folder
+// taken from it is the focused terminal rather than a last-focused one.
+func focusOrder() (out []hyprWindow, activeFirst bool) {
 	if w, err := hyprActiveWindow(); err == nil {
 		out = append(out, w)
+		activeFirst = true
 	}
 	if ws, err := hyprClients(); err == nil {
 		sort.SliceStable(ws, func(i, j int) bool { return ws[i].FocusHistoryID < ws[j].FocusHistoryID })
@@ -462,7 +476,7 @@ func focusOrder() []hyprWindow {
 			}
 		}
 	}
-	return out
+	return out, activeFirst
 }
 
 // Backstory's own panel window, as ops/hyprland/backstory.lua matches it
@@ -484,7 +498,7 @@ func (r hereResolver) recent() *hereJSON {
 	if p, ok := firstProject(r.result); ok {
 		return &hereJSON{ProjectKey: p.ProjectKey, DisplayName: p.DisplayName, CWD: p.CWD, Source: hereSourceRecent}
 	}
-	return &hereJSON{Source: hereSourceRecent}
+	return &hereJSON{Source: hereSourceNone}
 }
 
 // tmuxPaneSep separates the fields of the tmux list-panes format below; a
