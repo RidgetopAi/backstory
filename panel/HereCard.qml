@@ -15,6 +15,7 @@ Rectangle {
 
   property var summary: null
   property string hereName: ""
+  property string hereSource: ""
   property string defaultAgent: ""
   property string continueLabel: ""
   property var week: []
@@ -78,6 +79,18 @@ Rectangle {
         font.capitalization: Font.AllUppercase
         color: Commons.Color.accent
       }
+    }
+
+    Text {
+      objectName: "hereSourceHint"
+      visible: text !== ""
+      width: parent.width
+      textFormat: Text.PlainText
+      text: Format.hereSourceHint(root.hereSource)
+      font.family: Style.font.family
+      font.pixelSize: Style.font.bodySmall
+      color: Qt.darker(Commons.Color.popups.text, 1.3)
+      elide: Text.ElideRight
     }
 
     Text {

@@ -599,7 +599,7 @@ func TestHereAutoSkipsBrowserWindows(t *testing.T) {
 	e.addProc(t, 401, 1, "ghostty", e.home, "")
 	e.addProc(t, 411, 401, "bash", e.bar, "")
 	m := mustRun(t, e, "--here", "auto")
-	if h := hereOf(t, m); h["project_key"] != e.barKey || h["source"] != "focused" {
+	if h := hereOf(t, m); h["project_key"] != e.barKey || h["source"] != "last_focused" {
 		t.Fatalf("here = %v; want bar, the next window in focus history, not the browser helper's folder", h)
 	}
 	got := windowsByKey(t, m)
@@ -643,7 +643,7 @@ func TestHereAutoWalksFocusHistory(t *testing.T) {
 	t.Run("passes over the panel and a browser", func(t *testing.T) {
 		e := setup(t)
 		h := hereOf(t, mustRun(t, e, "--here", "auto"))
-		if h["project_key"] != e.quxKey || h["source"] != "focused" {
+		if h["project_key"] != e.quxKey || h["source"] != "last_focused" {
 			t.Fatalf("here = %v; want qux, the most recently focused project window", h)
 		}
 	})
@@ -651,8 +651,57 @@ func TestHereAutoWalksFocusHistory(t *testing.T) {
 		e := setup(t)
 		t.Setenv("BACKSTORY_PROJECT_ROOTS", e.foo+string(os.PathListSeparator)+e.bar)
 		h := hereOf(t, mustRun(t, e, "--here", "auto"))
-		if h["project_key"] != e.barKey || h["source"] != "focused" {
+		if h["project_key"] != e.barKey || h["source"] != "last_focused" {
 			t.Fatalf("here = %v; want bar (qux is out of scope)", h)
+		}
+	})
+}
+
+// Every value of here.source, each from a recording hyprctl stub: the panel's
+// HERE card hint reads it instead of re-deriving it.
+func TestHereSourceValues(t *testing.T) {
+	active := `{"address":"0xa","class":"ghostty","pid":100}`
+	panelWin := `{"address":"0xp","class":"org.quickshell","title":"backstory","pid":900}`
+	history := `[{"address":"0xq","class":"ghostty","pid":402,"focusHistoryID":1}]`
+	setup := func(t *testing.T, activeJSON, clients string) *hereEnv {
+		e := newHereEnv(t)
+		e.fakeHyprctl(t, activeJSON, clients)
+		e.addProc(t, 100, 1, "ghostty", e.home, "")
+		e.addProc(t, 101, 100, "bash", e.foo, "")
+		e.addProc(t, 900, 1, "quickshell", e.home, "")
+		e.addProc(t, 402, 1, "ghostty", e.home, "")
+		e.addProc(t, 412, 402, "bash", e.qux, "")
+		return e
+	}
+	t.Run("focused", func(t *testing.T) {
+		e := setup(t, active, history)
+		if h := hereOf(t, mustRun(t, e, "--here", "auto")); h["source"] != "focused" || h["project_key"] != e.fooKey {
+			t.Fatalf("here = %v", h)
+		}
+	})
+	t.Run("last_focused", func(t *testing.T) {
+		e := setup(t, panelWin, history)
+		if h := hereOf(t, mustRun(t, e, "--here", "auto")); h["source"] != "last_focused" || h["project_key"] != e.quxKey {
+			t.Fatalf("here = %v", h)
+		}
+	})
+	t.Run("recent", func(t *testing.T) {
+		e := setup(t, panelWin, `[]`)
+		if h := hereOf(t, mustRun(t, e, "--here", "auto")); h["source"] != "recent" || h["project_key"] == "" {
+			t.Fatalf("here = %v", h)
+		}
+	})
+	t.Run("none", func(t *testing.T) {
+		e := setup(t, panelWin, `[]`)
+		t.Setenv("BACKSTORY_PROJECT_ROOTS", t.TempDir())
+		if h := hereOf(t, mustRun(t, e, "--here", "auto")); h["source"] != "none" || h["project_key"] != "" {
+			t.Fatalf("here = %v", h)
+		}
+	})
+	t.Run("arg", func(t *testing.T) {
+		e := setup(t, active, history)
+		if h := hereOf(t, mustRun(t, e, "--here", e.bar)); h["source"] != "arg" {
+			t.Fatalf("here = %v", h)
 		}
 	})
 }

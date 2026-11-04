@@ -213,7 +213,9 @@ From top to bottom:
 
 - **Header**: "Backstory" and a one-line summary of the week.
 - **Here card**: the project you're in right now (the folder of your focused terminal), with
-  **Continue**, **Terminal** and **Memory** buttons.
+  **Continue**, **Terminal** and **Memory** buttons. A muted line under the title says where
+  "here" came from: your focused terminal, your last focused terminal (when the panel or a
+  browser has focus), or the most recent project.
 - **NEEDS YOU**: only shown when something needs a look. It can show:
   - a handoff that's **possibly stale** (it has a **Dismiss** button: click it if the handoff
     is still right)
