@@ -217,8 +217,12 @@ From top to bottom:
   "here" came from: your focused terminal, your last focused terminal (when the panel or a
   browser has focus), or the most recent project.
 - **NEEDS YOU**: only shown when something needs a look. It can show:
-  - a handoff that's **possibly stale** (it has a **Dismiss** button: click it if the handoff
-    is still right)
+  - a handoff that's **possibly stale**. The row says which handoff it is ("handoff from Nov 1
+    may be out of date"), shows its first line, and says what happened since ("Since then: a
+    command failed in projects/vidflow (Nov 3)"). Click the row (or press Enter or Space on it)
+    to see every reason with when and where it happened and its full text. **Still right** marks
+    the handoff as correct (the same as `backstory affirm`); it stops showing until something
+    new happens
   - a session that ended with **uncommitted changes**
   - a **contradiction**: one record says another is wrong, with evidence
   - an **expired claim** with no outcome recorded
@@ -428,7 +432,7 @@ backstory delete 3947dcca --yes    # no question
 ### affirm
 
 Tells Backstory "this handoff is still right", which clears its **possibly stale** flag until
-new evidence turns up. Same as the panel's **Dismiss** button. Human-only.
+new evidence turns up. Same as the panel's **Still right** button. Human-only.
 
 ```
 backstory affirm 090af43a
@@ -720,7 +724,7 @@ so don't paste them into a session you want remembered.
 | Fix a wrong record | `backstory edit <id>`, or **Edit** in the Memory view |
 | Delete one record | `backstory delete <id>`, or **Forget** on the record |
 | Forget an hour, a day, or a whole project | `backstory purge … --dry-run` first, or **Forget activity and saved records** |
-| Say a flagged handoff is still right | `backstory affirm <id>`, or **Dismiss** in NEEDS YOU |
+| Say a flagged handoff is still right | `backstory affirm <id>`, or **Still right** in NEEDS YOU |
 
 `BACKSTORY_OFF=1` affects only that one program and anything it starts. Other sessions keep
 recording as normal.
@@ -830,7 +834,8 @@ Set `BACKSTORY_PROJECT_ROOTS` ([section 8](#8-settings)), or remove them with
 
 **A handoff says "possibly stale"**
 Something happened after it was written, such as a failed command or a later edit to a file it
-names. Read it. If it's still right, **Dismiss** it (or `backstory affirm <id>`). If not, ask
+names. Click the row in NEEDS YOU to see what happened and when. If the handoff is still right,
+press **Still right** (or run `backstory affirm <id>`). If not, ask
 the agent for a fresh handoff.
 
 **Sync is failing**

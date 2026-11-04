@@ -42,6 +42,12 @@ function attentionProjectKey(item) { return item.project_key }
 function attentionReason(item) { return item.reason }
 // Set only on a possibly-stale-handoff item: the id `backstory affirm` takes.
 function attentionHandoffId(item) { return item.handoff_id || "" }
+// Set only on a possibly-stale-handoff item (PANEL-CONTRACT.md "Attention"):
+// the handoff's ISO time and one-line summary, and one entry per freshness
+// reason ({kind, when, where, text}). Absent from older payloads.
+function attentionHandoffTime(item) { return item.handoff_time || "" }
+function attentionHandoffSummary(item) { return item.handoff_summary || "" }
+function attentionReasons(item) { return item.reasons || [] }
 function attentionEvidenceIds(item) { return item.evidence_ids || [] }
 // sync-failing: cross-device sync is on and not syncing (project_key "sync",
 // evidence_ids the sync_attempts row ids). Not project evidence, so it has

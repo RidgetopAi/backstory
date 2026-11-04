@@ -1055,7 +1055,7 @@ func staleReasons(st *store.Store, reasons []store.FreshnessReason, workspaces [
 			case store.FreshnessLaterFailure:
 				sr.Text = failureText(r.Failures)
 			case store.FreshnessLaterUnrecordedWork:
-				sr.Text = r.UnrecordedWorkClause()
+				sr.Text = strings.TrimPrefix(r.UnrecordedWorkClause(), "since then ")
 			default:
 				n := len(r.EventIDs)
 				sr.Text = fmt.Sprintf("%d later %s touched files the handoff names", n, map[bool]string{true: "event", false: "events"}[n == 1])

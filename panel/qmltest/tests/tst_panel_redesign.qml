@@ -771,14 +771,98 @@ TestCase {
     act.moveAway(panel.testContentItem)
   }
 
-  function test_needs_you_shows_the_thing_then_a_label_and_details() {
+  readonly property string longCommand: "cargo run --release -p omarcade-warden --example art_review -- " + "x".repeat(80)
+
+  function structuredStale() {
+    return {
+      kind: "possibly-stale-handoff", project_key: "workspace:/w/projects", handoff_id: "h-vid",
+      // The legacy reason names a different command and date on purpose: the
+      // row must be built from the structured fields, not from this string.
+      reason: "projects/vidflow: handoff possibly stale \u2014 legacy-cmd failed (exit 9) after it",
+      handoff_time: "2026-11-01T12:00:00Z",
+      handoff_summary: "Resume: ship the vidflow render path",
+      reasons: [
+        { kind: "later-record", when: "2026-11-02T12:00:00Z", where: "projects/vidflow", text: "RESOLVED: Claude Desktop threads" },
+        { kind: "later-failure", when: "2026-11-03T12:00:00Z", where: "projects/vidflow", text: longCommand + " failed (exit 101)" }
+      ],
+      evidence_ids: ["7"]
+    }
+  }
+
+  function openStructured() {
+    open(payload(function (d) { d.attention = [structuredStale()] }))
+  }
+
+  function test_stale_row_collapsed_shows_handoff_and_since_then() {
+    openStructured()
+    verify(hasText("projects/vidflow: handoff from Nov 1 may be out of date"), "headline missing: " + JSON.stringify(texts()))
+    verify(hasText("Resume: ship the vidflow render path"), "handoff summary missing")
+    verify(hasText("Since then: a newer note (Nov 2): RESOLVED: Claude Desktop threads"), "since-then line missing: " + JSON.stringify(texts()))
+    verify(!hasText("Command failed."), "the old label is back")
+    verify(!hasText("Details"), "the hover-only Details link is back")
+    compare(textContaining("legacy-cmd"), "", "the row must not be built from the reason string")
+    compare(textContaining("art_review"), "", "reasons stay hidden until the row is expanded")
+  }
+
+  function test_since_then_names_a_failed_command_and_where() {
     open(payload(function (d) {
-      d.attention.push({ kind: "possibly-stale-handoff", project_key: "foo", reason: "foo: handoff possibly stale — cargo test failed (exit 101) after it", handoff_id: "h-foo", evidence_ids: ["7"] })
+      var it = structuredStale()
+      it.reasons = [it.reasons[1]]
+      d.attention = [it]
+    }))
+    verify(hasText("Since then: a command failed in projects/vidflow (Nov 3)"), "got " + JSON.stringify(texts()))
+  }
+
+  function attentionRow() { return named("attentionRow") }
+
+  function test_expanding_a_row_shows_every_reason_in_full_and_collapsing_hides_them() {
+    openStructured()
+    act.clickWhenReady(function () { return named("attentionRowClick") }, { desc: "stale row" })
+    act.settled(function () { return textContaining("art_review") !== "" }, "reasons never appeared")
+    verify(hasText("RESOLVED: Claude Desktop threads"), "first reason text missing")
+    verify(hasText(longCommand + " failed (exit 101)"), "full failed command missing: " + JSON.stringify(texts()))
+    var whens = texts().filter(function (t) { return t.indexOf(" \u00b7 projects/vidflow") >= 0 })
+    compare(whens.length, 2, "each reason shows when and where: " + JSON.stringify(texts()))
+    act.clickWhenReady(function () { return named("attentionRowClick") }, { desc: "stale row again" })
+    act.settled(function () { return textContaining("art_review") === "" }, "reasons stayed after collapsing")
+  }
+
+  function test_enter_on_the_focused_row_expands_it() {
+    openStructured()
+    attentionRow().forceActiveFocus()
+    act.pressKey(Qt.Key_Return)
+    act.settled(function () { return textContaining("art_review") !== "" }, "Enter did not expand")
+    act.pressKey(Qt.Key_Return)
+    act.settled(function () { return textContaining("art_review") === "" }, "Enter did not collapse")
+    act.pressKey(Qt.Key_Space)
+    act.settled(function () { return textContaining("art_review") !== "" }, "Space did not expand")
+  }
+
+  function test_still_right_button_label_and_tooltip() {
+    openStructured()
+    var button = named("attentionDismiss")
+    verify(button.visible)
+    compare(button.label, "Still right")
+    compare(attentionRow().stillRightTip,
+      "Mark this handoff as still correct; it stops showing here until something new happens.")
+    verify(!hasText("Dismiss"))
+  }
+
+  function test_still_right_runs_affirm_with_the_handoff_id() {
+    openStructured()
+    ProcessController.reset()
+    ProcessController.respond(Launchers.thisWeekCommand(), { stdout: JSON.stringify(payload()), stderr: "", exitCode: 0 })
+    act.clickWhenReady(function () { return named("attentionDismiss") }, { desc: "Still right" })
+    var affirmJson = JSON.stringify(Launchers.affirmCommand("h-vid"))
+    act.launchedNext(function (r) { return JSON.stringify(r.command) === affirmJson }, "affirm")
+  }
+
+  function test_a_stale_row_without_structured_fields_still_renders() {
+    open(payload(function (d) {
+      d.attention.push({ kind: "possibly-stale-handoff", project_key: "foo", reason: "foo: handoff possibly stale \u2014 cargo test failed (exit 101) after it", handoff_id: "h-foo", evidence_ids: ["7"] })
     }))
     verify(hasText("foo: handoff possibly stale"), "attention line missing: " + JSON.stringify(texts()))
-    verify(hasText("Command failed."), "detail label missing")
-    verify(hasText("Details"), "Details link missing")
-    compare(textContaining("cargo test failed"), "", "the raw detail belongs in the Details tooltip, not the panel")
+    verify(!hasText("Details"))
   }
 
   function staleHandoff(key) {
