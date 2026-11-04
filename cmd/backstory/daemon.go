@@ -136,6 +136,7 @@ func runDaemon(_ []string, stdout, stderr io.Writer) int {
 	srv, err := socket.Listen(sockPath, resolver, func(id ident.Identity, conn net.Conn) {
 		defer func() { _ = conn.Close() }()
 		logIdentity(logger, id)
+		testSlowHandler()
 		mcp.ServeDaemonConn(id, conn, st, procfs, project.RealGit{}, logger, sessions, captureOff, workspaceDirs)
 	})
 	if err != nil {

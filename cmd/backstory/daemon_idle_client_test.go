@@ -21,7 +21,7 @@ func TestDaemonSIGTERMWithIdleClientExitsCleanly(t *testing.T) {
 	runtimeDir := t.TempDir()
 
 	cmd := exec.Command(bin, "daemon") //nolint:gosec // bin is the binary this test just built, not external input
-	cmd.Env = testXDGEnv("XDG_RUNTIME_DIR="+runtimeDir, "XDG_DATA_HOME="+t.TempDir())
+	cmd.Env = testXDGEnv("XDG_RUNTIME_DIR="+runtimeDir, "XDG_DATA_HOME="+t.TempDir(), slowHandlerEnvVar+"=1000")
 	var out safeBuffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
@@ -59,7 +59,9 @@ func TestDaemonSIGTERMWithIdleClientExitsCleanly(t *testing.T) {
 	// A successful dial only means the kernel queued the connection; closing
 	// the listener before Accept takes it resets it. Each accepted connection
 	// logs one identity line, so wait for the second (idle, then busy) before
-	// signalling: the busy request is then genuinely in the daemon's hands.
+	// signalling: the busy request is then genuinely in the daemon's hands, and
+	// the test-only slow handler keeps it running while shutdown starts, so
+	// the ShutdownGrace guarantee is what delivers its response.
 	waitForIdentityLines(t, out.String, 2, 5*time.Second)
 	if err := cmd.Process.Signal(syscall.SIGTERM); err != nil {
 		t.Fatalf("signal SIGTERM: %v", err)
