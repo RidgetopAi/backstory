@@ -413,7 +413,7 @@ func (s *Store) latestAffirmInforming(handoffID string) (id string, eventCursor 
 		SELECT c.id, c.event_cursor FROM edges e
 		JOIN records c ON c.id = e.from_id
 		WHERE e.to_id = ? AND e.type = ? AND c.kind = ? AND c.promoter IS NULL
-		AND c.text <> ?
+		AND c.text <> ? AND c.tombstoned_at IS NULL
 		ORDER BY c.rowid DESC LIMIT 1`,
 		handoffID, string(EdgeInforms), string(KindConfirm), DoneMarkerText).Scan(&id, &eventCursor)
 	if errors.Is(err, sql.ErrNoRows) {
