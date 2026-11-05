@@ -236,6 +236,32 @@ TestCase {
     }
   }
 
+  // At a fractional display scale a clip flush with a highlight's edge cuts
+  // the highlight's one-pixel border off. The clips make room outside the
+  // content, so the highlight stays at the view's edge.
+  function test_every_clip_leaves_room_for_a_highlights_side_borders() {
+    openWith(readFixture(goldenUrl))
+    // Mapping through the card's opening scale rounds a position below 1.
+    // Exact: tryCompare calls a scale just under 1 equal.
+    act.settled(function () { return panel.testKeyItem.scale === 1 }, "the card never finished opening")
+    var highlights = TestUtil.findAll(panel.testContentItem, function (n) {
+      return n.visible && n.border !== undefined && n.border.width > 0 && n.width > panel.testContentItem.width / 2
+    })
+    verify(highlights.length > 0, "no highlighted card or row in the main view")
+    for (var i = 0; i < highlights.length; i++) {
+      compare(highlights[i].mapToItem(panel.view, 0, 0).x, panel.view.edge, "a highlight moved off the view's edge")
+      var clips = 0
+      for (var a = highlights[i].parent; a !== null; a = a.parent) {
+        if (!a.clip) continue
+        clips++
+        var left = highlights[i].mapToItem(a, 0, 0).x
+        verify(left >= 1, "a clip is flush with a highlight's left border: " + left)
+        verify(left + highlights[i].width <= a.width - 1, "a clip is flush with a highlight's right border")
+      }
+      verify(clips > 0, "a highlight is under no clip, so this test checked nothing")
+    }
+  }
+
   function test_toggle_if_open_leaves_a_closed_window_for_the_popup() {
     listWindow(true, 1)
     compare(panel.toggleIfOpen(), "closed")
