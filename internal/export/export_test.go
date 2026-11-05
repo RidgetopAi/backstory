@@ -475,3 +475,30 @@ func TestBuildShowsFromDeviceForImportedRecords(t *testing.T) {
 		t.Errorf("ledger lines not found (decision=%v local=%v):\n%s", sawDecision, sawLocal, got)
 	}
 }
+
+// A done handoff exports as finished with its date, not stale, no Next.
+func TestBuildDoneHandoffExportsAsFinished(t *testing.T) {
+	st := newTestStore(t)
+	buildExportFixtureStore(t, st)
+	hs, _, err := st.LatestRecord(exportFixtureProject, store.KindHandoff)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.Confirm(store.ConfirmParams{
+		Identity: store.Identity{Kind: store.IdentityHuman, Actor: "human"}, Action: store.ConfirmDone,
+		RecordID: hs.ID, ProjectKey: exportFixtureProject,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Build(Params{Store: st, ProjectKey: exportFixtureProject, Altitude: AltitudeSummary, Now: exportFixtureNow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	resume := got[strings.Index(got, "## Resume"):strings.Index(got, "## Attention")]
+	if !strings.Contains(resume, "Finished (id "+hs.ID) || !strings.Contains(resume, "marked done by you on "+time.Now().UTC().Format("2006-01-02")) {
+		t.Errorf("Resume = %q, want finished with date", resume)
+	}
+	if strings.Contains(got, "possibly stale") || strings.Contains(resume, "Next:") {
+		t.Errorf("done export still stale/next:\n%s", got)
+	}
+}
