@@ -49,7 +49,7 @@ Item {
   property bool helpOpen: false
   // Whichever way a view comes in, it lands under a still pointer. One
   // view opens at a time, the latest: the main view stays live while
-  // Memory waits for its records, and its gear then opens Groups instead.
+  // Memory waits for its records, and its Groups button then opens Groups instead.
   onGroupEditorOpenChanged: {
     pointerGate.reset()
     if (root.groupEditorOpen) { root.memoryOpen = false; root.helpOpen = false }
@@ -173,8 +173,8 @@ Item {
   readonly property string closeHint: (root.canPopOut ? "o pop out \u00b7 " : "")
     + (root.canPin ? (root.pinned ? "p unpin \u00b7 " : "p pin \u00b7 ") : "") + "Esc close"
   readonly property string mainFooterHint: "j/k move \u00b7 \u2192 agents \u00b7 \u2190 fold \u00b7 Enter continue \u00b7 t terminal \u00b7 m memory \u00b7 g groups \u00b7 ? help \u00b7 r refresh \u00b7 " + root.closeHint
-  readonly property string footerHint: root.helpOpen ? "j/k scroll \u00b7 u or ? back \u00b7 " + root.closeHint
-    : root.memoryOpen ? "j/k move \u00b7 \u2192 expand \u00b7 \u2190 fold \u00b7 u back \u00b7 " + root.closeHint
+  readonly property string footerHint: root.helpOpen ? "j/k scroll \u00b7 u back \u00b7 " + root.closeHint
+    : root.memoryOpen ? "j/k move \u00b7 \u2192 expand \u00b7 \u2190 fold \u00b7 Enter toggle \u00b7 u back \u00b7 " + root.closeHint
     : root.groupEditorOpen ? "j/k move \u00b7 Enter pick \u00b7 u back \u00b7 " + root.closeHint : root.mainFooterHint
 
   // Hover moves the one selection the keyboard uses (no second highlight).
@@ -365,17 +365,23 @@ Item {
   // their own keys; the row keys act only on the main body. The text field
   // in Groups keeps the keys it takes: text, and Enter (which adds the
   // group); the rest (Esc, Up and Down) come here.
+  function isBackKey(key) {
+    if (root.memoryOpen) return key === Qt.Key_U || key === Qt.Key_M
+    if (root.groupEditorOpen) return key === Qt.Key_U || key === Qt.Key_G
+    if (root.helpOpen) return key === Qt.Key_U || key === Qt.Key_Question
+    return false
+  }
+
   function handleKey(key, modifiers) {
     pointerGate.reset()
     if (key === Qt.Key_Escape) { root.closeRequested(); return true }
     if (key === Qt.Key_O && root.canPopOut) { root.popOutRequested(); return true }
     if (key === Qt.Key_P && root.canPin) { root.pinRequested(); return true }
-    if (key === Qt.Key_U && (root.groupEditorOpen || root.memoryOpen || root.helpOpen)) { root.showMain(); return true }
+    if (root.isBackKey(key)) { root.showMain(); return true }
     if (root.memoryOpen) return memoryPane.handleKey(key)
     if (root.groupEditorOpen) return groupEditor.handleKey(key)
     if (root.helpOpen) {
       switch (key) {
-      case Qt.Key_Question: root.helpOpen = false; return true
       case Qt.Key_J: case Qt.Key_Down: helpPane.scrollBy(Style.space(48)); return true
       case Qt.Key_K: case Qt.Key_Up: helpPane.scrollBy(-Style.space(48)); return true
       }
@@ -541,30 +547,22 @@ Item {
           statusShown: !root.waitingForFirstData
           statusUrgent: root.attentionItems.length > 0
 
-          HostButtons {
-            canPopOut: root.canPopOut
-            canPin: root.canPin
-            pinned: root.pinned
-            onPopOutRequested: root.popOutRequested()
-            onPinRequested: root.pinRequested()
-          }
-
           PanelActionButton {
-            id: groupsButton
-            iconText: Glyphs.gear()
+            iconText: Glyphs.groups()
             tooltipText: "Groups"
             foreground: Commons.Color.popups.text
             hoverColor: Commons.Color.accent
             onClicked: root.groupEditorOpen = !root.groupEditorOpen
           }
 
-          PanelActionButton {
-            id: closeButton
-            iconText: Glyphs.close()
-            tooltipText: "Close"
-            foreground: Commons.Color.popups.text
-            hoverColor: Commons.Color.urgent
-            onClicked: root.closeRequested()
+          HostButtons {
+            canPopOut: root.canPopOut
+            canPin: root.canPin
+            pinned: root.pinned
+            closeShown: root.canPin
+            onPopOutRequested: root.popOutRequested()
+            onPinRequested: root.pinRequested()
+            onCloseRequested: root.closeRequested()
           }
         }]
 
@@ -670,6 +668,8 @@ Item {
         pinned: root.pinned
         onPopOutRequested: root.popOutRequested()
         onPinRequested: root.pinRequested()
+        canClose: root.canPin
+        onWindowCloseRequested: root.closeRequested()
         onCloseRequested: root.groupEditorOpen = false
         onChanged: root.refresh()
       }
@@ -689,6 +689,8 @@ Item {
         pinned: root.pinned
         onPopOutRequested: root.popOutRequested()
         onPinRequested: root.pinRequested()
+        canClose: root.canPin
+        onWindowCloseRequested: root.closeRequested()
         onCloseRequested: root.helpOpen = false
       }
     }
@@ -712,6 +714,8 @@ Item {
         pinned: root.pinned
         onPopOutRequested: root.popOutRequested()
         onPinRequested: root.pinRequested()
+        canClose: root.canPin
+        onWindowCloseRequested: root.closeRequested()
         onCloseRequested: root.memoryOpen = false
         onChanged: root.refresh()
       }
@@ -730,7 +734,7 @@ Item {
     anchors.rightMargin: root.edge
     anchors.bottomMargin: root.footerBottomMargin
     textFormat: Text.PlainText
-    text: root.footerHint
+    text: Format.footerWrappingBetweenHints(root.footerHint)
     font.family: Style.font.family
     font.pixelSize: Style.font.caption
     color: Qt.darker(Commons.Color.popups.text, 1.3)

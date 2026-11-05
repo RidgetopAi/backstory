@@ -226,13 +226,51 @@ TestCase {
     compare(panel.pinned, false)
   }
 
-  function test_every_view_header_offers_the_pin() {
+  function headerButton(name) {
+    return TestUtil.findFirst(panel.testContentItem, function (n) { return n.objectName === name })
+  }
+
+  function test_the_groups_button_shows_the_groups_glyph() {
     openWith(readFixture(goldenUrl))
-    var views = ["helpOpen", "groupEditorOpen", "memoryOpen"]
-    for (var i = 0; i < views.length; i++) {
-      panel.view.showMain()
-      panel.view[views[i]] = true
-      act.settled(function () { return TestUtil.slideDone(panel.testContentItem, ["helpPage", "groupsPage", "memoryPage"][i]) && pinButton() !== null }, "no pin button in " + views[i])
+    var button = TestUtil.findFirst(panel.testContentItem, function (n) { return n.tooltipText === "Groups" })
+    compare(button.iconText, Glyphs.groups())
+  }
+
+  function test_footer_lists_the_main_views_keys() {
+    openWith(readFixture(goldenUrl))
+    compare(panel.view.footerHint, "j/k move · → agents · ← fold · Enter continue · t terminal · m memory · g groups · ? help · r refresh · p pin · Esc close")
+  }
+
+  function test_footer_wraps_only_between_hints() {
+    openWith(readFixture(goldenUrl))
+    var footer = TestUtil.findFirst(panel.testContentItem, function (n) { return n.objectName === "footerHint" })
+    compare(footer.text.split(" ").length, panel.view.footerHint.split(" · ").length)
+    verify(footer.text.indexOf("Esc close") >= 0, "a hint can split: " + footer.text)
+  }
+
+  // In the window every view's header ends with pin and then close, the
+  // view's own buttons before them, close as far right in every view, and
+  // close closes the window.
+  function test_every_view_header_ends_with_pin_then_close() {
+    var closeAt = null
+    var pages = [["", "mainPage"], ["helpOpen", "helpPage"], ["groupEditorOpen", "groupsPage"], ["memoryOpen", "memoryPage"]]
+    for (var i = 0; i < pages.length; i++) {
+      var page = pages[i][1]
+      openWith(readFixture(goldenUrl))
+      if (pages[i][0] !== "") panel.view[pages[i][0]] = true
+      act.settled(function () { return TestUtil.slideDone(panel.testContentItem, page) && headerButton("closeButton") !== null }, "no close button in " + page)
+      var header = headerButton("pinButton")
+      while (header.showBack === undefined) header = header.parent
+      var order = TestUtil.findAll(header, function (n) { return n.tooltipText !== undefined })
+        .sort(function (a, b) { return a.mapToItem(header, 0, 0).x - b.mapToItem(header, 0, 0).x })
+        .map(function (n) { return n.objectName || n.tooltipText })
+      compare(order.slice(-2).join(", "), "pinButton, closeButton", page + ": header buttons are " + order.join(", "))
+      var close = headerButton("closeButton")
+      fuzzyCompare(close.mapToItem(header, 0, 0).x + close.width, header.width, 0.5, page + ": close is not at the header's right end")
+      var at = close.mapToItem(panel.testKeyItem, 0, 0)
+      if (closeAt === null) closeAt = at
+      fuzzyCompare(at.x, closeAt.x, 0.5, page + ": close is not as far right as in the main view")
+      act.clickWhenReady(function () { return headerButton("closeButton") }, { desc: page + " close", until: function () { return !panel.opened } })
     }
   }
 

@@ -4,7 +4,7 @@
 // once, rather than as unicode escapes scattered through the QML — a glyph
 // swap is a one-line change, not a grep-and-replace.
 
-function gear() { return "" }         // nf-fa-cog
+function groups() { return String.fromCodePoint(0xF0FE8) } // nf-md-vector_link
 function close() { return "" }        // nf-fa-times
 function terminal() { return "" }     // nf-fa-terminal
 function attention() { return "" }    // nf-fa-exclamation_triangle

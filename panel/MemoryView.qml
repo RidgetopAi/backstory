@@ -33,6 +33,10 @@ Item {
   property bool pinned: false
   signal popOutRequested()
   signal pinRequested()
+  // Set in the window: the header then offers close, which closes the
+  // window (back only leaves this view).
+  property bool canClose: false
+  signal windowCloseRequested()
   // The scrolling part under the header (ScrollPage), for the host and tests.
   readonly property alias flickable: page.flickable
 
@@ -339,20 +343,22 @@ Item {
         : "Memory · " + root.records.length + (root.records.length === 1 ? " saved record" : " saved records")
       onBack: root.closeRequested()
 
-      HostButtons {
-        canPopOut: root.canPopOut
-        canPin: root.canPin
-        pinned: root.pinned
-        onPopOutRequested: root.popOutRequested()
-        onPinRequested: root.pinRequested()
-      }
-
       PanelActionButton {
         iconText: Glyphs.history()
         tooltipText: root.showHistory ? "Hide history" : "Show history"
         foreground: root.showHistory ? Commons.Color.accent : Commons.Color.popups.text
         hoverColor: Commons.Color.accent
         onClicked: root.toggleHistory()
+      }
+
+      HostButtons {
+        canPopOut: root.canPopOut
+        canPin: root.canPin
+        pinned: root.pinned
+        closeShown: root.canClose
+        onPopOutRequested: root.popOutRequested()
+        onPinRequested: root.pinRequested()
+        onCloseRequested: root.windowCloseRequested()
       }
     },
 

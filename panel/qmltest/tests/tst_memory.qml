@@ -353,18 +353,25 @@ TestCase {
 
   function footerText() {
     var n = TestUtil.findFirst(panel.testContentItem, function (node) { return node.objectName === "footerHint" })
-    return n === null ? null : n.text
+    return n === null ? null : n.text.replace(/\u00a0/g, " ")
   }
 
   function test_footer_lists_memorys_keys() {
     openMemory(readFixture(recordsGolden))
-    compare(footerText(), "j/k move · → expand · ← fold · u back · p pin · Esc close")
+    compare(footerText(), "j/k move · → expand · ← fold · Enter toggle · u back · p pin · Esc close")
   }
 
   function test_u_goes_back_to_the_main_view() {
     openMemory(readFixture(recordsGolden))
     panel.testKeyItem.forceActiveFocus()
     act.pressKey(Qt.Key_U)
+    act.settledEq(panel.view, "memoryOpen", false)
+  }
+
+  function test_m_goes_back_to_the_main_view() {
+    openMemory(readFixture(recordsGolden))
+    panel.testKeyItem.forceActiveFocus()
+    act.pressKey(Qt.Key_M)
     act.settledEq(panel.view, "memoryOpen", false)
   }
 
@@ -677,9 +684,9 @@ TestCase {
     compare(ProcessController.release(Launchers.recordsCommand(projectKey, cwd, false)), 0, "the first run was left going")
   }
 
-  // The gear on the main view still showing while Memory waits opens
-  // Groups instead: one view at a time.
-  function test_the_gear_while_memory_waits_opens_groups_alone() {
+  // The Groups button on the main view still showing while Memory waits
+  // opens Groups instead: one view at a time.
+  function test_the_groups_button_while_memory_waits_opens_groups_alone() {
     heldRecords()
     openPanelMain()
     panel.view.openMemory(projectKey, "acme", cwd)

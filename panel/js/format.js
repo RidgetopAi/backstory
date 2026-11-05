@@ -5,6 +5,14 @@
 // agent chips). It reads no JSON field and names no command — those
 // stay in model.js and launchers.js.
 
+// A footer that wraps only between hints: "p pin" never splits, and a new
+// line never starts with the separator dot.
+function footerWrappingBetweenHints(footerHint) {
+  return footerHint.split(" · ")
+    .map(function (hint) { return hint.replace(/ /g, " ") })
+    .join(" · ")
+}
+
 var AGENT_NAMES = {
   claude: "Claude Code",
   codex: "Codex",
