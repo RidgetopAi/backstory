@@ -82,7 +82,7 @@ window (the same set Where-you-left-off lists).
 | `kind`         | string enum | yes | One of the kinds below. |
 | `project_key`  | string     | yes | The project the item is about. |
 | `reason`       | string     | yes | One human-readable line. |
-| `handoff_id`   | string     | only on `possibly-stale-handoff` | The stale handoff's record id: what `backstory affirm <handoff-id>` takes — the panel's Needs You Still right action runs it. |
+| `handoff_id`   | string     | only on `possibly-stale-handoff` | The stale handoff's record id: what `backstory affirm <handoff-id>` takes — the panel's Needs You Still right action runs it, and Done runs `backstory done <handoff-id>`. |
 | `handoff_time` | string     | only on `possibly-stale-handoff` | The handoff's own time, RFC 3339 UTC: which handoff the row is about. |
 | `handoff_summary` | string  | only on `possibly-stale-handoff` | The handoff's first line, trimmed. |
 | `reasons`      | object[]   | only on `possibly-stale-handoff` | One entry per freshness reason, in `store.HandoffFreshness` order, so the panel never parses `reason`. Each: `kind` (`contradicted`, `later-record`, `later-activity`, `later-failure` or `later-unrecorded-work`), `when` (RFC 3339 UTC of the newest evidence, `""` if unknown), `where` (the folder it happened in, workspace-relative like other labels, `""` if unknown) and `text` (never truncated: the full failed command and exit code; the newer note's first line; `N sessions edited M files and wrote no note`). A reason that cites several records or events describes the newest and ends `(+N more)`. |

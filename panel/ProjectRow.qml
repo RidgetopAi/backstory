@@ -29,6 +29,8 @@ Item {
   readonly property string next: summary ? (Model.summaryHandoffNext(summary) || "") : ""
   readonly property string originDevice: summary ? Model.summaryOriginDevice(summary) : ""
   readonly property string handoffAgent: summary ? Model.summaryHandoffAgent(summary) : ""
+  readonly property bool done: summary ? Model.summaryHandoffDone(summary) : false
+  readonly property string doneText: summary ? Format.doneLine(Model.summaryHandoffDoneAt(summary)) : ""
   readonly property string nextText: root.handoffAgent !== "" ? Format.nextPrefix(root.handoffAgent) + root.next : root.next
   readonly property string nameText: {
     var n = summary ? Model.shortName(Model.summaryDisplayName(summary)) : ""
@@ -155,9 +157,10 @@ Item {
     }
 
     Text {
-      visible: root.next !== ""
+      objectName: "rowNext"
+      visible: root.done || root.next !== ""
       textFormat: Text.PlainText
-      text: root.nextText
+      text: root.done ? root.doneText : root.nextText
       font.family: Style.font.family
       font.pixelSize: Style.font.caption
       color: Qt.darker(Commons.Color.foreground, 1.3)

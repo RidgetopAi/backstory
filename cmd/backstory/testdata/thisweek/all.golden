@@ -15,6 +15,7 @@ Where you left off:
 - projects (/home/brian/projects) — last activity 2026-01-03T09:05:00Z; handoff (id handoff-workspace-root): Resume: ship omarcade and vidflow's shared feature
 - projects/omarcade (/home/brian/projects/omarcade) — last activity 2026-01-03T09:05:00Z; handoff (id handoff-workspace-root): Resume: ship omarcade and vidflow's shared feature
 - projects/vidflow (/home/brian/projects/vidflow) — last activity 2026-01-03T09:05:00Z; handoff (id handoff-workspace-root): Resume: ship omarcade and vidflow's shared feature
+- acme-week-done (/home/brian/acme-week-done) — last activity 2026-01-02T09:10:00Z; handoff (id handoff-done): Resume: nothing, it shipped
 
 The week:
 2026-01-07 · acme-week-group-b: 1 session(s), 0 file(s) touched, 0 record(s) written
@@ -25,3 +26,4 @@ The week:
 2026-01-03 · projects: 1 session(s), 0 file(s) touched, 1 record(s) written
 2026-01-03 · projects/omarcade: 1 session(s), 1 file(s) touched, 1 record(s) written
 2026-01-03 · projects/vidflow: 1 session(s), 1 file(s) touched, 1 record(s) written
+2026-01-02 · acme-week-done: 1 session(s), 0 file(s) touched, 2 record(s) written

@@ -222,7 +222,11 @@ From top to bottom:
     command failed in projects/vidflow (Nov 3)"). Click the row (or press Enter or Space on it)
     to see every reason with when and where it happened and its full text. **Still right** marks
     the handoff as correct (the same as `backstory affirm`); it stops showing until something
-    new happens
+    new happens. **Update** opens an agent in that folder, asking it to reconcile the handoff
+    with what happened since and write a fresh one; the row clears once the new handoff exists.
+    **Done** marks the work finished (the same as `backstory done`); nothing is deleted. When a
+    later outcome record closed the work, the row reads "this looks finished" and **Done** comes
+    first
   - a session that ended with **uncommitted changes**
   - a **contradiction**: one record says another is wrong, with evidence
   - an **expired claim** with no outcome recorded
@@ -745,6 +749,7 @@ so don't paste them into a session you want remembered.
 | Forget an hour, a day, or a whole project | `backstory purge … --dry-run` first, or **Forget activity and saved records** |
 | Mark a handoff finished (nothing to resume) | `backstory done <id>`; undo with `backstory delete <done-record-id>` |
 | Say a flagged handoff is still right | `backstory affirm <id>`, or **Still right** in NEEDS YOU |
+| Say a flagged handoff is finished | `backstory done <id>`, or **Done** in NEEDS YOU |
 
 `BACKSTORY_OFF=1` affects only that one program and anything it starts. Other sessions keep
 recording as normal.
@@ -855,8 +860,8 @@ Set `BACKSTORY_PROJECT_ROOTS` ([section 8](#8-settings)), or remove them with
 **A handoff says "possibly stale"**
 Something happened after it was written, such as a failed command or a later edit to a file it
 names. Click the row in NEEDS YOU to see what happened and when. If the handoff is still right,
-press **Still right** (or run `backstory affirm <id>`). If not, ask
-the agent for a fresh handoff.
+press **Still right** (or run `backstory affirm <id>`). If not, press **Update** to open an
+agent that writes a fresh handoff, or **Done** if the work is finished.
 
 **Sync is failing**
 `backstory status` starts with `SYNC FAILING with <computer>: <reason>`. The reason is one of:

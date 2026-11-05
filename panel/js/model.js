@@ -47,6 +47,8 @@ function attentionHandoffId(item) { return item.handoff_id || "" }
 // reason ({kind, when, where, text}). Absent from older payloads.
 function attentionHandoffTime(item) { return item.handoff_time || "" }
 function attentionHandoffSummary(item) { return item.handoff_summary || "" }
+// looks_finished: a later outcome record closed the work (stale items only).
+function attentionLooksFinished(item) { return item.looks_finished === true }
 function attentionReasons(item) { return item.reasons || [] }
 function attentionEvidenceIds(item) { return item.evidence_ids || [] }
 // sync-failing: cross-device sync is on and not syncing (project_key "sync",
@@ -78,6 +80,9 @@ function summaryHandoffStale(p) { return p.handoff_stale }
 // (read as "") when it was written on this device.
 function summaryOriginDevice(p) { return p.origin_device_name || "" }
 function summaryHandoffNext(p) { return p.handoff_next }
+// handoff_done / handoff_done_at: the human marked the latest handoff done.
+function summaryHandoffDone(p) { return p.handoff_done === true }
+function summaryHandoffDoneAt(p) { return p.handoff_done_at || "" }
 function summaryLastAgent(p) { return p.last_agent }
 // agents: the per-agent footprint, newest first ({agent, last_activity,
 // session_count}); handoff_agent: the agent that wrote the row's handoff,

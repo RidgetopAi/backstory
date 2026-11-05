@@ -22,6 +22,10 @@ Column {
   // refresh and the dismissed item disappears.
   signal dismissed()
 
+  // Update on a stale-handoff row: the host opens an agent in the project's
+  // folder with this opening prompt.
+  signal updateRequested(string projectKey, string handoffId, string prompt)
+
   // Dismiss on a stale-handoff row: the human's own "this is still true",
   // run through the CLI (the only route to a human-declared affirm).
   function dismiss(handoffId) {
@@ -30,8 +34,20 @@ Column {
     affirmProcess.running = true
   }
 
+  // Done on a stale-handoff row: the CLI marks the handoff finished.
+  function markDone(handoffId) {
+    if (!handoffId) return
+    doneProcess.command = Launchers.doneCommand(handoffId)
+    doneProcess.running = true
+  }
+
   Process {
     id: affirmProcess
+    onExited: (exitCode, exitStatus) => root.dismissed()
+  }
+
+  Process {
+    id: doneProcess
     onExited: (exitCode, exitStatus) => root.dismissed()
   }
   width: parent ? parent.width : Style.space(360)
@@ -48,7 +64,12 @@ Column {
       // A stale-handoff row from a payload that carries the structured
       // fields shows them; any other row shows its reason as it always did.
       readonly property bool structured: handoffId !== "" && Model.attentionHandoffTime(modelData) !== ""
+      readonly property bool looksFinished: Model.attentionLooksFinished(modelData)
       readonly property string stillRightTip: "Mark this handoff as still correct; it stops showing here until something new happens."
+      readonly property string updateTip: "Open an agent here to bring this handoff up to date."
+      readonly property string doneTip: "This work is finished. Stop offering it to resume; nothing is deleted."
+      // Done leads when an outcome closed the work, else Still right does.
+      readonly property var actionOrder: looksFinished ? ["done", "dismiss", "update"] : ["dismiss", "update", "done"]
       property bool expanded: false
       width: root.width
       spacing: Style.spacing.controlGap
@@ -78,7 +99,7 @@ Column {
       Item {
         id: textBox
         width: itemRow.width - itemRow.leftPadding - itemRow.rightPadding - glyph.width - itemRow.spacing
-          - (dismissButton.visible ? dismissButton.width + itemRow.spacing : 0)
+          - (actions.visible ? actions.width + itemRow.spacing : 0)
         height: texts.height
 
         // A click on the text (the button is a sibling) toggles the row and
@@ -100,7 +121,7 @@ Column {
           objectName: "attentionHeadline"
           textFormat: Text.PlainText
           text: itemRow.structured
-            ? Format.staleHeadline(Format.attentionLabel(texts.reason), Model.attentionHandoffTime(itemRow.modelData))
+            ? Format.staleHeadline(Format.attentionLabel(texts.reason), Model.attentionHandoffTime(itemRow.modelData), itemRow.looksFinished)
             : Format.attentionMain(texts.reason)
           font.family: Style.font.family
           font.pixelSize: Style.font.bodySmall
@@ -123,7 +144,7 @@ Column {
           objectName: "attentionSince"
           visible: itemRow.structured && text !== ""
           textFormat: Text.PlainText
-          text: Format.sinceThen(itemRow.reasons)
+          text: Format.sinceThen(itemRow.reasons, itemRow.looksFinished)
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
           color: Qt.darker(Commons.Color.foreground, 1.4)
@@ -183,21 +204,55 @@ Column {
       }
       }
 
-      LabelButton {
-        id: dismissButton
-        objectName: "attentionDismiss"
+      // The actions stack beside the text so the column keeps its width at
+      // the bar popup's size; every button takes the widest label's width.
+      Column {
+        id: actions
+        objectName: "attentionActions"
         visible: itemRow.handoffId !== ""
-        label: "Still right"
-        onClicked: root.dismiss(itemRow.handoffId)
+        spacing: Style.spacing.labelGap
 
-        HoverHandler { id: stillRightHover }
-        PanelToolTip {
-          objectName: "attentionStillRightTip"
-          visible: stillRightHover.hovered
-          text: itemRow.stillRightTip
-          delay: 0
-          width: Math.min(implicitWidth, Style.space(300))
+        Repeater {
+          model: itemRow.actionOrder
+
+          delegate: LabelButton {
+            id: actionButton
+            required property string modelData
+            required property int index
+            readonly property bool isDone: modelData === "done"
+            readonly property bool isUpdate: modelData === "update"
+            objectName: isDone ? "attentionDone" : (isUpdate ? "attentionUpdate" : "attentionDismiss")
+            label: isDone ? "Done" : (isUpdate ? "Update" : "Still right")
+            primary: index === 0 && itemRow.looksFinished
+            width: Math.max(implicitWidth, actionsMetrics.needed)
+            activeFocusOnTab: true
+            onClicked: {
+              if (isDone) root.markDone(itemRow.handoffId)
+              else if (isUpdate) root.updateRequested(Model.attentionProjectKey(itemRow.modelData),
+                itemRow.handoffId, Format.updatePrompt(itemRow.handoffId, itemRow.looksFinished, itemRow.reasons))
+              else root.dismiss(itemRow.handoffId)
+            }
+
+            HoverHandler { id: actionHover }
+            PanelToolTip {
+              objectName: actionButton.isDone ? "attentionDoneTip" : (actionButton.isUpdate ? "attentionUpdateTip" : "attentionStillRightTip")
+              visible: actionHover.hovered
+              text: actionButton.isDone ? itemRow.doneTip : (actionButton.isUpdate ? itemRow.updateTip : itemRow.stillRightTip)
+              delay: 0
+              width: Math.min(implicitWidth, Style.space(300))
+            }
+          }
         }
+      }
+
+      // Widest of the three labels, so the stack is one width.
+      TextMetrics {
+        id: actionsMetrics
+        font.family: Style.font.family
+        font.pixelSize: Style.font.bodySmall
+        font.bold: true
+        text: "Still right"
+        readonly property real needed: advanceWidth + Style.spacing.rowPaddingX * 2
       }
     }
   }

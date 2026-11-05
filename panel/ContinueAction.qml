@@ -76,6 +76,17 @@ Item {
     var cwd = Model.summaryCwd(summary) || ""
     var id = Model.summaryHandoffId(summary) || ""
     var prompt = Format.handoffPrompt(Model.summaryDisplayName(summary), id, Model.summaryHandoffNext(summary) || "")
+    root.launchWith(chosen, cwd, prompt, id)
+  }
+
+  // Update on a stale-handoff row: an agent in the summary's folder, the
+  // same route Continue takes (the newest agent it knows, else the default).
+  function updateOn(summary, prompt, handoffId) {
+    if (!summary) return
+    root.launchWith(root.launchAgent(summary), Model.summaryCwd(summary) || "", prompt, handoffId)
+  }
+
+  function launchWith(chosen, cwd, prompt, id) {
     var launch = chosen !== "" ? Launchers.agentLaunchCommand(chosen, cwd, prompt) : null
     if (!launch) {
       if (root.defaultAgent === "") {
