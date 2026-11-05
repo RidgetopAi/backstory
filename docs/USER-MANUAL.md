@@ -298,6 +298,7 @@ no agent can run on your behalf through Backstory's tools.
 | [`timeline`](#timeline) | List what Backstory saw happen |
 | [`edit`](#edit) | Correct a record |
 | [`delete`](#delete) | Delete one record |
+| [`done`](#done) | Mark a handoff finished (nothing to resume) |
 | [`affirm`](#affirm) | Clear a "possibly stale" flag on a handoff |
 | [`purge`](#purge) | Forget activity (and records) for a session or project |
 | [`capture`](#capture) | Pause or resume recording |
@@ -437,6 +438,24 @@ new evidence turns up. Same as the panel's **Still right** button. Human-only.
 ```
 backstory affirm 090af43a
 ```
+
+### done
+
+Marks a handoff **finished**: the work is complete and there is nothing to resume. It writes
+one small record of yours linked to the handoff and deletes nothing. The handoff stops being
+**possibly stale** and leaves NEEDS YOU; the session-start block, `recall` and `export` show
+it as "marked done by you on <date>" instead of as work to resume, and an older handoff for
+the same folder never takes its place. A handoff written afterwards is the resume point as
+usual. Human-only, and only for a handoff.
+
+```
+backstory done 090af43a
+```
+
+To undo it, delete the done record whose id the command printed (`backstory delete --yes
+<done-record-id>`); the handoff goes back to normal, and its stale reasons return if they still
+apply. When a flagged handoff is flagged by a later **outcome** record, `this-week --json`
+sets `looks_finished` on it, a hint that **Done** is probably what you want.
 
 ### purge
 
@@ -724,6 +743,7 @@ so don't paste them into a session you want remembered.
 | Fix a wrong record | `backstory edit <id>`, or **Edit** in the Memory view |
 | Delete one record | `backstory delete <id>`, or **Forget** on the record |
 | Forget an hour, a day, or a whole project | `backstory purge … --dry-run` first, or **Forget activity and saved records** |
+| Mark a handoff finished (nothing to resume) | `backstory done <id>`; undo with `backstory delete <done-record-id>` |
 | Say a flagged handoff is still right | `backstory affirm <id>`, or **Still right** in NEEDS YOU |
 
 `BACKSTORY_OFF=1` affects only that one program and anything it starts. Other sessions keep

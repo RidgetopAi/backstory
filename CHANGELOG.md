@@ -13,6 +13,8 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 ### Added
 
+- `backstory done <handoff-id>` marks a handoff finished (human-only): one record of yours linked to it, nothing deleted; undo by deleting that record. A done handoff is never possibly stale and leaves NEEDS YOU, stays the folder's latest handoff (an older one never resurfaces), and the session-start block, recall and export show it as "marked done by you on <date>" rather than as work to resume. `this-week --json` adds `handoff_done` / `handoff_done_at` to the project and `looks_finished` (plus `outcome_id` on the reason) to a possibly-stale item whose reasons include a later outcome record.
+
 - A possibly-stale handoff in NEEDS YOU now shows enough to judge it. `this-week --json` adds `handoff_time`, `handoff_summary` and a `reasons` list (kind, when, where, full text) to the item (PANEL-CONTRACT.md); `reason` is unchanged. The row reads "<project>: handoff from <date> may be out of date", the handoff's first line and a "Since then:" line; click it, or press Enter or Space on it, for every reason in full. The button is now **Still right** (it still runs `backstory affirm`) with a tooltip saying so; the "Command failed." label and hover-only Details are gone.
 
 - Automatic backups: the daemon writes `backstory-auto-<UTC time>.db` when the
