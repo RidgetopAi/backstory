@@ -65,6 +65,12 @@ function fitChipCount(widths, total, avail, lead, moreWidth, spacing) {
 }
 
 // nextPrefix: the handoff line's label, naming the agent that wrote it.
+// doneLine: a done handoff's muted line in place of its Next line.
+function doneLine(doneAt) {
+  var date = shortDate(doneAt)
+  return date === "" ? "Done" : "Done " + date
+}
+
 function nextPrefix(handoffAgent) {
   return handoffAgent ? "Next (" + agentName(handoffAgent) + "): " : "Next: "
 }
@@ -152,7 +158,8 @@ function shortDateTime(iso) {
 }
 
 // The collapsed stale row's headline.
-function staleHeadline(label, handoffTime) {
+function staleHeadline(label, handoffTime, looksFinished) {
+  if (looksFinished) return label + ": this looks finished"
   var date = shortDate(handoffTime)
   return label + ": handoff from " + date + " may be out of date"
 }
@@ -170,15 +177,34 @@ function strongestReason(reasons) {
   return best
 }
 
+// The later outcome record's reason (it carries outcome_id), else null.
+function outcomeReason(reasons) {
+  for (var i = 0; i < (reasons || []).length; i++) {
+    if (reasons[i].kind === "later-record" && reasons[i].outcome_id) return reasons[i]
+  }
+  return null
+}
+
 // "Since then: ..." from the strongest structured reason; "" without one.
-function sinceThen(reasons) {
-  var r = strongestReason(reasons)
+function sinceThen(reasons, looksFinished) {
+  var outcome = looksFinished ? outcomeReason(reasons) : null
+  var r = outcome !== null ? outcome : strongestReason(reasons)
   if (r === null) return ""
   var date = shortDate(r.when)
   var when = date === "" ? "" : " (" + date + ")"
+  if (outcome !== null) return "Since then: " + r.text + when
   if (r.kind === "later-record") return "Since then: a newer note" + when + ": " + r.text
   if (r.kind === "later-failure") return "Since then: a command failed" + (r.where ? " in " + r.where : "") + when
   return "Since then: " + r.text + when
+}
+
+// The opening prompt of Update: names the handoff and, in plain words, what
+// flagged it, and asks for a reconciled handoff.
+function updatePrompt(handoffId, looksFinished, reasons) {
+  var why = sinceThen(reasons, looksFinished)
+  var text = "Backstory handoff " + handoffId + " may be out of date."
+  if (why) text += " " + why + "."
+  return text + " Read the handoff, reconcile it with what happened since, and write a fresh handoff."
 }
 
 // An expanded reason's small "when, where" line.

@@ -402,6 +402,20 @@ Item {
     continueAction.continueOn(summary, agent || "")
   }
 
+  // Update on a stale row: an agent in that project's folder. A workspace
+  // key is shared by sibling folders, so the summary whose handoff is the
+  // flagged one wins, else the first with the key.
+  function updateHandoff(projectKey, handoffId, prompt) {
+    var all = root.weekData ? Derive.allSummaries(root.weekData) : []
+    var found = null
+    for (var i = 0; i < all.length; i++) {
+      if (Model.summaryProjectKey(all[i]) !== projectKey) continue
+      if (Model.summaryHandoffId(all[i]) === handoffId) { found = all[i]; break }
+      if (found === null) found = all[i]
+    }
+    continueAction.updateOn(found, prompt, handoffId)
+  }
+
   function refresh() {
     root.nowMs = Date.now()
     continueAction.refreshDefaultAgent()
@@ -587,7 +601,12 @@ Item {
           spacing: Style.spacing.labelGap
 
           PanelSectionHeader { text: "NEEDS YOU"; foreground: Commons.Color.popups.text }
-          AttentionSection { items: root.attentionItems; width: parent.width; onDismissed: root.refresh() }
+          AttentionSection {
+            items: root.attentionItems
+            width: parent.width
+            onDismissed: root.refresh()
+            onUpdateRequested: (projectKey, handoffId, prompt) => root.updateHandoff(projectKey, handoffId, prompt)
+          }
         }
 
         PanelSeparator {

@@ -261,11 +261,11 @@ TestCase {
     }))
     act.quiescent(function () { return TestUtil.collectClipped(panel.testContentItem) }, row.tag + ": never settled")
     compare(JSON.stringify(TestUtil.collectClipped(panel.testContentItem)), "[]", row.tag + ": clipped by the scroller")
-    var dismiss = named("attentionDismiss")
-    var dismissRow = dismiss.parent
-    verify(Math.abs(dismiss.x + dismiss.width - (dismissRow.width - dismissRow.rightPadding)) < 0.5,
-      row.tag + ": Dismiss ends at " + (dismiss.x + dismiss.width) + ", want the row's width minus its right padding ("
-      + (dismissRow.width - dismissRow.rightPadding) + ")")
+    var actions = named("attentionActions")
+    var actionsRow = actions.parent
+    verify(Math.abs(actions.x + actions.width - (actionsRow.width - actionsRow.rightPadding)) < 0.5,
+      row.tag + ": the actions end at " + (actions.x + actions.width) + ", want the row's width minus its right padding ("
+      + (actionsRow.width - actionsRow.rightPadding) + ")")
     assertHereCardGaps(row.tag)
     var button = named("hereContinue")
     var label = TestUtil.findFirst(button, function (n) { return n.text === "Continue in Claude Code" })
@@ -947,6 +947,153 @@ TestCase {
     act.settled(function () { return textContaining("art_review") === "" }, "Enter did not collapse")
     act.pressKey(Qt.Key_Space)
     act.settled(function () { return textContaining("art_review") !== "" }, "Space did not expand")
+  }
+
+  // ---- Stale-handoff row actions: Still right / Update / Done (task f45255f5) ----
+  function staleWith(looksFinished, outcome) {
+    var it = structuredStale()
+    it.looks_finished = looksFinished
+    if (outcome) it.reasons = [{ kind: "later-record", when: "2026-11-02T12:00:00Z", where: "projects/vidflow",
+      text: "outcome ab12cd34: render path shipped", outcome_id: "ab12cd34" }]
+    return it
+  }
+
+  function openStale(it) {
+    open(payload(function (d) {
+      d.attention = [it]
+      d.where_left_off[0].project.project_key = "workspace:/w/projects"
+      d.where_left_off[0].project.handoff_id = "h-vid"
+    }))
+  }
+
+  function test_stale_row_offers_three_actions_with_tooltips() {
+    openStale(staleWith(false, false))
+    compare(named("attentionDismiss").label, "Still right")
+    compare(named("attentionUpdate").label, "Update")
+    compare(named("attentionDone").label, "Done")
+    compare(attentionRow().stillRightTip, "Mark this handoff as still correct; it stops showing here until something new happens.")
+    compare(attentionRow().updateTip, "Open an agent here to bring this handoff up to date.")
+    compare(attentionRow().doneTip, "This work is finished. Stop offering it to resume; nothing is deleted.")
+    var pairs = [["attentionDismiss", "attentionStillRightTip", attentionRow().stillRightTip],
+      ["attentionUpdate", "attentionUpdateTip", attentionRow().updateTip],
+      ["attentionDone", "attentionDoneTip", attentionRow().doneTip]]
+    for (var i = 0; i < pairs.length; i++) {
+      var pair = pairs[i]
+      var tip = null
+      var data = named(pair[0]).data
+      for (var j = 0; j < data.length; j++) if (data[j].objectName === pair[1]) tip = data[j]
+      verify(tip !== null, pair[0] + " has no " + pair[1])
+      compare(tip.text, pair[2])
+    }
+  }
+
+  function test_done_runs_the_done_command_with_the_handoff_id() {
+    openStale(staleWith(false, false))
+    ProcessController.reset()
+    ProcessController.respond(Launchers.thisWeekCommand(), { stdout: JSON.stringify(payload()), stderr: "", exitCode: 0 })
+    act.clickWhenReady(function () { return named("attentionDone") }, { desc: "Done" })
+    var doneJson = JSON.stringify(Launchers.doneCommand("h-vid"))
+    act.launchedNext(function (r) { return JSON.stringify(r.command) === doneJson }, "done")
+    compare(JSON.stringify(Launchers.doneCommand("h-vid")), JSON.stringify(["backstory", "done", "h-vid"]))
+    compare(ProcessController.runs.filter(function (r) { return r.command[1] === "affirm" }).length, 0, "Done must not affirm")
+  }
+
+  function test_still_right_does_not_run_done() {
+    openStale(staleWith(false, false))
+    ProcessController.reset()
+    ProcessController.respond(Launchers.thisWeekCommand(), { stdout: JSON.stringify(payload()), stderr: "", exitCode: 0 })
+    act.clickWhenReady(function () { return named("attentionDismiss") }, { desc: "Still right" })
+    act.launchedNext(function (r) { return JSON.stringify(r.command) === JSON.stringify(Launchers.affirmCommand("h-vid")) }, "affirm")
+    compare(ProcessController.runs.filter(function (r) { return r.command[1] === "done" }).length, 0)
+  }
+
+  function test_update_launches_an_agent_in_the_folder_with_id_and_reason() {
+    openStale(staleWith(false, false))
+    ProcessController.reset()
+    act.clickWhenReady(function () { return named("attentionUpdate") }, { desc: "Update" })
+    var cwd = "/home/brian/projects/foo"
+    var prompt = Format.updatePrompt("h-vid", false, structuredStale().reasons)
+    var run = act.launchedNext(function (r) {
+      return JSON.stringify(r.command) === JSON.stringify(Launchers.agentLaunchCommand("claude", cwd, prompt))
+    }, "update launch")
+    compare(run.workingDirectory, cwd)
+    verify(prompt.indexOf("h-vid") >= 0, "prompt lacks the handoff id: " + prompt)
+    verify(prompt.indexOf("a newer note") >= 0 && prompt.indexOf("RESOLVED: Claude Desktop threads") >= 0, "prompt lacks the reason: " + prompt)
+    verify(prompt.indexOf("write a fresh handoff") >= 0, prompt)
+    verify(prompt.indexOf("\u2014") < 0, "em dash in prompt")
+  }
+
+  function test_looks_finished_headline_and_done_first() {
+    openStale(staleWith(true, true))
+    verify(hasText("projects/vidflow: this looks finished"), "headline: " + JSON.stringify(texts()))
+    verify(!hasText("projects/vidflow: handoff from Nov 1 may be out of date"))
+    verify(hasText("Since then: outcome ab12cd34: render path shipped (Nov 2)"), "since: " + JSON.stringify(texts()))
+    var names = actionNames()
+    compare(names, ["attentionDone", "attentionDismiss", "attentionUpdate"])
+    verify(named("attentionDone").primary)
+  }
+
+  function actionNames() {
+    var found = TestUtil.findAll(panel.testContentItem, function (n) {
+      return (n.objectName === "attentionDone" || n.objectName === "attentionDismiss" || n.objectName === "attentionUpdate") && n.visible
+    })
+    found.sort(function (a, b) { return a.mapToItem(null, 0, 0).y - b.mapToItem(null, 0, 0).y })
+    return found.map(function (n) { return n.objectName })
+  }
+
+  function test_not_finished_keeps_may_be_out_of_date_and_still_right_first() {
+    openStale(staleWith(false, false))
+    verify(hasText("projects/vidflow: handoff from Nov 1 may be out of date"), JSON.stringify(texts()))
+    verify(!hasText("projects/vidflow: this looks finished"))
+    compare(actionNames(), ["attentionDismiss", "attentionUpdate", "attentionDone"])
+    verify(!named("attentionDone").primary)
+  }
+
+  function test_recent_card_of_a_done_handoff_says_done_with_the_date() {
+    open(payload(function (d) {
+      var p = d.where_left_off[1].project
+      p.handoff_next = "old next step"
+      p.handoff_done = true
+      p.handoff_done_at = "2026-11-03T12:00:00Z"
+    }))
+    verify(hasText("Done Nov 3"), JSON.stringify(texts()))
+    verify(!hasText("old next step"), "the old Next line is still shown")
+  }
+
+  function test_stale_actions_fit_at_the_popup_width() {
+    openStale(staleWith(true, true))
+    act.quiescent(function () { return [named("attentionActions").width, named("attentionActions").height] }, "never settled")
+    var row = attentionRow()
+    var actions = named("attentionActions")
+    var textBox = named("attentionHeadline").parent.parent
+    var a = actions.mapToItem(row, 0, 0)
+    var t = textBox.mapToItem(row, 0, 0)
+    verify(t.x + textBox.width <= a.x + 0.5, "text column (ends " + (t.x + textBox.width) + ") overlaps the buttons (start " + a.x + ")")
+    verify(a.x + actions.width <= row.width + 0.5, "buttons clip at the row's right edge")
+    var names = ["attentionDone", "attentionDismiss", "attentionUpdate"]
+    var prevBottom = -1
+    for (var i = 0; i < names.length; i++) {
+      var b = named(names[i])
+      var pos = b.mapToItem(row, 0, 0)
+      verify(pos.x >= a.x - 0.5 && pos.x + b.width <= a.x + actions.width + 0.5, names[i] + " outside the stack")
+      verify(pos.y >= prevBottom - 0.5, names[i] + " overlaps the button above it")
+      prevBottom = pos.y + b.height
+      var label = TestUtil.findFirst(b, function (n) { return n.text === b.label })
+      verify(label.x >= 0 && label.x + label.width <= b.width + 0.5 && label.paintedWidth <= label.width + 0.5, names[i] + " label clipped")
+    }
+    verify(prevBottom <= row.height + 0.5, "buttons run past the row")
+  }
+
+  function test_stale_buttons_are_reachable_with_tab() {
+    openStale(staleWith(false, false))
+    verify(named("attentionDismiss").activeFocusOnTab)
+    verify(named("attentionUpdate").activeFocusOnTab)
+    verify(named("attentionDone").activeFocusOnTab)
+    ProcessController.reset()
+    ProcessController.respond(Launchers.thisWeekCommand(), { stdout: JSON.stringify(payload()), stderr: "", exitCode: 0 })
+    named("attentionDone").forceActiveFocus()
+    act.pressKey(Qt.Key_Return)
+    act.launchedNext(function (r) { return r.command[1] === "done" }, "Enter on a focused Done")
   }
 
   function test_still_right_button_label_and_tooltip() {

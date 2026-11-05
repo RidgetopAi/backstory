@@ -18,8 +18,15 @@ Rectangle {
   color: root.primary
     ? (mouse.containsMouse ? Qt.lighter(Commons.Color.accent, 1.1) : Commons.Color.accent)
     : (mouse.containsMouse ? Style.hoverFillFor(Commons.Color.foreground, Commons.Color.foreground) : "transparent")
-  border.width: root.primary ? 0 : 1
-  border.color: Commons.Color.popups.border
+  border.width: root.primary && !root.activeFocus ? 0 : 1
+  border.color: root.activeFocus ? Commons.Color.accent : Commons.Color.popups.border
+
+  Keys.onPressed: (event) => {
+    if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter || event.key === Qt.Key_Space) {
+      root.clicked()
+      event.accepted = true
+    }
+  }
 
   // Held narrower than its natural width, the label fits as qs.Ui Button's
   // does: it spends half the padding, then shrinks to fit, and elides only
