@@ -188,3 +188,31 @@ func TestRenderResumeSlotShowsUnrecordedWorkClause(t *testing.T) {
 		t.Errorf("missing unrecorded-work clause; got:\n%s", out)
 	}
 }
+
+// A done handoff renders as finished with the date, with no stale marker and
+// no Resume instruction or Next line.
+func TestRenderDoneHandoffIsFinishedNotResume(t *testing.T) {
+	s := newTestStore(t)
+	mustUpsertProject(t, s, testProjectKey)
+	self := mustStartSession(t, s, "claude", "/proj", 100)
+
+	handoff := mustInsertHandoffAbout(t, s, self, "fix desktop", []string{"main.go"})
+	mustContradictRecord(t, s, self, handoff.ID)
+	if _, err := s.Confirm(store.ConfirmParams{
+		Identity: store.Identity{Kind: store.IdentityHuman, Actor: "human"}, Action: store.ConfirmDone,
+		RecordID: handoff.ID, ProjectKey: testProjectKey,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	out := mustRender(t, s, fakeProcFS{}, self)
+	want := "marked done by you on " + time.Now().UTC().Format("2006-01-02")
+	if !strings.Contains(out, "Finished: (id "+handoff.ID) || !strings.Contains(out, want) {
+		t.Errorf("block lacks the finished line (%q); got:\n%s", want, out)
+	}
+	for _, bad := range []string{"Resume:", "possibly stale", "Next (start here)"} {
+		if strings.Contains(out, bad) {
+			t.Errorf("done handoff block contains %q; got:\n%s", bad, out)
+		}
+	}
+}

@@ -153,3 +153,90 @@ func TestAffirmCLIRejectsBadTargets(t *testing.T) {
 		}
 	}
 }
+
+// `backstory done <id>` writes one human-declared record, deletes nothing,
+// clears the item and marks the project done in --json; `delete` on the done
+// record brings the flag back.
+func TestDoneCLIClearsItemAndDeleteUndoes(t *testing.T) {
+	dataDir := t.TempDir()
+	buildThisWeekFixtureStore(t, dataDir)
+	appendWorkspaceRootAgentFailure(t, dataDir, "tu-1", "cargo test", 101)
+	if items, _, _ := workspaceRootItems(t, dataDir); len(items) != 1 || items[0].LooksFinished == nil || *items[0].LooksFinished {
+		t.Fatalf("before done: %+v, want 1 item with looks_finished=false", items)
+	}
+
+	var out, errOut bytes.Buffer
+	if code := run([]string{"done", workspaceRootHandoff}, bytes.NewReader(nil), &out, &errOut); code != 0 {
+		t.Fatalf("done exit %d: %s", code, errOut.String())
+	}
+	fields := strings.Fields(out.String())
+	doneID := strings.TrimSuffix(strings.TrimPrefix(fields[3], "("), ");")
+	if !strings.HasPrefix(out.String(), "marked "+workspaceRootHandoff+" done") || doneID == "" {
+		t.Fatalf("done stdout = %q", out.String())
+	}
+
+	if items, text, _ := workspaceRootItems(t, dataDir); len(items) != 0 {
+		t.Fatalf("after done still flagged: %+v\n%s", items, text)
+	}
+	stdout, _, _ := runThisWeekCLI(t, dataDir, "--json")
+	var parsed thisWeekOutputJSON
+	if err := json.Unmarshal([]byte(stdout), &parsed); err != nil {
+		t.Fatal(err)
+	}
+	sawDone := false
+	for _, row := range parsed.WhereLeftOff {
+		if row.Project != nil && row.Project.HandoffID == workspaceRootHandoff {
+			sawDone = row.Project.HandoffDone && row.Project.HandoffDoneAt != "" && !row.Project.HandoffStale
+		}
+	}
+	if !sawDone {
+		t.Fatalf("this-week --json lacks handoff_done/handoff_done_at on the project:\n%s", stdout)
+	}
+
+	st, err := store.Open(filepath.Join(dataDir, "backstory", "backstory.db"), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := st.GetRecord(workspaceRootHandoff)
+	_ = st.Close()
+	if err != nil || h.TombstonedAt != nil {
+		t.Fatalf("handoff after done: %+v, %v; nothing may be deleted", h, err)
+	}
+
+	out.Reset()
+	errOut.Reset()
+	if code := run([]string{"delete", "--yes", doneID}, bytes.NewReader(nil), &out, &errOut); code != 0 {
+		t.Fatalf("delete %s exit %d: %s", doneID, code, errOut.String())
+	}
+	if items, _, _ := workspaceRootItems(t, dataDir); len(items) != 1 {
+		t.Fatalf("after deleting the done record: %d items, want the flag back", len(items))
+	}
+}
+
+func TestDoneCLIRejectsBadTargetsAndWritesNothing(t *testing.T) {
+	dataDir := t.TempDir()
+	buildThisWeekFixtureStore(t, dataDir)
+	t.Setenv("XDG_DATA_HOME", dataDir)
+	count := func() int {
+		st, err := store.Open(filepath.Join(dataDir, "backstory", "backstory.db"), nil, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = st.Close() }()
+		var n int
+		if err := st.DB().QueryRow(`SELECT count(*) FROM records`).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	before := count()
+	for _, args := range [][]string{{"done"}, {"done", "no-such-record"}, {"done", "claim001"}} {
+		var out, errOut bytes.Buffer
+		if code := run(args, bytes.NewReader(nil), &out, &errOut); code == 0 {
+			t.Errorf("run(%v) exit 0, want failure", args)
+		}
+	}
+	if count() != before {
+		t.Fatal("a rejected done wrote a record")
+	}
+}

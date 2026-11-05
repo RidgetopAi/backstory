@@ -86,7 +86,12 @@ window (the same set Where-you-left-off lists).
 | `handoff_time` | string     | only on `possibly-stale-handoff` | The handoff's own time, RFC 3339 UTC: which handoff the row is about. |
 | `handoff_summary` | string  | only on `possibly-stale-handoff` | The handoff's first line, trimmed. |
 | `reasons`      | object[]   | only on `possibly-stale-handoff` | One entry per freshness reason, in `store.HandoffFreshness` order, so the panel never parses `reason`. Each: `kind` (`contradicted`, `later-record`, `later-activity`, `later-failure` or `later-unrecorded-work`), `when` (RFC 3339 UTC of the newest evidence, `""` if unknown), `where` (the folder it happened in, workspace-relative like other labels, `""` if unknown) and `text` (never truncated: the full failed command and exit code; the newer note's first line; `N sessions edited M files and wrote no note`). A reason that cites several records or events describes the newest and ends `(+N more)`. |
+| `looks_finished` | boolean  | only on `possibly-stale-handoff` | `true` when a reason is a later `outcome` record in the handoff's scope (the agent's proof the work got done); `false` for any other reasons. The `later-record` reason then also carries `outcome_id` (the newest such outcome) and its `text` begins `outcome <short id>: `. `backstory done <handoff-id>` (human-only) marks it finished. |
 | `evidence_ids` | string[]   | yes (never `null`, may be empty) | Record ids and/or timeline event ids (event ids as decimal strings) that are this item's positive evidence. |
+
+A project summary (Where you left off) also carries `handoff_done` (true) and `handoff_done_at` (RFC 3339 UTC) when
+the human marked its latest handoff done with `backstory done <handoff-id>`; both are omitted otherwise. A done handoff
+is never `handoff_stale` and produces no `possibly-stale-handoff` item. Deleting the done record undoes it.
 
 `kind` is one of:
 

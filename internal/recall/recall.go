@@ -165,6 +165,12 @@ type Item struct {
 	// ids.
 	StaleReasons []store.FreshnessReason
 
+	// Done is set for a handoff the human marked done (store.HandoffDone);
+	// DoneAt is when. A done handoff is never possibly stale and is not a
+	// resume instruction.
+	Done   bool
+	DoneAt time.Time
+
 	// Git is the record's write-time repo HEAD compared with the repo's HEAD
 	// now; nil when the record carries no git_head (or is tombstoned).
 	Git *GitStamp
@@ -437,6 +443,12 @@ func annotate(st *store.Store, rec store.Record, workspaces []string) (Item, err
 	// StatusContradicted check below is not, so a handoff never falls
 	// through to that check at all — flagged or not.
 	if rec.Kind == store.KindHandoff {
+		if doneAt, done, err := st.HandoffDone(rec.ID); err != nil {
+			return Item{}, fmt.Errorf("recall: annotate %s: done: %w", rec.ID, err)
+		} else if done {
+			item.Done, item.DoneAt = true, doneAt
+			return item, nil
+		}
 		reasons, err := st.HandoffFreshness(rec, workspaces)
 		if err != nil {
 			return Item{}, fmt.Errorf("recall: annotate %s: freshness: %w", rec.ID, err)
@@ -569,6 +581,9 @@ func renderBody(header, text string, maxChars int) string {
 func StatusLabel(item Item) string { return statusLabel(item) }
 
 func statusLabel(item Item) string {
+	if item.Done {
+		return "done (marked done by you on " + item.DoneAt.UTC().Format("2006-01-02") + ")"
+	}
 	switch item.Status {
 	case StatusSuperseded:
 		return "superseded by " + shortID(item.SupersededByID)

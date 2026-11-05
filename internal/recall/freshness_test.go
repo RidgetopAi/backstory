@@ -3,6 +3,7 @@ package recall
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -238,4 +239,24 @@ func mustInsertHandoffAtTS(t *testing.T, st *store.Store, sessionID, projectKey 
 		t.Fatalf("insert handoff at ts fixture: %v", err)
 	}
 	return id
+}
+
+// A done handoff is Done with the date, never possibly stale.
+func TestBuildDoneHandoffIsDoneNotStale(t *testing.T) {
+	st, sessionID := newFreshnessFixture(t)
+	h := mustInsertHandoffAbout(t, st, sessionID, []string{"a.go"})
+	mustInsertNoteAbout(t, st, sessionID, []string{"a.go"})
+	if _, err := st.Confirm(store.ConfirmParams{
+		Identity: store.Identity{Kind: store.IdentityHuman, Actor: "human"}, Action: store.ConfirmDone,
+		RecordID: h.ID, ProjectKey: freshnessProjectKey,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	item := buildHandoffItem(t, st, h.ID)
+	if !item.Done || item.DoneAt.IsZero() || item.Status == StatusPossiblyStale || len(item.StaleReasons) != 0 {
+		t.Fatalf("item = %+v, want done and not stale", item)
+	}
+	if label := StatusLabel(item); !strings.Contains(label, "marked done by you on "+item.DoneAt.UTC().Format("2006-01-02")) {
+		t.Errorf("status label = %q", label)
+	}
 }

@@ -110,7 +110,10 @@ type attentionItemJSON struct {
 	HandoffTime    string            `json:"handoff_time,omitempty"`
 	HandoffSummary string            `json:"handoff_summary,omitempty"`
 	Reasons        []staleReasonJSON `json:"reasons,omitempty"`
-	EvidenceIDs    []string          `json:"evidence_ids"`
+	// LooksFinished is true when a reason is a later outcome record; the
+	// field is present (true or false) on every possibly-stale-handoff item.
+	LooksFinished *bool    `json:"looks_finished,omitempty"`
+	EvidenceIDs   []string `json:"evidence_ids"`
 }
 
 // staleReasonJSON is one freshness reason of a possibly-stale handoff.
@@ -119,6 +122,8 @@ type staleReasonJSON struct {
 	When  string `json:"when"`
 	Where string `json:"where"`
 	Text  string `json:"text"`
+	// OutcomeID names the later outcome record behind a later-record reason.
+	OutcomeID string `json:"outcome_id,omitempty"`
 }
 
 // projectSummaryJSON is one project's Where-you-left-off entry, standalone
@@ -131,6 +136,9 @@ type projectSummaryJSON struct {
 	HandoffID        string `json:"handoff_id,omitempty"`
 	HandoffFirstLine string `json:"handoff_first_line,omitempty"`
 	HandoffStale     bool   `json:"handoff_stale,omitempty"`
+	// HandoffDone and HandoffDoneAt: the human marked the handoff done.
+	HandoffDone   bool   `json:"handoff_done,omitempty"`
+	HandoffDoneAt string `json:"handoff_done_at,omitempty"`
 	// OriginDeviceName names the paired device that wrote the handoff;
 	// null when it was written on this device or there is no handoff.
 	OriginDeviceName *string `json:"origin_device_name"`
@@ -221,7 +229,11 @@ func printThisWeekJSON(stdout io.Writer, result week.Result, here *hereJSON, win
 			if !r.When.IsZero() {
 				when = r.When.UTC().Format(time.RFC3339)
 			}
-			item.Reasons = append(item.Reasons, staleReasonJSON{Kind: r.Kind, When: when, Where: r.Where, Text: r.Text})
+			item.Reasons = append(item.Reasons, staleReasonJSON{Kind: r.Kind, When: when, Where: r.Where, Text: r.Text, OutcomeID: r.OutcomeID})
+		}
+		if it.Kind == week.AttentionPossiblyStaleHandoff {
+			lf := it.LooksFinished
+			item.LooksFinished = &lf
 		}
 		out.Attention = append(out.Attention, item)
 	}
@@ -272,6 +284,8 @@ func projectSummary(p week.ProjectSummary) projectSummaryJSON {
 		HandoffID:        p.HandoffID,
 		HandoffFirstLine: p.HandoffFirstLine,
 		HandoffStale:     p.HandoffStale,
+		HandoffDone:      p.HandoffDone,
+		HandoffDoneAt:    formatTSOrEmpty(p.HandoffDoneAt),
 		OriginDeviceName: nullableDeviceName(p.HandoffOriginDevice),
 		HandoffNext:      p.HandoffNext,
 		LastAgent:        p.LastAgent,

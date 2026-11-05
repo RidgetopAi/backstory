@@ -1081,3 +1081,114 @@ func TestBuildWeekGridLeavesShellSessionsOut(t *testing.T) {
 		}
 	}
 }
+
+// seedHandoffWithLaterRecord seeds a project whose handoff is followed by one
+// later record of kind (sharing its about[] path), returning the project key,
+// the handoff id and the later record id.
+func seedHandoffWithLaterRecord(t *testing.T, st *store.Store, name string, kind store.RecordKind) (key, handoffID, laterID string) {
+	t.Helper()
+	key = "proj-" + name
+	upsertProject(t, st, key, "/home/brian/"+name)
+	sid := startSession(t, st, "sess-"+name, key, "/home/brian/"+name, fixtureNow.Add(-2*24*time.Hour))
+	appendEvent(t, st, store.Event{TS: fixtureNow.Add(-2 * 24 * time.Hour), Kind: "session.start", SessionID: sid, Source: "shell", Payload: `{}`})
+	var err error
+	handoffID, err = st.InsertRecord(store.InsertRecordParams{
+		Identity: agentIdentity, Kind: store.KindHandoff, Text: "troubleshooting handoff",
+		About: []string{"main.go"}, SessionID: sid, ProjectKey: key,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := store.InsertRecordParams{
+		Identity: agentIdentity, Kind: kind, Text: "RESOLVED it",
+		About: []string{"main.go"}, SessionID: sid, ProjectKey: key,
+	}
+	if kind == store.KindOutcome {
+		p.Outcome = outcomePtr(store.OutcomeTrue)
+	}
+	if laterID, err = st.InsertRecord(p); err != nil {
+		t.Fatal(err)
+	}
+	return key, handoffID, laterID
+}
+
+func staleItemFor(res Result, key string) (AttentionItem, bool) {
+	for _, it := range res.Attention {
+		if it.Kind == AttentionPossiblyStaleHandoff && it.ProjectKey == key {
+			return it, true
+		}
+	}
+	return AttentionItem{}, false
+}
+
+// A later outcome makes the item look finished and the reason names it; a
+// later note does not.
+func TestStaleHandoffLooksFinishedOnlyForLaterOutcome(t *testing.T) {
+	st := openTestStore(t)
+	outKey, _, outID := seedHandoffWithLaterRecord(t, st, "with-outcome", store.KindOutcome)
+	noteKey, _, _ := seedHandoffWithLaterRecord(t, st, "with-note", store.KindNote)
+
+	res, err := Build(Params{Store: st, Now: fixtureNow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	it, ok := staleItemFor(res, outKey)
+	if !ok {
+		t.Fatalf("no stale item for %s", outKey)
+	}
+	if !it.LooksFinished {
+		t.Errorf("outcome case: LooksFinished = false, want true")
+	}
+	named := false
+	for _, r := range it.Reasons {
+		if r.OutcomeID == outID && strings.Contains(r.Text, "outcome") {
+			named = true
+		}
+	}
+	if !named {
+		t.Errorf("no reason names outcome %s: %+v", outID, it.Reasons)
+	}
+	it, ok = staleItemFor(res, noteKey)
+	if !ok {
+		t.Fatalf("no stale item for %s", noteKey)
+	}
+	if it.LooksFinished {
+		t.Errorf("note-only case: LooksFinished = true, want false")
+	}
+}
+
+// Done: the project carries the flag and time, and there is no attention item.
+func TestDoneHandoffCarriesFlagAndNoAttentionItem(t *testing.T) {
+	st := openTestStore(t)
+	key, handoffID, _ := seedHandoffWithLaterRecord(t, st, "finished", store.KindOutcome)
+	if _, err := st.Confirm(store.ConfirmParams{Identity: store.Identity{Kind: store.IdentityHuman, Actor: "human"}, Action: store.ConfirmDone, RecordID: handoffID, ProjectKey: key}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := Build(Params{Store: st, Now: fixtureNow})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := staleItemFor(res, key); ok {
+		t.Fatal("done handoff still produces a possibly-stale item")
+	}
+	found := false
+	for _, row := range res.WhereLeftOff {
+		ps := []ProjectSummary{}
+		if row.Group == "" {
+			ps = append(ps, row.Project)
+		} else {
+			ps = append(ps, row.Children...)
+		}
+		for _, p := range ps {
+			if p.ProjectKey == key {
+				found = true
+				if !p.HandoffDone || p.HandoffDoneAt.IsZero() || p.HandoffStale || p.HandoffID != handoffID {
+					t.Errorf("summary = %+v, want done with a time, not stale", p)
+				}
+			}
+		}
+	}
+	if !found {
+		t.Fatal("project row missing")
+	}
+}

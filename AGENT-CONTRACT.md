@@ -242,7 +242,10 @@ auto-memory 200 lines / 25 KB).
 3. **Coordination** — "another session is live in this repo on branch X" (pid alive in
    `/proc`, branch known)
 4. **Attention** — unconfirmed drafts count, flagged contradictions, and whether the Resume
-   handoff is possibly stale — cleared by `confirm affirm`
+   handoff is possibly stale — cleared by `confirm affirm`. A handoff the human marked done
+   (`backstory done`, human-only, not available to agents) renders as a one-line
+   "Finished: ... marked done by you on <date>; nothing to resume" instead of Resume, with no
+   Next line and no stale marker
 5. **One line** — "call recall only if you need more than this block"
 
 The header plus these five slots are the whole of it. Harnesses with no SessionStart
