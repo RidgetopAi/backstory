@@ -175,7 +175,13 @@ func Render(p Params) (string, error) {
 	}
 	failure := lastFailure(deltaEvents)
 	var staleReasons []store.FreshnessReason
+	var doneAt time.Time
+	var isDone bool
 	if hasHandoff {
+		doneAt, isDone, err = p.Store.HandoffDone(handoff.ID)
+		if err != nil {
+			return "", fmt.Errorf("block: handoff done: %w", err)
+		}
 		staleReasons, err = p.Store.HandoffFreshness(handoff, p.WorkspaceDirs)
 		if err != nil {
 			return "", fmt.Errorf("block: handoff freshness: %w", err)
@@ -190,7 +196,7 @@ func Render(p Params) (string, error) {
 			return "", fmt.Errorf("block: resume handoff author: %w", err)
 		}
 	}
-	slot1 := resumeSlot(handoff, hasHandoff, staleReasons, resumeLabel, handoffAuthorClause(author, p.Harness))
+	slot1 := resumeSlot(handoff, hasHandoff, staleReasons, doneAt, isDone, resumeLabel, handoffAuthorClause(author, p.Harness))
 	if !hasHandoff {
 		slot1 = pointer
 	}
@@ -272,13 +278,22 @@ func joinParts(parts ...string) string {
 // spelled out in prose (task 56317fe7 — measured on Brian's desktop: a
 // handoff's text named its predecessor in prose because the block carried
 // no id at all, so the chain never linked).
-func resumeSlot(rec store.Record, ok bool, staleReasons []store.FreshnessReason, label, authorClause string) string {
+func resumeSlot(rec store.Record, ok bool, staleReasons []store.FreshnessReason, doneAt time.Time, isDone bool, label, authorClause string) string {
 	if !ok {
 		return ""
 	}
 	idPart := "(id " + rec.ID
 	if rec.OriginDeviceName != "" {
 		idPart += ", from " + rec.OriginDeviceName
+	}
+	if isDone {
+		// A done handoff is finished work: no Next, MODE or stale marker,
+		// and the lead is not "Resume:".
+		line := "Finished: " + idPart + ") marked done by you on " + doneAt.UTC().Format("2006-01-02") + "; nothing to resume. " + authorClause + rec.Text
+		if label != "" {
+			line += "\nLocation: " + label
+		}
+		return line
 	}
 	line := "Resume: " + idPart + ") " + authorClause + rec.Text
 	if rec.Next != "" {

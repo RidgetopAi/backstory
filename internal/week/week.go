@@ -127,6 +127,10 @@ type AttentionItem struct {
 	HandoffTime    time.Time
 	HandoffSummary string
 	Reasons        []StaleReason
+	// LooksFinished is set when a reason's later records include an outcome
+	// (the agent's proof the work got done): the handoff may be finished
+	// rather than wrong. Only a possibly-stale-handoff item sets it.
+	LooksFinished bool
 	// EvidenceIDs is the positive evidence this item cites: record ids and
 	// timeline event ids (formatted as decimal strings), in the same mixed
 	// list shape block.staleMarker and recall's status labels already use
@@ -145,6 +149,9 @@ type StaleReason struct {
 	Where string
 	// Text is the full, untruncated description.
 	Text string
+	// OutcomeID names the newest later outcome record behind a later-record
+	// reason; "" when the reason cites no outcome.
+	OutcomeID string
 }
 
 // ProjectSummary is one project's Where-you-left-off row (or one child of
@@ -178,6 +185,10 @@ type ProjectSummary struct {
 	// exists for this project's handoff — the same store.HandoffFreshness
 	// call feeds both, so the two can never disagree.
 	HandoffStale bool
+	// HandoffDone and HandoffDoneAt say the human marked the handoff done
+	// (store.HandoffDone) and when; a done handoff is never stale.
+	HandoffDone   bool
+	HandoffDoneAt time.Time
 }
 
 // AgentSummary is one agent's footprint in a row's window.
@@ -500,6 +511,9 @@ func buildProject(st *store.Store, projectKey string, since, now time.Time, git 
 		summary.HandoffFirstLine = firstLine(handoff.Text)
 		summary.HandoffNext = handoffNext(handoff)
 
+		if summary.HandoffDoneAt, summary.HandoffDone, err = st.HandoffDone(handoff.ID); err != nil {
+			return ProjectSummary{}, nil, err
+		}
 		reasons, err := st.HandoffFreshness(handoff, workspaces)
 		if err != nil {
 			return ProjectSummary{}, nil, fmt.Errorf("week: handoff freshness for %s: %w", projectKey, err)
@@ -771,6 +785,9 @@ func buildHomeLabelProject(st *store.Store, since, now time.Time, loc store.Acti
 		summary.HandoffFirstLine = firstLine(handoff.Text)
 		summary.HandoffNext = handoffNext(handoff)
 
+		if summary.HandoffDoneAt, summary.HandoffDone, err = st.HandoffDone(handoff.ID); err != nil {
+			return ProjectSummary{}, nil, err
+		}
 		reasons, err := st.HandoffFreshness(handoff, workspaces)
 		if err != nil {
 			return ProjectSummary{}, nil, fmt.Errorf("week: handoff freshness for label %s: %w", loc.Label, err)
@@ -989,7 +1006,14 @@ func staleHandoffItem(st *store.Store, projectKey, label string, handoff store.R
 	if err != nil {
 		return AttentionItem{}, fmt.Errorf("week: stale reasons for %s: %w", handoff.ID, err)
 	}
+	looksFinished := false
+	for _, d := range detail {
+		if d.OutcomeID != "" {
+			looksFinished = true
+		}
+	}
 	return AttentionItem{
+		LooksFinished:  looksFinished,
 		Kind:           AttentionPossiblyStaleHandoff,
 		ProjectKey:     projectKey,
 		HandoffID:      handoff.ID,
@@ -1017,11 +1041,14 @@ func staleReasons(st *store.Store, reasons []store.FreshnessReason, workspaces [
 		sr := StaleReason{Kind: string(r.Kind)}
 		switch r.Kind {
 		case store.FreshnessContradicted, store.FreshnessLaterRecord:
-			var newest store.Record
+			var newest, newestOutcome store.Record
 			for _, id := range r.RecordIDs {
 				rec, err := st.GetRecord(id)
 				if err != nil {
 					return nil, err
+				}
+				if rec.Kind == store.KindOutcome && (newestOutcome.ID == "" || !rec.TS.Before(newestOutcome.TS)) {
+					newestOutcome = rec
 				}
 				if newest.ID == "" || !rec.TS.Before(newest.TS) {
 					newest = rec
@@ -1033,6 +1060,15 @@ func staleReasons(st *store.Store, reasons []store.FreshnessReason, workspaces [
 				return nil, err
 			}
 			sr.Text = strings.TrimSpace(firstLine(newest.Text))
+			if r.Kind == store.FreshnessLaterRecord && newestOutcome.ID != "" {
+				// Name the outcome: it is what makes the handoff look finished.
+				sr.OutcomeID = newestOutcome.ID
+				sr.When = newestOutcome.TS
+				if sr.Where, err = where(newestOutcome.SessionID); err != nil {
+					return nil, err
+				}
+				sr.Text = "outcome " + shortID(newestOutcome.ID) + ": " + strings.TrimSpace(firstLine(newestOutcome.Text))
+			}
 			if r.Kind == store.FreshnessContradicted {
 				sr.Text = "contradicted by a newer record: " + sr.Text
 			}

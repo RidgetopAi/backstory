@@ -103,6 +103,11 @@ type FailureDetail struct {
 // environment. nil is safe — homeMembership then finds no session whose
 // folder resolves inside a workspace, matching the pre-workspace scope.
 func (s *Store) HandoffFreshness(h Record, workspaces []string) ([]FreshnessReason, error) {
+	if _, done, err := s.HandoffDone(h.ID); err != nil {
+		return nil, err
+	} else if done {
+		return nil, nil
+	}
 	boundaryID := h.ID
 	boundaryEventCursor := h.EventCursor
 	if affirmID, affirmCursor, ok, err := s.latestAffirmInforming(h.ID); err != nil {
@@ -408,8 +413,9 @@ func (s *Store) latestAffirmInforming(handoffID string) (id string, eventCursor 
 		SELECT c.id, c.event_cursor FROM edges e
 		JOIN records c ON c.id = e.from_id
 		WHERE e.to_id = ? AND e.type = ? AND c.kind = ? AND c.promoter IS NULL
+		AND c.text <> ?
 		ORDER BY c.rowid DESC LIMIT 1`,
-		handoffID, string(EdgeInforms), string(KindConfirm)).Scan(&id, &eventCursor)
+		handoffID, string(EdgeInforms), string(KindConfirm), DoneMarkerText).Scan(&id, &eventCursor)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", 0, false, nil
 	}

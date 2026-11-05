@@ -17,6 +17,9 @@ const (
 	ConfirmContradict ConfirmAction = "contradict"
 	ConfirmSupersede  ConfirmAction = "supersede"
 	ConfirmAffirm     ConfirmAction = "affirm"
+	// ConfirmDone marks a handoff finished (human-only, CLI `done`); it is
+	// not offered through MCP. See done.go.
+	ConfirmDone ConfirmAction = "done"
 )
 
 // confirmEdgeType maps a ConfirmAction to the edge type Confirm mints from
@@ -31,6 +34,7 @@ var confirmEdgeType = map[ConfirmAction]EdgeType{
 	ConfirmContradict: EdgeContradicts,
 	ConfirmSupersede:  EdgeSupersedes,
 	ConfirmAffirm:     EdgeInforms,
+	ConfirmDone:       EdgeInforms,
 }
 
 // ConfirmEdgeType exposes confirmEdgeType so a caller (the mcp package,
@@ -169,6 +173,21 @@ func (s *Store) Confirm(p ConfirmParams) (string, error) {
 		if s.canonicalizeProjectKey(target.ProjectKey) != s.canonicalizeProjectKey(p.ProjectKey) {
 			return "", &CrossProjectRecordError{RecordID: p.RecordID}
 		}
+	case ConfirmDone:
+		if p.Identity.Kind != IdentityHuman {
+			return "", ErrDoneHumanOnly
+		}
+		h, err := s.GetRecord(p.RecordID)
+		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return "", &UnknownEdgeTargetError{Field: "record_id", ID: p.RecordID}
+			}
+			return "", err
+		}
+		if h.Kind != KindHandoff {
+			return "", ErrDoneNotAHandoff
+		}
+		p.Text = DoneMarkerText
 	case ConfirmAffirm:
 		// No extra validation: affirm means "still true as of now" and
 		// applies to any target the caller can name.
