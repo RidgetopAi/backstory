@@ -258,6 +258,35 @@ func buildThisWeekFixtureStore(t *testing.T, dataDir string) {
 		mustAppendEvent(t, st, store.Event{TS: p.startedAt, Kind: "tool.use", SessionID: sid, Source: "shell", Payload: `{"name":"Read"}`})
 		_ = i
 	}
+	// --- acme-week-done: the human marked its latest handoff done (task
+	// 651ebe60), so the project carries handoff_done / handoff_done_at.
+	const doneProject = "acme-week-done"
+	if err := st.UpsertProject(store.Project{Key: doneProject, Toplevel: "/home/brian/acme-week-done", FirstSeen: date(2, 9, 0)}); err != nil {
+		t.Fatalf("UpsertProject(%s): %v", doneProject, err)
+	}
+	sessDone, err := st.StartSession(store.StartSessionParams{
+		ID: "sess-done-1", Agent: "claude", CWD: "/home/brian/acme-week-done", ProjectKey: doneProject,
+		StartedAt: date(2, 9, 0), Origin: store.OriginLive,
+	})
+	if err != nil {
+		t.Fatalf("StartSession(done): %v", err)
+	}
+	mustAppendEvent(t, st, store.Event{TS: date(2, 9, 0), Kind: "session.start", SessionID: sessDone, Source: "shell", Payload: `{}`})
+	mustAppendEvent(t, st, store.Event{TS: date(2, 9, 1), Kind: "tool.use", SessionID: sessDone, Source: "shell", Payload: `{"name":"Read"}`})
+	mustInsertThisWeekRecord(t, st, fixtureRecord{
+		ID: "handoff-done", ProjectKey: doneProject, SessionID: sessDone, TS: date(2, 9, 5),
+		Kind: store.KindHandoff, Tier: store.TierAgentDeclared, Text: "Resume: nothing, it shipped",
+	})
+	// The done record as `backstory done` writes it (a human-declared confirm
+	// informing the handoff), inserted directly so its time is pinned.
+	mustInsertThisWeekRecord(t, st, fixtureRecord{
+		ID: "confirm-done", ProjectKey: doneProject, SessionID: sessDone, TS: date(2, 9, 10),
+		Kind: store.KindConfirm, Tier: store.TierHumanDeclared, Text: store.DoneMarkerText,
+	})
+	if err := st.LinkEdge("confirm-done", "handoff-done", store.EdgeInforms, "human"); err != nil {
+		t.Fatalf("link done edge: %v", err)
+	}
+
 	human := store.Identity{Kind: store.IdentityHuman, Actor: "human"}
 	if err := st.SetProjectGroup(human, "widget-suite", groupAProject); err != nil {
 		t.Fatalf("SetProjectGroup(a): %v", err)
@@ -357,11 +386,11 @@ func TestThisWeekGoldenJSON(t *testing.T) {
 		!strings.Contains(syncItem.Reason, "laptop") || !strings.Contains(syncItem.Reason, "proto 2") {
 		t.Errorf("sync-failing item = %+v, want kind sync-failing, project_key sync, evidence [1], reason naming laptop and the cause", syncItem)
 	}
-	if len(parsed.WhereLeftOff) != 7 {
-		t.Fatalf("where_left_off rows = %d, want 7 (3 standalone + 1 group + the workspace root + omarcade + vidflow; got %+v)", len(parsed.WhereLeftOff), parsed.WhereLeftOff)
+	if len(parsed.WhereLeftOff) != 8 {
+		t.Fatalf("where_left_off rows = %d, want 8 (4 standalone + 1 group + the workspace root + omarcade + vidflow; got %+v)", len(parsed.WhereLeftOff), parsed.WhereLeftOff)
 	}
-	if len(parsed.Week) != 8 {
-		t.Fatalf("week entries = %d, want 8 (got %+v)", len(parsed.Week), parsed.Week)
+	if len(parsed.Week) != 9 {
+		t.Fatalf("week entries = %d, want 9 (got %+v)", len(parsed.Week), parsed.Week)
 	}
 
 	// task 482b2320, decision f3fa04c7's DONE WHEN clause 5: the ONE
