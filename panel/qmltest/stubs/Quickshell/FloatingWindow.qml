@@ -12,6 +12,7 @@ QtObject {
   property color color: "transparent"
   property real implicitWidth: 0
   property real implicitHeight: 0
+  property size minimumSize
   // Real FloatingWindow's width/height start at the implicit size and follow
   // the compositor's resize; tests assign them to simulate a Hyprland resize.
   property real width: implicitWidth

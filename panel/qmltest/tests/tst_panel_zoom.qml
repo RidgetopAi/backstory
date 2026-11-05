@@ -5,10 +5,9 @@ import Quickshell.Io
 import "testutil.js" as TestUtil
 import "../../js/launchers.js" as Launchers
 
-// Task eb7188fa: the card fills the window and content scales with the
-// window width (zoom = width / panel.baseWidth x userZoom; baseWidth is the
-// popup card's 380 inside its border); Ctrl+= / Ctrl+- / Ctrl+0
-// adjust userZoom within [0.75, 2.5].
+// The card fills the window and its content reflows with the window size,
+// as a web page does: a wider window lays the view out wider at the same
+// text size. Ctrl+= / Ctrl+- / Ctrl+0 set the zoom within [0.75, 2.5].
 TestCase {
   id: testCase
   name: "PanelZoom"
@@ -64,9 +63,7 @@ TestCase {
     act.pressKey(key, mods)
   }
 
-  function test_window_width_scales_content() {
-    act.settledEq(panel, "userZoom", 1.0)
-    act.settledEq(panel, "zoom", 1.0)
+  function test_window_width_reflows_content() {
     var h = heading()
     verify(h !== null, "heading Text not found")
     var base = onScreenHeight(h)
@@ -75,11 +72,21 @@ TestCase {
     var win = panel.testWindow
     win.width = 2 * panel.baseWidth
     win.height = 900
-    act.settledEq(panel, "zoom", 2.0)
     var card = panel.testKeyItem
     act.settledEq(card, "width", win.width)
     act.settledEq(card, "height", win.height)
-    act.settled(function () { return Math.abs(onScreenHeight(h) - 2 * base) <= 1 }, "heading " + onScreenHeight(h) + " vs 2x " + base)
+    act.settledEq(panel, "zoom", 1.0)
+    act.settledEq(panel.view, "width", win.width)
+    act.settled(function () { return Math.abs(onScreenHeight(h) - base) <= 1 }, "heading " + onScreenHeight(h) + " vs " + base)
+  }
+
+  function test_zoom_keeps_content_filling_the_window() {
+    var win = panel.testWindow
+    win.width = 2 * panel.baseWidth
+    press(Qt.Key_Equal, Qt.ControlModifier)
+    act.settledEq(panel, "zoom", 1.1)
+    var view = panel.view
+    act.settled(function () { return Math.abs(view.width * view.scale - win.width) <= 1 }, "view " + view.width * view.scale + " vs window " + win.width)
   }
 
   function test_zoom_keys() {

@@ -22,6 +22,9 @@ Item {
   // True while the host surface is showing; turning on refreshes the data,
   // turning off returns to the main body.
   property bool active: false
+  // The view's width at the bar popup's size. The window sets it; in the
+  // popup the view is always that wide.
+  property real restingWidth: width
   signal closeRequested()
   // A host that can show the view somewhere roomier (the bar popup, which
   // opens the window) sets canPopOut; the window sets canPin and pinned
@@ -554,6 +557,7 @@ Item {
         HereCard {
           visible: root.hereProject !== null
           width: parent.width
+          restingWidth: parent.width - (root.width - root.restingWidth)
           summary: root.hereProject
           hereName: root.hereName
           hereSource: root.hereData ? (Model.hereSource(root.hereData) || "") : ""

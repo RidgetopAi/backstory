@@ -445,8 +445,11 @@ Item {
 
             Row {
               id: infoRow
+              objectName: "recordInfoRow"
               anchors.left: parent.left
               anchors.verticalCenter: parent.verticalCenter
+              width: Math.min(implicitWidth, recordActions.x - Style.spacing.controlGap)
+              clip: true
               spacing: Style.spacing.controlGap
 
               Text {
@@ -499,6 +502,8 @@ Item {
             }
 
             Row {
+              id: recordActions
+              objectName: "recordActions"
               anchors.right: parent.right
               anchors.verticalCenter: parent.verticalCenter
               visible: !rec.deleted

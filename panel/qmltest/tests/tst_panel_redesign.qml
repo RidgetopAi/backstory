@@ -161,9 +161,10 @@ TestCase {
     }
   }
 
-  // The card's buttons span its inner width: the last ends as far from the
-  // card's right edge as the first starts from its left and the row sits
-  // from its bottom, whether the Continue label is long or short.
+  // The card's buttons end at its inner edge: the last ends as far from the
+  // card's right edge as the row sits from its bottom and, when they share
+  // one line, as the first starts from its left, whether the Continue label
+  // is long or short.
   function test_here_card_buttons_pad_like_the_card() {
     open(payload())
     assertHereCardGaps("Continue in Claude Code")
@@ -179,9 +180,59 @@ TestCase {
     var first = named("hereContinue").mapToItem(card, 0, 0)
     var lastButton = named("hereMemory")
     var last = lastButton.mapToItem(card, 0, 0)
-    var left = first.x
-    fuzzyCompare(card.width - (last.x + lastButton.width), left, 0.5, desc + ": right gap vs left gap")
-    fuzzyCompare(card.height - (last.y + lastButton.height), left, 0.5, desc + ": bottom gap vs left gap")
+    var right = card.width - (last.x + lastButton.width)
+    fuzzyCompare(card.height - (last.y + lastButton.height), right, 0.5, desc + ": bottom gap vs right gap")
+    if (Math.abs(first.y - last.y) < 0.5) fuzzyCompare(first.x, right, 0.5, desc + ": left gap vs right gap")
+  }
+
+  // Continue fills the row at the popup's size and keeps that width in a
+  // wider window, the row against the right edge. In a narrow window the
+  // buttons break onto more lines, each against the right edge, and no
+  // label shrinks.
+  function test_here_buttons_keep_their_size_as_the_window_resizes() {
+    open(payload())
+    var win = panel.testWindow
+    var card = panel.testKeyItem
+    var resting = named("hereContinue").width
+    assertHereCardGaps("popup size")
+
+    win.width = Math.round(panel.baseWidth * 2)
+    act.settledEq(card, "width", win.width)
+    act.drain()
+    fuzzyCompare(named("hereContinue").width, resting, 0.5, "Continue widened with the window")
+    var here = named("hereCard")
+    var memory = named("hereMemory")
+    fuzzyCompare(here.width - (memory.mapToItem(here, 0, 0).x + memory.width), Style.spacing.rowGap, 0.5, "wide window: row not against the right edge")
+    var next = TestUtil.findFirst(here, function (n) { return typeof n.text === "string" && n.text.indexOf("Next") === 0 })
+    fuzzyCompare(next.width, here.width - Style.spacing.rowGap * 2, 0.5, "wide window: the Next line does not take the card's width")
+
+    win.width = panel.minWidth
+    act.settledEq(card, "width", win.width)
+    act.drain()
+    assertNarrowButtons(Format.continueLabel("claude"))
+    named("hereCard").continueLabel = "Continue in an agent whose name is too long for the row"
+    assertNarrowButtons("a label wider than the row")
+  }
+
+  // The buttons break onto more lines, each against the card's right edge,
+  // and no label shrinks unless it alone is wider than the row.
+  function assertNarrowButtons(desc) {
+    var here = named("hereCard")
+    var rows = named("hereButtons")
+    act.quiescent(function () { return [named("hereContinue").width, named("hereMemory").y] }, desc + ": never settled")
+    verify(named("hereContinue").mapToItem(here, 0, 0).y < named("hereMemory").mapToItem(here, 0, 0).y, desc + ": the buttons did not break onto more lines")
+    var all = []
+    for (var i = 0; i < rows.children.length; i++) all.push(rows.children[i])
+    all.forEach(function (b) {
+      var at = b.mapToItem(here, 0, 0)
+      verify(b.width >= Math.min(b.implicitWidth, rows.width) - 0.5, desc + ": " + b.label + " is " + b.width + " wide, under its label's " + b.implicitWidth)
+      verify(b.width <= rows.width + 0.5, desc + ": " + b.label + " is " + b.width + " wide, past the row's " + rows.width)
+      var endsItsLine = all.every(function (o) {
+        var p = o.mapToItem(here, 0, 0)
+        return o === b || Math.abs(p.y - at.y) > 0.5 || p.x < at.x
+      })
+      if (endsItsLine) fuzzyCompare(here.width - (at.x + b.width), Style.spacing.rowGap, 0.5, desc + ": the line " + b.label + " ends is not against the right edge")
+    })
   }
 
   // Text sizes a theme can set (`[font] base-size`, 12 by default), and 16
@@ -220,6 +271,66 @@ TestCase {
     var label = TestUtil.findFirst(button, function (n) { return n.text === "Continue in Claude Code" })
     verify(label.x >= 0 && label.x + label.width <= button.width && label.paintedWidth <= label.width + 0.5,
       row.tag + ": Continue label (x " + label.x + ", " + label.paintedWidth + " painted in " + label.width + ") outside its button (" + button.width + ")")
+  }
+
+  // As the window widens, the content reflows: every control keeps its
+  // place against the left edge or against the right edge, so it moves
+  // predictably, at every text size.
+  function test_controls_keep_an_edge_as_the_window_widens_data() { return test_layout_at_text_sizes_data() }
+
+  function test_controls_keep_an_edge_as_the_window_widens(row) {
+    cleanup()
+    Style.testFontScale = row.fontScale
+    Style.testSpacingScaleWithFont = row.withFont
+    init()
+    open(payload())
+    expectControlsKeepAnEdge(row.tag + ", main view")
+  }
+
+  function test_sub_view_controls_keep_an_edge_as_the_window_widens_data() {
+    var rows = []
+    var sizes = test_layout_at_text_sizes_data()
+    for (var i = 0; i < sizes.length; i++) {
+      rows.push(Object.assign({}, sizes[i], { tag: sizes[i].tag + ", groups", page: "groupsPage" }))
+      rows.push(Object.assign({}, sizes[i], { tag: sizes[i].tag + ", help", page: "helpPage" }))
+    }
+    return rows
+  }
+
+  function test_sub_view_controls_keep_an_edge_as_the_window_widens(row) {
+    cleanup()
+    Style.testFontScale = row.fontScale
+    Style.testSpacingScaleWithFont = row.withFont
+    init()
+    ProcessController.respond(Launchers.groupListCommand(), {
+      stdout: JSON.stringify({
+        groups: [{ group: "tools" }],
+        ungrouped: ["b"],
+        projects: [{ key: "a", display_name: "a", group: "tools" }, { key: "b", display_name: "b", group: "" }]
+      }), stderr: "", exitCode: 0
+    })
+    open(payload())
+    if (row.page === "groupsPage") panel.view.groupEditorOpen = true
+    else panel.view.helpOpen = true
+    act.settled(function () { return TestUtil.slideDone(panel.testContentItem, row.page) }, row.tag + ": the slide never finished")
+    act.quiescent(function () { return [texts(), panel.testImplicitHeight] }, row.tag + ": never finished rendering")
+    expectControlsKeepAnEdge(row.tag)
+  }
+
+  function expectControlsKeepAnEdge(desc) {
+    var win = panel.testWindow
+    var card = panel.testKeyItem
+    var dw = Math.round(panel.baseWidth)
+    win.width = Math.round(panel.baseWidth * 1.25)
+    act.settledEq(card, "width", win.width)
+    act.drain()
+    var before = TestUtil.controlEdges(panel.testContentItem, card)
+    verify(before.length > 0, desc + ": no controls found")
+    win.width += dw
+    act.settledEq(card, "width", win.width)
+    act.drain()
+    var bad = TestUtil.controlsPinnedToNoEdge(before, TestUtil.controlEdges(panel.testContentItem, card), dw)
+    compare(JSON.stringify(bad), "[]", desc + ": controls pinned to neither edge")
   }
 
   function test_no_here_means_no_card() {
