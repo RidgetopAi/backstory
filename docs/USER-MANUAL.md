@@ -275,7 +275,7 @@ Some projects are really one piece of work, like a website and its API in two fo
 **group** shows them as one row in RECENT, with the members underneath.
 
 - Click the **gear** icon, pick a project, then pick an existing group or type a new name, and
-  press **+**.
+  press **+**. **Esc** in the name box stops typing; then **g** or **u** goes back.
 - Or use the command line: `backstory group set <group> --here` from inside the project.
 
 Most projects don't need a group.

@@ -421,6 +421,69 @@ TestCase {
     act.moveAway(panel.testContentItem)
   }
 
+  // Esc in the group-name field leaves the field: the window stays open,
+  // Groups stays the view and the typed text stays.
+  function focusFieldAndType(text) {
+    act.clickWhenReady(groupField, { desc: "group-name field", until: function () { return groupField().activeFocus } })
+    act.pressKey(Qt.Key_W)
+    act.settledEq(groupField(), "text", "w")
+  }
+
+  function test_esc_in_the_group_name_leaves_the_field() {
+    openGroupEditor()
+    var closes = 0
+    panel.view.closeRequested.connect(function () { closes++ })
+    focusFieldAndType("w")
+    act.pressKey(Qt.Key_Escape)
+    act.settled(function () { return !groupField().activeFocus }, "Esc left focus in the group-name field")
+    act.drain()
+    compare(closes, 0, "Esc in the group name asked the window to close")
+    compare(panel.view.groupEditorOpen, true, "Esc in the group name left Groups")
+    compare(groupField().text, "w", "Esc dropped the typed text")
+  }
+
+  function test_g_goes_back_after_esc_leaves_the_group_name() {
+    openGroupEditor()
+    focusFieldAndType("w")
+    act.pressKey(Qt.Key_Escape)
+    act.settled(function () { return !groupField().activeFocus }, "focus stayed in the field")
+    act.pressKey(Qt.Key_G)
+    act.settled(function () { return !panel.view.groupEditorOpen }, "g did not go back after Esc")
+    compare(groupField().text, "w", "g was typed into the field")
+  }
+
+  function test_u_goes_back_after_esc_leaves_the_group_name() {
+    openGroupEditor()
+    focusFieldAndType("w")
+    act.pressKey(Qt.Key_Escape)
+    act.settled(function () { return !groupField().activeFocus }, "focus stayed in the field")
+    act.pressKey(Qt.Key_U)
+    act.settled(function () { return !panel.view.groupEditorOpen }, "u did not go back after Esc")
+  }
+
+  function test_esc_from_the_main_view_after_that_closes_the_panel() {
+    openGroupEditor()
+    focusFieldAndType("w")
+    act.pressKey(Qt.Key_Escape)
+    act.settled(function () { return !groupField().activeFocus }, "focus stayed in the field")
+    act.pressKey(Qt.Key_G)
+    act.settled(function () { return !panel.view.groupEditorOpen }, "g did not go back")
+    act.settled(function () { return TestUtil.slideDone(panel.testContentItem, "mainPage") }, "main never slid back")
+    var closes = 0
+    panel.view.closeRequested.connect(function () { closes++ })
+    act.pressKey(Qt.Key_Escape)
+    act.settled(function () { return closes === 1 }, "Esc from the main view did not close the panel")
+  }
+
+  function test_footer_says_esc_stops_typing_only_while_the_field_has_focus() {
+    openGroupEditor()
+    compare(footerText(), "j/k move · Enter pick · u back · p pin · Esc close")
+    act.clickWhenReady(groupField, { desc: "group-name field", until: function () { return groupField().activeFocus } })
+    act.settled(function () { return footerText() === "Enter add · Esc stop typing" }, "typing footer never showed; got " + footerText())
+    act.pressKey(Qt.Key_Escape)
+    act.settled(function () { return footerText() === "j/k move · Enter pick · u back · p pin · Esc close" }, "normal footer never came back; got " + footerText())
+  }
+
   function test_header_is_back_then_groups_then_the_counts() {
     openGroupEditor()
     expectHeroStatus("0 groups · 1 project this week")
