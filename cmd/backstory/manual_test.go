@@ -81,7 +81,7 @@ func TestManualTurningSyncOff(t *testing.T) {
 		t.Error("troubleshooting does not link to Turning sync off")
 	}
 	for _, f := range []string{"../../docs/USER-MANUAL.md", "../../panel/README.md"} {
-		d, err := os.ReadFile(f)
+		d, err := os.ReadFile(f) //nolint:gosec // fixed doc paths from the list above
 		if err != nil {
 			t.Fatal(err)
 		}
