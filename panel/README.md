@@ -25,7 +25,7 @@ opens the store directly (PLAN.md §Phase 4 "Human look", decision
   the agent launch itself fails to start.
 - **The week** — a small per-project activity bar for each day in the
   window.
-- **Groups button** (interlocked squares) — opens a group editor over `backstory group
+- **Groups button** (interlocked squares): opens a group editor over `backstory group
   set|clear|list`: every project is a clickable row (its display name,
   never a key you type) drawn from `group list --json`; pick a project,
   then pick an existing group chip or type a new group name, and the "+"
