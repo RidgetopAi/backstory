@@ -217,3 +217,15 @@ func TestFinalLineOtherBranchHasNoID(t *testing.T) {
 		t.Errorf("unexpected line: %s", l)
 	}
 }
+
+// A handoff with no known branch matches any branch, so a newer one beats an
+// older handoff written on the reader's own branch.
+func TestResumeUnknownBranchCompetesWithOwnBranch(t *testing.T) {
+	r := newBranchRepo(t)
+	r.handoff("feature-b", "Older, feature-b.")
+	unknown := r.handoff("", "Newer, no branch recorded.")
+	out := r.render(r.b)
+	if !strings.Contains(out, "Resume: (id "+unknown.ID+")") {
+		t.Errorf("a newer NULL-branch handoff must be the Resume on feature-b:\n%s", out)
+	}
+}
