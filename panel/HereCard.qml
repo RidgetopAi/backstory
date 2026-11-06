@@ -30,6 +30,7 @@ Rectangle {
   signal memoryRequested()
 
   readonly property string lastAgent: root.summary ? (Model.summaryLastAgent(root.summary) || "") : ""
+  readonly property string handoffBranch: root.summary ? Model.summaryHandoffBranch(root.summary) : ""
   readonly property string next: root.summary ? (Model.summaryHandoffNext(root.summary) || "") : ""
   readonly property var agents: root.summary ? Model.summaryAgents(root.summary) : []
   readonly property string originDevice: root.summary ? Model.summaryOriginDevice(root.summary) : ""
@@ -122,7 +123,7 @@ Rectangle {
       visible: root.next !== ""
       width: parent.width
       textFormat: Text.PlainText
-      text: Format.nextPrefix(root.handoffAgent) + root.next
+      text: Format.nextPrefix(root.handoffAgent, root.handoffBranch) + root.next
       font.family: Style.font.family
       font.pixelSize: Style.font.body
       color: Commons.Color.popups.text

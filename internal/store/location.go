@@ -272,6 +272,12 @@ func (s *Store) LatestHandoffAt(dir string, git project.Git, workspaces []string
 // LatestHandoffAtFrom is LatestHandoffAt restricted to records written on
 // this device (OriginLocal) or imported from a paired one (OriginImported).
 func (s *Store) LatestHandoffAtFrom(dir string, git project.Git, workspaces []string, from OriginFilter) (Record, bool, error) {
+	return s.LatestHandoffAtFromWhere(dir, git, workspaces, from, nil)
+}
+
+// LatestHandoffAtFromWhere is LatestHandoffAtFrom restricted to handoffs for
+// which keep returns true (nil keeps all).
+func (s *Store) LatestHandoffAtFromWhere(dir string, git project.Git, workspaces []string, from OriginFilter, keep func(Record) bool) (Record, bool, error) {
 	dir = filepath.Clean(dir)
 	m := locationMatcher{label: project.Label(dir, git, workspaces)}
 	var keys []any
@@ -308,7 +314,7 @@ func (s *Store) LatestHandoffAtFrom(dir string, git project.Git, workspaces []st
 		return Record{}, false, fmt.Errorf("store: latest handoff at %s: %w", dir, err)
 	}
 	for _, h := range recs {
-		if !from.matches(h) {
+		if !from.matches(h) || (keep != nil && !keep(h)) {
 			continue
 		}
 		if m.repoKey != "" && h.ProjectKey == m.repoKey {

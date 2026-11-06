@@ -143,7 +143,10 @@ type projectSummaryJSON struct {
 	// null when it was written on this device or there is no handoff.
 	OriginDeviceName *string `json:"origin_device_name"`
 	HandoffNext      string  `json:"handoff_next"`
-	LastAgent        string  `json:"last_agent"`
+	// HandoffBranch is the branch the handoff was written on; omitted when
+	// unknown.
+	HandoffBranch string `json:"handoff_branch,omitempty"`
+	LastAgent     string `json:"last_agent"`
 	// Agents is every known harness active in the window, newest first;
 	// LastAgent is Agents[0].Agent. Never null.
 	Agents []agentSummaryJSON `json:"agents"`
@@ -288,6 +291,7 @@ func projectSummary(p week.ProjectSummary) projectSummaryJSON {
 		HandoffDoneAt:    formatTSOrEmpty(p.HandoffDoneAt),
 		OriginDeviceName: nullableDeviceName(p.HandoffOriginDevice),
 		HandoffNext:      p.HandoffNext,
+		HandoffBranch:    p.HandoffBranch,
 		LastAgent:        p.LastAgent,
 	}
 }

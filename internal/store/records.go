@@ -69,6 +69,10 @@ type InsertRecordParams struct {
 	// GitHead is the full sha of HEAD in the writing session's repo at write
 	// time, or "" (stored NULL) when there is none to stamp.
 	GitHead string
+	// GitBranch is the branch checked out in the writing session's repo at
+	// write time, or "" (stored NULL) when unknown: detached HEAD, a non-git
+	// folder, or a branch that could not be observed.
+	GitBranch string
 	// Next is a handoff's optional one-line next step ("" stored NULL). The
 	// store does not judge it; the note tool enforces the one-line cap.
 	Next string
@@ -100,6 +104,8 @@ type Record struct {
 	EventCursor int64
 	// GitHead is the repo HEAD sha stamped at write, "" when NULL.
 	GitHead string
+	// GitBranch is the branch stamped at write, "" when NULL (unknown).
+	GitBranch string
 	// Next is the handoff's stored one-line next step, "" when NULL.
 	Next string
 	// OriginDevice is the id of the paired device that wrote this record,
@@ -170,10 +176,10 @@ func (s *Store) InsertRecordWithEdges(p InsertRecordParams, edges []EdgeSpec) (s
 	defer func() { _ = tx.Rollback() }() // no-op once Commit has run
 
 	if _, err := tx.Exec(`INSERT INTO records
-		(id, ts, kind, tier, text, about, session_id, project_key, evidence, outcome, promoter, expires_at, event_cursor, git_head, next)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(id), 0) FROM timeline_events), ?, ?)`,
+		(id, ts, kind, tier, text, about, session_id, project_key, evidence, outcome, promoter, expires_at, event_cursor, git_head, git_branch, next)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(id), 0) FROM timeline_events), ?, ?, ?)`,
 		id, tsToNanos(time.Now()), string(p.Kind), string(tier), Redact(p.Text), about,
-		nullable(p.SessionID), nullable(p.ProjectKey), evidence, outcome, nullable(p.Promoter), nullableTS(p.ExpiresAt), nullable(p.GitHead), nullable(Redact(p.Next))); err != nil {
+		nullable(p.SessionID), nullable(p.ProjectKey), evidence, outcome, nullable(p.Promoter), nullableTS(p.ExpiresAt), nullable(p.GitHead), nullable(p.GitBranch), nullable(Redact(p.Next))); err != nil {
 		return "", fmt.Errorf("store: insert record (project_key=%q session_id=%q): %w", p.ProjectKey, p.SessionID, err)
 	}
 
@@ -230,15 +236,16 @@ func (s *Store) GetRecord(id string) (Record, error) {
 		kind, tier, text, about, evid   string
 		sessionID, projectKey, promoter sql.NullString
 		outcome, gitHead, next          sql.NullString
+		gitBranch                       sql.NullString
 		originDevice, originName        sql.NullString
 		expiresAt, tombstonedAt         sql.NullInt64
 	)
 	err := s.db.QueryRow(`SELECT r.id, r.ts, r.kind, r.tier, r.text, r.about, r.session_id, r.project_key,
-		r.evidence, r.outcome, r.promoter, r.expires_at, r.tombstoned_at, r.event_cursor, r.git_head, r.next,
+		r.evidence, r.outcome, r.promoter, r.expires_at, r.tombstoned_at, r.event_cursor, r.git_head, r.git_branch, r.next,
 		r.origin_device, d.name
 		FROM records r LEFT JOIN devices d ON d.id = r.origin_device WHERE r.id = ?`, id).
 		Scan(&r.ID, &ts, &kind, &tier, &text, &about, &sessionID, &projectKey,
-			&evid, &outcome, &promoter, &expiresAt, &tombstonedAt, &r.EventCursor, &gitHead, &next,
+			&evid, &outcome, &promoter, &expiresAt, &tombstonedAt, &r.EventCursor, &gitHead, &gitBranch, &next,
 			&originDevice, &originName)
 	if err != nil {
 		return Record{}, fmt.Errorf("store: get record %s: %w", id, err)
@@ -262,6 +269,7 @@ func (s *Store) GetRecord(id string) (Record, error) {
 	}
 	r.Promoter = promoter.String
 	r.GitHead = gitHead.String
+	r.GitBranch = gitBranch.String
 	r.Next = next.String
 	if originDevice.Valid {
 		r.OriginDevice = originDevice.String
@@ -325,6 +333,44 @@ func (f OriginFilter) sql() string {
 
 // LatestRecordFrom is LatestRecord restricted by origin.
 func (s *Store) LatestRecordFrom(projectKey string, kind RecordKind, from OriginFilter) (Record, bool, error) {
+	return s.LatestRecordFromWhere(projectKey, kind, from, nil)
+}
+
+// maxRecordScanWhere bounds LatestRecordFromWhere's newest-first scan.
+const maxRecordScanWhere = 1000
+
+// LatestRecordFromWhere is LatestRecordFrom restricted to records for which
+// keep returns true (nil keeps all). It is how Resume asks for the newest
+// handoff on the reader's branch.
+func (s *Store) LatestRecordFromWhere(projectKey string, kind RecordKind, from OriginFilter, keep func(Record) bool) (Record, bool, error) {
+	if keep != nil {
+		projectKey = s.canonicalizeProjectKey(projectKey)
+		order := "rowid DESC"
+		if kind == KindHandoff {
+			order = "ts DESC, id DESC"
+		}
+		//nolint:gosec // from.sql() and order are fixed fragments, never caller text
+		rows, err := s.db.Query(`SELECT id FROM records
+			WHERE project_key = ? AND kind = ? AND tombstoned_at IS NULL`+from.sql()+`
+			ORDER BY `+order+` LIMIT ?`, projectKey, string(kind), maxRecordScanWhere)
+		if err != nil {
+			return Record{}, false, fmt.Errorf("store: latest %s record for project %s: %w", kind, projectKey, err)
+		}
+		ids, err := scanIDs(rows)
+		if err != nil {
+			return Record{}, false, fmt.Errorf("store: latest %s record for project %s: %w", kind, projectKey, err)
+		}
+		recs, err := s.getRecords(ids)
+		if err != nil {
+			return Record{}, false, err
+		}
+		for _, r := range recs {
+			if keep(r) {
+				return r, true, nil
+			}
+		}
+		return Record{}, false, nil
+	}
 	projectKey = s.canonicalizeProjectKey(projectKey)
 	var id string
 	// Handoffs order by NewerHandoff's rule (ts, then id): a synced handoff

@@ -227,7 +227,8 @@ Then five fixed slots, in order, each optional, under a token budget (default
 user-settable**). The budget is not the agent's choice; the industry range is narrow (Hermes ~2,200 chars, omp 5,000 tokens, Claude
 auto-memory 200 lines / 25 KB).
 
-1. **Resume pointer** — the latest `handoff` for THIS project, rendered as `Resume: (id
+1. **Resume pointer** — the latest `handoff` for THIS project (on the reader's git branch
+   when it is known: see "Resume is per branch" below), rendered as `Resume: (id
    <id>) <text>` so the id is available verbatim for `note`'s `supersedes`, its MODE line
    if present, and a `⚠ possibly stale: ...` marker naming its reasons and evidence ids
    when later positive evidence — a contradiction, a later record or timeline event
@@ -247,6 +248,21 @@ auto-memory 200 lines / 25 KB).
    "Finished: ... marked done by you on <date>; nothing to resume" instead of Resume, with no
    Next line and no stale marker
 5. **One line** — "call recall only if you need more than this block"
+
+**Resume is per branch.** The project is still the repository (a checkout and its linked
+worktrees share one key), but each record carries `git_branch`, stamped at write beside
+`git_head` (`NULL` when unknown: an older record, a detached HEAD, a non-git folder). When
+the reader's branch is known, slot 1 is the newest handoff written on that branch, or with no
+known branch (those match any branch, so old data keeps working). If this branch has none, the
+repo-wide newest is the fallback and the line names both branches: `Resume: (id <id>, from
+branch feature-a; you are on feature-b) ...`; the `Repo:` line then says the handoff is from
+another branch instead of counting commits "since" it, and the final line carries
+`supersedes = nothing (...; your handoff starts this branch's chain)`, so a handoff written
+on one branch never supersedes another's. For each other branch whose newest handoff is not
+done, not superseded and under 14 days old, a pointer line `Also on branch <name>: handoff
+<id8> (<age>)` follows slot 1 (at most 3, then `+N more branches with a handoff`); it is
+cut with the `also:` line, before anything else. A reader in a detached HEAD or a non-git
+folder sees today's repo-wide newest with no branch wording.
 
 The header plus these five slots are the whole of it. Harnesses with no SessionStart
 (Antigravity) or no injection on passive hooks (Grok) get the block by the skill telling

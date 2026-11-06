@@ -172,6 +172,9 @@ type ProjectSummary struct {
 	// when set, else its first line with leading boilerplate stripped
 	// (handoffNextFromText). "" when there is no handoff.
 	HandoffNext string
+	// HandoffBranch is the git branch the handoff was written on, "" when
+	// unknown (an old handoff, a detached HEAD, a non-git folder).
+	HandoffBranch string
 	// LastAgent is the agent of the project's most recently started session,
 	// "" when unknown.
 	LastAgent string
@@ -510,6 +513,7 @@ func buildProject(st *store.Store, projectKey string, since, now time.Time, git 
 		summary.HandoffAgent = agent
 		summary.HandoffFirstLine = firstLine(handoff.Text)
 		summary.HandoffNext = handoffNext(handoff)
+		summary.HandoffBranch = handoff.GitBranch
 
 		if summary.HandoffDoneAt, summary.HandoffDone, err = st.HandoffDone(handoff.ID); err != nil {
 			return ProjectSummary{}, nil, err
@@ -784,6 +788,7 @@ func buildHomeLabelProject(st *store.Store, since, now time.Time, loc store.Acti
 		summary.HandoffAgent = agent
 		summary.HandoffFirstLine = firstLine(handoff.Text)
 		summary.HandoffNext = handoffNext(handoff)
+		summary.HandoffBranch = handoff.GitBranch
 
 		if summary.HandoffDoneAt, summary.HandoffDone, err = st.HandoffDone(handoff.ID); err != nil {
 			return ProjectSummary{}, nil, err

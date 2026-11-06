@@ -164,6 +164,9 @@ func writeResumeSection(b *strings.Builder, handoff recall.Item, hasHandoff, sta
 	if handoff.OriginDeviceName != "" {
 		idPart += ", from " + handoff.OriginDeviceName
 	}
+	if handoff.GitBranch != "" {
+		idPart += ", on branch " + handoff.GitBranch
+	}
 	if handoff.Done {
 		fmt.Fprintf(b, "Finished (%s): marked done by you on %s; nothing to resume.\n%s\n\n",
 			idPart, handoff.DoneAt.UTC().Format("2006-01-02"), handoff.Text)

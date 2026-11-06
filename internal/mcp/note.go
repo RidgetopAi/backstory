@@ -238,6 +238,9 @@ func handleNote(st *store.Store, git project.Git, identity store.Identity, sessi
 	// Deterministic staleness stamp (task 5615ddae): HEAD of the writing
 	// session's repo; "" (NULL) for a non-git dir, never an error.
 	gitHead, _ := project.HeadSHA(cwd)
+	// The branch checked out beside it ("" = unknown or detached): Resume is
+	// per branch, so a handoff remembers where it was written.
+	gitBranch := project.CurrentBranch(git, cwd)
 
 	id, err := st.InsertRecordWithEdges(store.InsertRecordParams{
 		Identity:   identity,
@@ -249,6 +252,7 @@ func handleNote(st *store.Store, git project.Git, identity store.Identity, sessi
 		Evidence:   p.Evidence,
 		ExpiresAt:  expiresAt,
 		GitHead:    gitHead,
+		GitBranch:  gitBranch,
 		Next:       p.Next,
 	}, edges)
 	if err != nil {

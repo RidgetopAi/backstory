@@ -317,7 +317,7 @@ func assertEveryRecordsColumnImmutable(t *testing.T, db *sql.DB, id string) {
 			t.Errorf("UPDATE records.%s failed with %v, want the append-only trigger", c.name, err)
 		}
 	}
-	for _, must := range []string{"event_cursor", "git_head"} {
+	for _, must := range []string{"event_cursor", "git_head", "git_branch"} {
 		if !seen[must] {
 			t.Errorf("PRAGMA table_info(records) lacks %s; guard is not covering it", must)
 		}

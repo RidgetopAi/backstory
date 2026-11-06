@@ -154,7 +154,8 @@ CREATE TABLE records (
   promoter       TEXT,                        -- session id or 'human'; set by confirm
   expires_at     INTEGER,                     -- unix nanoseconds, UTC; claims and inferred drafts
   tombstoned_at  INTEGER,                     -- unix nanoseconds, UTC; human-only, the sole mutable column
-  event_cursor   INTEGER NOT NULL DEFAULT 0   -- MAX(timeline_events.id) at insert time; never a parameter
+  event_cursor   INTEGER NOT NULL DEFAULT 0,  -- MAX(timeline_events.id) at insert time; never a parameter
+  git_branch     TEXT                         -- branch checked out in the writing session's repo at write (migration 0026); NULL = unknown (old record, detached HEAD, non-git folder); immutable, synced
 );
 CREATE INDEX records_project ON records(project_key, ts);
 CREATE INDEX records_session ON records(session_id);
@@ -278,7 +279,7 @@ unmutated → GREEN.
    external-content `'delete'`), sets `tombstoned_at` and scrubs `records.text` to `''`; the row
    and its edges remain. `records_no_update` permits only that one UPDATE (tombstoned_at
    NULL→value, optionally with text→`''`) and refuses every other column change — including
-   `event_cursor` and `git_head` — and any re-tombstone. Enforced by triggers that
+   `event_cursor`, `git_head` and `git_branch` — and any re-tombstone. Enforced by triggers that
    `RAISE(ABORT)` on any other UPDATE and on every DELETE. The one exception to the
    no-DELETE rule is the human `purge` (invariant 9): `PurgeSessions` deletes a session's
    `timeline_events` inside one transaction that drops and recreates `timeline_events_no_delete`

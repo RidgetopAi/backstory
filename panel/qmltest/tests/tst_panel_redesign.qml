@@ -1060,6 +1060,32 @@ TestCase {
     verify(!hasText("old next step"), "the old Next line is still shown")
   }
 
+  function nextLines() {
+    return texts().filter(function (t) { return t.indexOf("Next") === 0 })
+  }
+
+  function test_recent_card_labels_the_next_line_with_the_handoff_branch() {
+    open(payload(function (d) {
+      var p = d.where_left_off[0].project
+      p.handoff_next = "wire the login form"
+      p.handoff_branch = "feature-a"
+    }))
+    var lines = nextLines()
+    verify(lines.some(function (t) { return t.indexOf("on feature-a): wire the login form") >= 0 }), JSON.stringify(texts()))
+  }
+
+  function test_recent_card_without_a_handoff_branch_shows_no_label() {
+    open(payload(function (d) {
+      var p = d.where_left_off[0].project
+      p.handoff_next = "wire the login form"
+      delete p.handoff_branch
+    }))
+    var lines = nextLines()
+    verify(lines.length > 0, JSON.stringify(texts()))
+    verify(lines.every(function (t) { return t.indexOf(" on ") < 0 }), JSON.stringify(lines))
+    verify(lines.some(function (t) { return t.indexOf("wire the login form") >= 0 }), JSON.stringify(lines))
+  }
+
   function test_stale_actions_fit_at_the_popup_width() {
     openStale(staleWith(true, true))
     act.quiescent(function () { return [named("attentionActions").width, named("attentionActions").height] }, "never settled")

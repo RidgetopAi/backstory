@@ -80,6 +80,7 @@ function summaryHandoffStale(p) { return p.handoff_stale }
 // (read as "") when it was written on this device.
 function summaryOriginDevice(p) { return p.origin_device_name || "" }
 function summaryHandoffNext(p) { return p.handoff_next }
+function summaryHandoffBranch(p) { return p.handoff_branch || "" }
 // handoff_done / handoff_done_at: the human marked the latest handoff done.
 function summaryHandoffDone(p) { return p.handoff_done === true }
 function summaryHandoffDoneAt(p) { return p.handoff_done_at || "" }
