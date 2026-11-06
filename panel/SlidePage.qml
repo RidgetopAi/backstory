@@ -12,6 +12,8 @@ Item {
 
   property bool current: false
   property int side: 1
+  // The space kept clear on each side of the page, inside its parent.
+  property real sideMargin: 0
   // Where the page is, in page widths: 0 in view, -1 or 1 off to that side.
   property real offset: page.current ? 0 : page.side
   // Off while a snapshot is restored: the view is set, not navigated to.
@@ -23,9 +25,9 @@ Item {
 
   // Fills the space the pages share; the view in it is as tall as the page,
   // and its own height unscrolled is the page's implicitHeight.
-  width: parent ? parent.width : 0
+  width: parent ? parent.width - 2 * page.sideMargin : 0
   height: parent ? parent.height : 0
   implicitHeight: children.length > 0 ? children[0].implicitHeight : 0
-  x: page.offset * page.width
+  x: page.sideMargin + page.offset * page.width
   visible: Math.abs(page.offset) < 1
 }

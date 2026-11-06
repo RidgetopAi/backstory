@@ -6,9 +6,28 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
+
+// TestHyprlandWindowruleMovesByTheSizeItSets guards the window's position.
+// window_w is the width the window opened at, which follows the font, not the
+// width the rule's size sets, so a move using it ran off the screen at small
+// fonts.
+func TestHyprlandWindowruleMovesByTheSizeItSets(t *testing.T) {
+	rule := panelWindowRule(t)
+	size := regexp.MustCompile(`size\s*=\s*\{\s*(\d+)`).FindStringSubmatch(rule.effects)
+	move := regexp.MustCompile(`move\s*=\s*\{\s*"\(monitor_w-(\d+)\)"`).FindStringSubmatch(rule.effects)
+	if size == nil || move == nil {
+		t.Fatalf("the window's rule must set a size and move to monitor_w minus a number:\n%s", rule.effects)
+	}
+	width, _ := strconv.Atoi(size[1])
+	offset, _ := strconv.Atoi(move[1])
+	if gap := offset - width; gap <= 0 {
+		t.Errorf("the rule moves the window to monitor_w-%d with width %d: its right edge is off the screen", offset, width)
+	}
+}
 
 // panelBind is the panel toggle (Brian's call 2026-10-04): CTRL+SHIFT+B,
 // because the old Super-based bind is Omarchy's stock Browser bind.

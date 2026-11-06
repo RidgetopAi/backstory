@@ -33,13 +33,16 @@ Item {
     anchors.left: parent.left
     anchors.right: parent.right
     anchors.bottom: parent.bottom
+    anchors.leftMargin: -Scroll.borderRoom
+    anchors.rightMargin: -Scroll.borderRoom
     contentWidth: width
     contentHeight: body.implicitHeight
     clip: true
 
     Column {
       id: body
-      width: flick.width
+      x: Scroll.borderRoom
+      width: flick.width - 2 * Scroll.borderRoom
       spacing: root.spacing
     }
   }

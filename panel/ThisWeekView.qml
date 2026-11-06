@@ -515,8 +515,8 @@ Item {
     anchors.right: parent.right
     anchors.top: parent.top
     anchors.bottom: footer.top
-    anchors.leftMargin: root.edge
-    anchors.rightMargin: root.edge
+    anchors.leftMargin: root.edge - Scroll.borderRoom
+    anchors.rightMargin: root.edge - Scroll.borderRoom
     anchors.topMargin: root.edge
     anchors.bottomMargin: root.footerGap
     clip: true
@@ -528,6 +528,7 @@ Item {
     }
 
     SlidePage {
+      sideMargin: Scroll.borderRoom
       animate: root.slideAnimated
       objectName: "mainPage"
       current: !root.groupEditorOpen && !root.memoryShowing && !root.helpOpen
@@ -653,6 +654,7 @@ Item {
     }
 
     SlidePage {
+      sideMargin: Scroll.borderRoom
       animate: root.slideAnimated
       objectName: "groupsPage"
       current: root.groupEditorOpen
@@ -676,6 +678,7 @@ Item {
     }
 
     SlidePage {
+      sideMargin: Scroll.borderRoom
       animate: root.slideAnimated
       objectName: "helpPage"
       current: root.helpOpen
@@ -696,6 +699,7 @@ Item {
     }
 
     SlidePage {
+      sideMargin: Scroll.borderRoom
       animate: root.slideAnimated
       objectName: "memoryPage"
       current: root.memoryShowing

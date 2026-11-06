@@ -3,6 +3,11 @@
 // Scrolling a Flickable so nobody has to scroll to find what a key or a
 // click just produced.
 
+// The margin a clip keeps outside the content beside it. At a fractional
+// display scale a clip flush with the content cuts off a one-pixel border
+// along that edge.
+var borderRoom = 1
+
 function clampedY(flick, y) {
   return Math.max(0, Math.min(y, flick.contentHeight - flick.height))
 }

@@ -7,6 +7,8 @@
 -- ops/hyprland_windowrule_test.go keeps the two in sync.
 -- Install: `make install` copies this to ~/.config/hypr/backstory.lua; add `require("hypr.backstory")` to hyprland.lua.
 -- Size 380x640 matches Panel.qml's card (a Hyprland size rule overrides QML size).
+-- The move is by that 380 plus a 20 gap: window_w is the width the window opened
+-- at, which follows the font, so it would run off the screen at small fonts.
 -- `o` is Omarchy's global (default/hypr/helpers.lua defines it); no require.
 
 local BACKSTORY = { class = "^(org\\.quickshell)$", title = "^(backstory)$" }
@@ -25,7 +27,7 @@ o.window({ class = "^(org\\.quickshell)$", title = "^(backstory-popout)$" }, {
 o.window(BACKSTORY, {
   float = true,
   size = { 380, 640 },
-  move = { "(monitor_w-window_w-20)", "(monitor_h*0.04)" },
+  move = { "(monitor_w-400)", "(monitor_h*0.04)" },
   -- No Hyprland window animation, as for Omarchy's own panels
   -- (apps/omarchy-shell.lua); Panel.qml fades the card in itself, as they do.
   no_anim = true,
