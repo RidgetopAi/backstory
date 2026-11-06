@@ -31,7 +31,8 @@ Item {
   readonly property string handoffAgent: summary ? Model.summaryHandoffAgent(summary) : ""
   readonly property bool done: summary ? Model.summaryHandoffDone(summary) : false
   readonly property string doneText: summary ? Format.doneLine(Model.summaryHandoffDoneAt(summary)) : ""
-  readonly property string nextText: root.handoffAgent !== "" ? Format.nextPrefix(root.handoffAgent) + root.next : root.next
+  readonly property string handoffBranch: summary ? Model.summaryHandoffBranch(summary) : ""
+  readonly property string nextText: (root.handoffAgent !== "" || root.handoffBranch !== "") ? Format.nextPrefix(root.handoffAgent, root.handoffBranch) + root.next : root.next
   readonly property string nameText: {
     var n = summary ? Model.shortName(Model.summaryDisplayName(summary)) : ""
     return root.workspaceRow ? n + " \u00b7 workspace notes" : n

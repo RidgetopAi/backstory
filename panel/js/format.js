@@ -79,8 +79,12 @@ function doneLine(doneAt) {
   return date === "" ? "Done" : "Done " + date
 }
 
-function nextPrefix(handoffAgent) {
-  return handoffAgent ? "Next (" + agentName(handoffAgent) + "): " : "Next: "
+// A handoff written on a known git branch adds "on <branch>" to the label.
+function nextPrefix(handoffAgent, handoffBranch) {
+  var parts = []
+  if (handoffAgent) parts.push(agentName(handoffAgent))
+  if (handoffBranch) parts.push("on " + handoffBranch)
+  return parts.length ? "Next (" + parts.join(", ") + "): " : "Next: "
 }
 
 function isWorkspaceKey(projectKey) {
