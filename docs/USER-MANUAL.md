@@ -822,6 +822,15 @@ scope.
 
 ## 9. Troubleshooting
 
+**Two agents on two branches of one repo**
+Resume is per git branch. An agent on `feature-b` resumes the newest handoff written on
+`feature-b`, and the block only points at the other branch (`Also on branch feature-a: handoff
+1a2b3c4d (2h ago)`). If its branch has no handoff yet, the agent resumes the repo's newest
+and is told which branch it came from; the handoff it writes then starts its own branch's
+chain and never replaces the other branch's. Handoffs written before this change, or in a
+detached HEAD or a non-git folder, belong to no branch and resume anywhere. The panel's
+RECENT card still shows the repo's newest handoff, with its Next line labelled `on <branch>`.
+
 **`backstory: command not found`**
 The program is in `~/.local/bin`, which may not be on your PATH yet. Open a new terminal. If
 it still fails, rerun `make install` from the `backstory` folder and read its last lines.
