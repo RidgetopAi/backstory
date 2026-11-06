@@ -61,6 +61,10 @@ Item {
   property bool pinned: false
   signal popOutRequested()
   signal pinRequested()
+  // Set in the window: the header then offers close, which closes the
+  // window (back only leaves this view).
+  property bool canClose: false
+  signal windowCloseRequested()
   // The scrolling part under the header (ScrollPage), for the host and tests.
   readonly property alias flickable: page.flickable
   readonly property bool hasGroups: (root.groupsData.groups || []).length > 0
@@ -215,7 +219,7 @@ Item {
   }
 
   implicitWidth: Style.space(360)
-  implicitHeight: page.implicitHeight + Style.spacing.panelPadding * 2
+  implicitHeight: page.implicitHeight
 
   Rectangle {
     anchors.fill: parent
@@ -230,7 +234,6 @@ Item {
   ScrollPage {
     id: page
     anchors.fill: parent
-    anchors.margins: Style.spacing.panelPadding
     spacing: Style.spacing.rowGap
 
     header: [HeroHeader {
@@ -247,8 +250,10 @@ Item {
         canPopOut: root.canPopOut
         canPin: root.canPin
         pinned: root.pinned
+        closeShown: root.canClose
         onPopOutRequested: root.popOutRequested()
         onPinRequested: root.pinRequested()
+        onCloseRequested: root.windowCloseRequested()
       }
     },
 

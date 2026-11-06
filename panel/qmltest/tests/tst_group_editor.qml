@@ -9,7 +9,7 @@ import "../../js/glyphs.js" as Glyphs
 // The embedded GroupEditor suite (task 4fe02e30 round 4 desk defect B: the
 // editor used to render OUTSIDE the PanelWindow's own surface — see
 // Panel.qml's own doc comment on why it now lives inside the same
-// Flickable as the normal sections). Drives the real gear -> pick a
+// Flickable as the normal sections). Drives the real button -> pick a
 // project -> type a group -> "+" click path and asserts the resulting
 // `backstory group set <group> <key>` argv (DONE WHEN clause 4), and that
 // a stubbed non-zero `group set` exit shows its stderr in the editor (the
@@ -289,7 +289,7 @@ TestCase {
 
   function footerText() {
     var n = TestUtil.findFirst(panel.testContentItem, function (node) { return node.objectName === "footerHint" })
-    return n === null ? null : n.text
+    return n === null ? null : n.text.replace(/\u00a0/g, " ")
   }
 
   function test_footer_lists_the_editors_keys() {
@@ -331,6 +331,25 @@ TestCase {
     panel.testKeyItem.forceActiveFocus()
     act.pressKey(Qt.Key_U)
     act.settledEq(panel.view, "groupEditorOpen", false)
+  }
+
+  function test_g_goes_back_to_the_main_view() {
+    openGroupEditor()
+    panel.testKeyItem.forceActiveFocus()
+    act.pressKey(Qt.Key_G)
+    act.settledEq(panel.view, "groupEditorOpen", false)
+  }
+
+  // A g typed into the group name is text, not back.
+  function test_g_in_the_group_name_is_text() {
+    openGroupEditor()
+    var field = groupField()
+    verify(field !== null, "no group-name TextField")
+    field.forceActiveFocus()
+    act.pressKey(Qt.Key_G)
+    act.settledEq(field, "text", "g")
+    act.drain()
+    compare(panel.view.groupEditorOpen, true, "g in the group name went back to the main view")
   }
 
   // A u typed into the group name is text, not back.

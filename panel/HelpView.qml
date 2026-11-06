@@ -24,6 +24,10 @@ Item {
   property bool pinned: false
   signal popOutRequested()
   signal pinRequested()
+  // Set in the window: the header then offers close, which closes the
+  // window (back only leaves this view).
+  property bool canClose: false
+  signal windowCloseRequested()
 
   property var tools: []
   property string errorText: ""
@@ -91,8 +95,10 @@ Item {
         canPopOut: root.canPopOut
         canPin: root.canPin
         pinned: root.pinned
+        closeShown: root.canClose
         onPopOutRequested: root.popOutRequested()
         onPinRequested: root.pinRequested()
+        onCloseRequested: root.windowCloseRequested()
       }
     },
 
@@ -147,7 +153,7 @@ Item {
     HelpHeading { text: "GROUPS" }
     HelpText {
       text: "A group folds related projects into one RECENT row; you set it, one per project. Press g "
-        + "or click the gear for the group editor, or run `backstory group set <group> <project>`."
+        + "or click the Groups button for the group editor, or run `backstory group set <group> <project>`."
     }
 
   }

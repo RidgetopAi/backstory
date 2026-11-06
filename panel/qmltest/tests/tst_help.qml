@@ -128,13 +128,13 @@ TestCase {
 
   function footerText() {
     var n = TestUtil.findFirst(panel.testContentItem, function (node) { return node.objectName === "footerHint" })
-    return n === null ? null : n.text
+    return n === null ? null : n.text.replace(/\u00a0/g, " ")
   }
 
   function test_footer_lists_helps_keys() {
     press(Qt.Key_Question)
     act.settledEq(panel.view, "helpOpen", true)
-    act.settled(function () { return footerText() === "j/k scroll · u or ? back · p pin · Esc close" }, "footer never listed Help's keys; got " + footerText())
+    act.settled(function () { return footerText() === "j/k scroll · u back · p pin · Esc close" }, "footer never listed Help's keys; got " + footerText())
   }
 
   function test_j_and_k_scroll_help() {
@@ -213,13 +213,13 @@ TestCase {
     verify(rendered.indexOf("MEMORY NAVIGATION") >= 0)
     verify(rendered.indexOf("HOW TO USE") >= 0)
     verify(rendered.indexOf("GROUPS") >= 0)
-    var groups = rendered.filter(function (t) { return t.indexOf("backstory group set") >= 0 && t.indexOf("gear") >= 0 })
-    verify(groups.length === 1, "Groups section must name the gear and `backstory group set`")
+    var groups = rendered.filter(function (t) { return t.indexOf("backstory group set") >= 0 && t.indexOf("Groups button") >= 0 })
+    verify(groups.length === 1, "Groups section must name the Groups button and `backstory group set`")
   }
 
   function test_footer_hint_lists_help() {
     verify(panel.view.footerHint.indexOf("? help") >= 0)
-    verify(texts().filter(function (t) { return t.indexOf("? help") >= 0 }).length >= 1)
+    verify(texts().filter(function (t) { return t.indexOf("? help") >= 0 }).length >= 1)
   }
 
   function test_layout_within_bounds_help_open() {

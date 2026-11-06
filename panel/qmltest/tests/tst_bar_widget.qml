@@ -202,6 +202,23 @@ TestCase {
     compare(JSON.parse(run.command[4]).view, "memory")
   }
 
+  // Like the other bar widgets' popups, this one has no close button in
+  // any view.
+  function test_the_popup_offers_no_close_button() {
+    var widget = start(fixture())
+    var content = openPopup(widget)
+    var view = TestUtil.findFirst(content, function (n) { return n.canPopOut !== undefined })
+    var pages = [["", "mainPage"], ["helpOpen", "helpPage"], ["groupEditorOpen", "groupsPage"], ["memoryOpen", "memoryPage"]]
+    for (var i = 0; i < pages.length; i++) {
+      var page = pages[i][1]
+      view.showMain()
+      if (pages[i][0] !== "") view[pages[i][0]] = true
+      act.settled(function () { return TestUtil.slideDone(content, page) }, page + ": the slide never finished")
+      verify(TestUtil.findFirst(content, function (n) { return n.tooltipText === "Pop out" }) !== null, page + ": no pop-out button")
+      compare(TestUtil.findFirst(content, function (n) { return n.objectName === "closeButton" }), null, page + ": the popup offers a close button")
+    }
+  }
+
   function test_pop_out_summons_the_window_where_the_popup_is() {
     var widget = start(fixture())
     var content = openPopup(widget)
