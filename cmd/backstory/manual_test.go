@@ -47,3 +47,55 @@ func TestManualCoversEveryCommand(t *testing.T) {
 		}
 	}
 }
+
+// TestManualTurningSyncOff pins the "Turning sync off" section to the
+// behavior TestPairRemoveClearsSyncWarnings asserts, and keeps the old gear
+// icon wording out of the docs and the panel README.
+func TestManualTurningSyncOff(t *testing.T) {
+	b, err := os.ReadFile("../../docs/USER-MANUAL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manual := string(b)
+	i := strings.Index(manual, "\n#### Turning sync off\n")
+	if i < 0 {
+		t.Fatal("manual has no \"Turning sync off\" section")
+	}
+	section := manual[i+1:]
+	if j := strings.Index(section[5:], "\n#"); j >= 0 {
+		section = section[:j+5]
+	}
+	for _, want := range []string{
+		"backstory pair --remove <computer>",
+		"backstory install sync --check",
+		"backstory install sync --remove",
+		"backstory pair <computer>",
+		"SYNC FAILING",
+		"Everything already synced stays",
+	} {
+		if !strings.Contains(section, want) {
+			t.Errorf("Turning sync off section does not mention %q", want)
+		}
+	}
+	if strings.Count(manual, "(#turning-sync-off)") < 2 {
+		t.Error("troubleshooting does not link to Turning sync off")
+	}
+	for _, want := range []string{
+		"The bar popup has no\nclose button. The pop-out window has one, after the pin at the right end of every view's header.",
+		"| Close | close button (pop-out window only) | `Esc` |",
+		"Click the **Groups** button",
+	} {
+		if !strings.Contains(manual, want) {
+			t.Errorf("manual lost the close-button/Groups wording %q", want)
+		}
+	}
+	for _, f := range []string{"../../docs/USER-MANUAL.md", "../../panel/README.md"} {
+		d, err := os.ReadFile(f) //nolint:gosec // fixed doc paths from the list above
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(strings.ToLower(string(d)), "gear") {
+			t.Errorf("%s still mentions a gear icon", f)
+		}
+	}
+}

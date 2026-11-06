@@ -25,7 +25,7 @@ opens the store directly (PLAN.md §Phase 4 "Human look", decision
   the agent launch itself fails to start.
 - **The week** — a small per-project activity bar for each day in the
   window.
-- **Gear icon** — opens a group editor over `backstory group
+- **Groups button** (interlocked squares): opens a group editor over `backstory group
   set|clear|list`: every project is a clickable row (its display name,
   never a key you type) drawn from `group list --json`; pick a project,
   then pick an existing group chip or type a new group name, and the "+"
@@ -131,8 +131,9 @@ Two things Brian hit on his own desk upgrading an already-installed copy:
 
 ## Open it
 
-Click the bar glyph. It toggles the panel; clicking it again, or the
-panel's own close button, closes it. The panel can also be driven without
+Click the bar glyph. It toggles the panel; clicking it again, or `Esc`, closes it. The
+bar popup has no close button; the pop-out window has one after the pin
+at the right of every header. The panel can also be driven without
 the bar widget, e.g. for a keybinding:
 
 ```sh
