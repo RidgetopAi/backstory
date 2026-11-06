@@ -74,10 +74,21 @@ func buildRecallFixtureStore(t *testing.T, dataDir string) {
 // rendering never read it, and NULL satisfies the FK trivially.
 func mustInsertFixtureRecord(t *testing.T, st *store.Store, id string, ts time.Time, kind store.RecordKind, tier store.Tier, text string) {
 	t.Helper()
+	mustInsertFixtureRecordOnBranch(t, st, id, ts, kind, tier, text, "")
+}
+
+// mustInsertFixtureRecordOnBranch is mustInsertFixtureRecord with a stamped
+// git_branch ("" stores NULL, an unknown branch).
+func mustInsertFixtureRecordOnBranch(t *testing.T, st *store.Store, id string, ts time.Time, kind store.RecordKind, tier store.Tier, text, branch string) {
+	t.Helper()
+	var br any
+	if branch != "" {
+		br = branch
+	}
 	_, err := st.DB().Exec(`INSERT INTO records
-		(id, ts, kind, tier, text, about, session_id, project_key, evidence, outcome, promoter, expires_at, tombstoned_at)
-		VALUES (?, ?, ?, ?, ?, '[]', NULL, ?, '[]', NULL, NULL, NULL, NULL)`,
-		id, ts.UTC().UnixNano(), string(kind), string(tier), text, recallFixtureProject)
+		(id, ts, kind, tier, text, about, session_id, project_key, evidence, outcome, promoter, expires_at, tombstoned_at, git_branch)
+		VALUES (?, ?, ?, ?, ?, '[]', NULL, ?, '[]', NULL, NULL, NULL, NULL, ?)`,
+		id, ts.UTC().UnixNano(), string(kind), string(tier), text, recallFixtureProject, br)
 	if err != nil {
 		t.Fatalf("insert fixture record %s: %v", id, err)
 	}

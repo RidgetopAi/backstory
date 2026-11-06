@@ -164,7 +164,7 @@ standalone row; `project` is present only on a standalone row. A panel branches 
 | `handoff_id`          | string  | only if the project has a handoff record | The latest handoff's record id. |
 | `handoff_first_line`  | string  | only if the project has a handoff record | The first line of that handoff's text. |
 | `handoff_stale`       | bool    | only `true` (omitted, meaning `false`, otherwise) | Mirrors whether a `possibly-stale-handoff` Attention item exists for this project — the same `store.HandoffFreshness` call feeds both, so they can never disagree. |
-| `origin_device_name`  | string \| null | yes (`null` when the handoff was written on this device or there is none) | The name of the paired device that wrote the row's handoff (synced in, Phase 8). The panel shows a small `from <device>` chip when it is non-null. |
+| `origin_device_name`  | string \| null | yes (`null` when the handoff was written on this device or there is none) | The name of the paired device that wrote the row's handoff (synced in, Phase 8). The panel shows a small `from <device>` chip when it is non-null and a muted `on <branch>` label when `branch` is present. |
 | `handoff_next`        | string  | yes (`""` when there is no handoff) | The handoff's stored `next` when set; otherwise its first line with leading boilerplate stripped (a leading ★, the word HANDOFF, a leading ISO date with optional time/Z, and the separators `-` `—` `.` `:` between them). |
 | `handoff_branch`      | string  | only if the handoff recorded a git branch | The branch the row's handoff was written on (Resume is per branch). The card labels its Next line `on <branch>`; absent for an old handoff, a detached HEAD or a non-git folder, and then no label shows. |
 | `last_agent`          | string  | yes (`""` when unknown) | `agents[0].agent`: the known-harness agent with the newest activity in the window, so it always matches `last_activity`. |
@@ -191,6 +191,7 @@ or records written; a project with nothing to show on a given day gets no entry 
 
 Each record carries `id, ts, kind, tier, status, text` (plus `superseded_by` when superseded)
 and `origin_device_name`: a string naming the paired device that wrote the record, `null` for a
-record written on this device. `js/records.js` is the only reader; the Memory view shows a
+record written on this device, and `branch`: the git branch the record was written on (the stamped
+`git_branch`), omitted when unknown. `js/records.js` is the only reader; the Memory view shows a
 `from <device>` chip when it is non-null. Pinned by `cmd/backstory/testdata/records/*.golden`
 and `panel/records_contract_test.go`.

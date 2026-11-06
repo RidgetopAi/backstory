@@ -40,6 +40,12 @@ Item {
   // The scrolling part under the header (ScrollPage), for the host and tests.
   readonly property alias flickable: page.flickable
 
+  // The widest a record row's "on <branch>" label grows (Style.space units)
+  // before it elides.
+  readonly property int branchMaxWidthUnits: 110
+  // The least room worth showing a branch label in; below it the label hides.
+  readonly property int branchMinWidthUnits: 40
+
   property var payload: ({})
   property bool showHistory: false
   // Which records show their full text, keyed by record id. Opening the view
@@ -499,8 +505,27 @@ Item {
               }
 
               Text {
+                id: ageText
                 textFormat: Text.PlainText
                 text: Memory.relativeAge(Records.recordTs(rec.modelData), root.now())
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+                color: Qt.darker(Commons.Color.foreground, 1.3)
+              }
+
+              // The branch the record was written on, in the muted style of
+              // the age; a long name elides instead of widening the row.
+              Text {
+                id: branchText
+                objectName: "recordBranch"
+                // What is left of the header before the buttons; the label
+                // elides to fit and hides when even a stub does not.
+                readonly property real room: recordActions.x - Style.spacing.controlGap - (ageText.x + ageText.width + infoRow.spacing)
+                visible: text !== "" && room >= Style.space(root.branchMinWidthUnits)
+                textFormat: Text.PlainText
+                text: Memory.branchLabel(Records.recordBranch(rec.modelData))
+                elide: Text.ElideRight
+                width: Math.max(0, Math.min(implicitWidth, Style.space(root.branchMaxWidthUnits), room))
                 font.family: Style.font.family
                 font.pixelSize: Style.font.caption
                 color: Qt.darker(Commons.Color.foreground, 1.3)

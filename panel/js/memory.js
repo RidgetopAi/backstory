@@ -41,6 +41,11 @@ function statusMark(status) {
   return status
 }
 
+// branchLabel is "on <branch>", or "" for a record with no known branch.
+function branchLabel(branch) {
+  return branch ? "on " + branch : ""
+}
+
 function firstLine(text) {
   var i = text.indexOf("\n")
   return i < 0 ? text : text.substring(0, i)
