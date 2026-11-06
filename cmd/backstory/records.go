@@ -114,6 +114,7 @@ func runRecords(args []string, stdout, stderr io.Writer) int {
 			SupersededBy:     item.SupersededByID,
 			Text:             item.Text,
 			OriginDeviceName: nullableDeviceName(rec.OriginDeviceName),
+			Branch:           rec.GitBranch,
 			ts:               rec.TS,
 		})
 	}
@@ -135,6 +136,9 @@ func runRecords(args []string, stdout, stderr io.Writer) int {
 	for _, r := range rows {
 		line := fmt.Sprintf("%s  %s  %s  %s  %s  %s",
 			r.ID[:min(8, len(r.ID))], recordAge(now.Sub(r.ts)), r.Kind, r.Tier, r.Status, firstLineOf(r.Text))
+		if r.Branch != "" {
+			line += "  on " + r.Branch
+		}
 		if r.OriginDeviceName != nil {
 			line += "  from " + *r.OriginDeviceName
 		}
@@ -155,6 +159,9 @@ type recordRowJSON struct {
 	// OriginDeviceName names the paired device that wrote the record; null
 	// for a record written on this device.
 	OriginDeviceName *string `json:"origin_device_name"`
+	// Branch is the git branch the record was written on (the stamped
+	// git_branch); omitted when unknown.
+	Branch string `json:"branch,omitempty"`
 
 	ts time.Time
 }

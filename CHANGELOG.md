@@ -13,6 +13,8 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 ### Added
 
+- The Memory view and `backstory records` show which branch each record was written on: `records --json` carries a `branch` field (omitted when unknown), the text output adds `on feature-a`, and each Memory row (and the history view) shows a muted **on <branch>** label that elides when long. Records with no known branch show nothing.
+
 - Resume is per git branch. Every record is stamped with the branch it was written on (`records.git_branch`, migration 0026, immutable, carried by sync and backup). A SessionStart block on a known branch resumes that branch's newest handoff (or one with no known branch) and adds `Also on branch <name>: handoff <id8> (<age>)` pointers for other branches; with none of its own it falls back to the repo's newest, names both branches, counts no commits "since" it and no longer tells the agent to supersede it. A detached HEAD or non-git folder behaves as before. `this-week --json` adds `handoff_branch` (the panel labels the Next line `on <branch>`); recall and export show a handoff's branch.
 
 - Panel: a possibly-stale handoff row offers **Still right**, **Update** (opens an agent in the folder to write a fresh handoff) and **Done**; it reads "this looks finished" with Done first when a later outcome closed the work, and a RECENT card of a done handoff shows "Done <date>".

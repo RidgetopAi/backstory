@@ -22,6 +22,10 @@ const (
 	recContradicID = "aaaa0007-0000-4000-8000-000000000007" // contradicts the handoff
 )
 
+// recFixtureBranches stamps a branch on two fixture records (the possibly
+// stale handoff and the superseded decision); the rest have none.
+var recFixtureBranches = map[string]string{recHandoffID: "feature-a", recOldDecID: "feature-b"}
+
 const (
 	recPeerDeviceID = "dev-laptop-0001"
 	recPeerName     = "laptop"
@@ -43,7 +47,7 @@ func buildRecordsFixtureStore(t *testing.T, dataDir string) {
 	}
 	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	ins := func(i int, id string, kind store.RecordKind, tier store.Tier, text string) {
-		mustInsertFixtureRecord(t, st, id, base.Add(time.Duration(i)*time.Minute), kind, tier, text)
+		mustInsertFixtureRecordOnBranch(t, st, id, base.Add(time.Duration(i)*time.Minute), kind, tier, text, recFixtureBranches[id])
 	}
 	ins(0, recNoteID, store.KindNote, store.TierAgentDeclared, "A current note.\nSecond line.")
 	ins(1, recOldDecID, store.KindDecision, store.TierHumanDeclared, "Use option A.")

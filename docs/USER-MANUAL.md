@@ -256,7 +256,9 @@ From top to bottom:
 ### The Memory view
 
 Opens for one project and lists everything saved there, newest first. Each record shows its
-tier (**You**, **Agent** or **Inferred**), how old it is, and its first line. A mark appears
+tier (**You**, **Agent** or **Inferred**), how old it is, and its first line. A record written
+on a known git branch also shows a muted **on <branch>** label (long names are shortened with
+an ellipsis), so handoffs from different branches can be told apart, in History too. A mark appears
 if it's not current (for example possibly stale or superseded).
 
 - **Click a record** to read all of it.
@@ -370,6 +372,7 @@ Copy the KEY when another command asks for `--project KEY`.
 ### records
 
 Lists what's saved for a project, newest first: id, age, kind, tier, status and the text.
+A record written on a known git branch adds `on <branch>`; `--json` carries it as `branch`.
 Read-only.
 
 ```

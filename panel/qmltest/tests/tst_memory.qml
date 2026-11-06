@@ -173,6 +173,57 @@ TestCase {
     compare(labels[0].text, "from " + imported[0].origin_device_name)
   }
 
+  function branchLabels() {
+    return TestUtil.findAll(panel.testContentItem, function (n) { return n.objectName === "recordBranch" && n.visible })
+  }
+
+  // A record with a branch shows "on <branch>"; one without shows no label
+  // at all (the golden stamps feature-a on one record, none on the rest).
+  function test_branch_label_only_for_records_with_a_branch() {
+    var text = readFixture(recordsGolden)
+    var golden = JSON.parse(text)
+    var withBranch = golden.records.filter(function (r) { return r.branch })
+    compare(withBranch.length, 1)
+    compare(withBranch[0].branch, "feature-a")
+    openMemory(text)
+    act.settled(function () { return branchLabels().length === 1 }, "expected exactly one branch label, have " + branchLabels().length)
+    compare(branchLabels()[0].text, "on feature-a")
+    expectNoText("on unknown")
+  }
+
+  // The history view labels a superseded record's branch too.
+  function test_history_labels_a_superseded_records_branch() {
+    openMemory(readFixture(recordsGolden))
+    respondRecords(readFixture(historyGolden), true)
+    clickByTooltip("Show history")
+    act.launchedCount(isRecordsRun(true), 1, "history records")
+    act.settled(function () { return branchLabels().length === 2 }, "expected two branch labels in history, have " + branchLabels().length)
+    var got = branchLabels().map(function (n) { return n.text }).sort()
+    compare(JSON.stringify(got), JSON.stringify(["on feature-a", "on feature-b"]))
+  }
+
+  // At a narrow popup width a long branch name elides, and the header text
+  // neither overlaps nor clips under Edit and Delete.
+  function test_long_branch_elides_and_clears_the_buttons() {
+    var golden = JSON.parse(readFixture(recordsGolden))
+    var longName = "feature/" + "very-long-branch-name-".repeat(8)
+    golden.records.forEach(function (r) { if (r.branch) r.branch = longName })
+    openMemory(JSON.stringify(golden))
+    panel.testWindow.width = Math.round(panel.baseWidth * 0.9)
+    act.settled(function () { return branchLabels().length === 1 }, "branch label never rendered")
+    var label = branchLabels()[0]
+    verify(label.truncated, "long branch did not elide")
+    verify(label.width < label.implicitWidth, "label width " + label.width + " not below its natural " + label.implicitWidth)
+    var row = label.parent
+    var actions = TestUtil.findAll(row.parent, function (n) { return n.objectName === "recordActions" })[0]
+    var labelRight = label.mapToItem(null, label.width, 0).x
+    var actionsLeft = actions.mapToItem(null, 0, 0).x
+    verify(labelRight <= actionsLeft, "branch label ends at " + labelRight + ", past the buttons at " + actionsLeft)
+    verify(row.mapToItem(null, row.width, 0).x <= actionsLeft, "header row overlaps the buttons")
+    // Everything before the label is fully visible (not clipped away).
+    verify(label.mapToItem(row, 0, 0).x + 0 <= row.width, "label starts outside its row")
+  }
+
   // A window narrower than the popup leaves a record's header less room:
   // its kind, device chip and age stop short of Edit and Delete, never
   // under them.

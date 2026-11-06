@@ -21,3 +21,7 @@ function recordText(r) { return r.text || "" }
 // origin_device_name: the paired device that wrote the record; null (read as
 // "") for a record written on this device.
 function recordOriginDevice(r) { return r.origin_device_name || "" }
+
+// branch: the git branch the record was written on; absent (read as "")
+// when unknown.
+function recordBranch(r) { return r.branch || "" }
