@@ -135,6 +135,8 @@ type Item struct {
 	// OriginDeviceName names the paired device that wrote the record, ""
 	// for one written on this device.
 	OriginDeviceName string
+	// GitBranch is the branch the record was written on, "" when unknown.
+	GitBranch string
 	// Text is the record's body, empty when Status is StatusTombstoned
 	// (SCHEMA.md invariant 1: recall omits a tombstoned record's text,
 	// keeps its edges).
@@ -410,6 +412,7 @@ func annotate(st *store.Store, rec store.Record, workspaces []string) (Item, err
 		TS:               rec.TS,
 		Tier:             rec.Tier,
 		OriginDeviceName: rec.OriginDeviceName,
+		GitBranch:        rec.GitBranch,
 		Text:             rec.Text,
 		Next:             rec.Next,
 		Status:           StatusCurrent,
@@ -533,6 +536,9 @@ func renderItem(item Item, altitude Altitude) string {
 	header := fmt.Sprintf("%s · %s · %s · %s", shortID(item.ID), item.Kind, item.Tier, statusLabel(item))
 	if item.OriginDeviceName != "" {
 		header += " · from " + item.OriginDeviceName
+	}
+	if item.Kind == store.KindHandoff && item.GitBranch != "" {
+		header += " · on branch " + item.GitBranch
 	}
 	if item.Git != nil {
 		header += " · " + gitLabel(item.Git)

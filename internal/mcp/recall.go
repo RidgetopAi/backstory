@@ -173,6 +173,8 @@ type RecallItem struct {
 	// Next is a handoff's one-line next step (absent for other kinds and for
 	// a handoff with none).
 	Next string `json:"next,omitempty"`
+	// GitBranch is the branch the record was written on (absent when unknown).
+	GitBranch string `json:"git_branch,omitempty"`
 	// GitHead, GitShort, CommitsSince, GitNote and GitStatus are additive
 	// (task 5615ddae): the repo HEAD stamped at write, its short form, how
 	// many commits the repo is ahead of it now (absent, with GitNote as the
@@ -304,12 +306,13 @@ func handleRecall(st *store.Store, git project.Git, id ident.Identity, raw json.
 	items := make([]RecallItem, len(built.Items))
 	for i, item := range built.Items {
 		items[i] = RecallItem{
-			ID:   item.ID,
-			Kind: string(item.Kind),
-			Tier: string(item.Tier),
-			Mark: trustMark(item),
-			Text: renderItemText(item.Text, altitude),
-			Next: item.Next,
+			ID:        item.ID,
+			Kind:      string(item.Kind),
+			Tier:      string(item.Tier),
+			Mark:      trustMark(item),
+			Text:      renderItemText(item.Text, altitude),
+			Next:      item.Next,
+			GitBranch: item.GitBranch,
 		}
 		if g := item.Git; g != nil {
 			items[i].GitHead = g.SHA
