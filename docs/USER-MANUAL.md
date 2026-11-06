@@ -205,7 +205,8 @@ you jump back into any project.
 - Press **`CTRL + SHIFT + B`**, or
 - click the Backstory icon in the top bar (if you added it; see `panel/README.md`).
 
-Press the same key, click the icon again, or press **`Esc`** to close it.
+Press the same key, click the icon again, or press **`Esc`** to close it. The bar popup has no
+close button. The pop-out window has one, after the pin at the right end of every view's header.
 
 ### What's on it
 
@@ -251,7 +252,7 @@ From top to bottom:
 | Refresh | | `r` |
 | Help (lists the agent tools too) | | `?` |
 | Bigger / smaller / reset text | | `Ctrl` + `+` / `Ctrl` + `-` / `Ctrl` + `0` |
-| Close | close button | `Esc` |
+| Close | close button (pop-out window only) | `Esc` |
 
 ### The Memory view
 
@@ -276,7 +277,7 @@ if it's not current (for example possibly stale or superseded).
 Some projects are really one piece of work, like a website and its API in two folders. A
 **group** shows them as one row in RECENT, with the members underneath.
 
-- Click the **gear** icon, pick a project, then pick an existing group or type a new name, and
+- Click the **Groups** button (two linked squares) in the header, pick a project, then pick an existing group or type a new name, and
   press **+**. **Esc** in the name box stops typing; then **g** or **u** goes back.
 - Or use the command line: `backstory group set <group> --here` from inside the project.
 
@@ -592,6 +593,24 @@ memory block opens with a warning, and the timer sends one desktop notification 
 starts failing and one when it recovers (never one per tick). See
 [Sync is failing](#9-troubleshooting).
 
+#### Turning sync off
+
+Sync is on while this computer has a paired computer; there is no other switch. To turn it off:
+
+1. Remove each paired computer: `backstory pair --remove <computer>`, by its name or ssh host
+   (`backstory status` shows a `sync:` line naming each one).
+2. If you installed the timer (`backstory install sync --check` says `present`), stop it too:
+   `backstory install sync --remove`. It is harmless to leave: with no paired computer the timer's
+   run does nothing and succeeds. But it keeps running every five minutes for nothing.
+
+After that `backstory status` has no `SYNC FAILING` line and exits 0, NEEDS YOU has no sync item,
+and new sessions' memory blocks have no sync warning. Everything already synced stays on this
+computer. The other computer keeps syncing with this one until you also run
+`backstory pair --remove` there (see [pair](#pair)).
+
+To turn it back on, pair again with `backstory pair <computer>` (a fresh setup, as in
+[pair](#pair)) and, for automatic syncing, `backstory install sync`.
+
 #### Sharing memory between two computers
 
 1. Install Backstory on both, and make sure `ssh <other-computer>` works with a key.
@@ -885,10 +904,11 @@ agent that writes a fresh handoff, or **Done** if the work is finished.
   install it.
 - *unreachable for N hours across M attempts*: the computer has been off or off the network
   for longer than 24 hours of recorded attempts. Turn it on, or, if you no longer use it,
-  `backstory pair --remove <computer>`. The limit is the `sync_unreachable_hours` setting.
+  `backstory pair --remove <computer>` (see [Turning sync off](#turning-sync-off)). The limit is the `sync_unreachable_hours` setting.
 - *the sync timer is installed but not active*: the timer stopped. Run
   `systemctl --user enable --now backstory-sync.timer` (or `backstory install sync`).
 
+For a computer you no longer have or want, see [Turning sync off](#turning-sync-off).
 Run `backstory sync` by hand to retry; one good sync clears the warning. `sync paused (capture
 off)` is not a failure: turn capture on with `backstory capture on`. A computer you paired but
 never synced shows `never synced`; run `backstory sync`.
