@@ -49,7 +49,7 @@ func newBranchRepo(t *testing.T) *branchRepo {
 	}
 	a := filepath.Join(root, "repo")
 	b := filepath.Join(root, "repo-b")
-	if err := os.Mkdir(a, 0o755); err != nil {
+	if err := os.Mkdir(a, 0o750); err != nil {
 		t.Fatal(err)
 	}
 	branchGit(t, a, "init", "-q")
@@ -68,16 +68,12 @@ func newBranchRepo(t *testing.T) *branchRepo {
 		headA: branchGit(t, a, "rev-parse", "HEAD"), headB: branchGit(t, b, "rev-parse", "HEAD")}
 }
 
-func (r *branchRepo) handoff(branch, text, supersedes string) store.Record {
+func (r *branchRepo) handoff(branch, text string) store.Record {
 	r.t.Helper()
-	var edges []store.EdgeSpec
-	if supersedes != "" {
-		edges = append(edges, store.EdgeSpec{OtherID: supersedes, Type: store.EdgeSupersedes, DeclaredBy: "t", Field: "supersedes"})
-	}
 	id, err := r.s.InsertRecordWithEdges(store.InsertRecordParams{
 		Identity: store.Identity{Kind: store.IdentityAgent}, Kind: store.KindHandoff, Text: text,
 		ProjectKey: r.key, GitBranch: branch, GitHead: r.headA,
-	}, edges)
+	}, nil)
 	if err != nil {
 		r.t.Fatalf("insert handoff: %v", err)
 	}
@@ -104,8 +100,8 @@ func lastLine(out string) string { return out[strings.LastIndex(out, "\n")+1:] }
 
 func TestResumeIsPerBranchAndOtherBranchIsAPointer(t *testing.T) {
 	r := newBranchRepo(t)
-	ha := r.handoff("feature-a", "Built the login form on feature-a.", "")
-	hb := r.handoff("feature-b", "Wrote the export on feature-b.", "")
+	ha := r.handoff("feature-a", "Built the login form on feature-a.")
+	hb := r.handoff("feature-b", "Wrote the export on feature-b.")
 
 	outA := r.render(r.a)
 	if !strings.Contains(outA, "Resume: (id "+ha.ID+")") || strings.Contains(outA, "Resume: (id "+hb.ID) {
@@ -132,7 +128,7 @@ func TestResumeIsPerBranchAndOtherBranchIsAPointer(t *testing.T) {
 
 func TestResumeFallsBackToOtherBranchWithoutSuperseding(t *testing.T) {
 	r := newBranchRepo(t)
-	ha := r.handoff("feature-a", "Built the login form on feature-a.", "")
+	ha := r.handoff("feature-a", "Built the login form on feature-a.")
 
 	out := r.render(r.b)
 	if !strings.Contains(out, "Resume: (id "+ha.ID+", from branch feature-a; you are on feature-b)") {
@@ -150,7 +146,7 @@ func TestResumeFallsBackToOtherBranchWithoutSuperseding(t *testing.T) {
 
 	// feature-b notes a handoff (its chain starts here, no supersedes); the
 	// feature-a block still resumes the feature-a handoff.
-	hb := r.handoff("feature-b", "Started export on feature-b.", "")
+	hb := r.handoff("feature-b", "Started export on feature-b.")
 	outA := r.render(r.a)
 	if !strings.Contains(outA, "Resume: (id "+ha.ID+")") {
 		t.Errorf("feature-a must still resume its handoff:\n%s", outA)
@@ -165,7 +161,7 @@ func TestResumeFallsBackToOtherBranchWithoutSuperseding(t *testing.T) {
 
 func TestResumeUnknownBranchKeepsRepoWideBehaviour(t *testing.T) {
 	r := newBranchRepo(t)
-	old := r.handoff("", "Pre-migration handoff, no branch.", "")
+	old := r.handoff("", "Pre-migration handoff, no branch.")
 
 	for name, cwd := range map[string]string{"feature-a": r.a, "feature-b": r.b} {
 		out := r.render(cwd)
@@ -177,7 +173,7 @@ func TestResumeUnknownBranchKeepsRepoWideBehaviour(t *testing.T) {
 		}
 	}
 
-	ha := r.handoff("feature-a", "On feature-a.", "")
+	ha := r.handoff("feature-a", "On feature-a.")
 	// Detached HEAD and a non-git folder: today's repo-wide newest, no branch wording.
 	branchGit(t, r.b, "checkout", "-q", "--detach")
 	nonGit := t.TempDir()
@@ -197,7 +193,7 @@ func TestResumeUnknownBranchKeepsRepoWideBehaviour(t *testing.T) {
 
 func TestCommitsSinceHandoffNeverCountsAnotherBranch(t *testing.T) {
 	r := newBranchRepo(t)
-	ha := r.handoff("feature-a", "On feature-a.", "")
+	ha := r.handoff("feature-a", "On feature-a.")
 	branchGit(t, r.b, "commit", "-q", "--allow-empty", "-m", "b1")
 	branchGit(t, r.b, "commit", "-q", "--allow-empty", "-m", "b2")
 
