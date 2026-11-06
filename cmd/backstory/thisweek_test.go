@@ -51,6 +51,8 @@ type fixtureRecord struct {
 	// OriginDevice, when set, files the record as imported from that
 	// (already paired) device id.
 	OriginDevice string
+	// GitBranch, when set, stamps the branch the record was written on.
+	GitBranch string
 }
 
 func mustInsertThisWeekRecord(t *testing.T, st *store.Store, r fixtureRecord) {
@@ -80,10 +82,10 @@ func mustInsertThisWeekRecord(t *testing.T, st *store.Store, r fixtureRecord) {
 		expiresAt = r.ExpiresAt.UTC().UnixNano()
 	}
 	_, err = st.DB().Exec(`INSERT INTO records
-		(id, ts, kind, tier, text, about, session_id, project_key, evidence, outcome, promoter, expires_at, tombstoned_at, origin_device)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?)`,
+		(id, ts, kind, tier, text, about, session_id, project_key, evidence, outcome, promoter, expires_at, tombstoned_at, origin_device, git_branch)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, NULL, ?, ?)`,
 		r.ID, r.TS.UTC().UnixNano(), string(r.Kind), string(r.Tier), r.Text, string(aboutJSON),
-		r.SessionID, r.ProjectKey, string(evidenceJSON), outcome, expiresAt, nullIfEmpty(r.OriginDevice))
+		r.SessionID, r.ProjectKey, string(evidenceJSON), outcome, expiresAt, nullIfEmpty(r.OriginDevice), nullIfEmpty(r.GitBranch))
 	if err != nil {
 		t.Fatalf("insert fixture record %s: %v", r.ID, err)
 	}
@@ -144,8 +146,8 @@ func buildThisWeekFixtureStore(t *testing.T, dataDir string) {
 		t.Fatalf("AppendSyncAttempt: %v", err)
 	}
 	mustInsertThisWeekRecord(t, st, fixtureRecord{
-		OriginDevice: "dev-laptop-0001",
-		ID:           "handoff-0001", ProjectKey: mainProject, SessionID: sessMain, TS: date(3, 9, 10),
+		OriginDevice: "dev-laptop-0001", GitBranch: "feature-a",
+		ID: "handoff-0001", ProjectKey: mainProject, SessionID: sessMain, TS: date(3, 9, 10),
 		Kind: store.KindHandoff, Tier: store.TierAgentDeclared, Text: "Resume: ship the CLI\nMODE: build",
 		About: []string{"main.go"},
 	})
