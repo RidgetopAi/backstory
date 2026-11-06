@@ -54,6 +54,8 @@ Item {
 
   signal changed()
   signal closeRequested()
+  // Esc in the group-name field: the host takes the keys back.
+  signal stopTypingRequested()
   // Where the view is shown: the bar popup sets canPopOut, the window
   // canPin and pinned; the header then offers those buttons (HostButtons).
   property bool canPopOut: false
@@ -405,6 +407,9 @@ Item {
         // it rather than let it reach the view's keys.
         Keys.onReturnPressed: (event) => { root.submit(); event.accepted = true }
         Keys.onEnterPressed: (event) => { root.submit(); event.accepted = true }
+        // Esc here only leaves the field (the text stays); it never reaches
+        // the host's close.
+        Keys.onEscapePressed: (event) => { root.stopTypingRequested(); event.accepted = true }
       }
 
       PanelActionButton {

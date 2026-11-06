@@ -175,7 +175,10 @@ Item {
   readonly property string mainFooterHint: "j/k move \u00b7 \u2192 agents \u00b7 \u2190 fold \u00b7 Enter continue \u00b7 t terminal \u00b7 m memory \u00b7 g groups \u00b7 ? help \u00b7 r refresh \u00b7 " + root.closeHint
   readonly property string footerHint: root.helpOpen ? "j/k scroll \u00b7 u back \u00b7 " + root.closeHint
     : root.memoryOpen ? "j/k move \u00b7 \u2192 expand \u00b7 \u2190 fold \u00b7 Enter toggle \u00b7 u back \u00b7 " + root.closeHint
-    : root.groupEditorOpen ? "j/k move \u00b7 Enter pick \u00b7 u back \u00b7 " + root.closeHint : root.mainFooterHint
+    : root.groupEditorOpen ? (groupEditor.typing ? root.typingFooterHint : "j/k move \u00b7 Enter pick \u00b7 u back \u00b7 " + root.closeHint)
+    : root.mainFooterHint
+  // While the group-name field has the keys, Esc leaves it rather than closes.
+  readonly property string typingFooterHint: "Enter add \u00b7 Esc stop typing"
 
   // Hover moves the one selection the keyboard uses (no second highlight).
   function selectRow(summary, agent) {
@@ -673,6 +676,7 @@ Item {
         canClose: root.canPin
         onWindowCloseRequested: root.closeRequested()
         onCloseRequested: root.groupEditorOpen = false
+        onStopTypingRequested: root.forceActiveFocus()
         onChanged: root.refresh()
       }
     }
