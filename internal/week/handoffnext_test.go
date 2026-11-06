@@ -93,3 +93,33 @@ func TestBuildLastAgentIsNewestSessionsAgent(t *testing.T) {
 		t.Errorf("group child HandoffNext = %q, want %q", got["proj-grp-b"].HandoffNext, "keep going")
 	}
 }
+
+// A RECENT row carries the branch its newest handoff was written on, and
+// none when that handoff recorded no branch (task 64cd2b5e).
+func TestBuildHandoffBranch(t *testing.T) {
+	st := openTestStore(t)
+	for _, c := range []struct{ key, cwd, branch string }{
+		{"proj-branch", "/home/brian/branch", "feature-a"},
+		{"proj-nobranch", "/home/brian/nobranch", ""},
+	} {
+		upsertProject(t, st, c.key, c.cwd)
+		sid := startSession(t, st, "sess-"+c.key, c.key, c.cwd, fixtureNow.Add(-time.Hour))
+		appendEvent(t, st, store.Event{TS: fixtureNow.Add(-time.Hour), Kind: "tool.use", SessionID: sid, Source: "shell", Payload: `{}`})
+		if _, err := st.InsertRecord(store.InsertRecordParams{Identity: agentIdentity, Kind: store.KindHandoff, Text: "keep going", SessionID: sid, ProjectKey: c.key, GitBranch: c.branch}); err != nil {
+			t.Fatalf("InsertRecord: %v", err)
+		}
+	}
+	res, err := Build(Params{Store: st, Now: fixtureNow})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	got := map[string]string{}
+	for _, r := range res.WhereLeftOff {
+		if r.Group == "" {
+			got[r.Project.ProjectKey] = r.Project.HandoffBranch
+		}
+	}
+	if got["proj-branch"] != "feature-a" || got["proj-nobranch"] != "" {
+		t.Errorf("HandoffBranch = %v, want feature-a / empty", got)
+	}
+}
