@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -71,6 +72,13 @@ func FinalLineFor(resumeID string) string {
 	return FinalLine + ". " + handoffRule + ", supersedes = " + resumeID
 }
 
+// FinalLineOtherBranch is slot 5 when Resume fell back to a handoff written
+// on another branch: that handoff is not this branch's to supersede, so the
+// hint says the agent's handoff starts this branch's chain.
+func FinalLineOtherBranch(branch string) string {
+	return FinalLine + ". " + handoffRule + ", supersedes = nothing (the Resume handoff is from branch " + branch + "; your handoff starts this branch's chain)"
+}
+
 // EndsWithFinalLine reports whether out's last line is a FinalLineFor line
 // (any resume id).
 func EndsWithFinalLine(out string) bool {
@@ -131,7 +139,8 @@ func Render(p Params) (string, error) {
 		p.Now = time.Now()
 	}
 
-	pick, err := pickResume(p)
+	readerBranch := project.CurrentBranch(p.Git, p.CWD)
+	pick, err := pickResume(p, readerBranch)
 	if err != nil {
 		return "", fmt.Errorf("block: resolve resume handoff: %w", err)
 	}
@@ -196,7 +205,7 @@ func Render(p Params) (string, error) {
 			return "", fmt.Errorf("block: resume handoff author: %w", err)
 		}
 	}
-	slot1 := resumeSlot(handoff, hasHandoff, staleReasons, doneAt, isDone, resumeLabel, handoffAuthorClause(author, p.Harness))
+	slot1 := resumeSlot(handoff, hasHandoff, staleReasons, doneAt, isDone, resumeLabel, handoffAuthorClause(author, p.Harness), pick.branchClause(readerBranch))
 	if !hasHandoff {
 		slot1 = pointer
 	}
@@ -208,12 +217,19 @@ func Render(p Params) (string, error) {
 		}
 		alsoLine = alsoLineFor(*pick.also, self.Name)
 	}
+	if readerBranch != "" {
+		branchLines, err := branchPointerLines(p, readerBranch, pick)
+		if err != nil {
+			return "", err
+		}
+		alsoLine = joinLines(alsoLine, branchLines)
+	}
 	shellSessions, err := p.Store.ShellSessionIDs()
 	if err != nil {
 		return "", fmt.Errorf("block: shell sessions: %w", err)
 	}
 	testsLine := testsLine(allEvents, p.Now)
-	repoLine, err := repoStateLine(p, handoff, hasHandoff, deltaEvents, shellSessions)
+	repoLine, err := repoStateLine(p, readerBranch, handoff, hasHandoff, deltaEvents, shellSessions)
 	if err != nil {
 		return "", err
 	}
@@ -241,7 +257,11 @@ func Render(p Params) (string, error) {
 	if hasHandoff {
 		resumeID = handoff.ID
 	}
-	return assemble(syncWarn, alsoLine, slot1, slot2, slot3, slot4, FinalLineFor(resumeID), budgetTokens), nil
+	final := FinalLineFor(resumeID)
+	if pick.otherBranch {
+		final = FinalLineOtherBranch(handoff.GitBranch)
+	}
+	return assemble(syncWarn, alsoLine, slot1, slot2, slot3, slot4, final, budgetTokens), nil
 }
 
 // syncWarning is the sync-failing line(s) for every project while
@@ -278,7 +298,7 @@ func joinParts(parts ...string) string {
 // spelled out in prose (task 56317fe7 — measured on Brian's desktop: a
 // handoff's text named its predecessor in prose because the block carried
 // no id at all, so the chain never linked).
-func resumeSlot(rec store.Record, ok bool, staleReasons []store.FreshnessReason, doneAt time.Time, isDone bool, label, authorClause string) string {
+func resumeSlot(rec store.Record, ok bool, staleReasons []store.FreshnessReason, doneAt time.Time, isDone bool, label, authorClause, branchClause string) string {
 	if !ok {
 		return ""
 	}
@@ -286,6 +306,7 @@ func resumeSlot(rec store.Record, ok bool, staleReasons []store.FreshnessReason,
 	if rec.OriginDeviceName != "" {
 		idPart += ", from " + rec.OriginDeviceName
 	}
+	idPart += branchClause
 	if isDone {
 		// A done handoff is finished work: no Next, MODE or stale marker,
 		// and the lead is not "Resume:".
@@ -321,6 +342,95 @@ type resumePick struct {
 	label   string
 	pointer string
 	also    *store.Record
+	// otherBranch is set when the reader's branch is known and the pick is a
+	// handoff written on a different known branch (the fallback).
+	otherBranch bool
+}
+
+// branchClause is the part of the "(id ...)" group that names a fallback
+// handoff's branch and the reader's: ", from branch a; you are on b". Empty
+// for any pick that is not a cross-branch fallback.
+func (pk resumePick) branchClause(readerBranch string) string {
+	if !pk.found || !pk.otherBranch {
+		return ""
+	}
+	return ", from branch " + pk.rec.GitBranch + "; you are on " + readerBranch
+}
+
+// branchKeep is the Resume candidate filter for a reader on readerBranch: a
+// handoff written on that branch, or one with no known branch (old data
+// keeps working). nil, keep everything, when the reader's branch is unknown.
+func branchKeep(readerBranch string) func(store.Record) bool {
+	if readerBranch == "" {
+		return nil
+	}
+	return func(r store.Record) bool { return r.GitBranch == "" || r.GitBranch == readerBranch }
+}
+
+// branchPointerMaxAge is how old another branch's newest handoff may be and
+// still earn an "Also on branch" pointer.
+const branchPointerMaxAge = 14 * 24 * time.Hour
+
+// maxBranchPointers caps how many other branches get a pointer line before
+// the rest collapse into "+N more".
+const maxBranchPointers = 3
+
+// maxBranchHandoffScan bounds the handoffs read to find each branch's newest.
+const maxBranchHandoffScan = 200
+
+// branchPointerLines is one "Also on branch X: handoff <id8> (<age>)" line
+// for each other branch whose newest handoff is live (not done, not
+// superseded, not older than branchPointerMaxAge), newest first, capped at
+// maxBranchPointers. The Resume pick's own branch earns none.
+func branchPointerLines(p Params, readerBranch string, pick resumePick) (string, error) {
+	recs, err := p.Store.RecordsForProject(p.ProjectKey, store.KindHandoff, maxBranchHandoffScan)
+	if err != nil {
+		return "", fmt.Errorf("block: branch handoffs: %w", err)
+	}
+	newest := map[string]store.Record{}
+	for _, r := range recs {
+		if r.GitBranch == "" || r.GitBranch == readerBranch {
+			continue
+		}
+		if cur, ok := newest[r.GitBranch]; !ok || newerHandoff(r, cur) {
+			newest[r.GitBranch] = r
+		}
+	}
+	if pick.found && pick.rec.GitBranch != "" {
+		delete(newest, pick.rec.GitBranch)
+	}
+	var live []store.Record
+	for _, r := range newest {
+		if p.Now.Sub(r.TS) > branchPointerMaxAge {
+			continue
+		}
+		if _, done, err := p.Store.HandoffDone(r.ID); err != nil {
+			return "", fmt.Errorf("block: branch handoff done: %w", err)
+		} else if done {
+			continue
+		}
+		sup, err := p.Store.IsSuperseded(r.ID)
+		if err != nil {
+			return "", err
+		}
+		if !sup {
+			live = append(live, r)
+		}
+	}
+	sort.Slice(live, func(i, j int) bool { return newerHandoff(live[i], live[j]) })
+	var lines []string
+	for i, r := range live {
+		if i == maxBranchPointers {
+			lines = append(lines, fmt.Sprintf("+%d more branches with a handoff", len(live)-maxBranchPointers))
+			break
+		}
+		id8 := r.ID
+		if len(id8) > 8 {
+			id8 = id8[:8]
+		}
+		lines = append(lines, "Also on branch "+r.GitBranch+": handoff "+id8+" ("+formatAge(p.Now.Sub(r.TS))+")")
+	}
+	return strings.Join(lines, "\n"), nil
 }
 
 // pickResume is the RESUME rule across devices (decision 2ac4c54f, D5): the
@@ -328,12 +438,29 @@ type resumePick struct {
 // ones are homed on the local project), newest by ts then id. The loser, when
 // it is not superseded, becomes the also line. Each side is resolved by the
 // same location rule resolveResumeHandoff has always applied.
-func pickResume(p Params) (resumePick, error) {
-	loc, locOK, locLabel, pointer, err := resolveResumeHandoff(p.Store, p.ProjectKey, p.CWD, p.Git, p.WorkspaceDirs, store.OriginLocal)
+//
+// With a known reader branch the newest handoff written on that branch (or
+// with no known branch) wins; with none there, the repo-wide newest is the
+// fallback and is marked otherBranch.
+func pickResume(p Params, readerBranch string) (resumePick, error) {
+	keep := branchKeep(readerBranch)
+	pk, err := pickResumeWhere(p, keep)
+	if err != nil || keep == nil || pk.found {
+		return pk, err
+	}
+	pk, err = pickResumeWhere(p, nil)
+	if err == nil && pk.found && pk.rec.GitBranch != "" && pk.rec.GitBranch != readerBranch {
+		pk.otherBranch = true
+	}
+	return pk, err
+}
+
+func pickResumeWhere(p Params, keep func(store.Record) bool) (resumePick, error) {
+	loc, locOK, locLabel, pointer, err := resolveResumeHandoff(p.Store, p.ProjectKey, p.CWD, p.Git, p.WorkspaceDirs, store.OriginLocal, keep)
 	if err != nil {
 		return resumePick{}, err
 	}
-	imp, impOK, impLabel, _, err := resolveResumeHandoff(p.Store, p.ProjectKey, p.CWD, p.Git, p.WorkspaceDirs, store.OriginImported)
+	imp, impOK, impLabel, _, err := resolveResumeHandoff(p.Store, p.ProjectKey, p.CWD, p.Git, p.WorkspaceDirs, store.OriginImported, keep)
 	if err != nil {
 		return resumePick{}, err
 	}
@@ -429,18 +556,18 @@ const maxPointerProjects = 3
 // workspace involved at all (cwd empty, or outside every configured
 // workspace), the pre-f3fa04c7 behavior — the newest handoff for
 // projectKey, unchanged, no label.
-func resolveResumeHandoff(st *store.Store, projectKey, cwd string, git project.Git, workspaces []string, from store.OriginFilter) (store.Record, bool, string, string, error) {
+func resolveResumeHandoff(st *store.Store, projectKey, cwd string, git project.Git, workspaces []string, from store.OriginFilter, keep func(store.Record) bool) (store.Record, bool, string, string, error) {
 	if cwd == "" {
-		h, ok, err := st.LatestRecordFrom(projectKey, store.KindHandoff, from)
+		h, ok, err := st.LatestRecordFromWhere(projectKey, store.KindHandoff, from, keep)
 		return h, ok, "", "", err
 	}
 	home, ok := project.WorkspaceHome(cwd, workspaces)
 	if !ok {
-		h, ok, err := st.LatestRecordFrom(projectKey, store.KindHandoff, from)
+		h, ok, err := st.LatestRecordFromWhere(projectKey, store.KindHandoff, from, keep)
 		return h, ok, "", "", err
 	}
 
-	h, found, err := st.LatestHandoffAtFrom(cwd, git, workspaces, from)
+	h, found, err := st.LatestHandoffAtFromWhere(cwd, git, workspaces, from, keep)
 	if err != nil {
 		return store.Record{}, false, "", "", fmt.Errorf("block: location handoff: %w", err)
 	}
@@ -455,7 +582,7 @@ func resolveResumeHandoff(st *store.Store, projectKey, cwd string, git project.G
 	// it carries the root's.
 	if !found {
 		if root, ok := workspaceRootOf(cwd, home, workspaces); ok && root != filepath.Clean(cwd) {
-			h, found, err = st.LatestHandoffAtFrom(root, git, workspaces, from)
+			h, found, err = st.LatestHandoffAtFromWhere(root, git, workspaces, from, keep)
 			if err != nil {
 				return store.Record{}, false, "", "", fmt.Errorf("block: root handoff: %w", err)
 			}
@@ -794,7 +921,7 @@ func formatAge(d time.Duration) string {
 // (the last session end; with could_not_observe there is no count to show),
 // the commits from the handoff's git stamp against the repo as it is now.
 // Each part is shown only when observed; "" when none is.
-func repoStateLine(p Params, handoff store.Record, hasHandoff bool, events []store.TimelineEvent, shellSessions map[string]bool) (string, error) {
+func repoStateLine(p Params, readerBranch string, handoff store.Record, hasHandoff bool, events []store.TimelineEvent, shellSessions map[string]bool) (string, error) {
 	var gs *payload.SessionGitState
 	var gsTS time.Time
 	for _, e := range events {
@@ -816,7 +943,10 @@ func repoStateLine(p Params, handoff store.Record, hasHandoff bool, events []sto
 			parts = append(parts, fmt.Sprintf("%d uncommitted at last session end (%s)", *gs.UncommittedCount, formatAge(p.Now.Sub(gsTS))))
 		}
 	}
-	if hasHandoff && handoff.GitHead != "" {
+	if hasHandoff && handoff.GitBranch != "" && readerBranch != "" && handoff.GitBranch != readerBranch {
+		// Another branch's handoff: this branch's commits are not "since" it.
+		parts = append(parts, "handoff is from branch "+handoff.GitBranch)
+	} else if hasHandoff && handoff.GitHead != "" {
 		top := p.CWD
 		if top == "" {
 			proj, found, err := p.Store.GetProject(handoff.ProjectKey)

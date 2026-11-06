@@ -45,6 +45,7 @@ type SyncRecord struct {
 	ExpiresAt     *int64   `json:"expires_at_ns,omitempty"`
 	TombstonedAt  *int64   `json:"tombstoned_at_ns,omitempty"`
 	GitHead       string   `json:"git_head,omitempty"`
+	GitBranch     string   `json:"git_branch,omitempty"`
 	Next          string   `json:"next,omitempty"`
 	OriginDevice  string   `json:"origin_device"`
 }
@@ -402,13 +403,13 @@ func (s *Store) loadSyncRecord(id, selfDevice string) (*SyncRecord, error) {
 		r                                   SyncRecord
 		about                               string
 		session, project, outcome, promoter sql.NullString
-		gitHead, next, origin               sql.NullString
+		gitHead, gitBranch, next, origin    sql.NullString
 		expires, tombstoned                 sql.NullInt64
 	)
 	err := s.db.QueryRow(`SELECT id, ts, kind, tier, text, about, session_id, project_key, outcome, promoter,
-		expires_at, tombstoned_at, git_head, next, origin_device FROM records WHERE id = ?`, id).
+		expires_at, tombstoned_at, git_head, git_branch, next, origin_device FROM records WHERE id = ?`, id).
 		Scan(&r.ID, &r.TS, &r.Kind, &r.Tier, &r.Text, &about, &session, &project, &outcome, &promoter,
-			&expires, &tombstoned, &gitHead, &next, &origin)
+			&expires, &tombstoned, &gitHead, &gitBranch, &next, &origin)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -430,6 +431,7 @@ func (s *Store) loadSyncRecord(id, selfDevice string) (*SyncRecord, error) {
 	r.Outcome = outcome.String
 	r.Promoter = promoter.String
 	r.GitHead = gitHead.String
+	r.GitBranch = gitBranch.String
 	r.Next = next.String
 	r.OriginDevice = selfDevice
 	if origin.Valid && origin.String != "" {
@@ -845,10 +847,10 @@ func (im *syncImporter) record(r *SyncRecord, tombstone bool) error {
 	// kept by the origin store; the importer never re-derives a tier).
 	if _, err := im.tx.Exec(`INSERT INTO records
 		(id, ts, kind, tier, text, about, session_id, project_key, evidence, outcome, promoter, expires_at,
-		 tombstoned_at, event_cursor, git_head, next, origin_device)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, ?, ?, (SELECT COALESCE(MAX(id), 0) FROM timeline_events), ?, ?, ?)`,
+		 tombstoned_at, event_cursor, git_head, git_branch, next, origin_device)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, '[]', ?, ?, ?, ?, (SELECT COALESCE(MAX(id), 0) FROM timeline_events), ?, ?, ?, ?)`,
 		r.ID, r.TS, r.Kind, r.Tier, text, about, session, project, outcome, promoter, expires,
-		tombAt, nullable(r.GitHead), next, im.origin(r.OriginDevice)); err != nil {
+		tombAt, nullable(r.GitHead), nullable(r.GitBranch), next, im.origin(r.OriginDevice)); err != nil {
 		return fmt.Errorf("insert record %s: %w", r.ID, err)
 	}
 	if tombstone {

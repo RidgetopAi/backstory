@@ -304,3 +304,21 @@ func CommitsSince(dir, sha string) (n int, reason string, ok bool) {
 	}
 	return n, "", true
 }
+
+// detachedHead is what git reports as the branch of a detached HEAD.
+const detachedHead = "HEAD"
+
+// CurrentBranch is the branch checked out in cwd, or "" when it is unknown:
+// cwd empty or not a git working tree, git failed, or a detached HEAD. The
+// empty string is the one "no branch" value, never an error: callers fall
+// back to repo-wide behaviour.
+func CurrentBranch(git Git, cwd string) string {
+	if git == nil || cwd == "" {
+		return ""
+	}
+	st, ok := git.State(cwd)
+	if !ok || st.Branch == detachedHead {
+		return ""
+	}
+	return st.Branch
+}
