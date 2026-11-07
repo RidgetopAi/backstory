@@ -586,24 +586,46 @@ func foldersOfWindowPID(procs *procTable, pid int) []windowFolder {
 	return nil
 }
 
-// windowsByProject maps project key → its most recently focused open window
+// workspaceKeyPrefix starts the project key of a folder that has no repo of
+// its own: every folder under one workspace directory shares one key.
+const workspaceKeyPrefix = "workspace:"
+
+// windowMapKey is the windowsByProject map key for a project (key) at folder
+// dir. A repo key names one project; a workspace key is shared by every
+// folder under the workspace, so the folder joins it.
+func windowMapKey(key, dir string) string {
+	if strings.HasPrefix(key, workspaceKeyPrefix) {
+		return key + "\n" + filepath.Clean(dir)
+	}
+	return key
+}
+
+// windowsByProject maps windowMapKey → its most recently focused open window
 // (lowest focusHistoryID) and, inside that window, the tmux pane holding the
 // project (the active one when several); empty when hyprctl is unavailable.
+//
+// A window is attributed only when it is certain: a pid that owns two or more
+// Hyprland clients (ghostty runs every window from one process) cannot say
+// which window holds which shell, so it contributes no window to any project.
 func (r hereResolver) windowsByProject() map[string]windowRef {
 	clients, err := hyprClients()
 	if err != nil {
 		return nil
 	}
+	perPID := map[int]int{}
+	for _, c := range clients {
+		perPID[c.PID]++
+	}
 	out := map[string]windowRef{}
 	best := map[string]int{}
 	for _, c := range clients {
-		if c.Address == "" {
+		if c.Address == "" || perPID[c.PID] != 1 {
 			continue
 		}
-		// Within this window: key → chosen folder (active pane wins, else first).
+		// Within this window: map key → chosen folder (active pane wins, else first).
 		inWindow := map[string]windowFolder{}
 		for _, f := range foldersOfWindowPID(r.procs, c.PID) {
-			key := r.key(f.Dir)
+			key := windowMapKey(r.key(f.Dir), f.Dir)
 			if prev, seen := inWindow[key]; seen && (prev.Active || !f.Active) {
 				continue
 			}

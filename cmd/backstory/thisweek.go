@@ -209,7 +209,7 @@ func printThisWeekJSON(stdout io.Writer, result week.Result, here *hereJSON, win
 	summary := func(p week.ProjectSummary) projectSummaryJSON {
 		s := projectSummary(p)
 		if windows != nil {
-			w := windows[p.ProjectKey]
+			w := windows[windowMapKey(p.ProjectKey, p.CWD)]
 			s.Window = &w.Address
 			s.Tmux = &w.Tmux
 		}

@@ -42,6 +42,10 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 ### Fixed
 
+- The panel offers Switch only when the open window is certain. Terminals that run every window
+  from one process (ghostty) made Switch focus the wrong window, so those windows now give
+  Continue; rows of non-git folders under one workspace no longer share one window.
+
 - A session now always belongs to the folder it started in, as well as every folder it edited.
   Before, a session started in a non-git folder (such as `~/projects/personal`) that edited only
   files elsewhere was missing from that folder's recall, `records --here`, This Week and

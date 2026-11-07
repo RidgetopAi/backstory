@@ -254,6 +254,8 @@ From top to bottom:
 | Bigger / smaller / reset text | | `Ctrl` + `+` / `Ctrl` + `-` / `Ctrl` + `0` |
 | Close | close button (pop-out window only) | `Esc` |
 
+A recent row shows **Switch** instead of **Continue** when the project is already open in a terminal window and Backstory is certain which window. When a terminal app runs all its windows as one process, like ghostty, Backstory cannot tell its windows apart and offers **Continue**.
+
 ### The Memory view
 
 Opens for one project and lists everything saved there, newest first. Each record shows its
