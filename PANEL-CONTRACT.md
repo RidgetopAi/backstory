@@ -63,6 +63,14 @@ The rule looks at every pane of every window of each attached tmux client's sess
 (`tmux list-panes -s`), not only the active pane, so a project open in a background tmux window
 still gets its terminal's address.
 
+`window` is set only when the window is certain. A pid that owns two or more Hyprland clients
+(ghostty runs every window from one process) cannot say which window holds which shell, so
+it contributes no `window` (and no `tmux`) to any project; the panel then offers Continue
+rather than a Switch that may focus the wrong window. One-process-per-window terminals keep
+`window` and `tmux`. A row keyed `workspace:<dir>` (a non-git folder under a workspace
+directory) matches a window only when the window's folder is the row's own `cwd`, since that
+key is shared by every folder of the workspace; a repo-keyed row matches by key.
+
 `tmux` (string, present exactly when `window` is, i.e. only with `--here auto`): the tmux
 target `session:window.pane` (numeric window and pane indexes, e.g. `Work:1.0`) of the pane
 holding the project inside that `window`; with several panes of one project in the window, the
