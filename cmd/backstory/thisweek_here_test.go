@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
@@ -704,4 +705,105 @@ func TestHereSourceValues(t *testing.T) {
 			t.Fatalf("here = %v", h)
 		}
 	})
+}
+
+// Two Hyprland clients share one pid (ghostty runs every window from one
+// process) whose tree holds shells in foo and bar: neither project gets a
+// window, whatever the focus history says.
+func TestHereAutoSharedPIDWindowsAreNotAttributed(t *testing.T) {
+	for _, order := range [][2]int{{0, 1}, {1, 0}} {
+		e := newHereEnv(t)
+		e.fakeHyprctl(t, `{"address":"0xw1","pid":700}`, fmt.Sprintf(
+			`[{"address":"0xw1","class":"ghostty","pid":700,"focusHistoryID":%d},{"address":"0xw2","class":"ghostty","pid":700,"focusHistoryID":%d}]`,
+			order[0], order[1]))
+		e.addProc(t, 700, 1, "ghostty", e.home, "")
+		e.addProc(t, 701, 700, "bash", e.foo, "")
+		e.addProc(t, 702, 700, "bash", e.bar, "")
+		m := mustRun(t, e, "--here", "auto")
+		win := projectFields(t, m, "window")
+		tm := projectFields(t, m, "tmux")
+		for _, k := range []string{e.fooKey, e.barKey} {
+			if win[k] != "" || tm[k] != "" {
+				t.Fatalf("order %v: shared pid gave window %q tmux %q for %s, want both empty", order, win[k], tm[k], k)
+			}
+		}
+	}
+}
+
+// The same shared-pid shape with a tmux client attached (panes in foo and
+// bar) still yields no window and no tmux target.
+func TestHereAutoSharedPIDTmuxWindowsAreNotAttributed(t *testing.T) {
+	e := newHereEnv(t)
+	e.fakeHyprctl(t, `{"address":"0xw1","pid":710}`,
+		`[{"address":"0xw1","class":"ghostty","pid":710,"focusHistoryID":0},{"address":"0xw2","class":"ghostty","pid":710,"focusHistoryID":1}]`)
+	e.addProc(t, 710, 1, "ghostty", e.home, "")
+	e.addProc(t, 711, 710, "tmux: client", e.home, "/dev/pts/0")
+	writeScript(t, filepath.Join(e.fakeBin, "tmux"), `
+if [ "$1" = display-message ] && [ "$2" = -c ] && [ "$3" = /dev/pts/0 ]; then
+  case "$5" in
+    '#{session_name}') echo Work;;
+    '#{pane_current_path}') echo `+e.bar+`;;
+    *) exit 1;;
+  esac
+elif [ "$1" = list-panes ] && [ "$2" = -s ] && [ "$3" = -t ] && [ "$4" = =Work ]; then
+  printf 'Work\t1\t0\t0\t1\t%s\n' `+e.foo+`
+  printf 'Work\t2\t3\t1\t1\t%s\n' `+e.bar+`
+else
+  exit 1
+fi`)
+	m := mustRun(t, e, "--here", "auto")
+	win := projectFields(t, m, "window")
+	tm := projectFields(t, m, "tmux")
+	for _, k := range []string{e.fooKey, e.barKey} {
+		if win[k] != "" || tm[k] != "" {
+			t.Fatalf("shared pid + tmux gave window %q tmux %q for %s, want both empty", win[k], tm[k], k)
+		}
+	}
+}
+
+// A pid owning exactly one client keeps window and tmux target even while
+// another pid (a different terminal) holds two clients.
+func TestHereAutoSinglePIDKeepsWindowBesideSharedPID(t *testing.T) {
+	e := newHereEnv(t)
+	e.fakeHyprctl(t, `{"address":"0xs1","pid":720}`,
+		`[{"address":"0xs1","class":"alacritty","pid":720,"focusHistoryID":0},{"address":"0xg1","class":"ghostty","pid":730,"focusHistoryID":1},{"address":"0xg2","class":"ghostty","pid":730,"focusHistoryID":2}]`)
+	e.addProc(t, 720, 1, "alacritty", e.home, "")
+	e.addProc(t, 721, 720, "bash", e.foo, "")
+	e.addProc(t, 730, 1, "ghostty", e.home, "")
+	e.addProc(t, 731, 730, "bash", e.foo, "")
+	e.addProc(t, 732, 730, "bash", e.bar, "")
+	m := mustRun(t, e, "--here", "auto")
+	win := projectFields(t, m, "window")
+	if win[e.fooKey] != "0xs1" || win[e.barKey] != "" {
+		t.Fatalf("windows = %v, want foo on 0xs1 and bar empty", win)
+	}
+}
+
+// Two workspace-keyed rows (personal, ridgflow) share one project key; a
+// single-process window whose shell is in personal gives the window to the
+// personal row only.
+func TestHereAutoWorkspaceRowsMatchByFolder(t *testing.T) {
+	e := newHereEnv(t)
+	ws := filepath.Join(e.home, "projects")
+	personal, ridgflow := filepath.Join(ws, "personal"), filepath.Join(ws, "ridgflow")
+	for _, d := range []string{personal, ridgflow} {
+		if err := os.MkdirAll(d, 0o755); err != nil { //nolint:gosec // test dir
+			t.Fatal(err)
+		}
+	}
+	wsKey := "workspace:" + ws
+	if got := (hereResolver{git: project.RealGit{}, workspaces: []string{ws}}).key(personal); got != wsKey {
+		t.Fatalf("key(personal) = %q, want %q", got, wsKey)
+	}
+	e.fakeHyprctl(t, `{"address":"0xp","pid":740}`, `[{"address":"0xp","class":"ghostty","pid":740,"focusHistoryID":0}]`)
+	e.addProc(t, 740, 1, "ghostty", e.home, "")
+	e.addProc(t, 741, 740, "bash", personal, "")
+
+	wins := hereResolver{git: project.RealGit{}, workspaces: []string{ws}, procs: &procTable{}}.windowsByProject()
+	if w := wins[windowMapKey(wsKey, personal)]; w.Address != "0xp" {
+		t.Fatalf("personal row window = %q, want 0xp (map %v)", w.Address, wins)
+	}
+	if w := wins[windowMapKey(wsKey, ridgflow)]; w.Address != "" {
+		t.Fatalf("ridgflow row window = %q, want empty", w.Address)
+	}
 }
