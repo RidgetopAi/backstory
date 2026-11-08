@@ -17,7 +17,7 @@ anything on your behalf.
 2. Add a section to `CHANGELOG.md` for the version, moving the relevant
    `[Unreleased]` entries under it: `## [X.Y.Z] - YYYY-MM-DD`.
 3. Bump `pkgver` in `ops/aur/PKGBUILD` to `X.Y.Z` (no leading `v`, per Arch
-   packaging convention) and reset `pkgrel` to `1`.
+   packaging convention) and reset `pkgrel` to `1`. Set `version` in `panel/manifest.json` to the same value; a test fails if they differ.
    Once the tag is on GitHub (the sha cannot exist before), compute the
    tarball hash from the GitHub tag tarball and set `sha256sums` to it:
    `curl -sL https://github.com/RidgetopAi/backstory/archive/refs/tags/vX.Y.Z.tar.gz | sha256sum`.

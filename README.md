@@ -88,8 +88,8 @@ minute or two, mostly the Go build and its module downloads; an upgrade is faste
 
 - builds the program and puts it at `~/.local/bin/backstory`
 - installs and starts the background service (`systemd --user` unit `backstory`)
-- installs the panel into `~/.config/omarchy/plugins/backstory.this-week` and turns it on with
-  `omarchy plugin enable backstory.this-week` (if the `omarchy` command isn't found, it prints
+- installs the panel into `~/.config/omarchy/plugins/ridgetopai.backstory` and turns it on with
+  `omarchy plugin enable ridgetopai.backstory` (if the `omarchy` command isn't found, it prints
   that command for you to run). It restarts the Omarchy shell if your session is unlocked; if
   it's locked, it restarts the shell once you unlock (and tells you the manual
   `omarchy restart shell` fallback)
@@ -117,8 +117,8 @@ install -Dm755 bin/backstory ~/.local/bin/backstory
 install -Dm644 ops/backstory.service ~/.config/systemd/user/backstory.service
 systemctl --user daemon-reload
 systemctl --user enable --now backstory
-cp -r panel ~/.config/omarchy/plugins/backstory.this-week
-omarchy plugin enable backstory.this-week
+cp -r panel ~/.config/omarchy/plugins/ridgetopai.backstory
+omarchy plugin enable ridgetopai.backstory
 install -Dm644 ops/hyprland/backstory.lua ~/.config/hypr/backstory.lua
 omarchy restart shell
 backstory install
@@ -252,7 +252,7 @@ first, stops, disables and removes the service, removes `~/.local/bin/backstory`
 `backstory.prev`, removes the optional sync timer and its service
 (`~/.config/systemd/user/backstory-sync.timer` and `backstory-sync.service`) when present,
 removes `~/.config/hypr/backstory.lua`, and removes the panel plugin (and its
-hidden `.backstory.this-week.prev` backup) if it is a Backstory panel. It leaves your memory
+hidden `.ridgetopai.backstory.prev` backup) if it is a Backstory panel. It leaves your memory
 alone and doesn't restart the Omarchy shell. Remove `require("hypr.backstory")` from your
 `hyprland.lua` yourself.
 
@@ -274,8 +274,8 @@ rm ~/.config/systemd/user/backstory.service
 systemctl --user disable --now backstory-sync.timer   # only if you ran `backstory install sync`
 rm -f ~/.config/systemd/user/backstory-sync.timer ~/.config/systemd/user/backstory-sync.service
 systemctl --user daemon-reload
-rm -r ~/.config/omarchy/plugins/backstory.this-week
-rm -rf ~/.config/omarchy/plugins/.backstory.this-week.prev
+rm -r ~/.config/omarchy/plugins/ridgetopai.backstory
+rm -rf ~/.config/omarchy/plugins/.ridgetopai.backstory.prev
 rm ~/.local/bin/backstory ~/.local/bin/backstory.prev
 ```
 

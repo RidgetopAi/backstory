@@ -247,11 +247,11 @@ func (f *installFixture) mustMake(target string) string {
 }
 
 func (f *installFixture) panelDir() string {
-	return filepath.Join(f.cfg, "omarchy", "plugins", "backstory.this-week")
+	return filepath.Join(f.cfg, "omarchy", "plugins", "ridgetopai.backstory")
 }
 
 func (f *installFixture) panelBackup() string {
-	return filepath.Join(f.cfg, "omarchy", "plugins", ".backstory.this-week.prev")
+	return filepath.Join(f.cfg, "omarchy", "plugins", ".ridgetopai.backstory.prev")
 }
 
 // treeMap reads every file under dir into a relpath -> content map.
@@ -907,11 +907,11 @@ func assertPanelRuntimeOnly(t *testing.T, dir string) {
 	}
 }
 
-const enableCall = "omarchy plugin enable backstory.this-week"
+const enableCall = "omarchy plugin enable ridgetopai.backstory"
 
 // fakeOmarchy records each call and whether the plugin directory existed then.
 func (f *installFixture) fakeOmarchy() {
-	f.fake("omarchy", `if [ -d "$XDG_CONFIG_HOME/omarchy/plugins/backstory.this-week" ]; then d=present; else d=absent; fi
+	f.fake("omarchy", `if [ -d "$XDG_CONFIG_HOME/omarchy/plugins/ridgetopai.backstory" ]; then d=present; else d=absent; fi
 echo "omarchy $* [plugin-dir $d]" >> "$FAKE_LOG"`)
 }
 
@@ -973,7 +973,7 @@ func TestInstallTwiceEnablesEachTime(t *testing.T) {
 func TestInstallWithoutOmarchyCLIStillSucceedsAndNamesCommand(t *testing.T) {
 	f := newInstallFixture(t)
 	out := f.mustMake("install")
-	if !strings.Contains(out, "plugin enable backstory.this-week") {
+	if !strings.Contains(out, "plugin enable ridgetopai.backstory") {
 		t.Errorf("output does not name the enable command:\n%s", out)
 	}
 }

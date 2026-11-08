@@ -110,7 +110,7 @@ TestCase {
     var widget = load("BarWidget.qml")
     var ipc = null
     for (var i = 0; i < widget.resources.length; i++)
-      if (widget.resources[i].target === "backstory.this-week.popup") ipc = widget.resources[i]
+      if (widget.resources[i].target === "ridgetopai.backstory.popup") ipc = widget.resources[i]
     verify(ipc !== null, "no popup IPC target")
     compare(ipc.enabled, false)
   }

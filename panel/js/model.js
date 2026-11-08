@@ -115,3 +115,10 @@ function shortName(displayName) {
   if (n.indexOf(WORKSPACE_DIR_PREFIX) !== 0 || n.length === WORKSPACE_DIR_PREFIX.length) return n
   return n.slice(WORKSPACE_DIR_PREFIX.length)
 }
+
+// The `backstory` binary is not on PATH: a shell reports exit 127 ("command not
+// found"). The panel and bar widget show NOT_INSTALLED_MESSAGE instead of an
+// empty page; every other failure keeps its existing handling.
+var EXIT_COMMAND_NOT_FOUND = 127
+var NOT_INSTALLED_MESSAGE = "Backstory isn't installed yet. Install the backstory package, then run `backstory install`."
+function exitMeansNotInstalled(exitCode) { return exitCode === EXIT_COMMAND_NOT_FOUND }

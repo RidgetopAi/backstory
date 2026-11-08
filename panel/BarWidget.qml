@@ -37,10 +37,14 @@ import "js/format.js" as Format
 // refreshes; it refreshes on every click and every refreshIntervalMs.
 Ui.Panel {
   id: root
-  moduleName: "backstory.this-week"
+  moduleName: "ridgetopai.backstory"
 
   property int refreshIntervalMs: 60000
   property var payload: null
+  // this-week exited 127: the backstory binary is not installed. The popup
+  // (ThisWeekView) shows the message; the widget carries it as statusMessage.
+  property bool notInstalled: false
+  readonly property string statusMessage: root.notInstalled ? Model.NOT_INSTALLED_MESSAGE : ""
 
   readonly property var hereData: root.payload ? Model.topHere(root.payload) : null
   readonly property var hereProject: root.payload ? Derive.hereSummary(root.payload) : null
@@ -160,7 +164,7 @@ Ui.Panel {
   // monitor answers. The popup's screen is its bar's (KeyboardPanel takes
   // the bar window's), the monitor cardOnScreen() measures too.
   IpcHandler {
-    target: "backstory.this-week.popup"
+    target: "ridgetopai.backstory.popup"
     // Without the popup there is nothing here to toggle: the target stays
     // disabled and the shortcut's chain goes on to the window.
     enabled: root.popup !== null && (!Hyprland.focusedMonitor || !root.popup.screen || root.popup.screen.name === Hyprland.focusedMonitor.name)
@@ -191,6 +195,10 @@ Ui.Panel {
   Process {
     id: dataProcess
     command: Launchers.thisWeekCommand()
+    onExited: (exitCode, exitStatus) => {
+      root.notInstalled = Model.exitMeansNotInstalled(exitCode)
+      if (root.notInstalled) root.payload = null
+    }
     stdout: StdioCollector {
       onStreamFinished: {
         try {

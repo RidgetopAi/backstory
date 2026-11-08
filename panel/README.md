@@ -54,22 +54,22 @@ change turns that test red.
 
 Plugins live under `~/.config/omarchy/plugins/<id>/` (`docs/omarchy-shell.md`
 "Installing a third-party plugin"). This plugin's id is
-`backstory.this-week` (`manifest.json`):
+`ridgetopai.backstory` (`manifest.json`):
 
 ```sh
-mkdir -p ~/.config/omarchy/plugins/backstory.this-week
-cp -r panel/* ~/.config/omarchy/plugins/backstory.this-week/
+mkdir -p ~/.config/omarchy/plugins/ridgetopai.backstory
+cp -r panel/* ~/.config/omarchy/plugins/ridgetopai.backstory/
 omarchy-shell shell rescanPlugins
-omarchy plugin enable backstory.this-week
+omarchy plugin enable ridgetopai.backstory
 ```
 
 Or, from a git checkout of this repo, symlink instead of copying so `git
 pull` keeps the installed plugin current:
 
 ```sh
-ln -s "$(pwd)/panel" ~/.config/omarchy/plugins/backstory.this-week
+ln -s "$(pwd)/panel" ~/.config/omarchy/plugins/ridgetopai.backstory
 omarchy-shell shell rescanPlugins
-omarchy plugin enable backstory.this-week
+omarchy plugin enable ridgetopai.backstory
 ```
 
 This plugin declares two kinds (`manifest.json`): `"panel"` (the This
@@ -81,7 +81,7 @@ using the same `barWidget` shape Omarchy's own bar-widget plugins ship
 into the manifest. Enable the plugin and give it a placement in one step:
 
 ```sh
-omarchy plugin enable backstory.this-week right
+omarchy plugin enable ridgetopai.backstory right
 ```
 
 `omarchy plugin enable <id> [placement]` accepts any of the sections
@@ -101,7 +101,7 @@ Two things Brian hit on his own desk upgrading an already-installed copy:
   `omarchy bar put` silently no-ops. Disable and re-enable it instead:
 
   ```sh
-  omarchy plugin disable backstory.this-week && omarchy plugin enable backstory.this-week right
+  omarchy plugin disable ridgetopai.backstory && omarchy plugin enable ridgetopai.backstory right
   ```
 
 - **New `.qml` files added to an already-installed plugin don't show up.**
@@ -122,12 +122,12 @@ at the right of every header. The panel can also be driven without
 the bar widget, e.g. for a keybinding:
 
 ```sh
-omarchy-shell shell summon backstory.this-week '{}'
-omarchy-shell shell toggle backstory.this-week '{}'   # summon if closed, hide if open
-omarchy-shell shell hide backstory.this-week
+omarchy-shell shell summon ridgetopai.backstory '{}'
+omarchy-shell shell toggle ridgetopai.backstory '{}'   # summon if closed, hide if open
+omarchy-shell shell hide ridgetopai.backstory
 ```
 
-Bind `omarchy-shell shell toggle backstory.this-week '{}'` to a keybinding
+Bind `omarchy-shell shell toggle ridgetopai.backstory '{}'` to a keybinding
 (Hyprland `bindd`) for one-key access, the same way Omarchy's own OSD and
 menu plugins are bound — the bar widget's own click runs this exact command
 (`js/launchers.js`'s `barToggleCommand()`), so the bar widget and a

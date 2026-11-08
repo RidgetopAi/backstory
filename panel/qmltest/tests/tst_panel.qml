@@ -90,6 +90,34 @@ TestCase {
     act.quiescent(function () { return [TestUtil.collectVisibleTexts(panel.testContentItem), panel.testImplicitHeight] }, "panel never finished rendering")
   }
 
+  // this-week exits 127 (the backstory binary is not on PATH): the panel says
+  // so, with no section headers. Any other failure (a daemon that is not
+  // answering exits 1) keeps its existing rendering and never shows it.
+  readonly property string notInstalledText: "Backstory isn't installed yet. Install the backstory package, then run `backstory install`."
+
+  function openFailing(exitCode, stderr) {
+    ProcessController.respond(Launchers.thisWeekCommand(), { stdout: "", stderr: stderr, exitCode: exitCode })
+    panel.open("{}")
+    tryCompare(panel.view, "loading", false, 2000)
+    act.quiescent(function () { return [TestUtil.collectVisibleTexts(panel.testContentItem), panel.testImplicitHeight] }, "panel never finished rendering")
+    return TestUtil.collectVisibleTexts(panel.testContentItem)
+  }
+
+  function test_a_missing_binary_shows_the_not_installed_state() {
+    var texts = openFailing(127, "sh: backstory: command not found")
+    verify(texts.indexOf(notInstalledText) >= 0, "not-installed message missing from " + JSON.stringify(texts))
+    compare(panel.view.notInstalled, true)
+    compare(texts.indexOf("RECENT"), -1, "RECENT header still shown")
+    compare(texts.indexOf("NEEDS YOU"), -1)
+  }
+
+  function test_a_daemon_unreachable_failure_is_not_the_not_installed_state() {
+    var texts = openFailing(1, "backstory this-week: daemon unreachable")
+    compare(panel.view.notInstalled, false)
+    compare(texts.indexOf(notInstalledText), -1)
+    verify(texts.indexOf("RECENT") >= 0, "existing empty state lost its RECENT header")
+  }
+
   function test_open_with_a_snapshot_restores_it() {
     openWith(readFixture(goldenUrl))
     panel.close()

@@ -1,6 +1,6 @@
 # The Omarchy plugin marketplace id of the bar panel; the one place to change
 # if the plugin is renamed.
-BACKSTORY_PANEL_PLUGIN="backstory.this-week"
+BACKSTORY_PANEL_PLUGIN="ridgetopai.backstory"
 
 post_install() {
 	echo "==> Backstory: a package cannot set up per-user state. Run these as your user, in order:"

@@ -11,7 +11,7 @@
 set -eu
 
 APP=backstory
-PLUGIN_ID=backstory.this-week
+PLUGIN_ID=ridgetopai.backstory
 CONFIG_HOME="${XDG_CONFIG_HOME:-$HOME/.config}"
 BINDIR="${BINDIR:-$HOME/.local/bin}"
 BIN="$BINDIR/$APP"
@@ -22,6 +22,11 @@ SYNC_TIMER="$UNIT_DIR/$APP-sync.timer"
 PLUGINS_DIR="$CONFIG_HOME/omarchy/plugins"
 PANEL="$PLUGINS_DIR/$PLUGIN_ID"
 PANEL_PREV="$PLUGINS_DIR/.$PLUGIN_ID.prev" # hidden so the shell never loads a second copy
+# The id releases before the marketplace rename installed under (migrated away
+# on install, swept on uninstall).
+LEGACY_PLUGIN_ID=backstory.this-week
+LEGACY_PANEL="$PLUGINS_DIR/$LEGACY_PLUGIN_ID"
+LEGACY_PANEL_PREV="$PLUGINS_DIR/.$LEGACY_PLUGIN_ID.prev"
 HYPR_DIR="$CONFIG_HOME/hypr"
 HYPR_FILE="$HYPR_DIR/$APP.lua"
 HYPR_LINE='require("hypr.backstory")'
@@ -55,8 +60,6 @@ export BACKSTORY_NO_SESSION
 # The Omarchy CLI, and the exact command that turns the panel on: copying the
 # plugin directory does not enable it.
 OMARCHY_CLI="${BACKSTORY_OMARCHY_CLI:-omarchy}"
-ENABLE_CMD="$OMARCHY_CLI plugin enable $PLUGIN_ID"
-DISABLE_CMD="$OMARCHY_CLI plugin disable $PLUGIN_ID"
 
 # The panel keybind, as users are told about it.
 PANEL_BIND="CTRL+SHIFT+B"
@@ -204,8 +207,30 @@ wait_for_daemon() {
 	return 1
 }
 
+# is_backstory_panel DIR [ID]: DIR holds a Backstory panel manifest with that id.
 is_backstory_panel() {
-	[ -f "$1/manifest.json" ] && grep -q "\"id\": *\"$PLUGIN_ID\"" "$1/manifest.json"
+	[ -f "$1/manifest.json" ] && grep -q "\"id\": *\"${2:-$PLUGIN_ID}\"" "$1/manifest.json"
+}
+
+# legacy_panel_is_ours: the old-id folder is a real directory (not a symlink)
+# holding a Backstory panel; anything else there belongs to someone else.
+legacy_panel_is_ours() {
+	[ -d "$LEGACY_PANEL" ] && [ ! -L "$LEGACY_PANEL" ] && is_backstory_panel "$LEGACY_PANEL" "$LEGACY_PLUGIN_ID"
+}
+
+# remove_legacy_panel: disable and delete the old-id Backstory panel and its
+# hidden backup. A foreign folder with that name is left untouched. Idempotent.
+remove_legacy_panel() {
+	if legacy_panel_is_ours; then
+		plugin_toggle disable "$LEGACY_PLUGIN_ID"
+		rm -rf "$LEGACY_PANEL"
+		echo "removed the old panel $LEGACY_PANEL (now $PLUGIN_ID)"
+		rm -rf "$LEGACY_PANEL_PREV"
+	elif [ -e "$LEGACY_PANEL" ] || [ -L "$LEGACY_PANEL" ]; then
+		echo "backstory: leaving $LEGACY_PANEL — it is not a Backstory panel" >&2
+	elif [ -e "$LEGACY_PANEL_PREV" ]; then
+		rm -rf "$LEGACY_PANEL_PREV"
+	fi
 }
 
 check_panel_target() {
@@ -217,14 +242,15 @@ check_panel_target() {
 	fi
 }
 
-# plugin_toggle ENABLE|DISABLE: run the Omarchy plugin command. A missing CLI
-# or a failing command never fails the install; it prints the command to run.
+# plugin_toggle ENABLE|DISABLE [ID]: run the Omarchy plugin command. A missing
+# CLI or a failing command never fails the install; it prints the command to run.
 plugin_toggle() {
-	if [ "$1" = enable ]; then cmd="$ENABLE_CMD"; else cmd="$DISABLE_CMD"; fi
+	id="${2:-$PLUGIN_ID}"
+	cmd="$OMARCHY_CLI plugin $1 $id"
 	if ! command -v "$OMARCHY_CLI" >/dev/null 2>&1; then
 		echo "backstory: the '$OMARCHY_CLI' CLI is not on PATH; run this yourself: $cmd"
 	elif $cmd; then
-		echo "plugin $1d: $PLUGIN_ID"
+		echo "plugin $1d: $id"
 	else
 		echo "backstory: \`$cmd\` failed; run it yourself"
 	fi
@@ -269,8 +295,9 @@ do_install() {
 		echo "    $HYPR_LINE"
 	fi
 
-	# Panel plugin.
+	# Panel plugin. The old-id panel goes first.
 	mkdir -p "$PLUGINS_DIR"
+	remove_legacy_panel
 	if [ -d "$PANEL" ]; then
 		rm -rf "$PANEL_PREV"
 		mv "$PANEL" "$PANEL_PREV"
@@ -342,6 +369,7 @@ do_uninstall() {
 		fi
 	fi
 	rm -rf "$PANEL_PREV"
+	remove_legacy_panel
 	echo "uninstalled. Your memory store was not touched."
 	echo "Harness integrations and the ~/.bashrc block were removed first. Remove $HYPR_LINE from your hyprland.lua."
 }

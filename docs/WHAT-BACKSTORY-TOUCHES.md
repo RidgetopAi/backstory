@@ -37,10 +37,10 @@ Source: `ops/install.sh` unless noted.
 | `~/.local/bin/backstory` | The program. The previous one is kept as `~/.local/bin/backstory.prev` for rollback. |
 | `~/.config/systemd/user/backstory.service` | The background service (from `ops/backstory.service`). Enabled and started. |
 | `~/.config/hypr/backstory.lua` | The `CTRL + SHIFT + B` shortcut file (from `ops/hyprland/backstory.lua`). |
-| `~/.config/omarchy/plugins/backstory.this-week/` | The panel (QML files and `manifest.json` from `panel/`). The previous panel is kept as `~/.config/omarchy/plugins/.backstory.this-week.prev`. The installer refuses to overwrite a folder there that is not a Backstory panel. |
+| `~/.config/omarchy/plugins/ridgetopai.backstory/` | The panel (QML files and `manifest.json` from `panel/`). The previous panel is kept as `~/.config/omarchy/plugins/.ridgetopai.backstory.prev`. The installer refuses to overwrite a folder there that is not a Backstory panel. |
 | a transient user unit `backstory-shell-restart` | Only if your session is locked at install time: waits (up to 24 hours) for you to unlock, then restarts the Omarchy shell once. Gone afterwards. |
 
-The installer also runs `omarchy plugin enable backstory.this-week` and
+The installer also runs `omarchy plugin enable ridgetopai.backstory` and
 restarts the Omarchy shell when the session is unlocked.
 
 `XDG_CONFIG_HOME` moves the `~/.config` paths. `BINDIR` moves the program.
@@ -139,7 +139,7 @@ and `backstory install bash --remove`, which take Backstory out of each agent's
 config above and delete the files it added, then removes the sync timer if
 present, stops and disables the service, deletes the program, its `.prev`
 copy, the service unit, the shortcut file and the panel (and runs
-`omarchy plugin disable backstory.this-week`).
+`omarchy plugin disable ridgetopai.backstory`).
 
 What it leaves:
 

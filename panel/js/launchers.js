@@ -24,12 +24,12 @@
 //     omarchy-launch-or-focus does (Continue when `window` is set).
 //   - `tmux select-window` / `select-pane`: after that focus, jump to the
 //     tmux window holding the project (Continue when `tmux` is set).
-//   - `omarchy-shell shell summon backstory.this-week <snapshot>`: the bar
+//   - `omarchy-shell shell summon ridgetopai.backstory <snapshot>`: the bar
 //     popup's pop-out opens the window where the popup was, through the
 //     host's own summon (the host shows a plugin panel only through its own
-//     summon/toggle), and `omarchy-shell backstory.this-week.popup close`:
+//     summon/toggle), and `omarchy-shell ridgetopai.backstory.popup close`:
 //     the window, once in the popup's place, closes the popup.
-//   - `omarchy-shell backstory.this-week focus`: the bar icon, while the
+//   - `omarchy-shell ridgetopai.backstory focus`: the bar icon, while the
 //     window is open, focuses it instead of opening the popup.
 //   - Hyprland dispatch requests (Hyprland.dispatch, not a process): pin,
 //     move, resize and focus the window itself, its address checked by
@@ -40,13 +40,13 @@
 // widget, so this never reopens the bar popup. payloadJson, when given, is
 // the view snapshot the window opens at (Panel.qml open()).
 function windowSummonCommand(payloadJson) {
-  return ["omarchy-shell", "shell", "summon", "backstory.this-week", payloadJson || "{}"]
+  return ["omarchy-shell", "shell", "summon", "ridgetopai.backstory", payloadJson || "{}"]
 }
 
 // barToggleCommand toggles the window through the shell: a bar click where
 // the bar popup is not available (Omarchy 4.0, BarWidget.qml).
 function barToggleCommand() {
-  return ["omarchy-shell", "shell", "toggle", "backstory.this-week", "{}"]
+  return ["omarchy-shell", "shell", "toggle", "ridgetopai.backstory", "{}"]
 }
 
 function thisWeekCommand() {
@@ -246,14 +246,14 @@ function windowAnimDispatch(addr, animate) {
 // popupCloseCommand: the window, once it sits where the bar popup's card is,
 // closes the popup, which fades out over it (BarWidget.qml's IPC target).
 function popupCloseCommand() {
-  return ["omarchy-shell", "backstory.this-week.popup", "close"]
+  return ["omarchy-shell", "ridgetopai.backstory.popup", "close"]
 }
 
 // popupHandOverCommand: the window sits where the popup's card is, showing
 // the same view: the popup hides its view at once and closes, so only its
 // card fades (BarWidget.qml's IPC target).
 function popupHandOverCommand() {
-  return ["omarchy-shell", "backstory.this-week.popup", "handOver"]
+  return ["omarchy-shell", "ridgetopai.backstory.popup", "handOver"]
 }
 
 // The window (Panel.qml): its title, the title it maps under during a
@@ -272,7 +272,7 @@ function isPanelWindow(t) {
 // windowFocusCommand: the bar icon, while the window is open, focuses it
 // (Panel.qml's IPC target) instead of opening the popup beside it.
 function windowFocusCommand() {
-  return ["omarchy-shell", "backstory.this-week", "focus"]
+  return ["omarchy-shell", "ridgetopai.backstory", "focus"]
 }
 
 function focusWindowFallbackCommand(addr) {

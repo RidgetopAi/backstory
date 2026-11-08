@@ -42,6 +42,8 @@ Item {
   // A fresh panel (the shell unloads it on a bar or keybind close) has no
   // data until this-week first answers; until then it shows no empty state.
   property bool hasLoaded: false
+  // this-week exited 127: the backstory binary is not installed.
+  property bool notInstalled: false
   readonly property bool waitingForFirstData: root.loading && !root.hasLoaded
   property bool memoryOpen: false
   property bool helpOpen: false
@@ -141,7 +143,8 @@ Item {
   readonly property string scrollGlyph: String.fromCodePoint(0xF0BC2)
   readonly property var weekTotals: Derive.weekTotals(root.weekDays)
   // The hero's status line: what needs you, otherwise this week's count.
-  readonly property string heroStatus: root.attentionItems.length > 0
+  readonly property string heroStatus: root.notInstalled ? ""
+    : root.attentionItems.length > 0
     ? root.attentionItems.length + (root.attentionItems.length === 1 ? " needs you" : " need you")
     : root.weekTotals.projects + " projects \u00b7 " + root.weekTotals.sessions + " sessions this week"
   // Every view's footer ends with the keys the host adds: o where it can
@@ -446,6 +449,10 @@ Item {
   Process {
     id: dataProcess
     command: Launchers.thisWeekCommand()
+    onExited: (exitCode, exitStatus) => {
+      root.notInstalled = Model.exitMeansNotInstalled(exitCode)
+      if (root.notInstalled) root.weekData = null
+    }
     stdout: StdioCollector {
       onStreamFinished: {
         root.loading = false
@@ -503,7 +510,7 @@ Item {
           glyph: root.scrollGlyph
           title: "Backstory"
           status: root.heroStatus
-          statusShown: !root.waitingForFirstData
+          statusShown: !root.waitingForFirstData && !root.notInstalled
           statusUrgent: root.attentionItems.length > 0
 
           HostButtons {
@@ -516,6 +523,18 @@ Item {
             onCloseRequested: root.closeRequested()
           }
         }]
+
+        Text {
+          objectName: "notInstalledMessage"
+          visible: root.notInstalled
+          width: parent.width
+          textFormat: Text.PlainText
+          text: Model.NOT_INSTALLED_MESSAGE
+          font.family: Style.font.family
+          font.pixelSize: Style.font.body
+          color: Commons.Color.popups.text
+          wrapMode: Text.WordWrap
+        }
 
         HereCard {
           visible: root.hereProject !== null
@@ -560,10 +579,12 @@ Item {
 
         PanelSeparator {
           width: parent.width
+          visible: !root.notInstalled
           foreground: Commons.Color.popups.text
         }
 
         Column {
+          visible: !root.notInstalled
           width: parent.width
           spacing: Style.spacing.labelGap
 
@@ -591,7 +612,7 @@ Item {
           width: parent.width
           textFormat: Text.PlainText
           text: root.summaryText
-          visible: !root.waitingForFirstData
+          visible: !root.waitingForFirstData && !root.notInstalled
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
           color: Qt.darker(Commons.Color.popups.text, 1.3)

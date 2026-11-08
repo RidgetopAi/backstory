@@ -122,7 +122,7 @@ func TestAURInstallScriptText(t *testing.T) {
 		}
 		prev = i
 	}
-	if !strings.Contains(post, "backstory.this-week") {
+	if !strings.Contains(post, "ridgetopai.backstory") {
 		t.Errorf("post_install does not name the panel plugin id:\n%s", post)
 	}
 	up := runBash(t, `source aur/backstory.install; post_upgrade`)
