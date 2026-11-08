@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -129,5 +130,15 @@ func TestPlaceholderProjectShowsItsSyncIdentity(t *testing.T) {
 	}
 	if len(prows) != 1 || prows[0].SyncID != "github.com/x/wobble" || prows[0].SyncSource != "synced" {
 		t.Fatalf("projects = %+v", prows)
+	}
+}
+
+// initGitRepo runs `git init` in dir so internal/project.RealGit resolves
+// it as a real project identity, unlike a bare workspace directory.
+func initGitRepo(t *testing.T, dir string) {
+	t.Helper()
+	cmd := exec.Command("git", "init", "-q", dir) //nolint:gosec // fixed literal git subcommand, dir is this test's own t.TempDir()
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git init %s: %v\n%s", dir, err, out)
 	}
 }

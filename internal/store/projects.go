@@ -50,63 +50,6 @@ func (s *Store) UpsertProject(p Project) error {
 	return s.afterSyncIdentityChange(p.Key, before)
 }
 
-// ProjectsSeenSince returns the distinct project keys with at least one
-// session started at or after since, ordered by key. projects.first_seen
-// never advances past a project's first sighting (UpsertProject preserves
-// it on update), so it cannot answer "seen recently" on its own — this
-// reads activity off sessions.started_at instead, the signal `backstory
-// group list`'s "ungrouped projects seen this week" needs.
-func (s *Store) ProjectsSeenSince(since time.Time) ([]string, error) {
-	rows, err := s.db.Query(`SELECT DISTINCT project_key FROM sessions
-		WHERE project_key IS NOT NULL AND started_at >= ?
-		ORDER BY project_key`, tsToNanos(since))
-	if err != nil {
-		return nil, fmt.Errorf("store: projects seen since %s: %w", since, err)
-	}
-	defer func() { _ = rows.Close() }()
-
-	out := []string{}
-	for rows.Next() {
-		var key string
-		if err := rows.Scan(&key); err != nil {
-			return nil, fmt.Errorf("store: scan project key: %w", err)
-		}
-		out = append(out, key)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("store: projects seen since %s: %w", since, err)
-	}
-	return out, nil
-}
-
-// AllProjectKeys returns every project key backstory has ever recorded a
-// projects row for, ordered by key — `backstory group list --json`'s full
-// `projects` array candidate set (task 4fe02e30 round 5): every project the
-// group editor can offer to group, not just ProjectsSeenSince's "has a
-// session started in the last week" subset (a project grouped once and
-// quiet since must still show up so its group membership stays visible and
-// editable).
-func (s *Store) AllProjectKeys() ([]string, error) {
-	rows, err := s.db.Query(`SELECT key FROM projects ORDER BY key`)
-	if err != nil {
-		return nil, fmt.Errorf("store: all project keys: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-
-	out := []string{}
-	for rows.Next() {
-		var key string
-		if err := rows.Scan(&key); err != nil {
-			return nil, fmt.Errorf("store: scan project key: %w", err)
-		}
-		out = append(out, key)
-	}
-	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("store: all project keys: %w", err)
-	}
-	return out, nil
-}
-
 // GetProject reads back a single projects row by key. found is false when
 // no session or backfill has ever upserted this key.
 func (s *Store) GetProject(key string) (Project, bool, error) {

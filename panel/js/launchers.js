@@ -6,7 +6,7 @@
 // audit that claim by eye (the task's own proof for it) without having to
 // read every .qml file.
 //
-//   - `backstory this-week --json` / `backstory group ...`: the plugin's
+//   - `backstory this-week --json` / ...: the plugin's
 //     one data source and its one write path, never the store directly
 //     (PLAN.md Phase 4 "Human look": "it never reads the store").
 //   - `backstory affirm <handoff-id>`: the Needs You Still right action.
@@ -65,22 +65,10 @@ function doneCommand(handoffId) {
   return ["backstory", "done", handoffId]
 }
 
-function groupListCommand() {
-  return ["backstory", "group", "list", "--json"]
-}
-
 // toolsCommand lists the agent tools (name + description) straight from the
 // Go ToolsV0() the MCP server serves, so the help pane carries no copy.
 function toolsCommand() {
   return ["backstory", "tools", "--json"]
-}
-
-function groupSetCommand(groupName, projectKey) {
-  return ["backstory", "group", "set", groupName, projectKey]
-}
-
-function groupClearCommand(projectKey) {
-  return ["backstory", "group", "clear", projectKey]
 }
 
 // Memory view (decision 02c511b3 D5). Every id / project key / RFC3339

@@ -61,12 +61,6 @@ func TestBuildLastAgentIsNewestSessionsAgent(t *testing.T) {
 	start("s-ga-old", "claude", "proj-grp-a", "/home/brian/grp-a", fixtureNow.Add(-30*time.Hour))
 	start("s-ga-new", "codex", "proj-grp-a", "/home/brian/grp-a", fixtureNow.Add(-3*time.Hour))
 	start("s-gb", "pi", "proj-grp-b", "/home/brian/grp-b", fixtureNow.Add(-4*time.Hour))
-	human := store.Identity{Kind: store.IdentityHuman, Actor: "human"}
-	for _, k := range []string{"proj-grp-a", "proj-grp-b"} {
-		if err := st.SetProjectGroup(human, "grp", k); err != nil {
-			t.Fatalf("SetProjectGroup: %v", err)
-		}
-	}
 	if _, err := st.InsertRecord(store.InsertRecordParams{Identity: agentIdentity, Kind: store.KindHandoff, Text: "★ HANDOFF 2026-03-09. keep going", SessionID: "s-gb", ProjectKey: "proj-grp-b"}); err != nil {
 		t.Fatalf("InsertRecord: %v", err)
 	}
@@ -77,12 +71,7 @@ func TestBuildLastAgentIsNewestSessionsAgent(t *testing.T) {
 	}
 	got := map[string]ProjectSummary{}
 	for _, r := range res.WhereLeftOff {
-		if r.Group == "" {
-			got[r.Project.ProjectKey] = r.Project
-		}
-		for _, c := range r.Children {
-			got[c.ProjectKey] = c
-		}
+		got[r.Project.ProjectKey] = r.Project
 	}
 	for key, want := range map[string]string{"proj-agents": "claude", "proj-grp-a": "codex", "proj-grp-b": "pi"} {
 		if got[key].LastAgent != want {
@@ -90,7 +79,7 @@ func TestBuildLastAgentIsNewestSessionsAgent(t *testing.T) {
 		}
 	}
 	if got["proj-grp-b"].HandoffNext != "keep going" {
-		t.Errorf("group child HandoffNext = %q, want %q", got["proj-grp-b"].HandoffNext, "keep going")
+		t.Errorf("HandoffNext = %q, want %q", got["proj-grp-b"].HandoffNext, "keep going")
 	}
 }
 
@@ -115,9 +104,7 @@ func TestBuildHandoffBranch(t *testing.T) {
 	}
 	got := map[string]string{}
 	for _, r := range res.WhereLeftOff {
-		if r.Group == "" {
-			got[r.Project.ProjectKey] = r.Project.HandoffBranch
-		}
+		got[r.Project.ProjectKey] = r.Project.HandoffBranch
 	}
 	if got["proj-branch"] != "feature-a" || got["proj-nobranch"] != "" {
 		t.Errorf("HandoffBranch = %v, want feature-a / empty", got)

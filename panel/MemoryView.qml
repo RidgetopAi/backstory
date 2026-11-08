@@ -13,7 +13,7 @@ import "js/glyphs.js" as Glyphs
 // edit, delete — plus "Forget activity and saved records". A CLI CLIENT like the rest of the
 // panel: it runs `backstory records|edit|delete|purge` and reads stdout,
 // never the store. Swapped in for the This Week body by Panel.qml (same
-// pattern as GroupEditor). Refreshes whenever it is opened (shown), so a
+// pattern as HelpView). Refreshes whenever it is opened (shown), so a
 // record edited in a terminal shows up on the next open (no polling).
 Item {
   id: root

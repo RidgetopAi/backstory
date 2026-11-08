@@ -32,7 +32,6 @@ commands:
   timeline   print a project's observed events, read-only
   records    list what Backstory saved for a project, with status and tier, read-only
   projects   list known projects with the KEY purge/records/recall/timeline take, read-only ("projects --json")
-  group      set/clear/list project groups (human-only; "group set|clear|list")
   link       set/clear/list the sync identity of a project across machines (human-only; "link set <name> [KEY|--here]")
   pair       pair with another computer over ssh, both sides ("pair [--back <ssh-host>] <ssh-host>", "pair --remove <name|host>")
   sync       share memory with every paired computer ("sync [--dry-run] [<peer>]")
@@ -90,8 +89,6 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return runRecords(args[1:], stdout, stderr)
 	case "projects":
 		return runProjects(args[1:], stdout, stderr)
-	case "group":
-		return runGroup(args[1:], stdout, stderr)
 	case "link":
 		return runLink(args[1:], stdout, stderr)
 	case "pair":

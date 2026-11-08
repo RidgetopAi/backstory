@@ -60,29 +60,21 @@ preceding `timeline_events` row by `ts`, best effort: a pre-migration record was
 assigned a sequence position at insert time, so its own `ts` is the only signal left, and
 that's exactly the lying-clock problem the column exists to stop relying on going forward.
 
-`project_groups` (decision `bcc9fa54`, task `57ec6e62`) is a user-owned grouping layer over
-`projects.key`, not a redefinition of project identity: identity stays observed (git common
-dir only, invariant unchanged), while a group name is a label the human attaches
-on top, so `project_key` is the table's primary key — a project is in at most one group,
-and re-setting it moves it rather than adding a second membership. `SetProjectGroup` and
-`ClearProjectGroup` (`internal/store/groups.go`) take an `Identity` and reject anything that
-is not `IdentityHuman` (`ErrProjectGroupRequiresHuman`), the same pattern `TombstoneRecord`
-uses for `records.tombstoned_at` (invariant 1); the socket API exposes no write path for
-groups, only the CLI and panel (separate, later punches) do. `GroupOf` and `ListGroups` are
-read-only and take no `Identity`. Migration `0007_project_groups.sql` adds the table; it
-carries no data rewrite, since no prior schema version had anything to migrate into it.
+`project_groups` (decision `bcc9fa54`, task `57ec6e62`; migration `0007_project_groups.sql`)
+was a user-owned grouping layer over `projects.key`. Project groups were removed (decision
+`8b726bd2`): migration `0027_drop_project_groups.sql` drops the table, and any group a user had
+set is gone. Migration 0007 stays as history.
 
 A workspace folder has ONE spelling in the store (task `d65ef8ff`, superseding decision
 `1e53165a`'s read-side alias): the pre-`79f7b20e` plain path a build once wrote for it never
 coexists with its `workspace:`-prefixed key. `store.Open(path, workspaceDirs, git)` runs an
 idempotent sweep in one transaction on every open: for each configured workspace dir `W`
 where `project.Key(W, git, dirs) == "workspace:"+W` (a workspace dir that is itself a git
-repo keeps its own repo key and is never swept), every `projects`/`sessions`/`records`/
-`project_groups` row exactly matching plain `W` is merged into `"workspace:"+W` (earliest
-`first_seen`, newer `project_groups.set_at` wins) and the plain row is deleted. Before the
+repo keeps its own repo key and is never swept), every `projects`/`sessions`/`records`
+row exactly matching plain `W` is merged into `"workspace:"+W` (earliest
+`first_seen`) and the plain row is deleted. Before the
 first rewrite, `VACUUM INTO` backs up the pre-sweep file beside the database. Every store
-write taking a project key (`UpsertProject`, `StartSession`, `InsertRecordWithEdges`,
-`SetProjectGroup`, `ClearProjectGroup`) and every project-scoped read funnels through the
+write taking a project key (`UpsertProject`, `StartSession`, `InsertRecordWithEdges`) and every project-scoped read funnels through the
 same `Store.canonicalizeProjectKey`, so a caller still spelling a workspace folder the old
 way — a stale daemon that has not restarted since an upgrade, a human typing the old path —
 can never mint a second row for it. Removing a workspace dir from `BACKSTORY_WORKSPACE_DIRS`
@@ -186,13 +178,6 @@ CREATE TABLE project_key_aliases (
   canonical_key  TEXT NOT NULL REFERENCES projects(key) ON DELETE CASCADE,
   created_at     INTEGER NOT NULL           -- unix nanoseconds, UTC
 );
-
-CREATE TABLE project_groups (
-  project_key  TEXT PRIMARY KEY REFERENCES projects(key), -- a project is in at most one group
-  group_name   TEXT NOT NULL,
-  set_at       INTEGER NOT NULL           -- unix nanoseconds, UTC; last set/move time
-);
-CREATE INDEX project_groups_name ON project_groups(group_name);
 
 CREATE TABLE project_links (            -- human-set sync identity; overrides the remote
   local_key  TEXT PRIMARY KEY REFERENCES projects(key),

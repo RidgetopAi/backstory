@@ -735,20 +735,6 @@ TestCase {
     compare(ProcessController.release(Launchers.recordsCommand(projectKey, cwd, false)), 0, "the first run was left going")
   }
 
-  // The Groups button on the main view still showing while Memory waits
-  // opens Groups instead: one view at a time.
-  function test_the_groups_button_while_memory_waits_opens_groups_alone() {
-    heldRecords()
-    openPanelMain()
-    panel.view.openMemory(projectKey, "acme", cwd)
-    clickByTooltip("Groups", { until: function () { return panel.view.groupEditorOpen } })
-    verify(!panel.view.memoryOpen, "Memory stayed open under Groups")
-    ProcessController.release(Launchers.recordsCommand(projectKey, cwd, false))
-    act.settled(function () { return TestUtil.slideDone(panel.testContentItem, "groupsPage") }, "Groups never slid in")
-    wait(400)
-    compare(memoryPage(), null, "Memory showed with Groups")
-  }
-
   // A restore (the pop-out) lands in Memory without a slide, also when its
   // records come after restore() returns.
   function test_a_restore_into_memory_lands_without_a_slide_when_its_records_come_late() {
@@ -1179,7 +1165,7 @@ TestCase {
     ProcessController.respond(Launchers.thisWeekCommand(), {
       stdout: JSON.stringify({
         attention: [], week: [],
-        where_left_off: [{ group: "Work", children: [{ project_key: projectKey, display_name: "acme", cwd: cwd, last_activity: "2026-01-01T00:00:00Z" }] }]
+        where_left_off: [{ project: { project_key: projectKey, display_name: "acme", cwd: cwd, last_activity: "2026-01-01T00:00:00Z" } }]
       }), stderr: "", exitCode: 0
     })
     loader = panelComponent.createObject(testCase)
@@ -1188,20 +1174,13 @@ TestCase {
     panel.testContentItem.parent = loader
     panel.open("{}")
     tryCompare(panel.view, "loading", false, 2000)
-    function groupHeader() { return allNodes(panel.testContentItem).filter(function (n) { return n.text === "Work (1)" }) }
-    act.settled(function () { return groupHeader().length === 1 }, "no group section heading")
-    var header = groupHeader()
+    function sectionHeader() { return allNodes(panel.testContentItem).filter(function (n) { return n.text === "acme" && n.font.bold }) }
+    act.settled(function () { return sectionHeader().length >= 1 }, "no project name heading")
+    var header = sectionHeader()
     var wantSize = header[0].font.pixelSize
     var wantColor = header[0].color
 
-    // Open the child's Memory (expand the group first).
-    var memory = TestUtil.findFirst(panel.testContentItem, function (n) { return n.tooltipText === "Memory" })
-    if (memory === null) {
-      act.clickWhenReady(function () { return groupHeader()[0] }, {
-        desc: "group heading",
-        until: function () { return TestUtil.findFirst(panel.testContentItem, function (n) { return n.tooltipText === "Memory" }) !== null }
-      })
-    }
+    // Open the row's Memory.
     clickByTooltip("Memory", { until: function () { return panel.view.memoryOpen } })
     var heading = byName("forgetHeading")
     compare(heading.font.pixelSize, wantSize)

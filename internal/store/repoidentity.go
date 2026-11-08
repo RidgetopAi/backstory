@@ -78,7 +78,7 @@ func (s *Store) repoIdentityMerges(git project.Git) ([]repoIdentityMerge, error)
 
 // mergeRepoIdentities moves every legacy-spelled repo project (see
 // repoIdentityMerges) onto its git-common-dir key across projects, sessions,
-// records and project_groups, in one transaction, backing up the pre-merge
+// records, in one transaction, backing up the pre-merge
 // state first — the same machinery as the workspace sweep. Idempotent: a
 // merged legacy projects row is deleted, so a later Open finds nothing to do
 // and rewrites nothing. The legacy spellings are also registered in

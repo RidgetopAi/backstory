@@ -11,6 +11,10 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 ## [Unreleased]
 
+### Removed
+
+- Project groups (`backstory group`, the panel's Groups page and button, the `g` key). `this-week --json` where_left_off rows no longer carry `group`/`children`: every row is `{"project": ...}`. Existing groups are dropped by a migration (0027).
+
 ### Added
 
 - The Memory view and `backstory records` show which branch each record was written on: `records --json` carries a `branch` field (omitted when unknown), the text output adds `on feature-a`, and each Memory row (and the history view) shows a muted **on <branch>** label that elides when long. Records with no known branch show nothing.

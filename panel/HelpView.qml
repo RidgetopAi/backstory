@@ -8,11 +8,11 @@ import "js/launchers.js" as Launchers
 import "js/glyphs.js" as Glyphs
 
 // Help pane (the "?" key): the agent's tools, how to view memories, how to
-// use Backstory, and groups. A CLI CLIENT like the rest of the panel: the
+// use Backstory. A CLI CLIENT like the rest of the panel: the
 // tool list is whatever `backstory tools --json` prints (the Go ToolsV0()
 // the MCP server itself serves), so no tool name or description is written
 // in this plugin. Swapped in for the This Week body by Panel.qml, the same
-// pattern as GroupEditor and MemoryView; refetched whenever it is shown.
+// pattern as MemoryView; refetched whenever it is shown.
 Item {
   id: root
 
@@ -88,7 +88,7 @@ Item {
     header: [HeroHeader {
       showBack: true
       title: "Help"
-      status: "Keys, agent tools and groups"
+      status: "Keys, agent tools and how to use Backstory"
       onBack: root.closeRequested()
 
       HostButtons {
@@ -145,15 +145,8 @@ Item {
       text: "The top card is the project you are in. Each row's chips are the agents used there, "
         + "newest first. Continue resumes the newest one; \u2192 (or a click on the chips) expands one "
         + "sub-row per agent, \u2190 folds them, and Enter on a sub-row opens that agent in the folder. "
-        + "Enter on a row continues it, t opens a terminal there, r refreshes. In Groups, Memory "
+        + "Enter on a row continues it, t opens a terminal there, r refreshes. In Memory "
         + "and Help, u goes back to the main view."
-    }
-
-    PanelSeparator { width: parent.width; foreground: Commons.Color.popups.text }
-    HelpHeading { text: "GROUPS" }
-    HelpText {
-      text: "A group folds related projects into one RECENT row; you set it, one per project. Press g "
-        + "or click the Groups button for the group editor, or run `backstory group set <group> <project>`."
     }
 
   }

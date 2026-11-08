@@ -93,12 +93,7 @@ func TestRecallSurfacesLegacyWorkspaceKeyHandoffAndThisWeekNeverShowsThePlainKey
 		}
 		for _, row := range out.WhereLeftOff {
 			if row.Project != nil && row.Project.ProjectKey == legacyKey {
-				t.Fatalf("where_left_off has a standalone project row keyed on the plain legacy key %s: %+v", legacyKey, row.Project)
-			}
-			for _, c := range row.Children {
-				if c.ProjectKey == legacyKey {
-					t.Fatalf("where_left_off group %q has a child row keyed on the plain legacy key %s: %+v", row.Group, legacyKey, c)
-				}
+				t.Fatalf("where_left_off has a project row keyed on the plain legacy key %s: %+v", legacyKey, row.Project)
 			}
 		}
 		for _, d := range out.Week {

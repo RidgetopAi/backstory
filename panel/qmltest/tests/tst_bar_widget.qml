@@ -176,29 +176,6 @@ TestCase {
     compare(widget.opened, false, "Esc typed in the popup did not close it")
   }
 
-  // Esc in the Groups name field only leaves the field; the popup stays.
-  function test_esc_in_the_group_name_leaves_the_field_and_keeps_the_popup() {
-    var widget = start(fixture())
-    widget.testPopup.testScene = testCase
-    var content = openPopup(widget)
-    var view = TestUtil.findFirst(content, function (n) { return n.canPopOut !== undefined })
-    view.groupEditorOpen = true
-    function field() { return TestUtil.findFirst(content, function (n) { return n.placeholderText === "group name" }) }
-    act.settled(function () { return field() !== null }, "no group-name field")
-    field().forceActiveFocus()
-    act.pressKey(Qt.Key_W)
-    act.settledEq(field(), "text", "w")
-    act.pressKey(Qt.Key_Escape)
-    act.settled(function () { return !field().activeFocus }, "Esc left focus in the field")
-    act.drain()
-    compare(widget.opened, true, "Esc in the group name closed the popup")
-    compare(view.groupEditorOpen, true, "Esc in the group name left Groups")
-    compare(field().text, "w")
-    act.pressKey(Qt.Key_G)
-    act.settled(function () { return !view.groupEditorOpen }, "g did not go back after Esc")
-    compare(widget.opened, true)
-  }
-
   // One bar per monitor, each with the popup's IPC target: only the one on
   // the focused monitor answers the shortcut.
   function test_only_the_bar_on_the_focused_monitor_answers_the_shortcut() {
@@ -231,7 +208,7 @@ TestCase {
     var widget = start(fixture())
     var content = openPopup(widget)
     var view = TestUtil.findFirst(content, function (n) { return n.canPopOut !== undefined })
-    var pages = [["", "mainPage"], ["helpOpen", "helpPage"], ["groupEditorOpen", "groupsPage"], ["memoryOpen", "memoryPage"]]
+    var pages = [["", "mainPage"], ["helpOpen", "helpPage"], ["memoryOpen", "memoryPage"]]
     for (var i = 0; i < pages.length; i++) {
       var page = pages[i][1]
       view.showMain()

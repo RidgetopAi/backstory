@@ -6,9 +6,8 @@ Attention:
 - [sync-failing] sync: sync with laptop is failing: remote backstory speaks sync proto 2, this one 1 (last ok never) (ids 1)
 
 Where you left off:
-- Group widget-suite:
-  - acme-week-group-b (/home/brian/acme-week-group-b) — last activity 2026-01-07T09:00:00Z
-  - acme-week-group-a (/home/brian/acme-week-group-a) — last activity 2026-01-06T09:00:00Z
+- acme-week-pair-b (/home/brian/acme-week-pair-b) — last activity 2026-01-07T09:00:00Z
+- acme-week-pair-a (/home/brian/acme-week-pair-a) — last activity 2026-01-06T09:00:00Z
 - acme-week-claim (/home/brian/acme-week-claim) — last activity 2026-01-05T09:05:00Z
 - acme-week-contradiction (/home/brian/acme-week-contradiction) — last activity 2026-01-04T09:10:00Z
 - acme-week-main (/home/brian/acme-week-main) — last activity 2026-01-03T10:00:00Z; handoff (id handoff-0001): Resume: ship the CLI ⚠ possibly stale
@@ -18,8 +17,8 @@ Where you left off:
 - acme-week-done (/home/brian/acme-week-done) — last activity 2026-01-02T09:10:00Z; handoff (id handoff-done): Resume: nothing, it shipped
 
 The week:
-2026-01-07 · acme-week-group-b: 1 session(s), 0 file(s) touched, 0 record(s) written
-2026-01-06 · acme-week-group-a: 1 session(s), 0 file(s) touched, 0 record(s) written
+2026-01-07 · acme-week-pair-b: 1 session(s), 0 file(s) touched, 0 record(s) written
+2026-01-06 · acme-week-pair-a: 1 session(s), 0 file(s) touched, 0 record(s) written
 2026-01-05 · acme-week-claim: 1 session(s), 0 file(s) touched, 1 record(s) written
 2026-01-04 · acme-week-contradiction: 1 session(s), 0 file(s) touched, 2 record(s) written
 2026-01-03 · acme-week-main: 1 session(s), 1 file(s) touched, 2 record(s) written

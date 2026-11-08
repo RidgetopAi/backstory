@@ -154,8 +154,7 @@ type StaleReason struct {
 	OutcomeID string
 }
 
-// ProjectSummary is one project's Where-you-left-off row (or one child of
-// a group row): everything decision 9be5c1d5's clause 2 lists.
+// ProjectSummary is one project's Where-you-left-off row: everything decision 9be5c1d5's clause 2 lists.
 type ProjectSummary struct {
 	ProjectKey   string
 	DisplayName  string
@@ -209,43 +208,17 @@ func agentSummaries(as []store.AgentActivity) []AgentSummary {
 	return out
 }
 
-// WhereLeftOffRow is one row: either a single project (Group == "") or a
-// user group collapsed into one row with its members as Children (decision
-// 9be5c1d5 clause 2: "Projects in a user group collapse into one group row
-// with children").
+// WhereLeftOffRow is one row: a single project.
 type WhereLeftOffRow struct {
-	// Group is the group name for a group row, else "".
-	Group string
-	// Project is set only when Group == "".
 	Project ProjectSummary
-	// Children is set only when Group != "", one entry per grouped
-	// project, most recently active first.
-	Children []ProjectSummary
 }
 
-// sortKey is the row's own most-recent-activity instant, the field
-// Build sorts Where-you-left-off rows by (most recent first): a plain
-// row's own LastActivity, or a group row's most recently active child.
-func (r WhereLeftOffRow) sortKey() time.Time {
-	if r.Group == "" {
-		return r.Project.LastActivity
-	}
-	latest := r.Children[0].LastActivity
-	for _, c := range r.Children[1:] {
-		if c.LastActivity.After(latest) {
-			latest = c.LastActivity
-		}
-	}
-	return latest
-}
+// sortKey is the row's most-recent-activity instant, the field Build
+// sorts Where-you-left-off rows by (most recent first).
+func (r WhereLeftOffRow) sortKey() time.Time { return r.Project.LastActivity }
 
 // sortName is the row's tie-break key when two rows share a sortKey.
-func (r WhereLeftOffRow) sortName() string {
-	if r.Group == "" {
-		return r.Project.ProjectKey
-	}
-	return r.Group
-}
+func (r WhereLeftOffRow) sortName() string { return r.Project.ProjectKey }
 
 // DayProjectStats is one project's activity for one calendar day (UTC) in
 // the window — The week section (decision 9be5c1d5 clause 3).
@@ -357,10 +330,7 @@ func Build(p Params) (Result, error) {
 		}
 	}
 
-	whereLeftOff, err := buildWhereLeftOff(p.Store, identities, summaries)
-	if err != nil {
-		return Result{}, err
-	}
+	whereLeftOff := buildWhereLeftOff(identities, summaries)
 
 	weekGrid, err := buildWeekGrid(p.Store, repoKeys, since, now, workspaces)
 	if err != nil {
@@ -651,36 +621,13 @@ func sortAttention(items []AttentionItem) {
 	})
 }
 
-// buildWhereLeftOff groups summaries by project_groups membership
-// (decision 9be5c1d5 clause 2): a grouped project becomes a child of its
-// group's row; an ungrouped project is its own row. Rows are sorted most
-// recently active first.
-func buildWhereLeftOff(st *store.Store, keys []string, summaries map[string]ProjectSummary) ([]WhereLeftOffRow, error) {
-	groups := map[string][]ProjectSummary{}
-	var rows []WhereLeftOffRow
-
+// buildWhereLeftOff makes one row per project, sorted most recently
+// active first.
+func buildWhereLeftOff(keys []string, summaries map[string]ProjectSummary) []WhereLeftOffRow {
+	rows := make([]WhereLeftOffRow, 0, len(keys))
 	for _, key := range keys {
-		groupName, grouped, err := st.GroupOf(key)
-		if err != nil {
-			return nil, fmt.Errorf("week: group of %s: %w", key, err)
-		}
-		if !grouped {
-			rows = append(rows, WhereLeftOffRow{Project: summaries[key]})
-			continue
-		}
-		groups[groupName] = append(groups[groupName], summaries[key])
+		rows = append(rows, WhereLeftOffRow{Project: summaries[key]})
 	}
-
-	for name, children := range groups {
-		sort.SliceStable(children, func(i, j int) bool {
-			if !children[i].LastActivity.Equal(children[j].LastActivity) {
-				return children[i].LastActivity.After(children[j].LastActivity)
-			}
-			return children[i].ProjectKey < children[j].ProjectKey
-		})
-		rows = append(rows, WhereLeftOffRow{Group: name, Children: children})
-	}
-
 	sort.SliceStable(rows, func(i, j int) bool {
 		a, b := rows[i], rows[j]
 		ak, bk := a.sortKey(), b.sortKey()
@@ -689,7 +636,7 @@ func buildWhereLeftOff(st *store.Store, keys []string, summaries map[string]Proj
 		}
 		return a.sortName() < b.sortName()
 	})
-	return rows, nil
+	return rows
 }
 
 // buildWeekGrid computes The week: per UTC calendar day in the window, per
@@ -983,11 +930,10 @@ func dayStats(events []store.TimelineEvent, records []store.Record, shellSession
 // write upserts one first, but a caller must never crash over a stale or
 // hand-seeded key that skipped it).
 //
-// Exported (task 4fe02e30 round 5) so `backstory group list --json`'s
-// `projects` array computes display_name through this SAME function
-// rather than a second, drifting copy of the workspace-relative rule
-// (decision 9be5c1d5's group-list fix: a git project_key's last path
-// segment is `<repo>.git`, never a display name a human should see).
+// Exported so callers outside this package compute display_name through
+// this SAME function rather than a second, drifting copy of the
+// workspace-relative rule (a git project_key's last path segment is
+// `<repo>.git`, never a display name a human should see).
 func DisplayName(st *store.Store, projectKey string, workspaces []string) (string, error) {
 	proj, ok, err := st.GetProject(projectKey)
 	if err != nil {

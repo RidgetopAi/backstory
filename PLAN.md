@@ -195,9 +195,10 @@ rung 1).
 - Per-project markdown mirror export for Claude auto-memory, Hermes `MEMORY.md`, OpenClaw
   imports
 - Release discipline: `release` branch, semver tags, changelog, AUR PKGBUILD
-- Project groups and workspaces (`backstory group set|clear|list`, the This Week panel's
-  group editor) — decisions `bcc9fa54`, `9be5c1d5`, `f3fa04c7`; a Phase 4 addition beyond
-  the original lock list, not itself a v1-scope item
+- Project groups (`backstory group set|clear|list`, the This Week panel's group editor)
+  were REMOVED before the soft launch — decision `8b726bd2`. Workspaces stay (decisions
+  `bcc9fa54`, `f3fa04c7`); a Phase 4 addition beyond the original lock list, not itself a
+  v1-scope item
 
 ### Human look
 

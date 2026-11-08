@@ -126,8 +126,8 @@ type staleReasonJSON struct {
 	OutcomeID string `json:"outcome_id,omitempty"`
 }
 
-// projectSummaryJSON is one project's Where-you-left-off entry, standalone
-// or as a group's child (PANEL-CONTRACT.md §Where you left off).
+// projectSummaryJSON is one project's Where-you-left-off entry
+// (PANEL-CONTRACT.md §Where you left off).
 type projectSummaryJSON struct {
 	ProjectKey       string `json:"project_key"`
 	DisplayName      string `json:"display_name"`
@@ -165,13 +165,10 @@ type agentSummaryJSON struct {
 	SessionCount int    `json:"session_count"`
 }
 
-// whereLeftOffRowJSON is one row: Project is set for a standalone project
-// row (Group == ""); Children is set for a group row (PANEL-CONTRACT.md
+// whereLeftOffRowJSON is one row: a single project (PANEL-CONTRACT.md
 // §Where you left off).
 type whereLeftOffRowJSON struct {
-	Group    string               `json:"group,omitempty"`
-	Project  *projectSummaryJSON  `json:"project,omitempty"`
-	Children []projectSummaryJSON `json:"children,omitempty"`
+	Project *projectSummaryJSON `json:"project"`
 }
 
 // dayProjectStatsJSON is one project's activity for one calendar day in
@@ -241,16 +238,8 @@ func printThisWeekJSON(stdout io.Writer, result week.Result, here *hereJSON, win
 		out.Attention = append(out.Attention, item)
 	}
 	for _, row := range result.WhereLeftOff {
-		if row.Group == "" {
-			p := summary(row.Project)
-			out.WhereLeftOff = append(out.WhereLeftOff, whereLeftOffRowJSON{Project: &p})
-			continue
-		}
-		children := make([]projectSummaryJSON, len(row.Children))
-		for i, c := range row.Children {
-			children[i] = summary(c)
-		}
-		out.WhereLeftOff = append(out.WhereLeftOff, whereLeftOffRowJSON{Group: row.Group, Children: children})
+		p := summary(row.Project)
+		out.WhereLeftOff = append(out.WhereLeftOff, whereLeftOffRowJSON{Project: &p})
 	}
 	for _, d := range result.Week {
 		out.Week = append(out.Week, dayProjectStatsJSON{

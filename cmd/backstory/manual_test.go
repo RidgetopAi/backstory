@@ -83,10 +83,9 @@ func TestManualTurningSyncOff(t *testing.T) {
 	for _, want := range []string{
 		"The bar popup has no\nclose button. The pop-out window has one, after the pin at the right end of every view's header.",
 		"| Close | close button (pop-out window only) | `Esc` |",
-		"Click the **Groups** button",
 	} {
 		if !strings.Contains(manual, want) {
-			t.Errorf("manual lost the close-button/Groups wording %q", want)
+			t.Errorf("manual lost the close-button wording %q", want)
 		}
 	}
 	for _, f := range []string{"../../docs/USER-MANUAL.md", "../../panel/README.md"} {

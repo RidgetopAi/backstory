@@ -274,17 +274,6 @@ if it's not current (for example possibly stale or superseded).
   sessions, events and records would go, and only deletes after you confirm.
 - **Back** returns to the main view.
 
-### Groups
-
-Some projects are really one piece of work, like a website and its API in two folders. A
-**group** shows them as one row in RECENT, with the members underneath.
-
-- Click the **Groups** button (two linked squares) in the header, pick a project, then pick an existing group or type a new name, and
-  press **+**. **Esc** in the name box stops typing; then **g** or **u** goes back.
-- Or use the command line: `backstory group set <group> --here` from inside the project.
-
-Most projects don't need a group.
-
 ---
 
 ## 6. Command reference
@@ -311,7 +300,6 @@ no agent can run on your behalf through Backstory's tools.
 | [`affirm`](#affirm) | Clear a "possibly stale" flag on a handoff |
 | [`purge`](#purge) | Forget activity (and records) for a session or project |
 | [`capture`](#capture) | Pause or resume recording |
-| [`group`](#group) | Group related projects into one row |
 | [`backfill`](#backfill) | Import past sessions from an agent's history |
 | [`export`](#export) | Write a project's memory to a markdown file |
 | [`backup`](#backup) | Write a safe, checked copy of your memory |
@@ -497,17 +485,6 @@ backstory capture status    # which is it?
 
 While capture is off, nothing new is recorded and agents can't save notes. Everything already
 saved stays where it is.
-
-### group
-
-Groups related projects into one row in the panel and `this-week`. Human-only.
-
-```
-backstory group set website --here            # put the current project in group "website"
-backstory group set website KEY               # or name a project by key
-backstory group clear --here                  # remove it from its group
-backstory group list                          # show groups, and projects with none
-```
 
 ### link
 
@@ -790,7 +767,7 @@ backups.
 **Forgetting reaches your other machines.** If you have paired machines, what you delete or
 purge here is forgotten on them at the next sync, and a sync can never bring it back.
 
-**Agents can't erase your memory.** Only you can delete, edit, purge, pause or group. The
+**Agents can't erase your memory.** Only you can delete, edit, purge or pause. The
 tools agents get can add records but never remove them.
 
 ---

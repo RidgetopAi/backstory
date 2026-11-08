@@ -11,8 +11,7 @@ import (
 )
 
 // initGitRepo runs `git init` in dir so internal/project.RealGit resolves
-// it as a real repo identity — the same helper cmd/backstory/group_test.go
-// uses for the same purpose.
+// it as a real repo identity.
 func initGitRepo(t *testing.T, dir string) {
 	t.Helper()
 	if err := os.MkdirAll(dir, 0o750); err != nil {

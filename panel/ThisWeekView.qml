@@ -7,7 +7,6 @@ import qs.Commons as Commons
 import "js/model.js" as Model
 import "js/derive.js" as Derive
 import "js/launchers.js" as Launchers
-import "js/glyphs.js" as Glyphs
 import "js/scroll.js" as Scroll
 import "js/format.js" as Format
 
@@ -44,25 +43,16 @@ Item {
   // data until this-week first answers; until then it shows no empty state.
   property bool hasLoaded: false
   readonly property bool waitingForFirstData: root.loading && !root.hasLoaded
-  property bool groupEditorOpen: false
   property bool memoryOpen: false
   property bool helpOpen: false
   // Whichever way a view comes in, it lands under a still pointer. One
   // view opens at a time, the latest: the main view stays live while
-  // Memory waits for its records, and its Groups button then opens Groups instead.
-  onGroupEditorOpenChanged: {
-    pointerGate.reset()
-    if (root.groupEditorOpen) { root.memoryOpen = false; root.helpOpen = false }
-    // Left from the group-name field: the keys come back here (and on to
-    // the host's handler), not to a hidden field.
-    else if (groupEditor.typing) root.forceActiveFocus()
-  }
+  // Memory waits for its records, and Help then opens instead.
   onMemoryOpenChanged: {
     pointerGate.reset()
     root.memoryWaitOver = false
     if (!root.slideAnimated) Qt.callLater(root.slideAgain)
     if (root.memoryOpen) {
-      root.groupEditorOpen = false
       root.helpOpen = false
       memoryWait.restart()
     }
@@ -73,7 +63,7 @@ Item {
   readonly property bool memoryShowing: root.memoryOpen && (memoryPane.ready || root.memoryWaitOver)
   onHelpOpenChanged: {
     pointerGate.reset()
-    if (root.helpOpen) { root.groupEditorOpen = false; root.memoryOpen = false }
+    if (root.helpOpen) root.memoryOpen = false
   }
   property string memoryProjectKey: ""
   property string memoryDisplayName: ""
@@ -100,20 +90,14 @@ Item {
   property real footerBottomMargin: Style.space(12)
   // The scrolling part of the view showing (each view's header stays put).
   readonly property Item scrollArea: root.memoryOpen ? memoryPane.flickable
-    : root.groupEditorOpen ? groupEditor.flickable
     : root.helpOpen ? helpPane.flickable : mainScroll.flickable
   readonly property Item memoryView: memoryPane
-
-  // Which group rows are expanded, keyed by group name. Collapsed by
-  // default — a group is a human-made summary already; a click reveals it.
-  property var expandedGroups: ({})
 
   // Which folder rows show their per-agent sub-rows, keyed by rowId (row
   // key plus cwd). Collapsed by default.
   property var expandedRows: ({})
 
-  // Keyboard navigation runs over the rows as drawn: standalone rows, a
-  // group's children only while it is expanded, and an expanded folder
+  // Keyboard navigation runs over the rows as drawn: project rows and an expanded folder
   // row's per-agent sub-rows right after it. Each entry is
   // {summary, agent}; agent is "" for a folder row.
   readonly property var navRows: {
@@ -127,15 +111,7 @@ Item {
     }
     for (var i = 0; i < root.whereLeftOffRows.length; i++) {
       var row = root.whereLeftOffRows[i]
-      var g = Model.rowGroup(row)
-      if (g !== undefined && g !== "") {
-        if (root.expandedGroups[g]) {
-          var kids = Model.rowChildren(row)
-          for (var k = 0; k < kids.length; k++) add(kids[k])
-        }
-      } else if (Model.rowProject(row)) {
-        add(Model.rowProject(row))
-      }
+      if (Model.rowProject(row)) add(Model.rowProject(row))
     }
     return out
   }
@@ -172,13 +148,10 @@ Item {
   // pop out (the bar popup), p where it can pin (the window), and Esc.
   readonly property string closeHint: (root.canPopOut ? "o pop out \u00b7 " : "")
     + (root.canPin ? (root.pinned ? "p unpin \u00b7 " : "p pin \u00b7 ") : "") + "Esc close"
-  readonly property string mainFooterHint: "j/k move \u00b7 \u2192 agents \u00b7 \u2190 fold \u00b7 Enter continue \u00b7 t terminal \u00b7 m memory \u00b7 g groups \u00b7 ? help \u00b7 r refresh \u00b7 " + root.closeHint
+  readonly property string mainFooterHint: "j/k move \u00b7 \u2192 agents \u00b7 \u2190 fold \u00b7 Enter continue \u00b7 t terminal \u00b7 m memory \u00b7 ? help \u00b7 r refresh \u00b7 " + root.closeHint
   readonly property string footerHint: root.helpOpen ? "j/k scroll \u00b7 u back \u00b7 " + root.closeHint
     : root.memoryOpen ? "j/k move \u00b7 \u2192 expand \u00b7 \u2190 fold \u00b7 Enter toggle \u00b7 u back \u00b7 " + root.closeHint
-    : root.groupEditorOpen ? (groupEditor.typing ? root.typingFooterHint : "j/k move \u00b7 Enter pick \u00b7 u back \u00b7 " + root.closeHint)
     : root.mainFooterHint
-  // While the group-name field has the keys, Esc leaves it rather than closes.
-  readonly property string typingFooterHint: "Enter add \u00b7 Esc stop typing"
 
   // Hover moves the one selection the keyboard uses (no second highlight).
   function selectRow(summary, agent) {
@@ -230,7 +203,7 @@ Item {
 
   // ---- Snapshot and restore: the bar popup's pop-out opens the window
   // where you were. A snapshot names the view showing, Memory's project and
-  // its own state, the selection, the expanded rows and groups, and the
+  // its own state, the selection, the expanded rows, and the
   // scroll. restore() takes it from the summon payload, so it trusts nothing:
   // wrong types and long strings are dropped, and a missing view is the main
   // one. The selection waits for the next data load unless data is here.
@@ -238,9 +211,7 @@ Item {
   property real pendingScrollY: 0
 
   function snapshot() {
-    var view = root.groupEditorOpen ? "groups" : root.memoryOpen ? "memory" : root.helpOpen ? "help" : "main"
-    var groups = []
-    for (var g in root.expandedGroups) if (root.expandedGroups[g]) groups.push(g)
+    var view = root.memoryOpen ? "memory" : root.helpOpen ? "help" : "main"
     return {
       view: view,
       memory: root.memoryOpen ? { projectKey: root.memoryProjectKey, displayName: root.memoryDisplayName,
@@ -248,7 +219,6 @@ Item {
       selectedId: root.selectedId,
       selectedAgent: root.selectedAgent,
       expandedRows: Object.keys(root.expandedRows),
-      expandedGroups: groups,
       scrollY: mainScroll.flickable.contentY
     }
   }
@@ -266,7 +236,6 @@ Item {
     root.slideAnimated = false
     root.showMain()
     root.expandedRows = keySet(state.expandedRows)
-    root.expandedGroups = keySet(state.expandedGroups)
     root.pendingSelection = { id: text(state.selectedId, 8192), agent: text(state.selectedAgent, 256) }
     root.pendingScrollY = typeof state.scrollY === "number" && isFinite(state.scrollY) ? Math.max(0, state.scrollY) : 0
     var m = state.memory
@@ -274,8 +243,6 @@ Item {
     if (state.view === "memory" && memoryKey !== "") {
       memoryPane.restore(m.state && typeof m.state === "object" ? m.state : {})
       root.openMemory(memoryKey, text(m.displayName, 1024) || memoryKey, text(m.location, 4096))
-    } else if (state.view === "groups") {
-      root.groupEditorOpen = true
     } else if (state.view === "help") {
       root.helpOpen = true
     }
@@ -309,12 +276,6 @@ Item {
     })
   }
 
-  function toggleGroup(group) {
-    var next = Object.assign({}, root.expandedGroups)
-    next[group] = !next[group]
-    root.expandedGroups = next
-  }
-
   // Expands / collapses a folder row's agent sub-rows. Collapsing while a
   // sub-row is selected moves the selection back onto the folder row
   // (indexForKey).
@@ -345,7 +306,7 @@ Item {
     if (row) mainScroll.reveal(row)
   }
 
-  // The visible row (project, group or agent sub-row) whose `selected` is
+  // The visible row (project or agent sub-row) whose `selected` is
   // set, so a key move can scroll it into view; null when there is none.
   function selectedRowIn(item) {
     for (var i = 0; i < item.children.length; i++) {
@@ -364,13 +325,10 @@ Item {
 
   // The content's key handler; returns whether it consumed the key. Esc
   // asks the host to close; o asks it to pop out and p to pin, where it can; u goes back
-  // from Groups, Memory or Help to the main body; Memory and Groups take
-  // their own keys; the row keys act only on the main body. The text field
-  // in Groups keeps the keys it takes: text, and Enter (which adds the
-  // group); the rest (Esc, Up and Down) come here.
+  // from Memory or Help to the main body; Memory takes its own
+  // keys; the row keys act only on the main body.
   function isBackKey(key) {
     if (root.memoryOpen) return key === Qt.Key_U || key === Qt.Key_M
-    if (root.groupEditorOpen) return key === Qt.Key_U || key === Qt.Key_G
     if (root.helpOpen) return key === Qt.Key_U || key === Qt.Key_Question
     return false
   }
@@ -382,7 +340,6 @@ Item {
     if (key === Qt.Key_P && root.canPin) { root.pinRequested(); return true }
     if (root.isBackKey(key)) { root.showMain(); return true }
     if (root.memoryOpen) return memoryPane.handleKey(key)
-    if (root.groupEditorOpen) return groupEditor.handleKey(key)
     if (root.helpOpen) {
       switch (key) {
       case Qt.Key_J: case Qt.Key_Down: helpPane.scrollBy(Style.space(48)); return true
@@ -399,7 +356,6 @@ Item {
     case Qt.Key_Return: case Qt.Key_Enter: root.continueOn(s, root.selectedAgent); return true
     case Qt.Key_T: if (s) root.openTerminal(Model.summaryCwd(s)); return true
     case Qt.Key_M: if (s) root.summaryMemory(s); return true
-    case Qt.Key_G: root.groupEditorOpen = true; return true
     case Qt.Key_Question: root.helpOpen = true; return true
     case Qt.Key_R: root.refresh(); return true
     }
@@ -445,9 +401,8 @@ Item {
     }
   }
 
-  // Back from Groups, Memory or Help to the main view.
+  // Back from Memory or Help to the main view.
   function showMain() {
-    root.groupEditorOpen = false
     root.memoryOpen = false
     root.helpOpen = false
   }
@@ -534,7 +489,7 @@ Item {
       sideMargin: Scroll.borderRoom
       animate: root.slideAnimated
       objectName: "mainPage"
-      current: !root.groupEditorOpen && !root.memoryShowing && !root.helpOpen
+      current: !root.memoryShowing && !root.helpOpen
       side: -1
 
       // The header stays put; HERE, Needs you and Recent scroll.
@@ -550,14 +505,6 @@ Item {
           status: root.heroStatus
           statusShown: !root.waitingForFirstData
           statusUrgent: root.attentionItems.length > 0
-
-          PanelActionButton {
-            iconText: Glyphs.groups()
-            tooltipText: "Groups"
-            foreground: Commons.Color.popups.text
-            hoverColor: Commons.Color.accent
-            onClicked: root.groupEditorOpen = !root.groupEditorOpen
-          }
 
           HostButtons {
             canPopOut: root.canPopOut
@@ -626,7 +573,6 @@ Item {
             rows: root.whereLeftOffRows
             waiting: root.waitingForFirstData
             week: root.weekDays
-            expandedGroups: root.expandedGroups
             selectedId: root.selectedId
             selectedAgent: root.selectedAgent
             expandedRows: root.expandedRows
@@ -634,7 +580,6 @@ Item {
             onToggleRow: (summary) => root.toggleRow(summary)
             onLaunchRequested: (summary, agent) => root.continueOn(summary, agent)
             width: parent.width
-            onToggleGroup: (group) => root.toggleGroup(group)
             onOpenTerminal: (cwd) => root.openTerminal(cwd)
             onContinueRequested: (summary) => root.continueOn(summary)
             onOpenMemory: (projectKey, displayName, cwd) => root.openMemory(projectKey, displayName, cwd)
@@ -653,31 +598,6 @@ Item {
           wrapMode: Text.WordWrap
         }
 
-      }
-    }
-
-    SlidePage {
-      sideMargin: Scroll.borderRoom
-      animate: root.slideAnimated
-      objectName: "groupsPage"
-      current: root.groupEditorOpen
-
-      GroupEditor {
-        id: groupEditor
-        shown: root.groupEditorOpen
-        pointer: pointerGate
-        width: parent.width
-        height: parent.height
-        canPopOut: root.canPopOut
-        canPin: root.canPin
-        pinned: root.pinned
-        onPopOutRequested: root.popOutRequested()
-        onPinRequested: root.pinRequested()
-        canClose: root.canPin
-        onWindowCloseRequested: root.closeRequested()
-        onCloseRequested: root.groupEditorOpen = false
-        onStopTypingRequested: root.forceActiveFocus()
-        onChanged: root.refresh()
       }
     }
 

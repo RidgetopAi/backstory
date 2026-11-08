@@ -16,7 +16,6 @@ Item {
   id: root
 
   property var summary: null
-  property bool indented: false
   property bool selected: false
   property var week: []
   property bool expanded: false
@@ -82,7 +81,7 @@ Item {
     id: column
     anchors.left: parent.left
     anchors.right: root.recentLabel !== "" ? labelContinue.left : continueButton.left
-    anchors.leftMargin: root.indented ? Style.space(20) : Style.spacing.rowPaddingX
+    anchors.leftMargin: Style.spacing.rowPaddingX
     anchors.rightMargin: Style.spacing.rowPaddingX
     anchors.verticalCenter: parent.verticalCenter
     spacing: Style.spacing.labelGap / 2
