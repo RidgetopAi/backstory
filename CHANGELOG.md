@@ -4,18 +4,26 @@ All notable changes to Backstory are documented in this file. The format
 follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 are [Semantic Versioning](https://semver.org/) (`vMAJOR.MINOR.PATCH`).
 
-v1.0.0 was cut on 2026-10-06 (decision `2deb6c91`, superseding `262cf929`), v1.1.0 on 2026-10-19
-and v1.2.0 on 2026-10-31 on the same terms. The measurement on a machine that is not
+v1.0.0 was cut on 2026-10-06 (decision `2deb6c91`, superseding `262cf929`), v1.1.0 on 2026-10-19,
+v1.2.0 on 2026-10-31 and v1.3.0 on 2026-11-08 on the same terms. The measurement on a machine that is not
 Brian's now gates the AUR push and the marketplace submission rather than the tag.
 See `RELEASING.md` for the release flow and its approval gates.
 
 ## [Unreleased]
+
+## [1.3.0] - 2026-11-08
 
 ### Removed
 
 - Project groups (`backstory group`, the panel's Groups page and button, the `g` key). `this-week --json` where_left_off rows no longer carry `group`/`children`: every row is `{"project": ...}`. Existing groups are dropped by a migration (0027).
 
 ### Added
+
+- Panel: a bar click opens the This Week view in a native Omarchy popup, as Omarchy's own bar panels do (Esc closes it, Tab moves to the next bar panel). `o` (or the popup's pop-out button) pops it out into a window that opens where you were, reflows as you resize it, and takes the keyboard; the window's pin (`p`) makes it follow you to every workspace, and with the window open the shortcut and the bar icon focus it. Every view (main, Memory, Help) has a fixed key-hint footer, `u` goes back to the main view, and `j`/`k` move through Memory's records and scroll Help.
+
+- The HERE card says where "here" came from: your focused terminal, your last focused terminal, or the most recent project.
+
+- `make install` prints a line as each slow step starts, and reloads Hyprland after installing `backstory.lua` (a failing Hyprland config check warns and the install goes on).
 
 - The Memory view and `backstory records` show which branch each record was written on: `records --json` carries a `branch` field (omitted when unknown), the text output adds `on feature-a`, and each Memory row (and the history view) shows a muted **on <branch>** label that elides when long. Records with no known branch show nothing.
 
@@ -45,6 +53,8 @@ See `RELEASING.md` for the release flow and its approval gates.
   reports its path, size, schema version and project/session/record counts.
 
 ### Fixed
+
+- Stopping the daemon no longer hangs for 90 seconds: on SIGTERM it gives in-flight requests 3 seconds, then closes idle client connections (task 6cb905d8).
 
 - The panel offers Switch only when the open window is certain. Terminals that run every window
   from one process (ghostty) made Switch focus the wrong window, so those windows now give
