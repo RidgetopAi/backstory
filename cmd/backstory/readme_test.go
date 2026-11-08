@@ -220,8 +220,12 @@ func TestInstallDocsTellUserToEnablePanelPlugin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(msg), enable) {
-		t.Errorf("AUR install script lacks %q", enable)
+	// The package installs the panel from the marketplace (not `plugin enable`
+	// of an unadded plugin), so the script names the plugin id and marketplace.
+	for _, want := range []string{"backstory.this-week", "marketplace"} {
+		if !strings.Contains(string(msg), want) {
+			t.Errorf("AUR install script lacks %q", want)
+		}
 	}
 	pkg, err := os.ReadFile("../../ops/aur/PKGBUILD")
 	if err != nil {
