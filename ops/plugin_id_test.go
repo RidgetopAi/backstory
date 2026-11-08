@@ -170,7 +170,7 @@ func TestHyprlandTargetsNameThePanelID(t *testing.T) {
 		"../panel/Panel.qml":     `target: "` + pluginID + `"`,
 		"../panel/BarWidget.qml": `moduleName: "` + pluginID + `"`,
 	} {
-		b, err := os.ReadFile(file)
+		b, err := os.ReadFile(file) //nolint:gosec // this repo's own panel files
 		if err != nil {
 			t.Fatal(err)
 		}
