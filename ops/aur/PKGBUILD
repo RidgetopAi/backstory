@@ -32,6 +32,15 @@ build() {
 package() {
 	cd "$pkgname-$pkgver"
 	install -Dm755 bin/backstory "$pkgdir/usr/bin/backstory"
-	install -Dm644 ops/backstory.service "$pkgdir/usr/lib/systemd/user/backstory.service"
+	# The in-repo units run the `make install` binary (%h/.local/bin); the
+	# package's binary is /usr/bin/backstory, so the installed copies are
+	# rewritten. ops/ itself is left alone (make install uses it as-is).
+	local unit
+	for unit in backstory.service backstory-sync.service; do
+		install -Dm644 "ops/$unit" "$pkgdir/usr/lib/systemd/user/$unit"
+		sed -i 's|^ExecStart=%h/\.local/bin/backstory |ExecStart=/usr/bin/backstory |' "$pkgdir/usr/lib/systemd/user/$unit"
+	done
+	install -Dm644 ops/backstory-sync.timer "$pkgdir/usr/lib/systemd/user/backstory-sync.timer"
+	install -Dm644 ops/hyprland/backstory.lua "$pkgdir/usr/share/backstory/hyprland/backstory.lua"
 	install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
 }

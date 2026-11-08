@@ -45,6 +45,21 @@ restarts the Omarchy shell when the session is unlocked.
 
 `XDG_CONFIG_HOME` moves the `~/.config` paths. `BINDIR` moves the program.
 
+### The AUR package (coming, not available yet)
+
+Instead of `make install`, the package writes only system paths, all removed with the package:
+
+- `/usr/bin/backstory`, the program.
+- `/usr/lib/systemd/user/backstory.service`, `backstory-sync.service` and `backstory-sync.timer`;
+  the two services start `/usr/bin/backstory`. Nothing is enabled: you run
+  `systemctl --user enable --now backstory` yourself, and `backstory install sync` stays optional.
+- `/usr/share/backstory/hyprland/backstory.lua`, the Hyprland shortcut file, which you include
+  yourself if you want it.
+- `/usr/share/licenses/backstory/LICENSE`.
+
+It touches nothing in your home directory; the steps it prints for you to run (`backstory install`,
+`backstory backfill`) are the ones described below.
+
 ### Your memory and runtime files
 
 | Path | What | Source |
