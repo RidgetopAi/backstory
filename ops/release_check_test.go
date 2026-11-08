@@ -23,6 +23,7 @@ const realSHA = "1e5516887975bbc2a7a3bb403adb0d53cbcb5795a95a469380ffc9389a844ec
 var measuredTarballSHA = map[string]string{
 	"1.1.0": realSHA,
 	"1.2.0": "62f5bab6caa2afaa5cb816646eee6dc66084f72fdd946866837b81a8635e2f3d",
+	"1.3.0": "8512c7c32b695b3e136d0c4e525e4869cd8b3f438cab7b8e7931005432251aa1",
 }
 
 // runReleaseCheck copies the real Makefile and ops/release-check.sh into a
