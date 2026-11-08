@@ -22,8 +22,6 @@ TestCase {
     "AttentionSection.qml",
     "ContinueAction.qml",
     "BarWidget.qml",
-    "GroupEditor.qml",
-    "GroupProjectRow.qml",
     "HereCard.qml",
     "HeroHeader.qml",
     "LabelButton.qml",

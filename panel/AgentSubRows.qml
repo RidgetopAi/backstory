@@ -6,7 +6,7 @@ import "js/model.js" as Model
 import "js/format.js" as Format
 
 // A folder row's expanded per-agent sub-rows, one per agents[] entry, newest
-// first, indented under the row (the group-children pattern). Continue on a
+// first, indented under the row. Continue on a
 // sub-row launches THAT agent in the row's cwd.
 Column {
   id: root

@@ -138,8 +138,11 @@ TestCase {
   }
 
   function test_j_and_k_scroll_help() {
+    var many = []
+    for (var n = 0; n < 12; n++) many.push({ name: "fixture_tool_" + n, description: "Fixture tool number " + n + " does a fixture thing." })
+    ProcessController.respond(Launchers.toolsCommand(), { stdout: JSON.stringify({ tools: many }), stderr: "", exitCode: 0 })
     press(Qt.Key_Question)
-    act.settled(function () { return texts().indexOf("GROUPS") >= 0 }, "help never rendered")
+    act.settled(function () { return texts().indexOf("HOW TO USE") >= 0 }, "help never rendered")
     var area = panel.view.scrollArea
     act.settled(function () { return area.contentHeight > area.height }, "help never grew taller than its view")
     function y(item) { return item.mapToItem(panel.testContentItem, 0, 0).y }
@@ -186,9 +189,9 @@ TestCase {
 
   function test_a_rule_before_each_section() {
     press(Qt.Key_Question)
-    act.settled(function () { return texts().indexOf("GROUPS") >= 0 }, "help never rendered")
+    act.settled(function () { return texts().indexOf("HOW TO USE") >= 0 }, "help never rendered")
     act.settled(function () { return TestUtil.slideDone(panel.testContentItem, "helpPage") }, "the slide into Help never finished")
-    compare(visibleRules().length, 4)
+    compare(visibleRules().length, 3)
   }
 
   function test_help_header_is_a_hero_row() {
@@ -196,7 +199,7 @@ TestCase {
     act.settled(function () { return texts().indexOf("Help") >= 0 }, "help header never rendered")
     var t = texts()
     var i = t.indexOf("Help")
-    compare(t.slice(i - 1, i + 2), [Glyphs.back(), "Help", "Keys, agent tools and groups"])
+    compare(t.slice(i - 1, i + 2), [Glyphs.back(), "Help", "Keys, agent tools and how to use Backstory"])
   }
 
   function test_help_renders_fixture_tools_and_sections() {
@@ -212,9 +215,8 @@ TestCase {
     }
     verify(rendered.indexOf("MEMORY NAVIGATION") >= 0)
     verify(rendered.indexOf("HOW TO USE") >= 0)
-    verify(rendered.indexOf("GROUPS") >= 0)
-    var groups = rendered.filter(function (t) { return t.indexOf("backstory group set") >= 0 && t.indexOf("Groups button") >= 0 })
-    verify(groups.length === 1, "Groups section must name the Groups button and `backstory group set`")
+    verify(rendered.indexOf("GROUPS") < 0, "Help still has a GROUPS section")
+    verify(rendered.filter(function (t) { return /group/i.test(t) }).length === 0, "Help still mentions groups")
   }
 
   function test_footer_hint_lists_help() {
@@ -232,16 +234,11 @@ TestCase {
     }, "item(s) out of bounds with help open: " + JSON.stringify(bad).slice(0, 2000))
   }
 
-  // The latest view asked for opens: Help set open over Groups or Memory
-  // shows alone. No key does that today (keys reach Help only from the main
+  // The latest view asked for opens: Help set open over Memory shows
+  // alone. No key does that today (keys reach Help only from the main
   // body, and restore() goes back to it first), so set the view's
   // helpOpen, as the host may.
-  function test_help_opened_over_groups_or_memory_shows_alone() {
-    press(Qt.Key_G)
-    act.settledEq(panel.view, "groupEditorOpen", true)
-    panel.view.helpOpen = true
-    verify(!panel.view.groupEditorOpen, "Groups stayed open under Help")
-    panel.view.showMain()
+  function test_help_opened_over_memory_shows_alone() {
     panel.view.openMemory("one-key", "one", "/home/brian/one")
     act.settledEq(panel.view, "memoryOpen", true)
     panel.view.helpOpen = true

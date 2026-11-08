@@ -14,7 +14,7 @@ import "../../js/popout.js" as Popout
 // the plugin's real Process stub the committed this-week golden, `{}`, and
 // an all-empty-arrays payload, asserting the golden's display names render
 // (DONE WHEN clause 2); walks the visible item tree with the panel open
-// and with the group editor open, asserting every visible item's mapped
+// asserting every visible item's mapped
 // rect lies inside PanelWindow's implicit bounds (DONE WHEN clause 3); and
 // asserts the recorded argv for a Where-you-left-off row click (DONE WHEN
 // clause 4 — clause 6's own cwd-interpolation/shape assertions live in
@@ -120,7 +120,7 @@ TestCase {
   function test_open_with_an_unreadable_payload_opens_the_main_view() {
     panel.open("{not json")
     compare(panel.opened, true)
-    compare(panel.view.helpOpen || panel.view.memoryOpen || panel.view.groupEditorOpen, false)
+    compare(panel.view.helpOpen || panel.view.memoryOpen, false)
     panel.close()
     panel.open(JSON.stringify({ view: "help", pad: new Array(70000).join("x") }))
     compare(panel.view.helpOpen, false, "an oversized payload was read")
@@ -184,7 +184,7 @@ TestCase {
     openWith(readFixture(goldenUrl))
     var asked = 0
     panel.view.popOutRequested.connect(function () { asked++ })
-    var views = ["helpOpen", "groupEditorOpen", "memoryOpen"]
+    var views = ["helpOpen", "memoryOpen"]
     for (var i = 0; i < views.length; i++) {
       panel.view.showMain()
       panel.view[views[i]] = true
@@ -230,15 +230,24 @@ TestCase {
     return TestUtil.findFirst(panel.testContentItem, function (n) { return n.objectName === name })
   }
 
-  function test_the_groups_button_shows_the_groups_glyph() {
+  // Project groups were removed (decision 8b726bd2): no header button, and
+  // the g key does nothing.
+  function test_the_main_view_has_no_groups_button() {
     openWith(readFixture(goldenUrl))
-    var button = TestUtil.findFirst(panel.testContentItem, function (n) { return n.tooltipText === "Groups" })
-    compare(button.iconText, Glyphs.groups())
+    compare(TestUtil.findFirst(panel.testContentItem, function (n) { return n.tooltipText === "Groups" }), null)
+  }
+
+  function test_pressing_g_does_nothing() {
+    openWith(readFixture(goldenUrl))
+    var before = panel.view.selectedIndex
+    compare(panel.view.handleKey(Qt.Key_G, Qt.NoModifier), false)
+    compare(panel.view.helpOpen || panel.view.memoryOpen, false)
+    compare(panel.view.selectedIndex, before)
   }
 
   function test_footer_lists_the_main_views_keys() {
     openWith(readFixture(goldenUrl))
-    compare(panel.view.footerHint, "j/k move · → agents · ← fold · Enter continue · t terminal · m memory · g groups · ? help · r refresh · p pin · Esc close")
+    compare(panel.view.footerHint, "j/k move · → agents · ← fold · Enter continue · t terminal · m memory · ? help · r refresh · p pin · Esc close")
   }
 
   function test_footer_wraps_only_between_hints() {
@@ -253,7 +262,7 @@ TestCase {
   // close closes the window.
   function test_every_view_header_ends_with_pin_then_close() {
     var closeAt = null
-    var pages = [["", "mainPage"], ["helpOpen", "helpPage"], ["groupEditorOpen", "groupsPage"], ["memoryOpen", "memoryPage"]]
+    var pages = [["", "mainPage"], ["helpOpen", "helpPage"], ["memoryOpen", "memoryPage"]]
     for (var i = 0; i < pages.length; i++) {
       var page = pages[i][1]
       openWith(readFixture(goldenUrl))
@@ -653,15 +662,10 @@ TestCase {
     var i
     for (i = 0; i < golden.where_left_off.length; i++) {
       var row = golden.where_left_off[i]
-      if (row.project) names[row.project.display_name] = true
-      if (row.children) {
-        for (var j = 0; j < row.children.length; j++) names[row.children[j].display_name] = true
-      }
+      names[row.project.display_name] = true
     }
 
-    // Group children are drawn only while their group is expanded; a
-    // workspace-keyed row's text is "<dir> · workspace notes".
-    panel.view.toggleGroup("widget-suite")
+    // A workspace-keyed row's text is "<dir> · workspace notes".
     var rendered = []
     var missing = []
     function allRendered() {
@@ -766,21 +770,12 @@ TestCase {
 
   function test_layout_within_bounds_panel_open() {
     openWith(readFixture(goldenUrl))
-    compare(panel.view.groupEditorOpen, false)
-    assertLayoutWithinBounds("panel open, group editor closed")
+    assertLayoutWithinBounds("panel open")
   }
 
   function test_layout_within_scroller_panel_open() {
     openWith(readFixture(goldenUrl))
     assertWithinScroller("panel open")
-  }
-
-  function test_layout_within_bounds_group_editor_open() {
-    openWith(readFixture(goldenUrl))
-    ProcessController.respond(Launchers.groupListCommand(), { stdout: JSON.stringify({ groups: [], ungrouped: [] }), stderr: "", exitCode: 0 })
-    panel.view.groupEditorOpen = true
-    act.settled(function () { return panel.view.groupEditorOpen }, "group editor never opened")
-    assertLayoutWithinBounds("group editor open")
   }
 
   function test_row_click_opens_terminal_at_cwd() {

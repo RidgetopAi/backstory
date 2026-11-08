@@ -13,8 +13,7 @@ opens the store directly (PLAN.md §Phase 4 "Human look", decision
   non-empty (an empty array is itself "nothing to flag this week", not an
   absent section).
 - **Where you left off** — one row per project, most recently active
-  first. A project in a group (`backstory group set`) collapses into one
-  expandable row with its group-mates as children. Click a row to open a
+  first. Click a row to open a
   terminal at that project's `cwd` (`xdg-terminal-exec -- sh -c 'cd "$1"
   && exec "${SHELL:-sh}"' sh <cwd>` — cwd is passed as `sh`'s own
   positional argument, never interpolated into the script, so it survives
@@ -25,24 +24,10 @@ opens the store directly (PLAN.md §Phase 4 "Human look", decision
   the agent launch itself fails to start.
 - **The week** — a small per-project activity bar for each day in the
   window.
-- **Groups button** (interlocked squares): opens a group editor over `backstory group
-  set|clear|list`: every project is a clickable row (its display name,
-  never a key you type) drawn from `group list --json`; pick a project,
-  then pick an existing group chip or type a new group name, and the "+"
-  (enabled only once both are chosen) sets it. A failed `group set|clear`
-  shows its stderr in the editor instead of failing silently. The panel
-  refetches `this-week` after every change so rows regroup immediately.
 - **Bar widget** — a small glyph you can place in the Omarchy bar; click
   it to open/close the panel (see Install below). It shares its open/
   closed state with the panel itself, so toggling from either place keeps
   the other in sync.
-
-A group is for two projects that are really one body of work — e.g.
-`~/projects/mandrel` and `~/projects/ra-runtime`, where a session in either
-one is really work on the same thing and you'd rather see one row than
-two. Most projects need no group at all: This Week already gives every
-project its own row, one per project folder, so grouping is for the
-exception, not the default.
 
 Every field this plugin reads out of the JSON goes through
 [`js/model.js`](js/model.js); every external command it can run is named in
@@ -156,9 +141,9 @@ go test ./panel/...
 
 `panel_contract_test.go` is Go, not QML — it has no Quickshell dependency
 and runs anywhere the rest of this repo's `go test ./...` runs (`make
-check`). `launcher_contract_test.go` and `groups_selection_test.go` go
-one step further for the pure-JS logic in `js/launchers.js` and
-`js/groups.js`: they run those actual `.js` files under Node
+check`). `launcher_contract_test.go` goes
+one step further for the pure-JS logic in `js/launchers.js`:
+it runs that actual `.js` file under Node
 (`js_runtime_test.go`'s `evalJS`), asserting on the real output rather
 than a Go reimplementation. They FAIL (not skip) if `node` isn't on
 `PATH` (round 3 defect C) — `make check` is the gate for this contract,
@@ -178,9 +163,9 @@ and `Quickshell.Wayland` — the actual Omarchy/Quickshell runtime this
 plugin targets, not a Go proxy for it. `panel/qmltest/tests/` feeds
 `Panel.qml` the committed `this-week` golden, `{}`, and an all-empty-
 arrays payload through the stub `Process`; walks the visible item tree
-with the panel open and with the group editor open, asserting every item
+with the panel open, asserting every item
 sits inside `PanelWindow`'s own bounds; and drives real simulated clicks
-(the bar widget, a Where-you-left-off row, the group editor's add flow)
+(the bar widget, a Where-you-left-off row)
 asserting the resulting argv. `QT_FATAL_WARNINGS=1` is this harness's
 "zero QML warnings" gate — see `panel/qmltest/tests/tst_load_all.qml`'s
 own doc comment for why (no `QQmlEngine.warnings` hook is reachable from

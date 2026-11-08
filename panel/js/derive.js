@@ -6,14 +6,12 @@
 // calls its accessors.
 
 // allSummaries flattens Where-you-left-off into its project summaries
-// (standalone rows and group children), in row order.
+// in row order.
 function allSummaries(data) {
   var out = []
   var rows = Model.topWhereLeftOff(data)
   for (var i = 0; i < rows.length; i++) {
     if (Model.rowProject(rows[i])) out.push(Model.rowProject(rows[i]))
-    var kids = Model.rowChildren(rows[i])
-    for (var j = 0; j < kids.length; j++) out.push(kids[j])
   }
   return out
 }

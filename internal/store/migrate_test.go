@@ -20,7 +20,6 @@ var wantTables = []string{
 	"settings",
 	"records_fts",
 	"backfill_cursors",
-	"project_groups",
 }
 
 func tableExists(t *testing.T, s *Store, name string) bool {
@@ -673,5 +672,70 @@ func TestLoadMigrationsRefusesDuplicateVersion(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "0004_a.sql") || !strings.Contains(err.Error(), "0004_b.sql") {
 		t.Errorf("error does not name both files: %v", err)
+	}
+}
+
+// downgradeToPre0027 turns a fully migrated store into one at the schema
+// before 0027_drop_project_groups: project_groups recreated as 0007 made it,
+// one row per key, and schema_version 27 forgotten.
+func downgradeToPre0027(t *testing.T, dbPath string, groupedKeys []string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", dsn(dbPath))
+	if err != nil {
+		t.Fatalf("open raw connection: %v", err)
+	}
+	defer func() { _ = db.Close() }()
+	for _, stmt := range []string{
+		`CREATE TABLE project_groups (
+			project_key TEXT PRIMARY KEY REFERENCES projects(key),
+			group_name  TEXT NOT NULL,
+			set_at      INTEGER NOT NULL)`,
+		`CREATE INDEX project_groups_name ON project_groups(group_name)`,
+		`DELETE FROM schema_version WHERE version = 27`,
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("downgrade to pre-0027: %v", err)
+		}
+	}
+	for _, k := range groupedKeys {
+		if _, err := db.Exec(`INSERT INTO project_groups (project_key, group_name, set_at) VALUES (?, 'old', ?)`, k, tsToNanos(time.Now())); err != nil {
+			t.Fatalf("seed project_groups row %s: %v", k, err)
+		}
+	}
+}
+
+// TestMigration0027DropsProjectGroupsAndKeepsTheRest: a pre-0027 store with a
+// project_groups row opens, migrates, and project_groups is gone from
+// sqlite_master; projects, sessions and records are intact.
+func TestMigration0027DropsProjectGroupsAndKeepsTheRest(t *testing.T) {
+	dbPath := tempDBPath(t)
+	seed, err := Open(dbPath, nil, nil)
+	if err != nil {
+		t.Fatalf("Open (seed): %v", err)
+	}
+	rawInsertProject(t, seed.DB(), "proj-a", "/tmp/proj-a", sweepT1)
+	rawInsertSession(t, seed.DB(), "sess-a", "proj-a", "/tmp/proj-a", sweepT1)
+	rawInsertRecord(t, seed.DB(), "rec-a", "proj-a", "sess-a", KindHandoff, sweepT1)
+	if err := seed.Close(); err != nil {
+		t.Fatalf("close seed: %v", err)
+	}
+	downgradeToPre0027(t, dbPath, []string{"proj-a"})
+
+	s := mustOpen(t, dbPath)
+	var n int
+	if err := s.DB().QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE name = 'project_groups'`).Scan(&n); err != nil {
+		t.Fatalf("query sqlite_master: %v", err)
+	}
+	if n != 0 {
+		t.Errorf("project_groups still in sqlite_master after migration (%d entries)", n)
+	}
+	if got := countWhere(t, s.DB(), "projects", "key", "proj-a"); got != 1 {
+		t.Errorf("projects row proj-a = %d, want 1", got)
+	}
+	if got := countWhere(t, s.DB(), "sessions", "project_key", "proj-a"); got != 1 {
+		t.Errorf("sessions for proj-a = %d, want 1", got)
+	}
+	if got := countWhere(t, s.DB(), "records", "project_key", "proj-a"); got != 1 {
+		t.Errorf("records for proj-a = %d, want 1", got)
 	}
 }

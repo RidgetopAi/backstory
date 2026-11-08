@@ -37,7 +37,7 @@ const thisWeekGoldenPath = "../cmd/backstory/testdata/thisweek/all.json.golden"
 var fieldAccessPattern = regexp.MustCompile(`\w\.([a-z_][a-zA-Z0-9_]*)\b`)
 
 // lineCommentPattern strips a JS `//` line comment (and everything after
-// it) so prose like "PANEL-CONTRACT.md" or "store.SetProjectGroup" in a
+// it) so prose like "PANEL-CONTRACT.md" or "store.SomeFunc" in a
 // doc comment is never mistaken for a field access.
 var lineCommentPattern = regexp.MustCompile(`//.*$`)
 

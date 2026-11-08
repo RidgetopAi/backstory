@@ -203,7 +203,7 @@ If you checked out a tag, git leaves you on that tag rather than on a branch, so
   It shows what needs you, where you left off in each project, and the week's activity.
 - **Your memory, your controls**: `backstory projects` lists every project and its key;
   `records`, `recall` and `timeline` read what's saved; `edit`, `delete`, `purge` and
-  `affirm` fix or forget it; `group` folds related projects into one row; `export` writes a
+  `affirm` fix or forget it; `export` writes a
   project's memory as markdown for another tool. All of them are explained, with examples, in
   the [User Manual](docs/USER-MANUAL.md#6-command-reference).
 - **If something goes wrong**: `backstory backup` saves your memory to one file and `backstory restore`
@@ -310,7 +310,7 @@ rm -r ~/.local/share/backstory
 - Deleting or purging wipes the text from the store, but the backups the service keeps beside
   it (`backstory.db.pre-sweep-*` and `backstory.db.pre-identity-*`, written before a
   project-key merge) keep the deleted text until you remove them.
-- Only you can delete, edit, purge, pause or group. The tools agents get can add notes but
+- Only you can delete, edit, purge or pause. The tools agents get can add notes but
   never remove them.
 - Single-user trust model: any process of yours named `claude`, `codex`, `copilot`, `hermes`,
   `opencode` or `pi` is accepted as that agent. Backstory doesn't defend against another

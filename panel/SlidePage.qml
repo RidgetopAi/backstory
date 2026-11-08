@@ -2,7 +2,7 @@ import QtQuick
 import qs.Commons
 import "js/compat.js" as Compat
 
-// One page of ThisWeekView: the main body, or Memory, Groups or Help. It
+// One page of ThisWeekView: the main body, or Memory or Help. It
 // waits off to one side (`side`: -1 left, the main body; 1 right, a
 // sub-view) and slides to the middle while `current`, back out once it is
 // not, so opening a sub-view pushes the main body out to the left and going

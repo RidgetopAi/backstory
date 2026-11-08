@@ -291,7 +291,6 @@ TestCase {
     var rows = []
     var sizes = test_layout_at_text_sizes_data()
     for (var i = 0; i < sizes.length; i++) {
-      rows.push(Object.assign({}, sizes[i], { tag: sizes[i].tag + ", groups", page: "groupsPage" }))
       rows.push(Object.assign({}, sizes[i], { tag: sizes[i].tag + ", help", page: "helpPage" }))
     }
     return rows
@@ -302,16 +301,8 @@ TestCase {
     Style.testFontScale = row.fontScale
     Style.testSpacingScaleWithFont = row.withFont
     init()
-    ProcessController.respond(Launchers.groupListCommand(), {
-      stdout: JSON.stringify({
-        groups: [{ group: "tools" }],
-        ungrouped: ["b"],
-        projects: [{ key: "a", display_name: "a", group: "tools" }, { key: "b", display_name: "b", group: "" }]
-      }), stderr: "", exitCode: 0
-    })
     open(payload())
-    if (row.page === "groupsPage") panel.view.groupEditorOpen = true
-    else panel.view.helpOpen = true
+    panel.view.helpOpen = true
     act.settled(function () { return TestUtil.slideDone(panel.testContentItem, row.page) }, row.tag + ": the slide never finished")
     act.quiescent(function () { return [texts(), panel.testImplicitHeight] }, row.tag + ": never finished rendering")
     expectControlsKeepAnEdge(row.tag)
@@ -611,23 +602,23 @@ TestCase {
     compare(panel.view.memoryLocation, "/x/k")
   }
 
-  function test_restore_opens_groups() {
+  // A view state saved while Groups existed lands on the main page.
+  function test_restore_of_a_saved_groups_view_lands_on_main() {
     open(payload())
     panel.view.restore({ view: "groups" })
-    compare(panel.view.groupEditorOpen, true)
-    act.settled(function () { return TestUtil.slideDone(panel.testContentItem, "groupsPage") }, "Groups never showed")
+    compare(panel.view.memoryOpen, false)
+    compare(panel.view.helpOpen, false)
+    act.settled(function () { return TestUtil.slideDone(panel.testContentItem, "mainPage") }, "main page never showed")
   }
 
   function test_restore_ignores_bad_values() {
     open(payload())
     panel.view.restore(null)
     panel.view.restore([1, 2])
-    panel.view.restore({ view: "memory", memory: { projectKey: 7 }, selectedId: {}, expandedRows: "x", expandedGroups: [1, null], scrollY: "far" })
+    panel.view.restore({ view: "memory", memory: { projectKey: 7 }, selectedId: {}, expandedRows: "x", scrollY: "far" })
     compare(panel.view.memoryOpen, false)
-    compare(panel.view.groupEditorOpen, false)
     compare(panel.view.helpOpen, false)
     compare(JSON.stringify(panel.view.expandedRows), "{}")
-    compare(JSON.stringify(panel.view.expandedGroups), "{}")
   }
 
   function test_keyboard_selection_stays_in_view() {
@@ -1237,11 +1228,4 @@ TestCase {
     assertWithinBounds("memory open")
   }
 
-  function test_layout_group_editor_open() {
-    open(payload())
-    ProcessController.respond(Launchers.groupListCommand(), { stdout: JSON.stringify({ groups: [], ungrouped: [] }), stderr: "", exitCode: 0 })
-    panel.view.groupEditorOpen = true
-    act.settledEq(panel.view, "groupEditorOpen", true)
-    assertWithinBounds("group editor open")
-  }
 }

@@ -12,8 +12,8 @@ import (
 
 // ErrProjectLinkRequiresHuman is returned when SetProjectLink or
 // ClearProjectLink is called with an Identity that is not IdentityHuman. A
-// link decides which projects on different machines are "the same", so like
-// grouping it is a human-only power and is never reachable over the socket.
+// link decides which projects on different machines are "the same", so it is a human-only power and is never
+// reachable over the socket.
 var ErrProjectLinkRequiresHuman = errors.New("store: project link write requires a human identity")
 
 // SyncSource says where a project's sync identity came from.

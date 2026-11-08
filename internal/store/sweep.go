@@ -129,8 +129,8 @@ func processName() string { return filepath.Base(os.Args[0]) }
 
 // sweepOneTarget merges legacy into canonical inside tx. Every statement is
 // scoped by `WHERE project_key = legacy`, so a target with no legacy row is
-// a no-op throughout. The canonical projects row must exist before sessions/
-// project_groups can point at it (both foreign-key into projects(key)); the
+// a no-op throughout. The canonical projects row must exist before sessions
+// can point at it (it foreign-keys into projects(key)); the
 // legacy projects row is deleted last, once nothing references it.
 //
 // repoIdentity selects the shape of a newly minted canonical row: false is
@@ -183,10 +183,6 @@ func sweepOneTarget(tx *sql.Tx, legacy, canonical string, repoIdentity bool) err
 		}
 	}
 
-	groupsMerged, err := sweepProjectGroups(tx, legacy, canonical)
-	if err != nil {
-		return err
-	}
 	if err := sweepProjectLinks(tx, legacy, canonical); err != nil {
 		return err
 	}
@@ -207,44 +203,13 @@ func sweepOneTarget(tx *sql.Tx, legacy, canonical string, repoIdentity bool) err
 		return fmt.Errorf("record alias: %w", err)
 	}
 
-	log.Printf("store: sweep %s -> %s: projects=1 sessions=%d records=%d project_groups=%d",
-		legacy, canonical, sessionsRewritten, recordsToRewrite, groupsMerged)
+	log.Printf("store: sweep %s -> %s: projects=1 sessions=%d records=%d",
+		legacy, canonical, sessionsRewritten, recordsToRewrite)
 	return nil
 }
 
-// sweepProjectGroups merges legacy's and canonical's project_groups rows:
-// the newer set_at wins, moved under canonical; the other is dropped.
-// Returns the total rows touched, for the sweep's own log.
-func sweepProjectGroups(tx *sql.Tx, legacy, canonical string) (int64, error) {
-	dropLegacy, err := tx.Exec(`DELETE FROM project_groups WHERE project_key = ? AND EXISTS (
-		SELECT 1 FROM project_groups c WHERE c.project_key = ?
-		AND c.set_at >= (SELECT set_at FROM project_groups WHERE project_key = ?))`,
-		legacy, canonical, legacy)
-	if err != nil {
-		return 0, fmt.Errorf("drop superseded legacy project_groups row: %w", err)
-	}
-	dropCanon, err := tx.Exec(`DELETE FROM project_groups WHERE project_key = ?
-		AND EXISTS (SELECT 1 FROM project_groups WHERE project_key = ?)`, canonical, legacy)
-	if err != nil {
-		return 0, fmt.Errorf("drop superseded canonical project_groups row: %w", err)
-	}
-	move, err := tx.Exec(`UPDATE project_groups SET project_key = ? WHERE project_key = ?`, canonical, legacy)
-	if err != nil {
-		return 0, fmt.Errorf("move winning legacy project_groups row: %w", err)
-	}
-	var total int64
-	for _, res := range []sql.Result{dropLegacy, dropCanon, move} {
-		n, err := res.RowsAffected()
-		if err != nil {
-			return 0, err
-		}
-		total += n
-	}
-	return total, nil
-}
-
-// sweepProjectLinks merges legacy's and canonical's project_links rows the
-// way sweepProjectGroups does: the newer set_at wins, moved under canonical.
+// sweepProjectLinks merges legacy's and canonical's project_links rows:
+// the newer set_at wins, moved under canonical.
 func sweepProjectLinks(tx *sql.Tx, legacy, canonical string) error {
 	if _, err := tx.Exec(`DELETE FROM project_links WHERE local_key = ? AND EXISTS (
 		SELECT 1 FROM project_links c WHERE c.local_key = ?

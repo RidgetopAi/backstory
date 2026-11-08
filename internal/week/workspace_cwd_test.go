@@ -86,12 +86,7 @@ func weekSessions(res Result, name string) (days, sessions int) {
 func rowNames(res Result) map[string]bool {
 	got := map[string]bool{}
 	for _, row := range res.WhereLeftOff {
-		if row.Group == "" {
-			got[row.Project.DisplayName] = true
-		}
-		for _, c := range row.Children {
-			got[c.DisplayName] = true
-		}
+		got[row.Project.DisplayName] = true
 	}
 	return got
 }

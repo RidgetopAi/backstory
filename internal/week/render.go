@@ -55,14 +55,7 @@ func renderWhereLeftOff(rows []WhereLeftOffRow) string {
 	lines := make([]string, 0, len(rows)+1)
 	lines = append(lines, "Where you left off:")
 	for _, row := range rows {
-		if row.Group == "" {
-			lines = append(lines, "- "+renderProjectSummary(row.Project))
-			continue
-		}
-		lines = append(lines, fmt.Sprintf("- Group %s:", row.Group))
-		for _, child := range row.Children {
-			lines = append(lines, "  - "+renderProjectSummary(child))
-		}
+		lines = append(lines, "- "+renderProjectSummary(row.Project))
 	}
 	return strings.Join(lines, "\n")
 }

@@ -413,13 +413,8 @@ func (r hereResolver) here(dir, source string) hereJSON {
 
 // firstProject is the most recently active where_left_off project.
 func firstProject(result week.Result) (week.ProjectSummary, bool) {
-	for _, row := range result.WhereLeftOff {
-		if row.Group == "" {
-			return row.Project, true
-		}
-		if len(row.Children) > 0 {
-			return row.Children[0], true
-		}
+	if len(result.WhereLeftOff) > 0 {
+		return result.WhereLeftOff[0].Project, true
 	}
 	return week.ProjectSummary{}, false
 }

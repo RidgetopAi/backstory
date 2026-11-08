@@ -117,7 +117,7 @@ function childrenOf(node) {
 }
 
 // True once ThisWeekView's pages (SlidePage.qml) have stopped sliding and
-// only the one named pageName ("mainPage", "memoryPage", "groupsPage",
+// only the one named pageName ("mainPage", "memoryPage",
 // "helpPage") shows, at rest in the middle. A test that opens a view waits
 // for it.
 function slideDone(root, pageName) {

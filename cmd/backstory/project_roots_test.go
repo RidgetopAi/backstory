@@ -24,9 +24,6 @@ func weekProjectKeys(t *testing.T, raw string) map[string]bool {
 			Project *struct {
 				ProjectKey string `json:"project_key"`
 			} `json:"project"`
-			Children []struct {
-				ProjectKey string `json:"project_key"`
-			} `json:"children"`
 		} `json:"where_left_off"`
 		Week []struct {
 			ProjectKey string `json:"project_key"`
@@ -45,9 +42,6 @@ func weekProjectKeys(t *testing.T, raw string) map[string]bool {
 	for _, r := range out.WhereLeftOff {
 		if r.Project != nil {
 			keys[r.Project.ProjectKey] = true
-		}
-		for _, c := range r.Children {
-			keys[c.ProjectKey] = true
 		}
 	}
 	for _, w := range out.Week {

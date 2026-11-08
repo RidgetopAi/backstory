@@ -87,3 +87,14 @@ func jsStringLiteral(s string) string {
 	}
 	return string(b)
 }
+
+// jsonLiteral renders v as JSON, which is also valid JS literal syntax, so
+// a Go value can be substituted into an `expr` passed to evalJS.
+func jsonLiteral(t *testing.T, v interface{}) string {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("marshal %v: %v", v, err)
+	}
+	return string(b)
+}

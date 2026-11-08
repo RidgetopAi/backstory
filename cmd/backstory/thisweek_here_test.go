@@ -296,8 +296,7 @@ func recentKey(t *testing.T, m map[string]any) string {
 	r, _ := rows[0].(map[string]any)
 	p, ok := r["project"].(map[string]any)
 	if !ok {
-		kids, _ := r["children"].([]any)
-		p, _ = kids[0].(map[string]any)
+		t.Fatalf("where_left_off row has no project: %v", r)
 	}
 	key, _ := p["project_key"].(string)
 	return key
@@ -351,12 +350,7 @@ func TestHereAutoWindowAddresses(t *testing.T) {
 	rows, _ := m["where_left_off"].([]any)
 	for _, r := range rows {
 		row, _ := r.(map[string]any)
-		var ps []any
-		if p, ok := row["project"]; ok {
-			ps = []any{p}
-		} else {
-			ps, _ = row["children"].([]any)
-		}
+		ps := []any{row["project"]}
 		for _, p := range ps {
 			pm, _ := p.(map[string]any)
 			w, ok := pm["window"].(string)
@@ -459,12 +453,7 @@ func TestHereAutoSkipsPseudoFoldersAndHome(t *testing.T) {
 		rows, _ := m["where_left_off"].([]any)
 		for _, r := range rows {
 			row, _ := r.(map[string]any)
-			var ps []any
-			if p, ok := row["project"]; ok {
-				ps = []any{p}
-			} else {
-				ps, _ = row["children"].([]any)
-			}
+			ps := []any{row["project"]}
 			for _, p := range ps {
 				pm, _ := p.(map[string]any)
 				pk, _ := pm["project_key"].(string)
@@ -491,12 +480,7 @@ func projectFields(t *testing.T, m map[string]any, field string) map[string]stri
 	rows, _ := m["where_left_off"].([]any)
 	for _, r := range rows {
 		row, _ := r.(map[string]any)
-		var ps []any
-		if p, ok := row["project"]; ok {
-			ps = []any{p}
-		} else {
-			ps, _ = row["children"].([]any)
-		}
+		ps := []any{row["project"]}
 		for _, p := range ps {
 			pm, _ := p.(map[string]any)
 			v, ok := pm[field].(string)
@@ -568,9 +552,6 @@ func windowsByKey(t *testing.T, m map[string]any) map[string]string {
 	for _, r := range rows {
 		row, _ := r.(map[string]any)
 		ps := []any{row["project"]}
-		if row["project"] == nil {
-			ps, _ = row["children"].([]any)
-		}
 		for _, p := range ps {
 			pm, _ := p.(map[string]any)
 			w, _ := pm["window"].(string)

@@ -100,10 +100,9 @@ func mustInsertThisWeekRecord(t *testing.T, st *store.Store, r fixtureRecord) {
 //     contradicts, with evidence (contradiction).
 //   - acme-week-claim: a claim whose expires_at is before thisWeekFixtureNow
 //     and carries no produced_outcome edge (expired-claim).
-//   - acme-week-group-a / acme-week-group-b: both set into project group
-//     "widget-suite" (store.SetProjectGroup), no attention of their own —
-//     DONE WHEN clause 3's group collapse, exercised end to end through the
-//     CLI.
+//   - acme-week-pair-a / acme-week-pair-b: two plain projects that
+//     used to share a project group (removed, decision 8b726bd2); no
+//     attention of their own, each shows as its own where_left_off row.
 //   - acme-week-omarcade / acme-week-vidflow: two repos under the fixed
 //     workspace fixtureWorkspaceDir, each with its own handoff filed under
 //     the WORKSPACE's home key (exactly what HOME files a real one under) —
@@ -233,17 +232,17 @@ func buildThisWeekFixtureStore(t *testing.T, dataDir string) {
 		Kind: store.KindHandoff, Tier: store.TierAgentDeclared, Text: "Resume: ship omarcade and vidflow's shared feature",
 	})
 
-	// --- acme-week-group-a / acme-week-group-b: grouped, nothing to flag.
-	const groupAProject = "acme-week-group-a"
-	const groupBProject = "acme-week-group-b"
+	// --- acme-week-pair-a / acme-week-pair-b: plain projects, nothing to flag.
+	const pairAProject = "acme-week-pair-a"
+	const pairBProject = "acme-week-pair-b"
 	for i, p := range []struct {
 		key       string
 		toplevel  string
 		sessionID string
 		startedAt time.Time
 	}{
-		{groupAProject, "/home/brian/acme-week-group-a", "sess-group-a-1", date(6, 9, 0)},
-		{groupBProject, "/home/brian/acme-week-group-b", "sess-group-b-1", date(7, 9, 0)},
+		{pairAProject, "/home/brian/acme-week-pair-a", "sess-pair-a-1", date(6, 9, 0)},
+		{pairBProject, "/home/brian/acme-week-pair-b", "sess-pair-b-1", date(7, 9, 0)},
 	} {
 		if err := st.UpsertProject(store.Project{Key: p.key, Toplevel: p.toplevel, FirstSeen: p.startedAt}); err != nil {
 			t.Fatalf("UpsertProject(%s): %v", p.key, err)
@@ -289,13 +288,6 @@ func buildThisWeekFixtureStore(t *testing.T, dataDir string) {
 		t.Fatalf("link done edge: %v", err)
 	}
 
-	human := store.Identity{Kind: store.IdentityHuman, Actor: "human"}
-	if err := st.SetProjectGroup(human, "widget-suite", groupAProject); err != nil {
-		t.Fatalf("SetProjectGroup(a): %v", err)
-	}
-	if err := st.SetProjectGroup(human, "widget-suite", groupBProject); err != nil {
-		t.Fatalf("SetProjectGroup(b): %v", err)
-	}
 }
 
 func mustAppendEvent(t *testing.T, st *store.Store, e store.Event) int64 {
@@ -388,8 +380,29 @@ func TestThisWeekGoldenJSON(t *testing.T) {
 		!strings.Contains(syncItem.Reason, "laptop") || !strings.Contains(syncItem.Reason, "proto 2") {
 		t.Errorf("sync-failing item = %+v, want kind sync-failing, project_key sync, evidence [1], reason naming laptop and the cause", syncItem)
 	}
-	if len(parsed.WhereLeftOff) != 8 {
-		t.Fatalf("where_left_off rows = %d, want 8 (4 standalone + 1 group + the workspace root + omarcade + vidflow; got %+v)", len(parsed.WhereLeftOff), parsed.WhereLeftOff)
+	if len(parsed.WhereLeftOff) != 9 {
+		t.Fatalf("where_left_off rows = %d, want 9 (6 plain + the workspace root + omarcade + vidflow; got %+v)", len(parsed.WhereLeftOff), parsed.WhereLeftOff)
+	}
+	// Project groups are gone (decision 8b726bd2): every where_left_off row
+	// is exactly {"project": {...}}, and the two projects that used to share
+	// a group are two plain rows.
+	var raw struct {
+		WhereLeftOff []map[string]json.RawMessage `json:"where_left_off"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &raw); err != nil {
+		t.Fatalf("decode raw --json output: %v", err)
+	}
+	plain := map[string]bool{}
+	for i, row := range raw.WhereLeftOff {
+		if len(row) != 1 || row["project"] == nil {
+			t.Errorf("where_left_off[%d] keys = %v, want only \"project\" (no group/children)", i, row)
+		}
+		if p := parsed.WhereLeftOff[i].Project; p != nil {
+			plain[p.ProjectKey] = true
+		}
+	}
+	if !plain["acme-week-pair-a"] || !plain["acme-week-pair-b"] {
+		t.Errorf("former group members are not both plain rows: %v", plain)
 	}
 	if len(parsed.Week) != 9 {
 		t.Fatalf("week entries = %d, want 9 (got %+v)", len(parsed.Week), parsed.Week)

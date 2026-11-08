@@ -57,14 +57,6 @@ func rawInsertRecord(t *testing.T, db *sql.DB, id, key, sessionID string, kind R
 	}
 }
 
-func rawInsertGroup(t *testing.T, db *sql.DB, key, groupName string, setAt time.Time) {
-	t.Helper()
-	if _, err := db.Exec(`INSERT INTO project_groups (project_key, group_name, set_at) VALUES (?, ?, ?)`,
-		key, groupName, tsToNanos(setAt)); err != nil {
-		t.Fatalf("raw insert group %s: %v", key, err)
-	}
-}
-
 func countWhere(t *testing.T, db *sql.DB, table, column, value string) int {
 	t.Helper()
 	var n int
@@ -77,7 +69,7 @@ func countWhere(t *testing.T, db *sql.DB, table, column, value string) int {
 
 // seedLegacySweepFixture builds the punch's DONE WHEN clause 1 fixture: a
 // legacy plain W row AND a workspace:W row, each already present in
-// projects/sessions/records/project_groups (a handoff and a decision under
+// projects/sessions/records (a handoff and a decision under
 // each in records), plus a repo key nested under W and a key outside any
 // workspace — both of which the sweep's exact-match rule must leave byte
 // for byte alone. Everything is seeded via raw SQL against a migrated-but-
@@ -108,9 +100,6 @@ func seedLegacySweepFixture(t *testing.T) (dbPath, w string) {
 	rawInsertRecord(t, db, "rec-legacy-decision", w, "sess-legacy-1", KindDecision, sweepT1)
 	rawInsertRecord(t, db, "rec-ws-handoff", wsKey, "sess-ws-1", KindHandoff, sweepT2)
 	rawInsertRecord(t, db, "rec-ws-decision", wsKey, "sess-ws-1", KindDecision, sweepT2)
-
-	rawInsertGroup(t, db, w, "old", sweepT1)
-	rawInsertGroup(t, db, wsKey, "new", sweepT2)
 
 	// A real repo living under W, key text-prefixed by W: exact-match only,
 	// must never be swept just because it starts with W's own string.
@@ -144,7 +133,7 @@ func TestSweepMergesLegacyIntoCanonicalAcrossAllFourTables(t *testing.T) {
 	t.Cleanup(func() { _ = s.Close() })
 	db := s.DB()
 
-	for _, table := range []string{"projects", "sessions", "records", "project_groups"} {
+	for _, table := range []string{"projects", "sessions", "records"} {
 		col := "key"
 		if table != "projects" {
 			col = "project_key"
@@ -169,18 +158,6 @@ func TestSweepMergesLegacyIntoCanonicalAcrossAllFourTables(t *testing.T) {
 	}
 	if got := tsFromNanos(firstSeenNanos); !got.Equal(sweepT1) {
 		t.Errorf("canonical project first_seen = %s, want %s (the earlier, legacy value)", got, sweepT1)
-	}
-
-	// project_groups: exactly one merged row, the newer (canonical) one won.
-	if n := countWhere(t, db, "project_groups", "project_key", wsKey); n != 1 {
-		t.Errorf("project_groups: count(project_key = %q) = %d, want exactly 1 (merged)", wsKey, n)
-	}
-	var groupName string
-	if err := db.QueryRow(`SELECT group_name FROM project_groups WHERE project_key = ?`, wsKey).Scan(&groupName); err != nil {
-		t.Fatalf("read merged group: %v", err)
-	}
-	if groupName != "new" {
-		t.Errorf("merged project_groups group_name = %q, want %q (canonical's set_at was later)", groupName, "new")
 	}
 
 	// The repo key and the outside key are byte for byte untouched — exact
@@ -302,7 +279,7 @@ func globPreSweepBackups(t *testing.T, dbPath string) []string {
 }
 
 // TestSweepCatchesStaleWriterAfterFirstOpen is DONE WHEN clause 4: a raw-SQL
-// insert of a legacy session and a legacy project_groups row after the
+// insert of a legacy session after the
 // first Open (simulating a daemon that has not yet restarted after an
 // upgrade, still minting the plain key) leaves 0 legacy rows after the next
 // Open.
@@ -328,7 +305,6 @@ func TestSweepCatchesStaleWriterAfterFirstOpen(t *testing.T) {
 	// key, so nothing could reference W without this.
 	rawInsertProject(t, raw, w, w, sweepT2.Add(time.Hour))
 	rawInsertSession(t, raw, "sess-stale", w, w, sweepT2.Add(time.Hour))
-	rawInsertGroup(t, raw, w, "stale-group", sweepT2.Add(2*time.Hour))
 	if err := raw.Close(); err != nil {
 		t.Fatalf("close raw connection: %v", err)
 	}
@@ -346,65 +322,40 @@ func TestSweepCatchesStaleWriterAfterFirstOpen(t *testing.T) {
 	if n := countWhere(t, db, "sessions", "project_key", w); n != 0 {
 		t.Errorf("sessions: count(project_key = %q) = %d, want 0", w, n)
 	}
-	if n := countWhere(t, db, "project_groups", "project_key", w); n != 0 {
-		t.Errorf("project_groups: count(project_key = %q) = %d, want 0", w, n)
-	}
 	if n := countWhere(t, db, "sessions", "project_key", wsKey); n != 4 {
 		t.Errorf("sessions: count(project_key = %q) = %d, want 4 (3 from round 1 + the stale writer's)", wsKey, n)
 	}
 }
 
-// TestSweepGroupMergeNewerSetAtWins is DONE WHEN clause 5: legacy `old`@t1
-// vs workspace `new`@t2>t1 merges to `new`; reversed timestamps merges to
-// `old`.
-func TestSweepGroupMergeNewerSetAtWins(t *testing.T) {
-	for _, tc := range []struct {
-		name                  string
-		legacyAt, canonicalAt time.Time
-		wantGroup             string
-	}{
-		{"canonical newer wins", sweepT1, sweepT2, "new"},
-		{"legacy newer wins (reversed timestamps)", sweepT2, sweepT1, "old"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			dbPath := tempDBPath(t)
-			w := filepath.Join(t.TempDir(), "projects")
-			wsKey := "workspace:" + w
+// TestSweepSucceedsOnStoreThatHeldAProjectGroupsRowForTheLegacyKey: a store
+// at the pre-0027 schema holding a project_groups row for the legacy key
+// (which foreign-keys into projects) opens, migrates, and then sweeps that
+// legacy key into its workspace form without a foreign-key error.
+func TestSweepSucceedsOnStoreThatHeldAProjectGroupsRowForTheLegacyKey(t *testing.T) {
+	dbPath, w := seedLegacySweepFixture(t)
+	wsKey := "workspace:" + w
+	downgradeToPre0027(t, dbPath, []string{w, wsKey})
 
-			seed, err := Open(dbPath, nil, nil)
-			if err != nil {
-				t.Fatalf("Open (seed): %v", err)
-			}
-			db := seed.DB()
-			rawInsertProject(t, db, w, w, sweepT1)
-			rawInsertProject(t, db, wsKey, w, sweepT1)
-			rawInsertGroup(t, db, w, "old", tc.legacyAt)
-			rawInsertGroup(t, db, wsKey, "new", tc.canonicalAt)
-			if err := seed.Close(); err != nil {
-				t.Fatalf("close seed: %v", err)
-			}
-
-			s, err := Open(dbPath, []string{w}, fakeSweepGit{})
-			if err != nil {
-				t.Fatalf("Open (sweep): %v", err)
-			}
-			t.Cleanup(func() { _ = s.Close() })
-
-			var got string
-			if err := s.DB().QueryRow(`SELECT group_name FROM project_groups WHERE project_key = ?`, wsKey).Scan(&got); err != nil {
-				t.Fatalf("read merged group: %v", err)
-			}
-			if got != tc.wantGroup {
-				t.Errorf("merged group_name = %q, want %q", got, tc.wantGroup)
-			}
-			if n := countWhere(t, s.DB(), "project_groups", "project_key", wsKey); n != 1 {
-				t.Errorf("count(project_groups.project_key = %q) = %d, want exactly 1", wsKey, n)
-			}
-			if n := countWhere(t, s.DB(), "project_groups", "project_key", w); n != 0 {
-				t.Errorf("count(project_groups.project_key = %q) = %d, want 0", w, n)
-			}
-		})
+	s, err := Open(dbPath, []string{w}, fakeSweepGit{})
+	if err != nil {
+		t.Fatalf("Open (migrate + sweep) on a store holding project_groups rows: %v", err)
 	}
+	t.Cleanup(func() { _ = s.Close() })
+	db := s.DB()
+
+	if tableExists(t, s, "project_groups") {
+		t.Error("project_groups still exists after migration")
+	}
+	if n := countWhere(t, db, "projects", "key", w); n != 0 {
+		t.Errorf("projects: count(key = %q) = %d, want 0 (swept)", w, n)
+	}
+	if n := countWhere(t, db, "sessions", "project_key", wsKey); n != 3 {
+		t.Errorf("sessions under %q = %d, want 3", wsKey, n)
+	}
+	if n := countWhere(t, db, "records", "project_key", wsKey); n != 4 {
+		t.Errorf("records under %q = %d, want 4", wsKey, n)
+	}
+	assertNoForeignKeyViolations(t, db)
 }
 
 // TestSweepSkipsWorkspaceDirThatIsItselfAGitRepo is DONE WHEN clause 6: a

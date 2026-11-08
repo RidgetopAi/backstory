@@ -6,8 +6,8 @@ import (
 )
 
 // modelJSPathForRuntime is js/model.js's own path, run under Node the same
-// way launcher_contract_test.go and groups_selection_test.go already run
-// js/launchers.js and js/groups.js (js_runtime_test.go's evalJS) — DONE
+// way launcher_contract_test.go already runs
+// js/launchers.js (js_runtime_test.go's evalJS) — DONE
 // WHEN clause 7: "Every js/model.js list accessor returns [] for an
 // absent field; a JS test calls each on {} and asserts an array."
 const modelJSPathForRuntime = "js/model.js"
@@ -26,7 +26,6 @@ func TestModelListAccessorsReturnArrayForAbsentField(t *testing.T) {
 		{"topWhereLeftOff", "topWhereLeftOff({})"},
 		{"topWeek", "topWeek({})"},
 		{"attentionEvidenceIds", "attentionEvidenceIds({})"},
-		{"rowChildren", "rowChildren({})"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

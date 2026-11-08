@@ -56,7 +56,7 @@ librewolf, whose descendants are tabs and extension helpers), a window with no u
 and a folder outside `BACKSTORY_PROJECT_ROOTS`. When no window qualifies, or `hyprctl`/`tmux` is missing or
 fails, it degrades to `source: "recent"`: never a non-zero exit, stdout is always valid JSON.
 
-With `--here auto` every `ProjectSummary` (standalone or group child) also carries `window`:
+With `--here auto` every `ProjectSummary` (a where_left_off row's `project`) also carries `window`:
 the Hyprland address of an open window (`hyprctl clients -j`) whose folder, resolved by the
 same rule, maps to that project; `""` when none; with several, the lowest `focusHistoryID`.
 The rule looks at every pane of every window of each attached tmux client's session
@@ -142,24 +142,20 @@ is never `handoff_stale` and produces no `possibly-stale-handoff` item. Deleting
 
 ## Where you left off — `WhereLeftOffRow`
 
-One row per project with activity in the window, most recently active first. A project in a
-user group (`store.SetProjectGroup`, human-only) collapses into one row with its
-group-mates as children, rather than appearing as its own row (decision `9be5c1d5`). A
-workspace identity (`project.IsWorkspaceKey`) is never a standalone project row and never a
-group child (decision `bcc9fa54`: a workspace is not a project). It does appear, though, as
+One row per project with activity in the window, most recently active first. A
+workspace identity (`project.IsWorkspaceKey`) is never a project row
+(decision `bcc9fa54`: a workspace is not a project). It does appear, though, as
 the **workspace root row**: when a session started at the workspace root itself (or a
 handoff was filed there), the root is listed as a work location labelled with the root, next
 to the rows for repos and non-git folders under it (decision `f3fa04c7` clause 5;
 `AGENT-CONTRACT.md` "the workspace root row").
 
 ```json
-{ "project": ProjectSummary }                          // standalone row
-{ "group": "widget-suite", "children": [ProjectSummary, ...] }  // group row
+{ "project": ProjectSummary }
 ```
 
-`group` and `children` are present together, on a group row, and absent together on a
-standalone row; `project` is present only on a standalone row. A panel branches on whether
-`group` is set.
+Every row is exactly `{ "project": ... }`. Project groups were removed (decision `8b726bd2`):
+rows carry no `group` or `children`, and projects that used to share a group are plain rows.
 
 ### `ProjectSummary`
 

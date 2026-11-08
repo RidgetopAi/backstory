@@ -6,9 +6,12 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"text/tabwriter"
+	"time"
 
+	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
@@ -34,8 +37,7 @@ func runLink(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
-// runLinkSet is `backstory link set <name> [<project-key>|--here]`. Like
-// `group set` it writes through humanIdentity: a link is a human-only power.
+// runLinkSet is `backstory link set <name> [<project-key>|--here]`. It writes through humanIdentity: a link is a human-only power.
 func runLinkSet(args []string, stdout, stderr io.Writer) int {
 	const usage = "usage: backstory link set <name> [<project-key>|--here]"
 	positional, here, err := splitHereArgs(args, usage)
@@ -198,4 +200,62 @@ func openStoreFor(sub string, stderr io.Writer) (*store.Store, int) {
 		return nil, 1
 	}
 	return st, 0
+}
+
+// errNotAProject is returned by resolveHereProjectKey when --here is run
+// outside any git working tree: AGENT-CONTRACT.md's "Project = git
+// repository identity" means a bare directory (a workspace, in the
+// original description's word for it) has no project identity to link —
+// internal/project.Key would otherwise silently fall back to cwd itself,
+// which is not an observed project and must never become one just because
+// a human happened to run this command from it.
+func errNotAProject(cwd string) error {
+	return fmt.Errorf("--here: %s is not inside a git repository; a workspace is not a project", cwd)
+}
+
+// resolveHereProjectKey resolves the current directory's project key the
+// same way the daemon's session resolver does (project.Key over
+// project.RealGit, cmd/backstory/daemon.go's runDaemon), refuses a
+// directory outside any git working tree, and upserts the project row
+// first — mirroring internal/mcp/daemon.go's startSession, since
+// --here may be the first time this project's key is ever written.
+func resolveHereProjectKey(st *store.Store) (string, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("resolve cwd: %w", err)
+	}
+	git := project.RealGit{}
+	repo, ok := git.Repo(cwd)
+	if !ok {
+		return "", errNotAProject(cwd)
+	}
+	// Same workspace rule as the daemon (decision bcc9fa54); no resolvable
+	// home dir just means no default workspace.
+	workspaces, _ := project.DefaultWorkspaceDirs()
+	key := project.Key(cwd, git, workspaces)
+	if err := st.UpsertProject(store.Project{
+		Key:          key,
+		GitCommonDir: repo.CommonDir,
+		RemoteURL:    repo.RemoteURL,
+		Toplevel:     repo.Toplevel,
+		FirstSeen:    time.Now(),
+	}); err != nil {
+		return "", err
+	}
+	return key, nil
+}
+
+// resolveWorkspaceDirs resolves the configured workspace directories once,
+// here, at the process entry (task 482b2320, decision f3fa04c7's clause 7:
+// workspace dirs are resolved by the caller, never internally by
+// internal/week or internal/store) — callers need this same list to
+// canonicalize a legacy plain key to its workspace-prefixed form. nil (never resolved) is safe: it just means
+// no key is ever seen as a workspace legacy form, the same "no workspace
+// configured" fallback DefaultWorkspaceDirs' own callers already used.
+func resolveWorkspaceDirs() []string {
+	workspaceDirs, err := project.DefaultWorkspaceDirs()
+	if err != nil {
+		return nil
+	}
+	return workspaceDirs
 }

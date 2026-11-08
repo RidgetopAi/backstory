@@ -280,7 +280,7 @@ func TestBuildCouldNotObserveProducesNoAttentionItem(t *testing.T) {
 
 // TestBuildWorkspaceIdentityNeverAppears asserts the workspace identity
 // seeded into buildFullFixtureStore shows up nowhere: not in Attention, not
-// in Where-you-left-off (standalone or as a group child), not in The week.
+// in Where-you-left-off not in The week.
 func TestBuildWorkspaceIdentityNeverAppears(t *testing.T) {
 	st, _, _, _ := buildFullFixtureStore(t)
 
@@ -298,11 +298,6 @@ func TestBuildWorkspaceIdentityNeverAppears(t *testing.T) {
 	for _, row := range res.WhereLeftOff {
 		if row.Project.ProjectKey == wsKey {
 			t.Fatalf("workspace identity appeared as a Where-you-left-off row: %+v", row)
-		}
-		for _, c := range row.Children {
-			if c.ProjectKey == wsKey {
-				t.Fatalf("workspace identity appeared as a group child: %+v", c)
-			}
 		}
 	}
 	for _, d := range res.Week {
@@ -360,59 +355,6 @@ func TestFreshnessEvidenceIDsNeverNull(t *testing.T) {
 	b, err := json.Marshal(freshnessEvidenceIDs(nil))
 	if err != nil || string(b) != "[]" {
 		t.Fatalf("freshnessEvidenceIDs(nil) marshals as %s (err %v), want []", b, err)
-	}
-}
-
-// --- DONE WHEN clause 3: two projects in one user group collapse into one row ---
-
-func TestBuildGroupedProjectsCollapseIntoOneRowWithBothAsChildren(t *testing.T) {
-	st := openTestStore(t)
-	upsertProject(t, st, "proj-group-a", "/home/brian/group-a")
-	upsertProject(t, st, "proj-group-b", "/home/brian/group-b")
-	sidA := startSession(t, st, "sess-group-a", "proj-group-a", "/home/brian/group-a", fixtureNow.Add(-1*24*time.Hour))
-	sidB := startSession(t, st, "sess-group-b", "proj-group-b", "/home/brian/group-b", fixtureNow.Add(-2*24*time.Hour))
-	appendEvent(t, st, store.Event{TS: fixtureNow.Add(-1 * 24 * time.Hour), Kind: "tool.use", SessionID: sidA, Source: "shell", Payload: `{}`})
-	appendEvent(t, st, store.Event{TS: fixtureNow.Add(-2 * 24 * time.Hour), Kind: "tool.use", SessionID: sidB, Source: "shell", Payload: `{}`})
-
-	human := store.Identity{Kind: store.IdentityHuman, Actor: "human"}
-	if err := st.SetProjectGroup(human, "widget-suite", "proj-group-a"); err != nil {
-		t.Fatalf("SetProjectGroup(a): %v", err)
-	}
-	if err := st.SetProjectGroup(human, "widget-suite", "proj-group-b"); err != nil {
-		t.Fatalf("SetProjectGroup(b): %v", err)
-	}
-
-	res, err := Build(Params{Store: st, Now: fixtureNow})
-	if err != nil {
-		t.Fatalf("Build: %v", err)
-	}
-
-	var groupRows []WhereLeftOffRow
-	for _, row := range res.WhereLeftOff {
-		if row.Group != "" {
-			groupRows = append(groupRows, row)
-		}
-	}
-	if len(groupRows) != 1 {
-		t.Fatalf("group rows = %d, want 1 (got %+v)", len(groupRows), res.WhereLeftOff)
-	}
-	row := groupRows[0]
-	if row.Group != "widget-suite" {
-		t.Errorf("group name = %q, want widget-suite", row.Group)
-	}
-	if len(row.Children) != 2 {
-		t.Fatalf("group children = %d, want 2 (got %+v)", len(row.Children), row.Children)
-	}
-	gotKeys := map[string]bool{row.Children[0].ProjectKey: true, row.Children[1].ProjectKey: true}
-	if !gotKeys["proj-group-a"] || !gotKeys["proj-group-b"] {
-		t.Errorf("group children = %+v, want proj-group-a and proj-group-b", row.Children)
-	}
-
-	// Neither grouped project also appears as its own standalone row.
-	for _, r := range res.WhereLeftOff {
-		if r.Group == "" && (r.Project.ProjectKey == "proj-group-a" || r.Project.ProjectKey == "proj-group-b") {
-			t.Fatalf("grouped project also rendered as a standalone row: %+v", r)
-		}
 	}
 }
 
@@ -644,13 +586,7 @@ func (d *desk) build(t *testing.T, rules LocationRules) Result {
 func whereKeys(res Result) map[string]bool {
 	got := map[string]bool{}
 	for _, row := range res.WhereLeftOff {
-		if row.Group == "" {
-			got[row.Project.ProjectKey] = true
-			continue
-		}
-		for _, c := range row.Children {
-			got[c.ProjectKey] = true
-		}
+		got[row.Project.ProjectKey] = true
 	}
 	return got
 }
@@ -786,13 +722,8 @@ func startAgentSession(t *testing.T, st *store.Store, id, agent, key, cwd string
 func rowByKey(t *testing.T, res Result, key string) ProjectSummary {
 	t.Helper()
 	for _, row := range res.WhereLeftOff {
-		if row.Group == "" && row.Project.ProjectKey == key {
+		if row.Project.ProjectKey == key {
 			return row.Project
-		}
-		for _, c := range row.Children {
-			if c.ProjectKey == key {
-				return c
-			}
 		}
 	}
 	t.Fatalf("no where_left_off row for %s: %+v", key, res.WhereLeftOff)
@@ -867,7 +798,7 @@ func TestBuildWorkspaceRowLastAgentMatchesLastActivity(t *testing.T) {
 	res := d.build(t, d.rules)
 	var row *ProjectSummary
 	for _, r := range res.WhereLeftOff {
-		if r.Group == "" && strings.HasPrefix(r.Project.ProjectKey, "workspace:") {
+		if strings.HasPrefix(r.Project.ProjectKey, "workspace:") {
 			p := r.Project
 			row = &p
 		}
@@ -888,7 +819,7 @@ func TestBuildWorkspaceRowLastAgentMatchesLastActivity(t *testing.T) {
 func wsRows(res Result) []ProjectSummary {
 	var out []ProjectSummary
 	for _, r := range res.WhereLeftOff {
-		if r.Group == "" && strings.HasPrefix(r.Project.ProjectKey, "workspace:") {
+		if strings.HasPrefix(r.Project.ProjectKey, "workspace:") {
 			out = append(out, r.Project)
 		}
 	}
@@ -1173,13 +1104,7 @@ func TestDoneHandoffCarriesFlagAndNoAttentionItem(t *testing.T) {
 	}
 	found := false
 	for _, row := range res.WhereLeftOff {
-		ps := []ProjectSummary{}
-		if row.Group == "" {
-			ps = append(ps, row.Project)
-		} else {
-			ps = append(ps, row.Children...)
-		}
-		for _, p := range ps {
+		for _, p := range []ProjectSummary{row.Project} {
 			if p.ProjectKey == key {
 				found = true
 				if !p.HandoffDone || p.HandoffDoneAt.IsZero() || p.HandoffStale || p.HandoffID != handoffID {

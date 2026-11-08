@@ -57,15 +57,11 @@ function attentionEvidenceIds(item) { return item.evidence_ids || [] }
 var ATTENTION_SYNC_FAILING = "sync-failing"
 function attentionIsSyncFailing(item) { return item.kind === ATTENTION_SYNC_FAILING }
 
-// Where you left off — one row is either `{project}` (standalone) or
-// `{group, children}` (group row); a caller branches on rowGroup(row)
-// being non-empty (PANEL-CONTRACT.md "Where you left off").
-function rowGroup(row) { return row.group }
+// Where you left off — one row is `{project}` (PANEL-CONTRACT.md "Where you
+// left off").
 function rowProject(row) { return row.project }
-function rowChildren(row) { return row.children || [] }
 
-// ProjectSummary — a standalone row's `project`, or one entry of a group
-// row's `children` (PANEL-CONTRACT.md "ProjectSummary"). handoff_id,
+// ProjectSummary — a row's `project` (PANEL-CONTRACT.md "ProjectSummary"). handoff_id,
 // handoff_first_line and handoff_stale are only present on a project with
 // a handoff record; QML callers treat their absence as "no handoff", never
 // as an error.
