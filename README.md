@@ -142,7 +142,11 @@ tarball holds the program, its `systemd --user` unit, `LICENSE` and this README.
 the keyboard-shortcut file come with install from source, so for the full setup, use
 `make install` above.
 
-**AUR:** coming, not available yet.
+**AUR:** coming, not available yet. The package will install `/usr/bin/backstory`, the daemon
+and sync `systemd --user` units (pointing at `/usr/bin/backstory`), and the Hyprland shortcut
+file at `/usr/share/backstory/hyprland/backstory.lua`. It sets up nothing per user: on install
+it prints the steps (enable the daemon, `backstory install`, `backstory backfill`, the panel
+from the Omarchy plugin marketplace).
 
 ## Updating
 

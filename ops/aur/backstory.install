@@ -1,8 +1,17 @@
+# The Omarchy plugin marketplace id of the bar panel; the one place to change
+# if the plugin is renamed.
+BACKSTORY_PANEL_PLUGIN="backstory.this-week"
+
 post_install() {
-	echo "==> Backstory: a package cannot enable a per-user plugin. To show the bar panel, run as your user:"
-	echo "      omarchy plugin enable backstory.this-week"
+	echo "==> Backstory: a package cannot set up per-user state. Run these as your user, in order:"
+	echo "      1. systemctl --user enable --now backstory     # enable and start the daemon"
+	echo "      2. backstory install                           # connect your agents"
+	echo "      3. backstory backfill claude                   # import history (or codex / hermes / pi)"
+	echo "      4. Install the panel ($BACKSTORY_PANEL_PLUGIN) from the Omarchy plugin marketplace"
+	echo "      5. Optional Hyprland shortcut file: /usr/share/backstory/hyprland/backstory.lua"
 }
 
 post_upgrade() {
-	post_install
+	echo "==> Backstory: reload and restart the user unit to run the new version:"
+	echo "      systemctl --user daemon-reload && systemctl --user restart backstory"
 }

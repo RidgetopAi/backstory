@@ -86,7 +86,11 @@ func TestInstallSyncLifecycle(t *testing.T) {
 		}
 	}
 	b, _ := os.ReadFile(svc) //nolint:gosec // fixture path
-	if !strings.Contains(string(b), "ExecStart=%h/.local/bin/backstory sync --quiet") || !strings.Contains(string(b), "Type=oneshot") {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(b), "ExecStart="+exe+" sync --quiet\n") || strings.Contains(string(b), "%h/.local/bin") || !strings.Contains(string(b), "Type=oneshot") {
 		t.Fatalf("service unit: %s", b)
 	}
 	if !strings.Contains(strings.Join(*calls, "\n"), "enable --now backstory-sync.timer") {
@@ -94,6 +98,21 @@ func TestInstallSyncLifecycle(t *testing.T) {
 	}
 	if code, out, _ := runLinkCLI(t, "install", "sync", "--check"); code != 0 || !strings.Contains(out, "present") {
 		t.Fatalf("check present: code=%d out=%q", code, out)
+	}
+
+	// An older unit naming the make-install path is outdated, then rewritten.
+	old := strings.Replace(install.SyncServiceUnit, "ExecStart=%h/.local/bin/backstory", "ExecStart=%h/.local/bin/backstory", 1)
+	if err := os.WriteFile(svc, []byte(old), 0o644); err != nil { //nolint:gosec // fixture path
+		t.Fatal(err)
+	}
+	if code, out, _ := runLinkCLI(t, "install", "sync", "--check"); code == 0 || !strings.Contains(out, "outdated") {
+		t.Fatalf("check outdated: code=%d out=%q", code, out)
+	}
+	if code, _, errs := runLinkCLI(t, "install", "sync"); code != 0 {
+		t.Fatalf("reinstall: %s", errs)
+	}
+	if b, _ := os.ReadFile(svc); !strings.Contains(string(b), "ExecStart="+exe+" sync --quiet") { //nolint:gosec // fixture path
+		t.Fatalf("old unit not rewritten: %s", b)
 	}
 
 	// Inactive: units on disk, timer not enabled.

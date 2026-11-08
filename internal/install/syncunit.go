@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 // The optional sync timer (phase 8, D6): a systemd --user timer that runs
@@ -16,13 +17,49 @@ const (
 )
 
 // SyncServiceUnit and SyncTimerUnit are the unit files; ops/ carries the same
-// text for `make install`-less readers and a test keeps the two identical.
+// text for `make install` readers and a test keeps the two identical.
+// SyncServiceUnit names the make-install binary path (SyncUnitTemplateBinary);
+// SyncServiceUnitFor renders it for the binary that is actually running.
 //
 //go:embed units/backstory-sync.service
 var SyncServiceUnit string
 
 //go:embed units/backstory-sync.timer
 var SyncTimerUnit string
+
+// SyncUnitTemplateBinary is the make-install ExecStart binary the embedded
+// service unit names; it is the text SyncServiceUnitFor replaces.
+const SyncUnitTemplateBinary = "%h/.local/bin/backstory"
+
+// executablePath is this process's binary; tests replace it.
+var executablePath = os.Executable
+
+// SyncServiceUnitFor is the sync service unit with ExecStart pointing at exe.
+func SyncServiceUnitFor(exe string) string {
+	return strings.Replace(SyncServiceUnit, "ExecStart="+SyncUnitTemplateBinary+" ", "ExecStart="+systemdExecPath(exe)+" ", 1)
+}
+
+// systemdExecPath makes a path safe as the first word of ExecStart: `%` is a
+// specifier escape and whitespace splits words, so the path is escaped/quoted.
+func systemdExecPath(p string) string {
+	p = strings.ReplaceAll(p, "%", "%%")
+	if strings.ContainsAny(p, " \t\"'\\") {
+		p = `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(p) + `"`
+	}
+	return p
+}
+
+// runningSyncService renders the service unit for the running binary.
+func runningSyncService() (string, error) {
+	exe, err := executablePath()
+	if err != nil {
+		return "", fmt.Errorf("locate backstory binary: %w", err)
+	}
+	if abs, err := filepath.Abs(exe); err == nil {
+		exe = abs
+	}
+	return SyncServiceUnitFor(exe), nil
+}
 
 // ServiceManager runs `systemctl --user <args>`. Tests replace it; nothing
 // else may invoke a real service manager.
@@ -50,7 +87,11 @@ func InstallSyncTimer(home string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // user unit dir
 		return err
 	}
-	for name, body := range map[string]string{SyncServiceName: SyncServiceUnit, SyncTimerName: SyncTimerUnit} {
+	svc, err := runningSyncService()
+	if err != nil {
+		return err
+	}
+	for name, body := range map[string]string{SyncServiceName: svc, SyncTimerName: SyncTimerUnit} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil { //nolint:gosec // unit files are world-readable
 			return err
 		}
@@ -79,13 +120,20 @@ func RemoveSyncTimer(home string) error {
 }
 
 // SyncTimerStatus is present (both units written and the timer enabled),
-// inactive (units written, timer not enabled) or absent.
+// inactive (units written, timer not enabled), outdated (the service unit
+// names a binary other than the running one, e.g. the old %h/.local/bin
+// path; `backstory install sync` rewrites it) or absent.
 func SyncTimerStatus(home string) ItemStatus {
 	dir := SyncUnitDir(home)
 	_, errT := os.Stat(filepath.Join(dir, SyncTimerName))
 	_, errS := os.Stat(filepath.Join(dir, SyncServiceName))
 	if errT != nil || errS != nil {
 		return StatusAbsent
+	}
+	if want, err := runningSyncService(); err == nil {
+		if got, err := os.ReadFile(filepath.Join(dir, SyncServiceName)); err == nil && string(got) != want { //nolint:gosec // user unit dir
+			return StatusOutdated
+		}
 	}
 	if err := ServiceManager("is-enabled", "--quiet", SyncTimerName); err != nil {
 		return StatusInactive
