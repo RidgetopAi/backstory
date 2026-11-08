@@ -86,6 +86,14 @@ TestCase {
     var widget = loader.item
     act.settled(function () { return widget.notInstalled === true }, "widget never flagged the missing binary")
     compare(widget.statusMessage, "Backstory isn't installed yet. Install the backstory package, then run `backstory install`.")
+    // And the popup renders it, visibly.
+    var content = openPopup(widget)
+    var msg = null
+    act.settled(function () {
+      msg = TestUtil.findFirst(content, function (n) { return n.objectName === "notInstalledMessage" })
+      return msg !== null && msg.visible
+    }, "popup never showed the not-installed message")
+    compare(msg.text, widget.statusMessage)
   }
 
   function test_another_failure_is_not_the_not_installed_state() {
