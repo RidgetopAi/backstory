@@ -213,12 +213,22 @@ func TestPanelManifestVersionTracksChangelogNotPKGBUILD(t *testing.T) {
 		}
 		return root
 	}
-	const cur = "1.3.0"
+	// cur is the version the repo is at now (its newest released CHANGELOG
+	// section), never a literal: a literal goes stale at the next release
+	// and turns this test RED on exactly the release commit it describes.
+	realCL, err := os.ReadFile("../CHANGELOG.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cur, err := newestReleasedVersion(string(realCL))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if p := panelManifestProblems(stage(t, true, "9.9.9")); len(p) != 0 {
 		t.Errorf("release commit (CHANGELOG 9.9.9 + manifest 9.9.9) should be green: %v", p)
 	}
 	if p := panelManifestProblems(stage(t, true, cur)); len(p) == 0 {
-		t.Error("CHANGELOG 9.9.9 with manifest still 1.3.0 should be red")
+		t.Errorf("CHANGELOG 9.9.9 with manifest still %s should be red", cur)
 	}
 	if p := panelManifestProblems(stage(t, false, "9.9.9")); len(p) == 0 {
 		t.Error("manifest 9.9.9 with no CHANGELOG 9.9.9 section should be red")
