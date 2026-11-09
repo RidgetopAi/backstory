@@ -195,6 +195,24 @@ Ui.Panel {
   Process {
     id: dataProcess
     command: Launchers.thisWeekCommand()
+    // Whether `started` fired for the run now ending; consumed (reset) when
+    // that run's running goes false.
+    property bool startedThisRun: false
+    // The last running value handled. A notification repeating it is stale
+    // (a run that ends inside its own start notification delivers the end
+    // first), and must not be read as a second, un-started run end.
+    property var lastRunning: null
+    onStarted: dataProcess.startedThisRun = true
+    onRunningChanged: {
+      if (dataProcess.running === dataProcess.lastRunning) return
+      dataProcess.lastRunning = dataProcess.running
+      if (dataProcess.running) return
+      var failed = Model.runFailedToStart(dataProcess.startedThisRun)
+      dataProcess.startedThisRun = false
+      if (!failed) return
+      root.notInstalled = true
+      root.payload = null
+    }
     onExited: (exitCode, exitStatus) => {
       root.notInstalled = Model.exitMeansNotInstalled(exitCode)
       if (root.notInstalled) root.payload = null
