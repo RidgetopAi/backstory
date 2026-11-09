@@ -5,11 +5,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 are [Semantic Versioning](https://semver.org/) (`vMAJOR.MINOR.PATCH`).
 
 v1.0.0 was cut on 2026-10-06 (decision `2deb6c91`, superseding `262cf929`), v1.1.0 on 2026-10-19,
-v1.2.0 on 2026-10-31 and v1.3.0 on 2026-11-08 on the same terms. The measurement on a machine that is not
+v1.2.0 on 2026-10-31, v1.3.0 on 2026-11-08 and v1.3.1 on 2026-11-09 on the same terms. The measurement on a machine that is not
 Brian's now gates the AUR push and the marketplace submission rather than the tag.
 See `RELEASING.md` for the release flow and its approval gates.
 
 ## [Unreleased]
+
+## [1.3.1] - 2026-11-09
 
 ### Fixed
 
@@ -17,6 +19,7 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 ### Changed
 
+- The AUR package works without `make install` (task 90aa2aa8). Its `backstory.service` and `backstory-sync.service` run `/usr/bin/backstory` (the in-repo units, used by `make install`, still run `~/.local/bin/backstory`); it also ships `backstory-sync.timer` and the Hyprland shortcut file at `/usr/share/backstory/hyprland/backstory.lua`; `post_install` lists the per-user steps in order (enable the user unit, `backstory install`, `backstory backfill`, the marketplace panel, the shortcut file). `backstory install sync` writes its unit with the path of the binary that ran it, so the sync timer works from either install.
 - The panel plugin id is now `ridgetopai.backstory` (was `backstory.this-week`), the permanent Omarchy marketplace id. `make install` disables and removes an old `backstory.this-week` Backstory panel (and its hidden backup) and installs the new one; a folder of that name that is not a Backstory panel is left alone, and `make uninstall` removes both. The manifest author is `RidgetopAi`, its version is pinned to the newest released CHANGELOG section (checked by a test), and its description is user-facing.
 - The panel and bar widget show "Backstory isn't installed yet. Install the backstory package, then run `backstory install`." when the `backstory` binary cannot be found (exit 127).
 

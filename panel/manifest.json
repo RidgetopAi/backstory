@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "ridgetopai.backstory",
   "name": "Backstory",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "author": "RidgetopAi",
   "description": "Memory for your AI coding agents: where you left off in each project, what needs you, and one-click Continue.",
   "kinds": ["panel", "bar-widget"],
