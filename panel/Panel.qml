@@ -306,7 +306,7 @@ Item {
   }
 
   IpcHandler {
-    target: "backstory.this-week"
+    target: "ridgetopai.backstory"
     function open(): string { root.open("{}"); return "ok" }
     function close(): string { root.close(); return "ok" }
     function toggle(): string { root.toggle(); return "ok" }

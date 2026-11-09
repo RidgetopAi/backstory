@@ -89,7 +89,7 @@ func TestUninstallDisablesPanelPluginBeforeRemovingIt(t *testing.T) {
 	f.mustMake("install")
 	f.resetCalls()
 	f.mustMake("uninstall")
-	if !strings.Contains(f.calls(), "omarchy plugin disable backstory.this-week [plugin-dir present]") {
+	if !strings.Contains(f.calls(), "omarchy plugin disable ridgetopai.backstory [plugin-dir present]") {
 		t.Errorf("no disable call made before the plugin directory was removed:\n%s", f.calls())
 	}
 	mustNotExist(t, f.panelDir())
@@ -97,7 +97,7 @@ func TestUninstallDisablesPanelPluginBeforeRemovingIt(t *testing.T) {
 	g := newInstallFixture(t)
 	g.mustMake("install")
 	out := g.mustMake("uninstall")
-	if !strings.Contains(out, "plugin disable backstory.this-week") {
+	if !strings.Contains(out, "plugin disable ridgetopai.backstory") {
 		t.Errorf("missing CLI: output does not name the disable command:\n%s", out)
 	}
 }

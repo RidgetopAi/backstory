@@ -135,8 +135,8 @@ func TestReadmeUninstallCommandsExist(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(manifest), `"id": "backstory.this-week"`) {
-		t.Error("panel manifest id is not backstory.this-week")
+	if !strings.Contains(string(manifest), `"id": "ridgetopai.backstory"`) {
+		t.Error("panel manifest id is not ridgetopai.backstory")
 	}
 	t.Setenv("XDG_DATA_HOME", "")
 	t.Setenv("HOME", "/home/u")
@@ -151,7 +151,7 @@ func TestReadmeUninstallCommandsExist(t *testing.T) {
 		"~/.config/systemd/user/backstory-sync.timer",
 		"~/.config/systemd/user/backstory-sync.service",
 		"systemctl --user disable --now backstory-sync.timer",
-		"rm -r ~/.config/omarchy/plugins/backstory.this-week",
+		"rm -r ~/.config/omarchy/plugins/ridgetopai.backstory",
 		"rm -r " + strings.Replace(filepath.Dir(db), "/home/u", "~", 1),
 		"deletes all Backstory memory",
 	} {
@@ -203,7 +203,7 @@ func TestReadmeInstallAndUpdateCommands(t *testing.T) {
 // TestInstallDocsTellUserToEnablePanelPlugin: copying the plugin does not turn
 // it on, so the by-hand block and the AUR package must say how.
 func TestInstallDocsTellUserToEnablePanelPlugin(t *testing.T) {
-	const enable = "plugin enable backstory.this-week"
+	const enable = "plugin enable ridgetopai.backstory"
 	b, err := os.ReadFile("../../README.md")
 	if err != nil {
 		t.Fatal(err)
@@ -222,7 +222,7 @@ func TestInstallDocsTellUserToEnablePanelPlugin(t *testing.T) {
 	}
 	// The package installs the panel from the marketplace (not `plugin enable`
 	// of an unadded plugin), so the script names the plugin id and marketplace.
-	for _, want := range []string{"backstory.this-week", "marketplace"} {
+	for _, want := range []string{"ridgetopai.backstory", "marketplace"} {
 		if !strings.Contains(string(msg), want) {
 			t.Errorf("AUR install script lacks %q", want)
 		}

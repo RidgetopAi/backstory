@@ -74,6 +74,40 @@ TestCase {
     return TestUtil.findFirst(widget, function (n) { return n.objectName === "attentionDot" })
   }
 
+  // A this-week call that exits 127 (binary not found) is the not-installed
+  // state; the widget carries the message. Another failure (exit 1) is not.
+  function test_a_missing_binary_is_the_not_installed_state() {
+    ProcessController.reset()
+    Quickshell.reset()
+    Hyprland.reset()
+    ProcessController.respond(Launchers.thisWeekCommand(), { stdout: "", stderr: "sh: backstory: command not found", exitCode: 127 })
+    loader = barWidgetComponent.createObject(testCase)
+    tryCompare(loader, "status", Loader.Ready, 2000)
+    var widget = loader.item
+    act.settled(function () { return widget.notInstalled === true }, "widget never flagged the missing binary")
+    compare(widget.statusMessage, "Backstory isn't installed yet. Install the backstory package, then run `backstory install`.")
+    // And the popup renders it, visibly.
+    var content = openPopup(widget)
+    var msg = null
+    act.settled(function () {
+      msg = TestUtil.findFirst(content, function (n) { return n.objectName === "notInstalledMessage" })
+      return msg !== null && msg.visible
+    }, "popup never showed the not-installed message")
+    compare(msg.text, widget.statusMessage)
+  }
+
+  function test_another_failure_is_not_the_not_installed_state() {
+    ProcessController.reset()
+    Quickshell.reset()
+    Hyprland.reset()
+    ProcessController.respond(Launchers.thisWeekCommand(), { stdout: "", stderr: "daemon unreachable", exitCode: 1 })
+    loader = barWidgetComponent.createObject(testCase)
+    tryCompare(loader, "status", Loader.Ready, 2000)
+    var widget = loader.item
+    compare(widget.notInstalled, false)
+    compare(widget.statusMessage, "")
+  }
+
   function test_shows_here_project_name() {
     var widget = start(fixture())
     labelShows(widget, "foo")
@@ -182,7 +216,7 @@ TestCase {
     var widget = start(fixture())
     var ipc = null
     for (var i = 0; i < widget.resources.length; i++)
-      if (widget.resources[i].target === "backstory.this-week.popup") ipc = widget.resources[i]
+      if (widget.resources[i].target === "ridgetopai.backstory.popup") ipc = widget.resources[i]
     verify(ipc !== null, "no popup IPC target")
     widget.testPopup.screen = { name: "DP-1", x: 0, y: 0, width: 2560, height: 1440 }
     Hyprland.focusedMonitor = { name: "DP-1" }
@@ -237,7 +271,7 @@ TestCase {
     view.helpOpen = true
     view.popOutRequested()
     var run = act.detachedNext(function (c) { return c.command[2] === "summon" }, "window summon")
-    compare(JSON.stringify(run.command.slice(0, 4)), JSON.stringify(["omarchy-shell", "shell", "summon", "backstory.this-week"]))
+    compare(JSON.stringify(run.command.slice(0, 4)), JSON.stringify(["omarchy-shell", "shell", "summon", "ridgetopai.backstory"]))
     // The window opens where you were in the popup, and where its card is.
     var payload = JSON.parse(run.command[4])
     compare(payload.view, "help")

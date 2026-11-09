@@ -43,4 +43,4 @@ o.window(BACKSTORY, {
 -- a leading [ ] as window rules, and the bind then runs nothing.
 -- Change BACKSTORY_BIND to taste; `hl` is Hyprland's own Lua global.
 local BACKSTORY_BIND = "CTRL + SHIFT + B"
-hl.bind(BACKSTORY_BIND, hl.dsp.exec_cmd("test \"$(omarchy-shell backstory.this-week toggleIfOpen 2>/dev/null)\" = ok || omarchy-shell backstory.this-week.popup toggle >/dev/null 2>&1 || omarchy-shell shell summon backstory.this-week '{}'"), { description = "Backstory This Week" })
+hl.bind(BACKSTORY_BIND, hl.dsp.exec_cmd("test \"$(omarchy-shell ridgetopai.backstory toggleIfOpen 2>/dev/null)\" = ok || omarchy-shell ridgetopai.backstory.popup toggle >/dev/null 2>&1 || omarchy-shell shell summon ridgetopai.backstory '{}'"), { description = "Backstory This Week" })
