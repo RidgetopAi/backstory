@@ -13,7 +13,7 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 ### Changed
 
-- The panel plugin id is now `ridgetopai.backstory` (was `backstory.this-week`), the permanent Omarchy marketplace id. `make install` disables and removes an old `backstory.this-week` Backstory panel (and its hidden backup) and installs the new one; a folder of that name that is not a Backstory panel is left alone, and `make uninstall` removes both. The manifest author is `RidgetopAi`, its version is pinned to the release (`ops/aur/PKGBUILD` pkgver, checked by a test), and its description is user-facing.
+- The panel plugin id is now `ridgetopai.backstory` (was `backstory.this-week`), the permanent Omarchy marketplace id. `make install` disables and removes an old `backstory.this-week` Backstory panel (and its hidden backup) and installs the new one; a folder of that name that is not a Backstory panel is left alone, and `make uninstall` removes both. The manifest author is `RidgetopAi`, its version is pinned to the newest released CHANGELOG section (checked by a test), and its description is user-facing.
 - The panel and bar widget show "Backstory isn't installed yet. Install the backstory package, then run `backstory install`." when the `backstory` binary cannot be found (exit 127).
 
 ## [1.3.0] - 2026-11-08

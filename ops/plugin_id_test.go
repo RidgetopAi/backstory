@@ -2,6 +2,8 @@ package ops
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -115,36 +117,123 @@ func TestMakeUninstallRemovesLegacyPanelToo(t *testing.T) {
 	}
 }
 
-// TestPanelManifestIdentity: the manifest carries the marketplace id, the
-// author, and the release version (the AUR pkgver), so a release bump that
-// moves only one of the two fails here.
-func TestPanelManifestIdentity(t *testing.T) {
-	raw, err := os.ReadFile("../panel/manifest.json")
+// newestReleasedVersion returns the version of the first released
+// "## [X.Y.Z] - YYYY-MM-DD" heading after "## [Unreleased]" in a changelog.
+func newestReleasedVersion(changelog string) (string, error) {
+	if !regexp.MustCompile(`(?m)^## \[Unreleased\]`).MatchString(changelog) {
+		return "", errors.New("CHANGELOG.md has no ## [Unreleased] section")
+	}
+	_, after, _ := strings.Cut(changelog, "## [Unreleased]")
+	m := regexp.MustCompile(`(?m)^## \[(\d+\.\d+\.\d+)\] - \d{4}-\d{2}-\d{2}\s*$`).FindStringSubmatch(after)
+	if m == nil {
+		return "", errors.New("CHANGELOG.md has no released ## [X.Y.Z] - YYYY-MM-DD section after [Unreleased]")
+	}
+	return m[1], nil
+}
+
+// panelManifestProblems checks panel/manifest.json and CHANGELOG.md under
+// root (the repo root, or a temp copy of the files the check reads) and
+// returns every problem found.
+func panelManifestProblems(root string) []string {
+	raw, err := os.ReadFile(filepath.Join(root, "panel", "manifest.json")) //nolint:gosec // this repo's own files
 	if err != nil {
-		t.Fatal(err)
+		return []string{err.Error()}
 	}
 	var m struct {
 		ID, Author, Version string
 	}
 	if err := json.Unmarshal(raw, &m); err != nil {
-		t.Fatal(err)
+		return []string{err.Error()}
 	}
-	pkg, err := os.ReadFile("aur/PKGBUILD")
-	if err != nil {
-		t.Fatal(err)
-	}
-	pm := regexp.MustCompile(`(?m)^pkgver=(\S+)$`).FindSubmatch(pkg)
-	if pm == nil {
-		t.Fatal("no pkgver in ops/aur/PKGBUILD")
-	}
+	var probs []string
 	if m.ID != pluginID {
-		t.Errorf("manifest id = %q, want %q", m.ID, pluginID)
+		probs = append(probs, fmt.Sprintf("manifest id = %q, want %q", m.ID, pluginID))
 	}
 	if m.Author != "RidgetopAi" {
-		t.Errorf("manifest author = %q, want RidgetopAi", m.Author)
+		probs = append(probs, fmt.Sprintf("manifest author = %q, want RidgetopAi", m.Author))
 	}
-	if m.Version != string(pm[1]) {
-		t.Errorf("manifest version %q != PKGBUILD pkgver %q: a release bump moves both", m.Version, pm[1])
+	cl, err := os.ReadFile(filepath.Join(root, "CHANGELOG.md")) //nolint:gosec // this repo's own files
+	if err != nil {
+		return append(probs, err.Error())
+	}
+	want, err := newestReleasedVersion(string(cl))
+	if err != nil {
+		return append(probs, err.Error())
+	}
+	if m.Version != want {
+		probs = append(probs, fmt.Sprintf("manifest version %q != newest released CHANGELOG section %q: the release commit moves both", m.Version, want))
+	}
+	return probs
+}
+
+// TestPanelManifestIdentity: the manifest carries the marketplace id, the
+// author, and the newest released CHANGELOG version (both move in the release
+// commit, before the tag; the PKGBUILD pkgver moves after it).
+func TestPanelManifestIdentity(t *testing.T) {
+	for _, p := range panelManifestProblems("..") {
+		t.Error(p)
+	}
+}
+
+// TestPanelManifestVersionTracksChangelogNotPKGBUILD simulates a release
+// commit in a temp copy of the files the check reads, with the PKGBUILD
+// still at the previous pkgver.
+func TestPanelManifestVersionTracksChangelogNotPKGBUILD(t *testing.T) {
+	const rel = "## [9.9.9] - 2026-01-01\n\n### Changed\n\n- simulated\n\n"
+	stage := func(t *testing.T, changelogReleased bool, manifestVersion string) string {
+		t.Helper()
+		root := t.TempDir()
+		if err := os.MkdirAll(filepath.Join(root, "panel"), 0o755); err != nil { //nolint:gosec // fixture path under t.TempDir
+			t.Fatal(err)
+		}
+		cl, err := os.ReadFile("../CHANGELOG.md")
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := string(cl)
+		if changelogReleased {
+			text = strings.Replace(text, "## [Unreleased]", "## [Unreleased]\n\n"+rel, 1)
+		}
+		mf, err := os.ReadFile("../panel/manifest.json")
+		if err != nil {
+			t.Fatal(err)
+		}
+		mf = regexp.MustCompile(`"version"\s*:\s*"[^"]*"`).ReplaceAll(mf, []byte(`"version": "`+manifestVersion+`"`))
+		for name, b := range map[string][]byte{"CHANGELOG.md": []byte(text), "panel/manifest.json": mf} {
+			if err := os.WriteFile(filepath.Join(root, name), b, 0o644); err != nil { //nolint:gosec // fixture path under t.TempDir
+				t.Fatal(err)
+			}
+		}
+		pkg, err := os.ReadFile("aur/PKGBUILD")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !regexp.MustCompile(`(?m)^pkgver=1\.3\.0$`).Match(pkg) {
+			t.Log("PKGBUILD pkgver is not 1.3.0; the check must ignore it regardless")
+		}
+		return root
+	}
+	const cur = "1.3.0"
+	if p := panelManifestProblems(stage(t, true, "9.9.9")); len(p) != 0 {
+		t.Errorf("release commit (CHANGELOG 9.9.9 + manifest 9.9.9) should be green: %v", p)
+	}
+	if p := panelManifestProblems(stage(t, true, cur)); len(p) == 0 {
+		t.Error("CHANGELOG 9.9.9 with manifest still 1.3.0 should be red")
+	}
+	if p := panelManifestProblems(stage(t, false, "9.9.9")); len(p) == 0 {
+		t.Error("manifest 9.9.9 with no CHANGELOG 9.9.9 section should be red")
+	}
+	if p := panelManifestProblems(stage(t, false, cur)); len(p) != 0 {
+		t.Errorf("unmodified state should be green: %v", p)
+	}
+}
+
+func TestNewestReleasedVersionFailsLoudlyWithoutReleasedSection(t *testing.T) {
+	if _, err := newestReleasedVersion("# Changelog\n\n## [Unreleased]\n\n- x\n"); err == nil {
+		t.Error("changelog with no released section must error")
+	}
+	if _, err := newestReleasedVersion("# Changelog\n\n## [1.0.0] - 2026-01-01\n"); err == nil {
+		t.Error("changelog with no [Unreleased] section must error")
 	}
 }
 
