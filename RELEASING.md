@@ -14,17 +14,22 @@ anything on your behalf.
 1. Branch `release` from `main` at the commit that satisfies the Phase 4
    done-when (Q4 targets measured on a machine that is not Brian's: panel
    content under two minutes, a warm session under an hour).
-2. Add a section to `CHANGELOG.md` for the version, moving the relevant
-   `[Unreleased]` entries under it: `## [X.Y.Z] - YYYY-MM-DD`.
-3. Bump `pkgver` in `ops/aur/PKGBUILD` to `X.Y.Z` (no leading `v`, per Arch
-   packaging convention) and reset `pkgrel` to `1`. Set `version` in `panel/manifest.json` to the same value; a test fails if they differ.
-   Once the tag is on GitHub (the sha cannot exist before), compute the
+2. Release commit (before the tag): add a section to `CHANGELOG.md` for the
+   version, moving the relevant `[Unreleased]` entries under it:
+   `## [X.Y.Z] - YYYY-MM-DD`, and set `version` in `panel/manifest.json` to
+   `X.Y.Z` in the same commit, so the tarball ships the right panel manifest.
+   A test pins the manifest version to the newest released `CHANGELOG.md`
+   section.
+3. Commit after the tag: once the tag is on GitHub (the sha cannot exist
+   before), bump `pkgver` in `ops/aur/PKGBUILD` to `X.Y.Z` (no leading `v`, per
+   Arch packaging convention) and reset `pkgrel` to `1`. Compute the
    tarball hash from the GitHub tag tarball and set `sha256sums` to it:
    `curl -sL https://github.com/RidgetopAi/backstory/archive/refs/tags/vX.Y.Z.tar.gz | sha256sum`.
    Do not use `git archive`: GitHub compresses differently, so it yields a
-   different hash that makepkg would reject. Never use `SKIP`. Then regenerate
-   `.SRCINFO` (`cd ops/aur && makepkg --printsrcinfo > .SRCINFO`) and commit
-   `PKGBUILD` and `.SRCINFO` together.
+   different hash that makepkg would reject. Never use `SKIP`. Add the
+   `measuredTarballSHA` row for the new pkgver in `ops/release_check_test.go`,
+   regenerate `.SRCINFO` (`cd ops/aur && makepkg --printsrcinfo > .SRCINFO`)
+   and commit `PKGBUILD`, `.SRCINFO` and the row together.
 4. Run `make release-check VERSION=vX.Y.Z`. It must exit 0: VERSION is
    semver, `CHANGELOG.md` has the `## [X.Y.Z]` section, and the PKGBUILD's
    `pkgver` matches, `sha256sums` is a real 64-hex digest (SKIP is refused), and
@@ -32,8 +37,9 @@ anything on your behalf.
    only checks that the three sources of truth (tag, changelog, package
    metadata) agree.
 5. Run `make check` on the `release` branch head.
-6. Commit the CHANGELOG, PKGBUILD and `.SRCINFO` bump, then tag: `git tag -a vX.Y.Z -m
-   "vX.Y.Z"`.
+6. Tag the step-2 release commit: `git tag -a vX.Y.Z -m "vX.Y.Z"`. The
+   tag comes between steps 2 and 3 (step 3 needs the pushed tag); steps 4-5
+   are the gate run on the final head.
 
 Everything above happens locally or on the canonical clone. Nothing here
 pushes the tag, pushes the branch, uploads a tarball, or opens a PR against
