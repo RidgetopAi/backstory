@@ -449,6 +449,20 @@ Item {
   Process {
     id: dataProcess
     command: Launchers.thisWeekCommand()
+    // Whether `started` fired for the run now ending; consumed (reset) when
+    // that run's running goes false.
+    property bool startedThisRun: false
+    onStarted: dataProcess.startedThisRun = true
+    onRunningChanged: {
+      if (dataProcess.running) return
+      var failed = Model.runFailedToStart(dataProcess.startedThisRun)
+      dataProcess.startedThisRun = false
+      if (!failed) return
+      root.notInstalled = true
+      root.weekData = null
+      root.loading = false
+      root.hasLoaded = true
+    }
     onExited: (exitCode, exitStatus) => {
       root.notInstalled = Model.exitMeansNotInstalled(exitCode)
       if (root.notInstalled) root.weekData = null

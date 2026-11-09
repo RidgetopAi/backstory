@@ -122,3 +122,9 @@ function shortName(displayName) {
 var EXIT_COMMAND_NOT_FOUND = 127
 var NOT_INSTALLED_MESSAGE = "Backstory isn't installed yet. Install the backstory package, then run `backstory install`."
 function exitMeansNotInstalled(exitCode) { return exitCode === EXIT_COMMAND_NOT_FOUND }
+
+// Quickshell runs the command directly (no shell), so a missing binary never
+// exits 127: the Process goes running true -> false with neither `started`
+// nor `exited` (measured on Quickshell 0.3.2). A run that ended without
+// having started is therefore also "not installed".
+function runFailedToStart(startedThisRun) { return !startedThisRun }

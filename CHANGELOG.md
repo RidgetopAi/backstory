@@ -11,6 +11,10 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 ## [Unreleased]
 
+### Fixed
+
+- The panel and bar widget now show the not-installed message when Quickshell cannot start the `backstory` binary at all (a start failure fires no `exited`, so the exit-127 check never tripped on a machine with the plugin but no package).
+
 ### Changed
 
 - The panel plugin id is now `ridgetopai.backstory` (was `backstory.this-week`), the permanent Omarchy marketplace id. `make install` disables and removes an old `backstory.this-week` Backstory panel (and its hidden backup) and installs the new one; a folder of that name that is not a Backstory panel is left alone, and `make uninstall` removes both. The manifest author is `RidgetopAi`, its version is pinned to the release (`ops/aur/PKGBUILD` pkgver, checked by a test), and its description is user-facing.

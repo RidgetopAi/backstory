@@ -11,6 +11,10 @@ import QtQuick
 // subprocess (see ProcessController.qml's own doc comment). A held
 // response stays `running` until the test releases it.
 //
+// A response with `startFailure: true` models a command Quickshell cannot
+// start: running goes true then false, with no `started`, no `exited`, no
+// output. Every other run emits `started` first.
+//
 // Setting `running` to false on a held run ends it as Quickshell's
 // process.cpp does: terminate() (SIGTERM), then on the run's finish the
 // collectors' streamFinished with the output so far (none: a held run has
@@ -26,6 +30,7 @@ QtObject {
   property var stdout: null
   property var stderr: null
 
+  signal started()
   signal exited(int exitCode, int exitStatus)
 
   // The held run this Process is waiting on, or null.
@@ -39,6 +44,13 @@ QtObject {
 
     ProcessController.recordRun(proc.command, proc.workingDirectory)
     var response = ProcessController.lookup(proc.command)
+    if (response.startFailure) {
+      // Quickshell 0.3.2 measured: a binary it cannot find logs a warning and
+      // flips running true -> false with NO started, NO exited, no output.
+      proc.running = false
+      return
+    }
+    proc.started()
     if (response.held) {
       proc.heldRun = ProcessController.hold(proc.command, function () { proc.heldRun = null; proc.deliver(response) })
       return

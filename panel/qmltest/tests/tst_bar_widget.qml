@@ -96,6 +96,26 @@ TestCase {
     compare(msg.text, widget.statusMessage)
   }
 
+  // Quickshell cannot start the binary: running true -> false, no started,
+  // no exited. The widget and its popup still say not installed.
+  function test_a_start_failure_is_the_not_installed_state() {
+    ProcessController.reset()
+    Quickshell.reset()
+    Hyprland.reset()
+    ProcessController.respond(Launchers.thisWeekCommand(), { startFailure: true })
+    loader = barWidgetComponent.createObject(testCase)
+    tryCompare(loader, "status", Loader.Ready, 2000)
+    var widget = loader.item
+    act.settled(function () { return widget.notInstalled === true }, "widget never flagged the start failure")
+    var content = openPopup(widget)
+    var msg = null
+    act.settled(function () {
+      msg = TestUtil.findFirst(content, function (n) { return n.objectName === "notInstalledMessage" })
+      return msg !== null && msg.visible
+    }, "popup never showed the not-installed message")
+    compare(msg.text, widget.statusMessage)
+  }
+
   function test_another_failure_is_not_the_not_installed_state() {
     ProcessController.reset()
     Quickshell.reset()

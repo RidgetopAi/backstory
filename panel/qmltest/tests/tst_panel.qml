@@ -111,6 +111,27 @@ TestCase {
     compare(texts.indexOf("NEEDS YOU"), -1)
   }
 
+  // Quickshell cannot start the binary (not on PATH, no shell): running goes
+  // true -> false with no started and no exited, so no exit code ever arrives.
+  function test_a_start_failure_shows_the_not_installed_state() {
+    ProcessController.respond(Launchers.thisWeekCommand(), { startFailure: true })
+    panel.open("{}")
+    tryCompare(panel.view, "notInstalled", true, 2000)
+    act.quiescent(function () { return [TestUtil.collectVisibleTexts(panel.testContentItem), panel.testImplicitHeight] }, "panel never finished rendering")
+    var texts = TestUtil.collectVisibleTexts(panel.testContentItem)
+    verify(texts.indexOf(notInstalledText) >= 0, "not-installed message missing from " + JSON.stringify(texts))
+    var msg = TestUtil.findFirst(panel.testContentItem, function (n) { return n.objectName === "notInstalledMessage" })
+    verify(msg !== null && msg.visible, "notInstalledMessage not visible")
+    compare(panel.view.loading, false)
+    compare(texts.indexOf("RECENT"), -1, "RECENT header still shown")
+  }
+
+  function test_a_run_that_started_and_exited_1_is_not_the_not_installed_state() {
+    var texts = openFailing(1, "backstory this-week: daemon unreachable")
+    compare(panel.view.notInstalled, false)
+    compare(texts.indexOf(notInstalledText), -1)
+  }
+
   function test_a_daemon_unreachable_failure_is_not_the_not_installed_state() {
     var texts = openFailing(1, "backstory this-week: daemon unreachable")
     compare(panel.view.notInstalled, false)
