@@ -1,6 +1,6 @@
 pkgbase = backstory
 	pkgdesc = OS memory daemon for Omarchy: systemd --user service, SQLite/FTS5 store, unix socket + MCP stdio shim
-	pkgver = 1.3.0
+	pkgver = 1.3.1
 	pkgrel = 1
 	url = https://github.com/RidgetopAi/backstory
 	install = backstory.install
@@ -8,7 +8,7 @@ pkgbase = backstory
 	license = MIT
 	makedepends = go
 	depends = glibc
-	source = backstory-1.3.0.tar.gz::https://github.com/RidgetopAi/backstory/archive/refs/tags/v1.3.0.tar.gz
-	sha256sums = 8512c7c32b695b3e136d0c4e525e4869cd8b3f438cab7b8e7931005432251aa1
+	source = backstory-1.3.1.tar.gz::https://github.com/RidgetopAi/backstory/archive/refs/tags/v1.3.1.tar.gz
+	sha256sums = 7a3fe6776bbf2f6e561a669ab038fa80e5f94c153b84bfe973e104e868369557
 
 pkgname = backstory
