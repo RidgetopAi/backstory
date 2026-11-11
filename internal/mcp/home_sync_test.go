@@ -13,7 +13,7 @@ import (
 )
 
 // pullOnce runs one sync with client pulling from server over in-process pipes.
-func pullOnce(t *testing.T, client, server *store.Store) {
+func pullOnce(t *testing.T, client, server *store.Store, from bsync.Cursors) bsync.Report {
 	t.Helper()
 	human := store.Identity{Kind: store.IdentityHuman, Actor: "human"}
 	c2sR, c2sW := io.Pipe()
@@ -26,13 +26,14 @@ func pullOnce(t *testing.T, client, server *store.Store) {
 		done <- err
 	}()
 	var wire bytes.Buffer
-	_, err := bsync.Run(client, human, bsync.Cursors{}, io.TeeReader(s2cR, &wire), c2sW, bsync.Options{})
+	rep, err := bsync.Run(client, human, from, io.TeeReader(s2cR, &wire), c2sW, bsync.Options{})
 	_ = c2sW.Close()
 	_, _ = io.Copy(io.Discard, s2cR)
 	<-done
 	if err != nil {
 		t.Fatalf("sync: %v", err)
 	}
+	return rep
 }
 
 // TestRepoHandoffsUnderWorkspaceSync is DONE WHEN clause 4 (decision dc0a4387):
@@ -86,6 +87,19 @@ func TestRepoHandoffsUnderWorkspaceSync(t *testing.T) {
 	if err := a.UpsertProject(store.Project{Key: repoKey, RemoteURL: remote, Toplevel: repo, FirstSeen: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
+
+	// The peer syncs first, while the legacy handoff is still workspace-homed
+	// and so not served; its cursor is then past every feed entry made so far.
+	b, err := store.Open(filepath.Join(tmp, "b.db"), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = b.Close() })
+	rep := pullOnce(t, b, a, bsync.Cursors{})
+	if _, err := b.GetRecord("legacy-h"); err == nil {
+		t.Fatal("the workspace-homed handoff reached the peer before the migration")
+	}
+
 	if err := a.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -96,13 +110,7 @@ func TestRepoHandoffsUnderWorkspaceSync(t *testing.T) {
 	if m, _ := filepath.Glob(dbPath + ".pre-rehome-*"); len(m) != 1 {
 		t.Fatalf("pre-rehome backups = %v, want one", m)
 	}
-
-	b, err := store.Open(filepath.Join(tmp, "b.db"), nil, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = b.Close() })
-	pullOnce(t, b, a)
+	pullOnce(t, b, a, rep.Cursors)
 
 	for _, id := range []string{written.ID, "legacy-h"} {
 		got, err := b.GetRecord(id)
