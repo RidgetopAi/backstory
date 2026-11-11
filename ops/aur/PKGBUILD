@@ -8,7 +8,7 @@
 # RELEASING.md). `make release-check` only validates this file locally; it
 # builds nothing and publishes nothing.
 pkgname=backstory
-pkgver=1.3.1
+pkgver=1.3.2
 pkgrel=1
 pkgdesc="OS memory daemon for Omarchy: systemd --user service, SQLite/FTS5 store, unix socket + MCP stdio shim"
 arch=('x86_64')
@@ -18,7 +18,7 @@ depends=('glibc')
 makedepends=('go')
 install=backstory.install
 source=("$pkgname-$pkgver.tar.gz::https://github.com/RidgetopAi/backstory/archive/refs/tags/v$pkgver.tar.gz")
-sha256sums=('7a3fe6776bbf2f6e561a669ab038fa80e5f94c153b84bfe973e104e868369557')
+sha256sums=('37b6d3a90fa543b5e2d51a0d4e986ac88cb077c0b41a44d153bff694c1f4cb01')
 
 build() {
 	cd "$pkgname-$pkgver"
