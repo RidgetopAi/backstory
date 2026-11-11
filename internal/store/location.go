@@ -341,6 +341,48 @@ func (s *Store) LatestHandoffAtFromWhere(dir string, git project.Git, workspaces
 	return Record{}, false, nil
 }
 
+// LatestRepoHandoffUnder returns the newest non-tombstoned handoff homed in a
+// repo (a non-workspace, non-placeholder project key) whose toplevel is
+// workspaceDir or lies under it — decision dc0a4387: a handoff is filed under
+// its writing session's repo even beneath a workspace, so a session opened at
+// the workspace root reads them through here. repoToplevel is that repo's
+// folder, for the caller's label.
+func (s *Store) LatestRepoHandoffUnder(workspaceDir string, from OriginFilter, keep func(Record) bool) (rec Record, repoToplevel string, ok bool, err error) {
+	prefix := strings.TrimSuffix(filepath.Clean(workspaceDir), string(filepath.Separator)) + string(filepath.Separator)
+	rows, err := s.db.Query(`SELECT r.id, p.toplevel FROM records r JOIN projects p ON p.key = r.project_key
+		WHERE r.kind = ? AND r.tombstoned_at IS NULL
+		AND r.project_key NOT LIKE 'workspace:%' AND r.project_key NOT LIKE 'sync:%'
+		AND instr(p.toplevel, ?) = 1
+		ORDER BY r.ts DESC, r.id DESC LIMIT ?`, string(KindHandoff), prefix, maxHandoffScanForLocation)
+	if err != nil {
+		return Record{}, "", false, fmt.Errorf("store: latest repo handoff under %s: %w", workspaceDir, err)
+	}
+	defer func() { _ = rows.Close() }()
+	tops := map[string]string{}
+	var ids []string
+	for rows.Next() {
+		var id, top string
+		if err := rows.Scan(&id, &top); err != nil {
+			return Record{}, "", false, fmt.Errorf("store: latest repo handoff under %s: %w", workspaceDir, err)
+		}
+		ids = append(ids, id)
+		tops[id] = top
+	}
+	if err := rows.Err(); err != nil {
+		return Record{}, "", false, fmt.Errorf("store: latest repo handoff under %s: %w", workspaceDir, err)
+	}
+	recs, err := s.getRecords(ids)
+	if err != nil {
+		return Record{}, "", false, fmt.Errorf("store: latest repo handoff under %s: %w", workspaceDir, err)
+	}
+	for _, h := range recs {
+		if from.matches(h) && (keep == nil || keep(h)) {
+			return h, tops[h.ID], true, nil
+		}
+	}
+	return Record{}, "", false, nil
+}
+
 // SearchRecordsInScope is SearchRecordsInProject over a whole scope: the
 // FTS matches among records filed under ls.RepoKey or written by one of
 // ls's sessions.

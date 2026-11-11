@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/RidgetopAi/backstory/internal/block"
+	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
 
@@ -29,6 +30,12 @@ func newRootFixture(t *testing.T) *rootFixture {
 // handoff writes a handoff (stored under the workspace key) from a session
 // whose cwd/project_key is sessionKey; returns the record id.
 func (f *rootFixture) handoff(sessionCWD, sessionKey, text string) string {
+	return f.handoffHomedAt(sessionCWD, sessionKey, f.home, text)
+}
+
+// handoffHomedAt is handoff with an explicit home key — the repo's own key
+// is where decision dc0a4387 files a repo session's handoff.
+func (f *rootFixture) handoffHomedAt(sessionCWD, sessionKey, homeKey, text string) string {
 	f.t.Helper()
 	sess, err := f.s.StartSession(store.StartSessionParams{
 		Agent: "claude", CWD: sessionCWD, ProjectKey: sessionKey, StartedAt: time.Now(), Origin: store.OriginLive,
@@ -38,7 +45,7 @@ func (f *rootFixture) handoff(sessionCWD, sessionKey, text string) string {
 	}
 	id, err := f.s.InsertRecord(store.InsertRecordParams{
 		Identity: store.Identity{Kind: store.IdentityAgent}, Kind: store.KindHandoff,
-		Text: text, SessionID: sess, ProjectKey: f.home,
+		Text: text, SessionID: sess, ProjectKey: homeKey,
 	})
 	if err != nil {
 		f.t.Fatalf("InsertRecord: %v", err)
@@ -126,3 +133,51 @@ func TestRootPointerLineWhenOnlyProjectHandoffs(t *testing.T) {
 		t.Fatalf("pointer = %q, want cap of 3 and suffix '; +2 more'", ptr[0])
 	}
 }
+
+// Decision dc0a4387, DONE WHEN clause 2: a repo-homed handoff resumes inside
+// its repo; at the workspace root the newest handoff overall wins — a
+// repo-homed one newer than every workspace-homed one is shown with its repo
+// label, an older one loses to the root-written handoff.
+func TestRootResumeConsidersRepoHomedHandoffs(t *testing.T) {
+	f := newRootFixture(t)
+	repo := f.workspace + "/wobble"
+	f.git[repo] = true
+	mustUpsertProject(t, f.s, repo)
+	if _, err := f.s.DB().Exec(`UPDATE projects SET toplevel = ? WHERE key = ?`, repo, repo); err != nil {
+		t.Fatal(err)
+	}
+
+	r1 := f.handoffHomedAt(repo, repo, repo, "wobble older state")
+	a := f.handoff(f.workspace, f.home, "root handoff A")
+	if out := f.render(f.workspace, f.home); !strings.Contains(out, "Resume: (id "+a+")") {
+		t.Fatalf("root block = %q, want the newer root-written A (%s) over the older repo-homed %s", out, a, r1)
+	}
+
+	r2 := f.handoffHomedAt(repo, repo, repo, "wobble newest state")
+	out := f.render(f.workspace, f.home)
+	if !strings.Contains(out, "Resume: (id "+r2+")") || !strings.Contains(out, "projects/wobble") {
+		t.Fatalf("root block = %q, want the newest repo-homed handoff %s with its repo label", out, r2)
+	}
+	in, err := block.Render(block.Params{
+		Store: f.s, ProcFS: fakeProcFS{}, ProjectKey: repo, SessionID: "caller",
+		CWD: repo, Git: commonDirFakeGit{repo: true}, WorkspaceDirs: []string{f.workspace}, Now: time.Now(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(in, "Resume: (id "+r2+")") {
+		t.Fatalf("in-repo block = %q, want the repo-homed handoff %s", in, r2)
+	}
+}
+
+// commonDirFakeGit is resumeHomeFakeGit with a git common dir, so project.Key
+// of a repo dir is the dir itself (the key a repo-homed handoff is filed under).
+type commonDirFakeGit map[string]bool
+
+func (f commonDirFakeGit) Repo(dir string) (project.Repo, bool) {
+	if f[dir] {
+		return project.Repo{Toplevel: dir, CommonDir: dir}, true
+	}
+	return project.Repo{}, false
+}
+func (f commonDirFakeGit) State(string) (project.State, bool) { return project.State{}, false }
