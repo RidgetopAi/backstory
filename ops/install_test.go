@@ -909,10 +909,34 @@ func assertPanelRuntimeOnly(t *testing.T, dir string) {
 
 const enableCall = "omarchy plugin enable ridgetopai.backstory"
 
-// fakeOmarchy records each call and whether the plugin directory existed then.
+// fakeOmarchy records each call and whether the plugin directory existed then,
+// and keeps the enabled state `plugin list --json` reports. The file
+// "enable-ignored" holds how many `plugin enable ridgetopai.backstory` calls
+// still report success without enabling (the shell restart undoing them).
 func (f *installFixture) fakeOmarchy() {
 	f.fake("omarchy", `if [ -d "$XDG_CONFIG_HOME/omarchy/plugins/ridgetopai.backstory" ]; then d=present; else d=absent; fi
-echo "omarchy $* [plugin-dir $d]" >> "$FAKE_LOG"`)
+state="$FAKE_LOG.plugin-enabled"; ignore="$FAKE_LOG.enable-ignored"
+case "$1 $2 $3" in
+"plugin list --json")
+	echo "omarchy $* [plugin-dir $d]" >> "$FAKE_LOG"
+	if [ -e "$state" ]; then e=true; else e=false; fi
+	echo "[{\"id\":\"other.plugin\",\"enabled\":true},{\"id\":\"ridgetopai.backstory\",\"enabled\":$e}]"
+	exit 0;;
+esac
+echo "omarchy $* [plugin-dir $d]" >> "$FAKE_LOG"
+if [ "$1 $2 $3" = "plugin enable ridgetopai.backstory" ]; then
+	n=$(cat "$ignore" 2>/dev/null || echo 0)
+	if [ "$n" -gt 0 ]; then echo $((n-1)) > "$ignore"; else : > "$state"; fi
+fi
+if [ "$1 $2 $3" = "plugin disable ridgetopai.backstory" ]; then rm -f "$state"; fi`)
+}
+
+// enableIgnored makes the next n enable calls report success but not stick.
+func (f *installFixture) enableIgnored(n int) {
+	f.t.Helper()
+	if err := os.WriteFile(f.log+".enable-ignored", []byte(strconv.Itoa(n)+"\n"), 0o644); err != nil { //nolint:gosec // fixture path under t.TempDir
+		f.t.Fatal(err)
+	}
 }
 
 // hostTools links every executable on the runner's PATH into dir, the first
@@ -1336,5 +1360,111 @@ func TestInstallRestartLineAppearsWhileRestartIsStillRunning(t *testing.T) {
 	_, _ = bytes.NewBuffer(nil).ReadFrom(pr)
 	if err := cmd.Wait(); err != nil {
 		t.Fatalf("make install: %v", err)
+	}
+}
+
+func TestInstallHappyPathVerifiesOnceWithoutWarning(t *testing.T) {
+	f := newInstallFixture(t)
+	f.fakeOmarchy()
+	out := f.mustMake("install")
+	calls := f.calls()
+	if n := strings.Count(calls, enableCall); n != 1 {
+		t.Errorf("enable recorded %d times, want 1:\n%s", n, calls)
+	}
+	if n := strings.Count(calls, "omarchy plugin list --json"); n != 1 {
+		t.Errorf("plugin list checked %d times, want 1:\n%s", n, calls)
+	}
+	if strings.Contains(out, "NOT ENABLED") || strings.Contains(out, "retrying") {
+		t.Errorf("happy path printed a warning:\n%s", out)
+	}
+}
+
+func TestInstallRetriesEnableOnceWhenFirstEnableDoesNotStick(t *testing.T) {
+	f := newInstallFixture(t)
+	f.fakeOmarchy()
+	f.enableIgnored(1)
+	f.extra = append(f.extra, "BACKSTORY_VERIFY_SETTLE=0")
+	out := f.mustMake("install")
+	calls := f.calls()
+	if n := strings.Count(calls, enableCall); n != 2 {
+		t.Errorf("enable recorded %d times, want 2 (initial + one retry):\n%s", n, calls)
+	}
+	if n := strings.Count(calls, "omarchy plugin list --json"); n != 2 {
+		t.Errorf("plugin list checked %d times, want 2:\n%s", n, calls)
+	}
+	if rs, retry := strings.Index(calls, "omarchy-restart-shell"), strings.LastIndex(calls, enableCall); rs < 0 || retry < rs {
+		t.Errorf("the retry must come after the shell restart:\n%s", calls)
+	}
+	if strings.Contains(out, "NOT ENABLED") {
+		t.Errorf("recovered install printed the failure block:\n%s", out)
+	}
+}
+
+func TestInstallFailsLoudlyWhenPanelStaysDisabled(t *testing.T) {
+	f := newInstallFixture(t)
+	f.fakeOmarchy()
+	f.enableIgnored(5)
+	f.extra = append(f.extra, "BACKSTORY_VERIFY_SETTLE=0")
+	out, err := f.make("install")
+	if err == nil {
+		t.Fatalf("install exited 0 with the panel disabled:\n%s", out)
+	}
+	if n := strings.Count(f.calls(), enableCall); n != 2 {
+		t.Errorf("enable recorded %d times, want exactly 2:\n%s", n, f.calls())
+	}
+	for _, want := range []string{"THE PANEL IS NOT ENABLED", "omarchy plugin enable ridgetopai.backstory"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("output lacks %q:\n%s", want, out)
+		}
+	}
+	// The block is the last thing printed, not a line mid-output.
+	if i := strings.LastIndex(out, "==================================================================\n"); i < 0 || strings.Contains(out[i:], "installed ") || strings.Contains(out[i:], "next:") {
+		t.Errorf("failure block is not final:\n%s", out)
+	}
+	if strings.Contains(out, "next: open the panel") {
+		t.Errorf("failed install still printed the success hint:\n%s", out)
+	}
+}
+
+func TestInstallCarriesLegacyBarSectionToTheNewPlugin(t *testing.T) {
+	for _, section := range []string{"right", "left"} {
+		t.Run(section, func(t *testing.T) {
+			f := newInstallFixture(t)
+			f.fakeOmarchy()
+			legacy := filepath.Join(f.cfg, "omarchy", "plugins", "backstory.this-week")
+			if err := os.MkdirAll(legacy, 0o755); err != nil { //nolint:gosec // fixture path under t.TempDir
+				t.Fatal(err)
+			}
+			manifest := `{"id": "backstory.this-week"}`
+			if err := os.WriteFile(filepath.Join(legacy, "manifest.json"), []byte(manifest), 0o644); err != nil { //nolint:gosec // fixture path
+				t.Fatal(err)
+			}
+			shell := `{"bar":{"left":["omarchy.workspaces"],"center":[],"right":["omarchy.clock","backstory.this-week"]}}`
+			if section == "left" {
+				shell = `{"bar":{"left":["omarchy.workspaces","backstory.this-week"],"right":["omarchy.clock"]}}`
+			}
+			if err := os.WriteFile(filepath.Join(f.cfg, "omarchy", "shell.json"), []byte(shell), 0o644); err != nil { //nolint:gosec // fixture path
+				t.Fatal(err)
+			}
+			f.mustMake("install")
+			if want := enableCall + " --section " + section + " "; !strings.Contains(f.calls(), want) {
+				t.Errorf("enable did not carry section %q:\n%s", section, f.calls())
+			}
+		})
+	}
+}
+
+func TestInstallEnablesWithoutSectionWhenLegacyWasNotInTheBar(t *testing.T) {
+	f := newInstallFixture(t)
+	f.fakeOmarchy()
+	if err := os.MkdirAll(filepath.Join(f.cfg, "omarchy"), 0o755); err != nil { //nolint:gosec // fixture path
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(f.cfg, "omarchy", "shell.json"), []byte(`{"bar":{"right":["omarchy.clock"]}}`), 0o644); err != nil { //nolint:gosec // fixture path
+		t.Fatal(err)
+	}
+	f.mustMake("install")
+	if strings.Contains(f.calls(), "--section") {
+		t.Errorf("section passed although the legacy widget was not in the bar:\n%s", f.calls())
 	}
 }

@@ -61,6 +61,13 @@ export BACKSTORY_NO_SESSION
 # plugin directory does not enable it.
 OMARCHY_CLI="${BACKSTORY_OMARCHY_CLI:-omarchy}"
 
+# Verifying the panel ended up enabled: the shell restart can undo an enable
+# that reported success, so after the restart the plugin list is read, and a
+# plugin still disabled is enabled once more after VERIFY_SETTLE seconds.
+VERIFY_SETTLE="${BACKSTORY_VERIFY_SETTLE:-2}"
+# The Omarchy shell config the legacy bar widget's section is read from.
+SHELL_JSON="${BACKSTORY_SHELL_JSON:-$CONFIG_HOME/omarchy/shell.json}"
+
 # The panel keybind, as users are told about it.
 PANEL_BIND="CTRL+SHIFT+B"
 
@@ -218,6 +225,18 @@ legacy_panel_is_ours() {
 	[ -d "$LEGACY_PANEL" ] && [ ! -L "$LEGACY_PANEL" ] && is_backstory_panel "$LEGACY_PANEL" "$LEGACY_PLUGIN_ID"
 }
 
+# legacy_bar_section: print the bar section (left, center, right...) of
+# shell.json that lists the legacy widget; nothing when it is absent, the file
+# is unreadable or jq is missing (the manifest default then applies).
+legacy_bar_section() {
+	[ -f "$SHELL_JSON" ] && command -v jq >/dev/null 2>&1 || return 0
+	jq -r --arg id "$LEGACY_PLUGIN_ID" '
+		(.bar // {}) | to_entries[]
+		| select(.value | type == "array")
+		| select(any(.value[]; . == $id or (type == "object" and .id == $id)))
+		| .key' "$SHELL_JSON" 2>/dev/null | head -n 1 || true
+}
+
 # remove_legacy_panel: disable and delete the old-id Backstory panel and its
 # hidden backup. A foreign folder with that name is left untouched. Idempotent.
 remove_legacy_panel() {
@@ -246,13 +265,43 @@ check_panel_target() {
 # CLI or a failing command never fails the install; it prints the command to run.
 plugin_toggle() {
 	id="${2:-$PLUGIN_ID}"
-	cmd="$OMARCHY_CLI plugin $1 $id"
+	cmd="$OMARCHY_CLI plugin $1 $id${3:+ --section $3}"
 	if ! command -v "$OMARCHY_CLI" >/dev/null 2>&1; then
 		echo "backstory: the '$OMARCHY_CLI' CLI is not on PATH; run this yourself: $cmd"
 	elif $cmd; then
 		echo "plugin $1d: $id"
 	else
 		echo "backstory: \`$cmd\` failed; run it yourself"
+	fi
+}
+
+# panel_enabled: the Omarchy plugin list shows $PLUGIN_ID enabled. Reads
+# `plugin list --json` (any object with that id and enabled true), else the
+# text list (the id's line without "disabled").
+panel_enabled() {
+	if command -v jq >/dev/null 2>&1 && json="$("$OMARCHY_CLI" plugin list --json 2>/dev/null)" && [ -n "$json" ]; then
+		state="$(printf '%s' "$json" | jq -r --arg id "$PLUGIN_ID" '
+			[.. | objects | select(.id? == $id)] | first
+			| if . == null then "false" else ((.enabled == true) or (.status? == "enabled") | tostring) end' 2>/dev/null)" && {
+			[ "$state" = true ]
+			return
+		}
+	fi
+	"$OMARCHY_CLI" plugin list 2>/dev/null | grep -F "$PLUGIN_ID" | grep -qiv 'disabled'
+}
+
+# verify_panel_enabled SECTION: after the shell restart, confirm the panel is
+# enabled; if not, wait for the shell to settle and enable it once more. Sets
+# PANEL_NOT_ENABLED=1 when it is still off. A missing CLI is not verified (the
+# command was already printed).
+verify_panel_enabled() {
+	command -v "$OMARCHY_CLI" >/dev/null 2>&1 || return 0
+	panel_enabled && return 0
+	echo "backstory: $PLUGIN_ID is not enabled yet; retrying once after ${VERIFY_SETTLE}s"
+	sleep "$VERIFY_SETTLE"
+	plugin_toggle enable "$PLUGIN_ID" "$1"
+	if ! panel_enabled; then
+		PANEL_NOT_ENABLED=1
 	fi
 }
 
@@ -297,6 +346,7 @@ do_install() {
 
 	# Panel plugin. The old-id panel goes first.
 	mkdir -p "$PLUGINS_DIR"
+	legacy_section="$(legacy_bar_section)"
 	remove_legacy_panel
 	if [ -d "$PANEL" ]; then
 		rm -rf "$PANEL_PREV"
@@ -308,7 +358,7 @@ do_install() {
 	mkdir -p "$PANEL"
 	cp -a "$SRC/panel/manifest.json" "$SRC"/panel/*.qml "$SRC/panel/js" "$PANEL/"
 	echo "installed $PANEL"
-	plugin_toggle enable
+	plugin_toggle enable "$PLUGIN_ID" "$legacy_section"
 
 	# New QML types need a shell restart, which must never happen over a
 	# locked session (it would kill the lock screen) and is never fatal.
@@ -324,6 +374,9 @@ do_install() {
 		echo "backstory: the shell restart did not complete; run \`omarchy restart shell\` to load the new panel"
 	fi
 
+	PANEL_NOT_ENABLED=
+	verify_panel_enabled "$legacy_section"
+
 	# The hook verification below needs a live daemon: wait for it first.
 	echo "waiting for the daemon to answer..."
 	wait_for_daemon || exit 1
@@ -334,6 +387,18 @@ do_install() {
 	"$BIN" install || echo "backstory: no agent harness set up (see 'backstory install --help'); continuing"
 
 	echo "backstory $("$BIN" version) installed"
+	if [ -n "$PANEL_NOT_ENABLED" ]; then
+		{
+			echo
+			echo "=================================================================="
+			echo "backstory: INSTALLED, BUT THE PANEL IS NOT ENABLED ($PLUGIN_ID)"
+			echo "The bar widget and $PANEL_BIND will not work until you run:"
+			echo
+			echo "    $OMARCHY_CLI plugin enable $PLUGIN_ID"
+			echo "=================================================================="
+		} >&2
+		exit 1
+	fi
 	echo "next: open the panel with $PANEL_BIND; agents get memory on their next session."
 }
 
