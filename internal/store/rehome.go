@@ -26,7 +26,7 @@ const rehomeHandoffWhere = `r.kind = 'handoff' AND r.tombstoned_at IS NULL
 // longer matches, so a later Open writes neither a backup nor a row.
 func (s *Store) rehomeHandoffs() error {
 	var n int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM records r JOIN sessions s ON s.id = r.session_id WHERE `+rehomeHandoffWhere).Scan(&n); err != nil {
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM records r JOIN sessions s ON s.id = r.session_id WHERE ` + rehomeHandoffWhere).Scan(&n); err != nil {
 		return fmt.Errorf("store: rehome handoffs: count: %w", err)
 	}
 	if n == 0 {

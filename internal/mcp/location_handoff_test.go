@@ -240,9 +240,14 @@ func TestRepoRowHandoffMatchesBlockResume(t *testing.T) {
 }
 
 // Task 01c20ad2 clause 3: a workspace-homed handoff's note result names the
-// repo directory its next session will see it in.
+// folder its next session will see it in. Since decision dc0a4387 only a
+// session in a non-git folder under the workspace is workspace-homed.
 func TestNoteHandoffResultNamesVisibleAt(t *testing.T) {
 	f := newLocFixture(t)
+	f.demo = filepath.Join(f.root, "notes")
+	if err := os.MkdirAll(f.demo, 0o750); err != nil {
+		t.Fatal(err)
+	}
 	key := f.key(f.demo)
 	if err := f.st.UpsertProject(store.Project{Key: key, Toplevel: f.demo, FirstSeen: time.Now()}); err != nil {
 		t.Fatal(err)

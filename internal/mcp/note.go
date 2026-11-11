@@ -199,7 +199,7 @@ func handleNote(st *store.Store, git project.Git, identity store.Identity, sessi
 
 	var visibleAt string
 	if kind == store.KindHandoff {
-		if home, ok := handoffHomeKey(git, cwd, projectKey, workspaces); ok {
+		if home, ok := handoffHomeKey(cwd, projectKey, workspaces); ok {
 			visibleAt = handoffVisibleAt(st, git, sessionID, cwd, workspaces)
 			if err := ensureHomeProject(st, home); err != nil {
 				return errResponse("internal", err.Error())
@@ -331,16 +331,14 @@ func visibleMessage(dir string) string {
 // is the caller's already-resolved workspace directory list (task 482b2320):
 // mcp never resolves workspace dirs itself. ok is false when the session
 // keeps its own key: a repo, a folder outside every workspace, or cwd empty.
-func handoffHomeKey(git project.Git, cwd, ownKey string, workspaces []string) (string, bool) {
-	if ownKey != "" && !project.IsWorkspaceKey(ownKey) {
-		if cwd == "" {
-			return "", false
-		}
-		if _, isRepo := git.Repo(cwd); isRepo {
-			return "", false
-		}
-	}
+func handoffHomeKey(cwd, ownKey string, workspaces []string) (string, bool) {
 	if cwd == "" {
+		return "", false
+	}
+	// project.Key is the git common dir inside a repo, workspace:<dir> for a
+	// workspace root or a direct non-git child, and the bare cwd for any
+	// other non-git folder: only that last spelling needs the check.
+	if ownKey != "" && !project.IsWorkspaceKey(ownKey) && filepath.Clean(ownKey) != filepath.Clean(cwd) {
 		return "", false
 	}
 	return project.WorkspaceHome(cwd, workspaces)
