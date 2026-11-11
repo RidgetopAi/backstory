@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -132,4 +133,44 @@ func VerifyBackup(path string) (BackupInfo, error) {
 		info.Newest = tsFromNanos(newest.Int64)
 	}
 	return info, nil
+}
+
+// vacuumIntoPrivate writes a VACUUM INTO snapshot of the store to path (which
+// must not exist) and forces it to BackupFileMode: VACUUM INTO creates the
+// file with the process umask, which would leave a safety copy of the store
+// group/world-readable beside the 0600 store.
+func (s *Store) vacuumIntoPrivate(path string) error {
+	if _, err := s.db.Exec(`VACUUM INTO ?`, path); err != nil {
+		return err
+	}
+	if err := os.Chmod(path, BackupFileMode); err != nil {
+		return fmt.Errorf("chmod %s: %w", path, err)
+	}
+	return nil
+}
+
+// preCopyGlob matches the safety copies the store writes beside itself
+// (.pre-rehome-, .pre-sweep-, .pre-identity-, .pre-restore-).
+const preCopyGlob = ".pre-*"
+
+// tightenPreCopies chmods any pre-existing safety copy beside the store that
+// is readable by group/other to BackupFileMode, logging each change. Copies
+// written by older versions took the process umask. Best effort: a failure
+// is logged, never fatal to Open.
+func tightenPreCopies(path string) {
+	matches, err := filepath.Glob(filepath.Join(filepath.Dir(path), filepath.Base(path)+preCopyGlob))
+	if err != nil {
+		return
+	}
+	for _, m := range matches {
+		fi, err := os.Lstat(m)
+		if err != nil || !fi.Mode().IsRegular() || fi.Mode().Perm()&^BackupFileMode == 0 {
+			continue
+		}
+		if err := os.Chmod(m, BackupFileMode); err != nil {
+			log.Printf("store: could not tighten %s from %o to %o: %v", m, fi.Mode().Perm(), BackupFileMode, err)
+			continue
+		}
+		log.Printf("store: tightened %s from %o to %o", m, fi.Mode().Perm(), BackupFileMode)
+	}
 }

@@ -101,7 +101,7 @@ func (s *Store) sweepLegacyWorkspaceKeys(targets map[string]string) error {
 
 	// VACUUM INTO cannot run inside a transaction, so back up before BEGIN.
 	backupPath := s.path + ".pre-sweep-" + time.Now().UTC().Format("20060102T150405.000000000Z")
-	if _, err := s.db.Exec(`VACUUM INTO ?`, backupPath); err != nil {
+	if err := s.vacuumIntoPrivate(backupPath); err != nil {
 		return fmt.Errorf("store: sweep: backup to %s: %w", backupPath, err)
 	}
 
