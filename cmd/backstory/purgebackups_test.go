@@ -22,6 +22,7 @@ type purgeBackupFixture struct {
 	auto      []string // backups in backupDir
 	manual    string
 	preCopy   string // in the store dir
+	preRehome string // the handoff re-home copy, in the store dir
 	outFile   string // unrelated dir
 	notes     string
 	link      string
@@ -78,6 +79,7 @@ func seedPurgeBackups(t *testing.T) purgeBackupFixture {
 	}
 	fx.manual = mk(filepath.Join(fx.backupDir, "backstory-20260302T090000Z.db"))
 	fx.preCopy = mk(dbPath + ".pre-restore-20260303T090000Z")
+	fx.preRehome = mk(dbPath + ".pre-rehome-20260303T090000.123456789Z")
 	fx.outFile = mk(filepath.Join(t.TempDir(), "mine.db"))
 
 	fx.notes = filepath.Join(fx.backupDir, "notes.txt")
@@ -124,7 +126,7 @@ func TestPurgeDeletesBackupsHoldingTextThenTakesFreshOne(t *testing.T) {
 	if n := countRows(t, fx.dbPath, `SELECT COUNT(*) FROM timeline_events WHERE payload LIKE ?`, "%"+purgeMarker+"%"); n != 0 {
 		t.Errorf("store still has the marker in %d events", n)
 	}
-	for _, p := range append(append([]string{}, fx.auto...), fx.manual, fx.preCopy) {
+	for _, p := range append(append([]string{}, fx.auto...), fx.manual, fx.preCopy, fx.preRehome) {
 		if exists(p) {
 			t.Errorf("%s survived the purge", p)
 		}
@@ -164,7 +166,7 @@ func TestPurgeDryRunListsBackupsAndDeletesNothing(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit %d err=%s", code, errs)
 	}
-	for _, p := range append(append([]string{}, fx.auto...), fx.manual, fx.preCopy) {
+	for _, p := range append(append([]string{}, fx.auto...), fx.manual, fx.preCopy, fx.preRehome) {
 		fi, err := os.Stat(p)
 		if err != nil {
 			t.Fatal(err)

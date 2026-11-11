@@ -312,8 +312,8 @@ rm -r ~/.local/share/backstory
   `NAME=value` assignment where NAME ends in KEY, TOKEN, SECRET or PASSWORD. Nothing else is
   scanned for; don't rely on it for other secret shapes.
 - Deleting or purging wipes the text from the store, but the backups the service keeps beside
-  it (`backstory.db.pre-sweep-*` and `backstory.db.pre-identity-*`, written before a
-  project-key merge) keep the deleted text until you remove them.
+  it (`backstory.db.pre-sweep-*`, `backstory.db.pre-identity-*` and `backstory.db.pre-rehome-*`, written before a
+  project-key merge or a handoff re-home) keep the deleted text until you remove them.
 - Only you can delete, edit, purge or pause. The tools agents get can add notes but
   never remove them.
 - Single-user trust model: any process of yours named `claude`, `codex`, `copilot`, `hermes`,

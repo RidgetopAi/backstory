@@ -11,6 +11,10 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 ## [Unreleased]
 
+### Fixed
+
+- Handoffs written in a repo under `~/projects` (or any workspace dir) now sync to paired machines and count on that repo's row in This Week and `backstory projects`: a handoff is filed under the writing session's own repo, and only a session at the workspace root or in a non-git folder keeps the workspace home (decision `dc0a4387`). Existing workspace-filed handoffs written from a repo are moved on first start, after a `backstory.db.pre-rehome-*` backup; a session opened at the workspace root resumes the newest handoff overall, labelled with its repo.
+
 ## [1.3.1] - 2026-11-09
 
 ### Fixed
