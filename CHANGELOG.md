@@ -13,6 +13,7 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 ### Fixed
 
+- `make install` now verifies the panel plugin ended up enabled (an upgrade silently left it disabled after the shell restart): it reads `omarchy plugin list --json`, retries the enable once after the restart settles, and if the panel is still off prints a final block naming `omarchy plugin enable ridgetopai.backstory` and exits non-zero. When the old `backstory.this-week` widget was in the bar, the new plugin is enabled in that same bar section (task afb836f4).
 - Handoffs written in a repo under `~/projects` (or any workspace dir) now sync to paired machines and count on that repo's row in This Week and `backstory projects`: a handoff is filed under the writing session's own repo, and only a session at the workspace root or in a non-git folder keeps the workspace home (decision `dc0a4387`). Existing workspace-filed handoffs written from a repo are moved on first start, after a `backstory.db.pre-rehome-*` backup; a session opened at the workspace root resumes the newest handoff overall, labelled with its repo.
 
 ## [1.3.1] - 2026-11-09
