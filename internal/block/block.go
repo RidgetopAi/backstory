@@ -588,11 +588,6 @@ func resolveResumeHandoff(st *store.Store, projectKey, cwd string, git project.G
 			}
 		}
 	}
-	if rh, rlabel, ok, err := newestRepoHandoffUnder(st, home, workspaces, from, keep, h, found); err != nil {
-		return store.Record{}, false, "", "", err
-	} else if ok {
-		return rh, true, rlabel, "", nil
-	}
 	if !found {
 		if from == store.OriginImported {
 			return store.Record{}, false, "", "", nil
@@ -609,24 +604,6 @@ func resolveResumeHandoff(st *store.Store, projectKey, cwd string, git project.G
 		return store.Record{}, false, "", "", fmt.Errorf("block: resume handoff label: %w", err)
 	}
 	return h, true, label, "", nil
-}
-
-// newestRepoHandoffUnder is the workspace-root read of handoffs homed in the
-// repos under that workspace (decision dc0a4387): the newest one, labelled
-// with its repo, when it is newer than cur (found reports whether cur exists).
-func newestRepoHandoffUnder(st *store.Store, home string, workspaces []string, from store.OriginFilter, keep func(store.Record) bool, cur store.Record, found bool) (store.Record, string, bool, error) {
-	dir, ok := project.WorkspaceDirOf(home)
-	if !ok {
-		return store.Record{}, "", false, nil
-	}
-	h, top, ok, err := st.LatestRepoHandoffUnder(dir, from, keep)
-	if err != nil {
-		return store.Record{}, "", false, fmt.Errorf("block: repo handoffs under workspace: %w", err)
-	}
-	if !ok || (found && !store.NewerHandoff(h, cur)) {
-		return store.Record{}, "", false, nil
-	}
-	return h, project.WorkspaceRelativeName(top, workspaces), true, nil
 }
 
 // workspaceRootOf is the configured workspace directory whose home key is

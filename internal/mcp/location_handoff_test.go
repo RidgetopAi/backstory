@@ -145,12 +145,14 @@ func TestRepoHandoffVisibleToEveryReaderInThatRepo(t *testing.T) {
 
 // Task ed31b744 DONE WHEN 2: for the workspace root itself, This Week's row
 // handoff, the block's Resume and `records --location W`'s newest handoff
-// are one record — the one labelled with the root, not the newest in W.
+// are one record. Since decision dc0a4387 repo sessions' handoffs are homed in
+// their repos, and the root resumes the newest handoff overall: the newest
+// repo-homed one here. `records --location W` stays the root's own writes.
 func TestWorkspaceRootHandoffAgreesAcrossSurfaces(t *testing.T) {
 	f := newLocFixture(t)
 	rootH := f.handoff(f.root, filepath.Join(f.root, "notes.md"), "ROOT-HANDOFF state")
 	f.handoff(f.demo, filepath.Join(f.demo, "a.go"), "DEMO-HANDOFF state")
-	f.handoff(f.other, filepath.Join(f.other, "b.go"), "OTHER-HANDOFF state") // newest in W
+	otherH := f.handoff(f.other, filepath.Join(f.other, "b.go"), "OTHER-HANDOFF state") // newest in W
 
 	ls, err := f.st.LocationScope(f.root, f.git, f.ws)
 	if err != nil {
@@ -168,8 +170,11 @@ func TestWorkspaceRootHandoffAgreesAcrossSurfaces(t *testing.T) {
 		}
 	}
 	week, resume := f.weekRowHandoff(f.root), f.resume(f.root)
-	if week != rootH || resume != rootH || newest != rootH {
-		t.Errorf("root handoff: this-week=%q block=%q records --location=%q, want all %s", week, resume, newest, rootH)
+	if week != otherH || resume != otherH {
+		t.Errorf("root handoff: this-week=%q block=%q, want both the newest overall %s", week, resume, otherH)
+	}
+	if newest != rootH {
+		t.Errorf("records --location W newest handoff = %q, want the root's own %s", newest, rootH)
 	}
 }
 

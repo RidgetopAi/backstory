@@ -162,9 +162,11 @@ func TestRecordsLocationScopesToTheRow(t *testing.T) {
 	}
 
 	// Without --location the workspace key lists everything filed under it
-	// (the desk bug: what the panel used to show for every child row).
-	if got := f.recordIDs(t, "--project", f.wsKey); len(got) != 5 {
-		t.Errorf("--project workspace key = %v, want the 5 workspace-keyed records", got)
+	// (the desk bug: what the panel used to show for every child row). The
+	// fixture's app-a handoff was filed under the workspace by a repo session;
+	// the first store.Open moved it onto app-a (decision dc0a4387), so four stay.
+	if got := f.recordIDs(t, "--project", f.wsKey); len(got) != 4 {
+		t.Errorf("--project workspace key = %v, want the 4 records still workspace-keyed", got)
 	}
 
 	// Cross-check against This Week's own attribution: the handoff each row
