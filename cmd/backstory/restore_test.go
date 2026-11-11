@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/RidgetopAi/backstory/internal/store"
@@ -267,5 +268,25 @@ func TestRestoreRefusesLiveDaemonWithoutSystemd(t *testing.T) {
 	}
 	if k := f.preRestore(); len(k) != 0 {
 		t.Errorf("pre-restore copy made despite refusal: %v", k)
+	}
+}
+
+func TestRestorePreRestoreCopyIs0600UnderUmask0022(t *testing.T) {
+	old := syscall.Umask(0o022)
+	defer syscall.Umask(old)
+	f := newRestoreFixture(t)
+	seedBackupStore(t, f.dbPath)
+	bak := f.backup("b.db")
+	seedDeletableRecord(t, f.dbPath, "proj-three", "later")
+	if code, _, errs := f.restore(bak, "--yes"); code != 0 {
+		t.Fatalf("exit %d: %s", code, errs)
+	}
+	kept := f.preRestore()
+	if len(kept) != 1 {
+		t.Fatalf("pre-restore copies = %v", kept)
+	}
+	fi, err := os.Stat(kept[0])
+	if err != nil || fi.Mode().Perm() != store.BackupFileMode {
+		t.Errorf("pre-restore copy mode = %v (%v), want %o", fi.Mode().Perm(), err, store.BackupFileMode)
 	}
 }

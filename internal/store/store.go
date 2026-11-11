@@ -54,6 +54,7 @@ func Open(path string, workspaceDirs []string, git project.Git) (*Store, error) 
 	if err := os.Chmod(path, FileMode); err != nil {
 		return nil, fmt.Errorf("store: chmod %s: %w", path, err)
 	}
+	tightenPreCopies(path)
 
 	db, err := sql.Open("sqlite", dsn(path))
 	if err != nil {

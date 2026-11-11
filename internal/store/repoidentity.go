@@ -94,7 +94,7 @@ func (s *Store) mergeRepoIdentities(git project.Git) error {
 	sort.Slice(merges, func(i, j int) bool { return merges[i].legacy < merges[j].legacy })
 
 	backupPath := s.path + ".pre-identity-" + time.Now().UTC().Format("20060102T150405.000000000Z")
-	if _, err := s.db.Exec(`VACUUM INTO ?`, backupPath); err != nil {
+	if err := s.vacuumIntoPrivate(backupPath); err != nil {
 		return fmt.Errorf("store: repo identity: backup to %s: %w", backupPath, err)
 	}
 	tx, err := s.db.Begin()
