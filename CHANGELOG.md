@@ -5,14 +5,17 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 are [Semantic Versioning](https://semver.org/) (`vMAJOR.MINOR.PATCH`).
 
 v1.0.0 was cut on 2026-10-06 (decision `2deb6c91`, superseding `262cf929`), v1.1.0 on 2026-10-19,
-v1.2.0 on 2026-10-31, v1.3.0 on 2026-11-08 and v1.3.1 on 2026-11-09 on the same terms. The measurement on a machine that is not
+v1.2.0 on 2026-10-31, v1.3.0 on 2026-11-08, v1.3.1 on 2026-11-09 and v1.3.2 on 2026-11-11 on the same terms. The measurement on a machine that is not
 Brian's now gates the AUR push and the marketplace submission rather than the tag.
 See `RELEASING.md` for the release flow and its approval gates.
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-11-11
+
 ### Fixed
 
+- The safety copies Backstory writes beside the store before a migration, a project-key sweep or a restore (`backstory.db.pre-rehome-*`, `.pre-sweep-*`, `.pre-identity-*`, `.pre-restore-*`) are now `0600` like the store and `backstory backup`; before, they took the process umask (usually `0644`). Their folder was already private to you (task edc13604).
 - `make install` now verifies the panel plugin ended up enabled (an upgrade silently left it disabled after the shell restart): it reads `omarchy plugin list --json`, retries the enable once after the restart settles, and if the panel is still off prints a final block naming `omarchy plugin enable ridgetopai.backstory` and exits non-zero. When the old `backstory.this-week` widget was in the bar, the new plugin is enabled in that same bar section (task afb836f4).
 - Handoffs written in a repo under `~/projects` (or any workspace dir) now sync to paired machines and count on that repo's row in This Week and `backstory projects`: a handoff is filed under the writing session's own repo, and only a session at the workspace root or in a non-git folder keeps the workspace home (decision `dc0a4387`). Existing workspace-filed handoffs written from a repo are moved on first start, after a `backstory.db.pre-rehome-*` backup; a session opened at the workspace root resumes the newest handoff overall, labelled with its repo.
 
