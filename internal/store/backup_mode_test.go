@@ -98,10 +98,10 @@ func TestOpenTightensExistingPreCopies(t *testing.T) {
 	var loose []string
 	for _, n := range []string{".pre-rehome-X", ".pre-sweep-X", ".pre-identity-X", ".pre-restore-X"} {
 		p := path + n
-		if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.Chmod(p, 0o644); err != nil {
+		if err := os.Chmod(p, 0o644); err != nil { //nolint:gosec // fixture: a legacy world-readable copy
 			t.Fatal(err)
 		}
 		loose = append(loose, p)
