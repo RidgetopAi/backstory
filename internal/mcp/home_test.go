@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/RidgetopAi/backstory/internal/project"
+	"github.com/RidgetopAi/backstory/internal/store"
 )
 
 // initGitRepo runs `git init` in dir so internal/project.RealGit resolves
@@ -96,8 +97,18 @@ func TestNonHandoffRecordKeepsSessionOwnKeyUnderWorkspace(t *testing.T) {
 // returns its stored project_key.
 func noteHandoffFrom(t *testing.T, workspaces []string, dir string) string {
 	t.Helper()
+	rec, err := mustOpenStoreRecord(t, mustOpenStore(t), workspaces, dir)
+	if err != nil {
+		t.Fatalf("GetRecord: %v", err)
+	}
+	return rec.ProjectKey
+}
+
+// mustOpenStoreRecord notes a handoff into st from a session whose folder is
+// dir and returns the stored record.
+func mustOpenStoreRecord(t *testing.T, st *store.Store, workspaces []string, dir string) (store.Record, error) {
+	t.Helper()
 	ownKey := project.Key(dir, project.RealGit{}, workspaces)
-	st := mustOpenStore(t)
 	shim := dialShim(t, testDaemonWithWorkspaces(t, st, "claude", dir, ownKey, workspaces))
 	raw, rerr := shim.CallTool(ToolNote, json.RawMessage(`{"kind":"handoff","text":"handing off"}`))
 	if rerr != nil {
@@ -107,11 +118,7 @@ func noteHandoffFrom(t *testing.T, workspaces []string, dir string) string {
 	if err := json.Unmarshal(raw, &result); err != nil {
 		t.Fatalf("unmarshal NoteResult: %v", err)
 	}
-	rec, err := st.GetRecord(result.ID)
-	if err != nil {
-		t.Fatalf("GetRecord: %v", err)
-	}
-	return rec.ProjectKey
+	return st.GetRecord(result.ID)
 }
 
 // TestHandoffHomeFollowsTheWritingSessionsOwnKey is DONE WHEN clause 1
