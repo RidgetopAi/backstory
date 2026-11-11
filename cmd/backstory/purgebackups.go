@@ -19,8 +19,8 @@ import (
 var purgeEraseHook func() error
 
 // preCopyInfixes name the copies Backstory keeps beside the store before it
-// changes it (restore, the project sweep, the repo-identity migration).
-var preCopyInfixes = []string{".pre-restore-", ".pre-sweep-", ".pre-identity-"}
+// changes it (restore, the project sweep, the repo-identity and handoff-rehome migrations).
+var preCopyInfixes = []string{".pre-restore-", ".pre-sweep-", ".pre-identity-", ".pre-rehome-"}
 
 // backupFileName matches the two names Backstory gives a backup it writes into
 // the backup folder: backstory-<UTC ts>.db and backstory-auto-<UTC ts>.db.

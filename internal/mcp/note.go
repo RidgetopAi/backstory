@@ -199,7 +199,7 @@ func handleNote(st *store.Store, git project.Git, identity store.Identity, sessi
 
 	var visibleAt string
 	if kind == store.KindHandoff {
-		if home, ok := handoffHomeKey(cwd, workspaces); ok {
+		if home, ok := handoffHomeKey(git, cwd, projectKey, workspaces); ok {
 			visibleAt = handoffVisibleAt(st, git, sessionID, cwd, workspaces)
 			if err := ensureHomeProject(st, home); err != nil {
 				return errResponse("internal", err.Error())
@@ -320,19 +320,26 @@ func visibleMessage(dir string) string {
 	return "saved; the next session in " + dir + " will see it"
 }
 
-// handoffHomeKey resolves a kind=handoff record's HOME (decision f3fa04c7):
-// the enclosing workspace's key when the writing session's own folder (cwd)
-// is a configured workspace dir or lives inside one, at any depth
-// (project.WorkspaceHome) — reusing internal/project's own workspace rule
-// rather than a second copy of it. workspaces is the caller's
-// already-resolved workspace directory list (task 482b2320, decision
-// f3fa04c7's clause 7): mcp never resolves workspace dirs itself (no
-// project.DefaultWorkspaceDirs call, no env read). ok is false for a
-// session outside every configured workspace (a repo with no workspace at
-// all, or cwd empty), in which case the caller keeps the session's own
-// project_key: only handoffs are re-homed; every other record kind, and the
-// session's own observed identity, are untouched.
-func handoffHomeKey(cwd string, workspaces []string) (string, bool) {
+// handoffHomeKey resolves a kind=handoff record's HOME (decisions f3fa04c7,
+// amended by dc0a4387): the writing session's OWN project_key whenever that
+// key is a git repo, wherever the repo lives — a repo under a workspace dir
+// keeps its handoff so it syncs (SyncIdentityOf) and counts on the repo's
+// row. Only a session with no repo of its own re-homes to the enclosing
+// workspace (project.WorkspaceHome): one whose own key is workspace:-prefixed
+// (started at the workspace root, or in a direct non-git child), or one in a
+// deeper non-git folder under it (its own key is then the bare cwd). workspaces
+// is the caller's already-resolved workspace directory list (task 482b2320):
+// mcp never resolves workspace dirs itself. ok is false when the session
+// keeps its own key: a repo, a folder outside every workspace, or cwd empty.
+func handoffHomeKey(git project.Git, cwd, ownKey string, workspaces []string) (string, bool) {
+	if ownKey != "" && !project.IsWorkspaceKey(ownKey) {
+		if cwd == "" {
+			return "", false
+		}
+		if _, isRepo := git.Repo(cwd); isRepo {
+			return "", false
+		}
+	}
 	if cwd == "" {
 		return "", false
 	}

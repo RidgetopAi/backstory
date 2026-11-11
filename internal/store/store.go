@@ -85,6 +85,10 @@ func Open(path string, workspaceDirs []string, git project.Git) (*Store, error) 
 		_ = db.Close()
 		return nil, err
 	}
+	if err := s.rehomeHandoffs(); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	return s, nil
 }
 
