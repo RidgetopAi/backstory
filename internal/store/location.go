@@ -277,8 +277,35 @@ func (s *Store) LatestHandoffAtFrom(dir string, git project.Git, workspaces []st
 
 // LatestHandoffAtFromWhere is LatestHandoffAtFrom restricted to handoffs for
 // which keep returns true (nil keeps all).
+//
+// At a workspace dir itself it is the newest handoff overall (decision
+// f3fa04c7 §3, amended by dc0a4387): the dir's own candidates above or, when
+// newer, the newest handoff homed in a repo under that workspace.
 func (s *Store) LatestHandoffAtFromWhere(dir string, git project.Git, workspaces []string, from OriginFilter, keep func(Record) bool) (Record, bool, error) {
 	dir = filepath.Clean(dir)
+	own, found, err := s.latestHandoffAtOwn(dir, git, workspaces, from, keep)
+	if err != nil {
+		return Record{}, false, err
+	}
+	for _, w := range workspaces {
+		if filepath.Clean(w) != dir {
+			continue
+		}
+		repoH, ok, err := s.latestRepoHandoffUnder(dir, from, keep)
+		if err != nil {
+			return Record{}, false, err
+		}
+		if ok && (!found || NewerHandoff(repoH, own)) {
+			return repoH, true, nil
+		}
+		break
+	}
+	return own, found, nil
+}
+
+// latestHandoffAtOwn is LatestHandoffAtFromWhere's own-candidates read: the
+// handoffs under dir's repo key and workspace home key that belong to dir.
+func (s *Store) latestHandoffAtOwn(dir string, git project.Git, workspaces []string, from OriginFilter, keep func(Record) bool) (Record, bool, error) {
 	m := locationMatcher{label: project.Label(dir, git, workspaces)}
 	var keys []any
 	if key := project.Key(dir, git, workspaces); !project.IsWorkspaceKey(key) {
@@ -335,6 +362,37 @@ func (s *Store) LatestHandoffAtFromWhere(dir string, git project.Git, workspaces
 			return Record{}, false, fmt.Errorf("store: latest handoff at %s: %w", dir, err)
 		}
 		if in {
+			return h, true, nil
+		}
+	}
+	return Record{}, false, nil
+}
+
+// latestRepoHandoffUnder returns the newest non-tombstoned handoff homed in a
+// repo (a non-workspace, non-placeholder project key) whose toplevel lies
+// under workspaceDir — decision dc0a4387: a handoff is filed under its
+// writing session's repo even beneath a workspace, so the workspace root's
+// "newest handoff overall" must read them too.
+func (s *Store) latestRepoHandoffUnder(workspaceDir string, from OriginFilter, keep func(Record) bool) (rec Record, ok bool, err error) {
+	prefix := strings.TrimSuffix(filepath.Clean(workspaceDir), string(filepath.Separator)) + string(filepath.Separator)
+	rows, err := s.db.Query(`SELECT r.id FROM records r JOIN projects p ON p.key = r.project_key
+		WHERE r.kind = ? AND r.tombstoned_at IS NULL
+		AND r.project_key NOT LIKE 'workspace:%' AND r.project_key NOT LIKE 'sync:%'
+		AND instr(p.toplevel, ?) = 1
+		ORDER BY r.ts DESC, r.id DESC LIMIT ?`, string(KindHandoff), prefix, maxHandoffScanForLocation)
+	if err != nil {
+		return Record{}, false, fmt.Errorf("store: latest repo handoff under %s: %w", workspaceDir, err)
+	}
+	ids, err := scanIDs(rows)
+	if err != nil {
+		return Record{}, false, fmt.Errorf("store: latest repo handoff under %s: %w", workspaceDir, err)
+	}
+	recs, err := s.getRecords(ids)
+	if err != nil {
+		return Record{}, false, fmt.Errorf("store: latest repo handoff under %s: %w", workspaceDir, err)
+	}
+	for _, h := range recs {
+		if from.matches(h) && (keep == nil || keep(h)) {
 			return h, true, nil
 		}
 	}

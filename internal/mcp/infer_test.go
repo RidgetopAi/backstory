@@ -169,7 +169,7 @@ func TestWorkspaceSessionNoteKeyInference(t *testing.T) {
 			_, stored := f.noteAt(t, shim, kind)
 			want := f.keyA
 			if kind == "handoff" {
-				want = f.wsKey // unchanged rule: handoffs home on the workspace
+				want = f.keyA // decision dc0a4387: a repo session's handoff homes on its repo
 			}
 			if stored != want {
 				t.Errorf("%s stored under %q, want %q", kind, stored, want)

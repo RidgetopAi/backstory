@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/RidgetopAi/backstory/internal/project"
+	"github.com/RidgetopAi/backstory/internal/store"
 )
 
 // initGitRepo runs `git init` in dir so internal/project.RealGit resolves
@@ -20,52 +21,6 @@ func initGitRepo(t *testing.T, dir string) {
 	cmd := exec.Command("git", "init", "-q", dir) //nolint:gosec // fixed literal git subcommand, dir is this test's own t.TempDir()
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git init %s: %v\n%s", dir, err, out)
-	}
-}
-
-// TestHandoffHomeIsWorkspaceForRepoUnderIt is the punch's DONE WHEN clause 1
-// (task 482b2320, decision f3fa04c7): with <tmp>/projects configured as a
-// workspace and <tmp>/projects/omarcade a git repo, a handoff noted from a
-// session whose folder is <tmp>/projects/omarcade is stored with
-// project_key workspace:<tmp>/projects — HOME, not the repo's own key —
-// while every other record kind (exercised via TestNoteEndToEndInsertsAtIdentityTier
-// elsewhere in this package) keeps the session's own key exactly as before.
-//
-// Mutation probe: make handoffHomeKey always report ok=false (the "home
-// helper returns the session's own key" mutation task 482b2320's critic
-// clause 6 names) -> RED (the stored project_key would be omarcade's own
-// repo key, not the workspace key); restore -> GREEN.
-func TestHandoffHomeIsWorkspaceForRepoUnderIt(t *testing.T) {
-	tmp := t.TempDir()
-	workspaceDir := filepath.Join(tmp, "projects")
-	omarcadeDir := filepath.Join(workspaceDir, "omarcade")
-	initGitRepo(t, omarcadeDir)
-	workspaces := []string{workspaceDir}
-
-	ownKey := project.Key(omarcadeDir, project.RealGit{}, []string{workspaceDir})
-	wantHome := "workspace:" + filepath.Clean(workspaceDir)
-	if ownKey == wantHome {
-		t.Fatalf("test setup: omarcade's own key %q must differ from the workspace home %q", ownKey, wantHome)
-	}
-
-	st := mustOpenStore(t)
-	sockPath := testDaemonWithWorkspaces(t, st, "claude", omarcadeDir, ownKey, workspaces)
-	shim := dialShim(t, sockPath)
-
-	raw, rerr := shim.CallTool(ToolNote, json.RawMessage(`{"kind":"handoff","text":"shipped the omarcade feature"}`))
-	if rerr != nil {
-		t.Fatalf("CallTool(note): %v", rerr)
-	}
-	var result NoteResult
-	if err := json.Unmarshal(raw, &result); err != nil {
-		t.Fatalf("unmarshal NoteResult: %v", err)
-	}
-	rec, err := st.GetRecord(result.ID)
-	if err != nil {
-		t.Fatalf("GetRecord: %v", err)
-	}
-	if rec.ProjectKey != wantHome {
-		t.Errorf("handoff project_key = %q, want the workspace home %q (not the repo's own key %q)", rec.ProjectKey, wantHome, ownKey)
 	}
 }
 
@@ -135,5 +90,70 @@ func TestNonHandoffRecordKeepsSessionOwnKeyUnderWorkspace(t *testing.T) {
 	}
 	if rec.ProjectKey != ownKey {
 		t.Errorf("decision project_key = %q, want the repo's own key %q (only handoffs are re-homed)", rec.ProjectKey, ownKey)
+	}
+}
+
+// noteHandoffFrom notes a handoff from a session whose folder is dir and
+// returns its stored project_key.
+func noteHandoffFrom(t *testing.T, workspaces []string, dir string) string {
+	t.Helper()
+	rec, err := mustOpenStoreRecord(t, mustOpenStore(t), workspaces, dir)
+	if err != nil {
+		t.Fatalf("GetRecord: %v", err)
+	}
+	return rec.ProjectKey
+}
+
+// mustOpenStoreRecord notes a handoff into st from a session whose folder is
+// dir and returns the stored record.
+func mustOpenStoreRecord(t *testing.T, st *store.Store, workspaces []string, dir string) (store.Record, error) {
+	t.Helper()
+	ownKey := project.Key(dir, project.RealGit{}, workspaces)
+	shim := dialShim(t, testDaemonWithWorkspaces(t, st, "claude", dir, ownKey, workspaces))
+	raw, rerr := shim.CallTool(ToolNote, json.RawMessage(`{"kind":"handoff","text":"handing off"}`))
+	if rerr != nil {
+		t.Fatalf("CallTool(note): %v", rerr)
+	}
+	var result NoteResult
+	if err := json.Unmarshal(raw, &result); err != nil {
+		t.Fatalf("unmarshal NoteResult: %v", err)
+	}
+	return st.GetRecord(result.ID)
+}
+
+// TestHandoffHomeFollowsTheWritingSessionsOwnKey is DONE WHEN clause 1
+// (decision dc0a4387): a repo under a workspace keeps its handoff (so it
+// syncs and counts); a session at the workspace root, or in a non-git folder
+// under it (any depth), keeps the workspace home.
+//
+// Mutation probe: restore the any-depth workspace rehoming (handoffHomeKey
+// returning project.WorkspaceHome for every cwd) -> the repo case is RED.
+func TestHandoffHomeFollowsTheWritingSessionsOwnKey(t *testing.T) {
+	tmp := t.TempDir()
+	root := filepath.Join(tmp, "projects")
+	repo := filepath.Join(root, "tide-notes")
+	deepRepo := filepath.Join(root, "group", "deep")
+	plain := filepath.Join(root, "scratch")
+	deepPlain := filepath.Join(root, "group", "plain")
+	initGitRepo(t, repo)
+	initGitRepo(t, deepRepo)
+	for _, d := range []string{plain, deepPlain} {
+		if err := os.MkdirAll(d, 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ws := []string{root}
+	wsKey := "workspace:" + root
+
+	for _, dir := range []string{repo, deepRepo} {
+		want := project.Key(dir, project.RealGit{}, ws)
+		if got := noteHandoffFrom(t, ws, dir); got != want || project.IsWorkspaceKey(got) {
+			t.Errorf("handoff from repo %s stored under %q, want its repo key %q", dir, got, want)
+		}
+	}
+	for _, dir := range []string{root, plain, deepPlain} {
+		if got := noteHandoffFrom(t, ws, dir); got != wsKey {
+			t.Errorf("handoff from non-repo %s stored under %q, want %q", dir, got, wsKey)
+		}
 	}
 }

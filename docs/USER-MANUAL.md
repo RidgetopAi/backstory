@@ -960,7 +960,7 @@ Use the real file name from that folder. This keeps your newer memory aside as a
 - **`backstory sync`** copies shared projects to your other computers. It does not copy
   projects you have not shared, and a delete here is forgotten there too, so it is not a way to
   get deleted memory back.
-- **The `.pre-` files** (`backstory.db.pre-restore-`, `pre-sweep-`, `pre-identity-`) appear
+- **The `.pre-` files** (`backstory.db.pre-restore-`, `pre-sweep-`, `pre-identity-`, `pre-rehome-`) appear
   only when Backstory is about to change the store. They are not made on a schedule, so the
   newest one may be old or missing.
 

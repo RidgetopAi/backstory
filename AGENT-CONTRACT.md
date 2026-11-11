@@ -97,8 +97,13 @@ subdirectory and Claude's dashed-cwd transcript slug are all the same repository
 - **A note follows the repo the session edited.** A session launched at a workspace dir
   keeps the workspace key, but a non-handoff `note` it writes is filed under the single
   repo it edited (else the single repo its `about[]` names), so that repo's `recall` finds
-  it. Two or more repos, or none, keep the workspace key; handoffs never move (decision
-  `f3fa04c7`).
+  it. Two or more repos, or none, keep the workspace key.
+- **A handoff homes in the repo that wrote it** (decision `dc0a4387`, amending `f3fa04c7`): a
+  handoff is filed under the writing session's own key whenever that key is a git repo, even a
+  repo under a workspace dir, so it syncs (a workspace key has no sync identity) and counts on
+  the repo's row. Only a session with no repo of its own — one started at the workspace root or
+  in a non-git folder under it — keeps the workspace home. A session at the workspace root
+  resumes the newest handoff overall, repo-homed ones included, labelled with its repo.
 
 ## Records carry `about[]`
 
@@ -146,8 +151,9 @@ note({ kind: decision | outcome | handoff | note | claim,  text })
   session edited, when its mutating-file-tool events (the same extraction This Week uses)
   resolve to exactly one location and that location is a git repo; a session that edited
   nothing applies the same rule to the note's `about[]` paths. Zero or several locations,
-  or only non-git folders, keep the workspace key. Handoffs always stay homed on the
-  workspace. The result's additive `project_key` field reports where the record landed.
+  or only non-git folders, keep the workspace key. A handoff is homed on the
+  session's own repo key; only a session with no repo (workspace root, non-git folder) keeps the
+  workspace home. The result's additive `project_key` field reports where the record landed.
   A `decision` note's result may also carry additive `related_decisions` (up to 3 current
   decisions in the project sharing an `about[]` path or distinctive terms) and a `message`;
   the lookup only reports and never writes an edge.

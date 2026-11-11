@@ -73,7 +73,14 @@ where `project.Key(W, git, dirs) == "workspace:"+W` (a workspace dir that is its
 repo keeps its own repo key and is never swept), every `projects`/`sessions`/`records`
 row exactly matching plain `W` is merged into `"workspace:"+W` (earliest
 `first_seen`) and the plain row is deleted. Before the
-first rewrite, `VACUUM INTO` backs up the pre-sweep file beside the database. Every store
+first rewrite, `VACUUM INTO` backs up the pre-sweep file beside the database.
+`store.Open` also runs a one-time handoff re-home (decision `dc0a4387`): every live `kind='handoff'`
+record filed under a `workspace:` key whose writing session is filed under a repo key (not a
+`workspace:` key, not a `sync:` placeholder) moves to that session's key. The file is first backed up
+as `backstory.db.pre-rehome-<UTC time>`; then, in one transaction, `records_no_update` is dropped, the
+`project_key` is rewritten, the trigger is recreated from its one definition, and one `sync_changes`
+row (`record`) is queued per moved record so paired machines receive it. Tombstoned handoffs are left
+where they are. A second `Open` finds nothing to move and writes no backup. Every store
 write taking a project key (`UpsertProject`, `StartSession`, `InsertRecordWithEdges`) and every project-scoped read funnels through the
 same `Store.canonicalizeProjectKey`, so a caller still spelling a workspace folder the old
 way — a stale daemon that has not restarted since an upgrade, a human typing the old path —
