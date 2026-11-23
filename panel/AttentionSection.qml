@@ -26,6 +26,11 @@ Column {
   // folder with this opening prompt.
   signal updateRequested(string projectKey, string handoffId, string prompt)
 
+  // Terminal on a row whose item names a local working tree (an
+  // uncommitted-at-session-end item's `cwd`): the host opens a terminal
+  // there, through the same launcher a Recent row's click uses.
+  signal terminalRequested(string cwd)
+
   // Set while a Still right or Done run is going: both buttons are off
   // until it ends, so a second click is refused visibly, not dropped.
   readonly property bool busy: affirmProcess.running || doneProcess.running
@@ -87,6 +92,8 @@ Column {
       id: itemRow
       required property var modelData
       readonly property string handoffId: Model.attentionHandoffId(modelData)
+      // Absolute or "" (Model.attentionCwd): Terminal shows only with one.
+      readonly property string cwd: Model.attentionCwd(modelData)
       readonly property var reasons: Model.attentionReasons(modelData)
       // A stale-handoff row from a payload that carries the structured
       // fields shows them; any other row shows its reason as it always did.
@@ -95,8 +102,12 @@ Column {
       readonly property string stillRightTip: "Mark this handoff as still correct; it stops showing here until something new happens."
       readonly property string updateTip: "Open an agent here to bring this handoff up to date."
       readonly property string doneTip: "This work is finished. Stop offering it to resume; nothing is deleted."
-      // Done leads when an outcome closed the work, else Still right does.
-      readonly property var actionOrder: looksFinished ? ["done", "dismiss", "update"] : ["dismiss", "update", "done"]
+      readonly property string terminalTip: "Open a terminal in this folder to commit or stash the changes."
+      // Done leads when an outcome closed the work, else Still right does. A
+      // row with no handoff but a working tree offers Terminal alone.
+      readonly property var actionOrder: handoffId !== ""
+        ? (looksFinished ? ["done", "dismiss", "update"] : ["dismiss", "update", "done"])
+        : (cwd !== "" ? ["terminal"] : [])
       property bool expanded: false
       width: root.width
       spacing: Style.spacing.controlGap
@@ -247,7 +258,7 @@ Column {
       Column {
         id: actions
         objectName: "attentionActions"
-        visible: itemRow.handoffId !== ""
+        visible: itemRow.actionOrder.length > 0
         spacing: Style.spacing.labelGap
 
         Repeater {
@@ -259,14 +270,17 @@ Column {
             required property int index
             readonly property bool isDone: modelData === "done"
             readonly property bool isUpdate: modelData === "update"
-            objectName: isDone ? "attentionDone" : (isUpdate ? "attentionUpdate" : "attentionDismiss")
-            label: isDone ? "Done" : (isUpdate ? "Update" : "Still right")
+            readonly property bool isTerminal: modelData === "terminal"
+            objectName: isTerminal ? "attentionTerminal" : (isDone ? "attentionDone" : (isUpdate ? "attentionUpdate" : "attentionDismiss"))
+            label: isTerminal ? "Terminal" : (isDone ? "Done" : (isUpdate ? "Update" : "Still right"))
             primary: index === 0 && itemRow.looksFinished
             width: Math.max(implicitWidth, actionsMetrics.needed)
             activeFocusOnTab: true
-            enabled: actionButton.isUpdate || !root.busy
+            // Update and Terminal start no run of their own, so stay on.
+            enabled: actionButton.isUpdate || actionButton.isTerminal || !root.busy
             onClicked: {
-              if (isDone) root.markDone(itemRow.handoffId)
+              if (isTerminal) root.terminalRequested(itemRow.cwd)
+              else if (isDone) root.markDone(itemRow.handoffId)
               else if (isUpdate) root.updateRequested(Model.attentionProjectKey(itemRow.modelData),
                 itemRow.handoffId, Format.updatePrompt(itemRow.handoffId, itemRow.looksFinished, itemRow.reasons))
               else root.dismiss(itemRow.handoffId)
@@ -274,9 +288,9 @@ Column {
 
             HoverHandler { id: actionHover }
             PanelToolTip {
-              objectName: actionButton.isDone ? "attentionDoneTip" : (actionButton.isUpdate ? "attentionUpdateTip" : "attentionStillRightTip")
+              objectName: actionButton.isTerminal ? "attentionTerminalTip" : (actionButton.isDone ? "attentionDoneTip" : (actionButton.isUpdate ? "attentionUpdateTip" : "attentionStillRightTip"))
               visible: actionHover.hovered
-              text: actionButton.isDone ? itemRow.doneTip : (actionButton.isUpdate ? itemRow.updateTip : itemRow.stillRightTip)
+              text: actionButton.isTerminal ? itemRow.terminalTip : (actionButton.isDone ? itemRow.doneTip : (actionButton.isUpdate ? itemRow.updateTip : itemRow.stillRightTip))
               delay: 0
               width: Math.min(implicitWidth, Style.space(300))
             }
@@ -284,7 +298,7 @@ Column {
         }
       }
 
-      // Widest of the three labels, so the stack is one width.
+      // Widest of the labels, so the stack is one width.
       TextMetrics {
         id: actionsMetrics
         font.family: Style.font.family

@@ -68,3 +68,27 @@ func TestModelShortName(t *testing.T) {
 		}
 	}
 }
+
+// TestModelAttentionCwd: an attention item's cwd reaches the Needs You
+// Terminal action only as an absolute path; anything else is "" and offers
+// no Terminal (PANEL-CONTRACT.md §Attention `cwd`).
+func TestModelAttentionCwd(t *testing.T) {
+	cases := []struct{ item, want string }{
+		{`{"cwd":"/home/brian/projects/vidflow"}`, "/home/brian/projects/vidflow"},
+		{`{"cwd":"projects/vidflow"}`, ""},
+		{`{"cwd":""}`, ""},
+		{`{"cwd":7}`, ""},
+		{`{"cwd":null}`, ""},
+		{`{}`, ""},
+	}
+	for _, c := range cases {
+		raw := evalJS(t, "attentionCwd("+c.item+")", modelJSPathForRuntime)
+		var got string
+		if err := json.Unmarshal(raw, &got); err != nil {
+			t.Fatalf("decode %s: %v", raw, err)
+		}
+		if got != c.want {
+			t.Errorf("attentionCwd(%s) = %q, want %q", c.item, got, c.want)
+		}
+	}
+}

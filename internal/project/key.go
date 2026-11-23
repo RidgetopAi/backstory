@@ -321,3 +321,20 @@ func ScopeDir(key, toplevel string) string {
 func KeyInRoots(roots []string, key, toplevel string) bool {
 	return InRoots(roots, ScopeDir(key, toplevel))
 }
+
+// WorkTree is the working tree dir lies in: its git toplevel when git
+// resolves one (a worktree resolves to itself, a subfolder to its tree's
+// root), else dir itself; "" for "". A repo's project key (Key) is its git
+// common dir, shared by the main checkout and every worktree; WorkTree is
+// what tells them apart. The one rule This Week's uncommitted items, a stale
+// reason's where, and the SessionStart Repo line all share. Inside the git
+// dir itself git reports no toplevel, so dir comes back unchanged.
+func WorkTree(git Git, dir string) string {
+	if dir == "" || git == nil {
+		return dir
+	}
+	if repo, ok := git.Repo(dir); ok && filepath.IsAbs(repo.Toplevel) {
+		return filepath.Clean(repo.Toplevel)
+	}
+	return dir
+}

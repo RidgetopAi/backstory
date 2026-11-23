@@ -1117,3 +1117,278 @@ func TestDoneHandoffCarriesFlagAndNoAttentionItem(t *testing.T) {
 		t.Fatal("project row missing")
 	}
 }
+
+// --- Every project-scoped Attention reason leads with the project label ---
+
+// A real repo's project key is its git common dir (/x/vidflow/.git), so the
+// key is not the label: Brian's desk showed "session ended with 17
+// uncommitted change(s) on branch master" naming no project at all. Each
+// project kind's reason now leads with the row's display name, and the
+// uncommitted item carries the dirty session's own working tree as CWD.
+const labelRepoKey = "/home/brian/projects/vidflow/.git"
+
+func TestUncommittedReasonLeadsWithLabelAndCarriesCWD(t *testing.T) {
+	st := openTestStore(t)
+	upsertProject(t, st, labelRepoKey, "/home/brian/projects/vidflow")
+	sid := startSession(t, st, "sess-vidflow", labelRepoKey, "/home/brian/projects/vidflow/", fixtureNow.Add(-2*time.Hour))
+	appendGitState(t, st, sid, `{"branch":"master","uncommitted_count":17}`)
+	items := uncommittedItems(t, st)
+	if len(items) != 1 {
+		t.Fatalf("items = %+v, want 1", items)
+	}
+	if want := "vidflow: session ended with 17 uncommitted change(s) on branch master"; items[0].Reason != want {
+		t.Errorf("Reason = %q, want %q", items[0].Reason, want)
+	}
+	if want := "/home/brian/projects/vidflow"; items[0].CWD != want {
+		t.Errorf("CWD = %q, want %q (the dirty session's cwd, cleaned)", items[0].CWD, want)
+	}
+	if !items[0].Kind.ReasonLeadsWithLabel() {
+		t.Errorf("uncommitted-at-session-end must be a label-led kind")
+	}
+}
+
+// A worktree's dirty tree opens in the worktree: the project key is shared
+// by every worktree of the repo, the session's cwd is not.
+func TestUncommittedCWDIsTheDirtySessionsWorktree(t *testing.T) {
+	st := openTestStore(t)
+	upsertProject(t, st, labelRepoKey, "/home/brian/projects/vidflow")
+	clean := startSession(t, st, "sess-main", labelRepoKey, "/home/brian/projects/vidflow", fixtureNow.Add(-3*time.Hour))
+	appendGitState(t, st, clean, `{"branch":"master","uncommitted_count":0}`)
+	dirty := startSession(t, st, "sess-wt", labelRepoKey, "/home/brian/projects/vidflow-wt", fixtureNow.Add(-2*time.Hour))
+	appendGitState(t, st, dirty, `{"branch":"feature","uncommitted_count":2}`)
+	items := uncommittedItems(t, st)
+	if len(items) != 1 || items[0].CWD != "/home/brian/projects/vidflow-wt" {
+		t.Fatalf("items = %+v, want one item with CWD /home/brian/projects/vidflow-wt", items)
+	}
+}
+
+// A dirty session recorded on another device, or one with a relative cwd,
+// gets no CWD: the panel must never open a peer's path or resolve a
+// relative one against wherever it happens to run.
+func TestUncommittedCWDAbsentForPeerOrRelativeSession(t *testing.T) {
+	for _, tc := range []struct {
+		name, cwd, update string
+	}{
+		{"synced", "/home/brian/projects/vidflow", `UPDATE sessions SET origin = 'synced' WHERE id = ?`},
+		{"origin-device", "/home/brian/projects/vidflow", `UPDATE sessions SET origin_device = 'laptop-device-id' WHERE id = ?`},
+		{"relative", "projects/vidflow", ""},
+		{"empty", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := openTestStore(t)
+			upsertProject(t, st, labelRepoKey, "/home/brian/projects/vidflow")
+			sid := startSession(t, st, "sess-"+tc.name, labelRepoKey, tc.cwd, fixtureNow.Add(-2*time.Hour))
+			if tc.update != "" {
+				if _, err := st.DB().Exec(tc.update, sid); err != nil {
+					t.Fatalf("%s: %v", tc.update, err)
+				}
+			}
+			appendGitState(t, st, sid, `{"branch":"master","uncommitted_count":1}`)
+			items := uncommittedItems(t, st)
+			if len(items) != 1 {
+				t.Fatalf("items = %+v, want 1 (the item itself still shows)", items)
+			}
+			if items[0].CWD != "" {
+				t.Errorf("CWD = %q, want empty", items[0].CWD)
+			}
+		})
+	}
+}
+
+func TestContradictionAndExpiredClaimReasonsLeadWithLabel(t *testing.T) {
+	st := openTestStore(t)
+	targetID, sourceID := seedContradictionProject(t, st)
+	claimID := seedExpiredClaimProject(t, st)
+	res, err := Build(Params{Store: st, Now: fixtureNow})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	seen := map[AttentionKind]string{}
+	for _, it := range res.Attention {
+		seen[it.Kind] = it.Reason
+	}
+	if want := fmt.Sprintf("contradiction: record %s is contradicted by %s", shortID(targetID), shortID(sourceID)); seen[AttentionContradiction] != want {
+		t.Errorf("contradiction Reason = %q, want %q", seen[AttentionContradiction], want)
+	}
+	if want := fmt.Sprintf("expired-claim: claim %s expired with no outcome recorded", shortID(claimID)); seen[AttentionExpiredClaim] != want {
+		t.Errorf("expired-claim Reason = %q, want %q", seen[AttentionExpiredClaim], want)
+	}
+}
+
+// The environment kinds name their own subject and are never label-led; the
+// text render prefixes their slug instead.
+func TestEnvironmentKindsAreNotLabelLed(t *testing.T) {
+	for _, k := range []AttentionKind{AttentionCodexHooksNotApproved, AttentionSyncFailing, AttentionBackupFailing} {
+		if k.ReasonLeadsWithLabel() {
+			t.Errorf("%s: ReasonLeadsWithLabel = true, want false", k)
+		}
+	}
+	got := renderAttention([]AttentionItem{{Kind: AttentionCodexHooksNotApproved, ProjectKey: "codex", Reason: "Codex hooks are not approved"}})
+	if want := "- [codex-hooks-not-approved] codex: Codex hooks are not approved"; !strings.Contains(got, want) {
+		t.Errorf("render = %q, want line %q", got, want)
+	}
+	got = renderAttention([]AttentionItem{{Kind: AttentionUncommittedAtSessionEnd, ProjectKey: labelRepoKey, Reason: "vidflow: session ended with 1 uncommitted change(s)"}})
+	if strings.Contains(got, labelRepoKey) {
+		t.Errorf("render = %q, must not prefix the raw project key to a label-led reason", got)
+	}
+}
+
+// --- A stale reason's `where` names the working tree, never the git dir ---
+
+// A repo's project key is its git common dir; a stale reason's where must be
+// the folder the session worked in, workspace-relative ("projects/vidflow"),
+// not that key ("projects/vidflow/.git").
+func TestStaleReasonWhereIsTheWorkingTreeNotTheGitDir(t *testing.T) {
+	t.Run("local session in a subfolder", func(t *testing.T) { staleReasonWhere(t, "/home/brian/projects/vidflow/src", false) })
+	// A paired device's session has no local cwd: where is the project's
+	// recorded toplevel.
+	t.Run("peer session", func(t *testing.T) { staleReasonWhere(t, "/home/brian/projects/vidflow", true) })
+}
+
+func staleReasonWhere(t *testing.T, cwd string, peer bool) {
+	st := openTestStore(t)
+	upsertProject(t, st, labelRepoKey, "/home/brian/projects/vidflow")
+	sid := startSession(t, st, "sess-where", labelRepoKey, cwd, fixtureNow.Add(-2*24*time.Hour))
+	if peer {
+		if _, err := st.DB().Exec(`UPDATE sessions SET origin_device = 'laptop-device-id' WHERE id = ?`, sid); err != nil {
+			t.Fatalf("mark peer: %v", err)
+		}
+	}
+	appendEvent(t, st, store.Event{TS: fixtureNow.Add(-2 * 24 * time.Hour), Kind: "session.start", SessionID: sid, Source: "shell", Payload: `{}`})
+	if _, err := st.InsertRecord(store.InsertRecordParams{
+		Identity: agentIdentity, Kind: store.KindHandoff, Text: "resume here",
+		About: []string{"main.go"}, SessionID: sid, ProjectKey: labelRepoKey,
+	}); err != nil {
+		t.Fatalf("insert handoff: %v", err)
+	}
+	if _, err := st.InsertRecord(store.InsertRecordParams{
+		Identity: agentIdentity, Kind: store.KindDecision, Text: "changed approach",
+		About: []string{"main.go"}, SessionID: sid, ProjectKey: labelRepoKey,
+	}); err != nil {
+		t.Fatalf("insert later decision: %v", err)
+	}
+	res, err := Build(Params{Store: st, Git: twoTreeGit{}, Now: fixtureNow, WorkspaceDirs: []string{"/home/brian/projects"}})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	var wheres []string
+	for _, it := range res.Attention {
+		if it.Kind == AttentionPossiblyStaleHandoff {
+			for _, r := range it.Reasons {
+				wheres = append(wheres, r.Where)
+			}
+		}
+	}
+	if len(wheres) == 0 {
+		t.Fatalf("no stale reasons; attention = %+v", res.Attention)
+	}
+	for _, w := range wheres {
+		if w != "projects/vidflow" {
+			t.Errorf("reason where = %q, want %q", w, "projects/vidflow")
+		}
+	}
+}
+
+// --- Attention kind (b) is tracked per working tree, not per project ---
+
+const (
+	vidflowMain = "/home/brian/projects/vidflow"
+	vidflowWT   = "/home/brian/projects/vidflow-wt"
+)
+
+// With the workspace dir set, as on the desk, the label is workspace-relative
+// ("projects/vidflow"), the same label a stale-handoff reason leads with.
+func uncommittedItemsWith(t *testing.T, st *store.Store, git project.Git) []AttentionItem {
+	t.Helper()
+	res, err := Build(Params{Store: st, Git: git, WorkspaceDirs: []string{"/home/brian/projects"}, Now: fixtureNow})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	var out []AttentionItem
+	for _, it := range res.Attention {
+		if it.Kind == AttentionUncommittedAtSessionEnd {
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
+// twoTreeGit resolves each tree (and anything under it) to its own toplevel,
+// both sharing labelRepoKey as their common dir, as a repo and its worktree do.
+// Inside the git dir itself it answers as real git does (measured: in
+// <repo>/.git, `rev-parse --git-common-dir` prints "." and exits 0, and
+// `--show-toplevel` exits 128 "must be run in a work tree"): a repo with no
+// toplevel, so resolving the key as a folder can never pass for a tree.
+type twoTreeGit struct{}
+
+func (twoTreeGit) Repo(dir string) (project.Repo, bool) {
+	if within(dir, labelRepoKey) {
+		return project.Repo{CommonDir: labelRepoKey}, true
+	}
+	for _, root := range []string{vidflowWT, vidflowMain} {
+		if within(dir, root) {
+			return project.Repo{CommonDir: labelRepoKey, Toplevel: root}, true
+		}
+	}
+	return project.Repo{}, false
+}
+
+func (twoTreeGit) State(string) (project.State, bool) { return project.State{}, false }
+
+func TestUncommittedWorktreeSurvivesLaterCleanMainCheckout(t *testing.T) {
+	st := openTestStore(t)
+	upsertProject(t, st, labelRepoKey, vidflowMain)
+	wt := startSession(t, st, "sess-wt-dirty", labelRepoKey, vidflowWT, fixtureNow.Add(-3*time.Hour))
+	dirty := appendGitState(t, st, wt, `{"branch":"feature","uncommitted_count":2}`)
+	main := startSession(t, st, "sess-main-clean", labelRepoKey, vidflowMain, fixtureNow.Add(-2*time.Hour))
+	appendGitState(t, st, main, `{"branch":"master","uncommitted_count":0}`)
+	items := uncommittedItemsWith(t, st, twoTreeGit{})
+	if len(items) != 1 {
+		t.Fatalf("items = %+v, want the worktree's one item to survive a clean main checkout", items)
+	}
+	if want := "projects/vidflow: session ended with 2 uncommitted change(s) on branch feature in projects/vidflow-wt"; items[0].Reason != want {
+		t.Errorf("Reason = %q, want %q", items[0].Reason, want)
+	}
+	if items[0].CWD != vidflowWT || items[0].EvidenceIDs[0] != strconv.FormatInt(dirty, 10) {
+		t.Errorf("item = %+v, want CWD %s and evidence %d", items[0], vidflowWT, dirty)
+	}
+
+	// A later clean session in the SAME worktree (from a subfolder of it)
+	// clears it.
+	again := startSession(t, st, "sess-wt-clean", labelRepoKey, vidflowWT+"/src", fixtureNow.Add(-1*time.Hour))
+	appendGitState(t, st, again, `{"branch":"feature","uncommitted_count":0}`)
+	if items := uncommittedItemsWith(t, st, twoTreeGit{}); len(items) != 0 {
+		t.Fatalf("items = %+v, want none after the worktree itself came back clean", items)
+	}
+}
+
+func TestUncommittedOneItemPerDirtyTree(t *testing.T) {
+	st := openTestStore(t)
+	upsertProject(t, st, labelRepoKey, vidflowMain)
+	a := startSession(t, st, "sess-a", labelRepoKey, vidflowMain+"/cmd", fixtureNow.Add(-3*time.Hour))
+	appendGitState(t, st, a, `{"branch":"master","uncommitted_count":1}`)
+	b := startSession(t, st, "sess-b", labelRepoKey, vidflowWT, fixtureNow.Add(-2*time.Hour))
+	appendGitState(t, st, b, `{"branch":"feature","uncommitted_count":4}`)
+	peer := startSession(t, st, "sess-peer", labelRepoKey, vidflowMain, fixtureNow.Add(-90*time.Minute))
+	if _, err := st.DB().Exec(`UPDATE sessions SET origin_device = 'laptop-device-id' WHERE id = ?`, peer); err != nil {
+		t.Fatalf("mark peer: %v", err)
+	}
+	appendGitState(t, st, peer, `{"branch":"master","uncommitted_count":3}`)
+	got := map[string]string{}
+	for _, it := range uncommittedItemsWith(t, st, twoTreeGit{}) {
+		got[it.Reason] = it.CWD
+	}
+	want := map[string]string{
+		"projects/vidflow: session ended with 1 uncommitted change(s) on branch master in projects/vidflow":     vidflowMain,
+		"projects/vidflow: session ended with 4 uncommitted change(s) on branch feature in projects/vidflow-wt": vidflowWT,
+		"projects/vidflow: session ended with 3 uncommitted change(s) on branch master in an unknown folder":    "",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("items (reason -> cwd) = %v, want %v", got, want)
+	}
+	for r, cwd := range want {
+		if c, ok := got[r]; !ok || c != cwd {
+			t.Errorf("item %q: cwd %q present %v, want cwd %q", r, c, ok, cwd)
+		}
+	}
+}

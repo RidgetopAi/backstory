@@ -921,12 +921,37 @@ func formatAge(d time.Duration) string {
 // (the last session end; with could_not_observe there is no count to show),
 // the commits from the handoff's git stamp against the repo as it is now.
 // Each part is shown only when observed; "" when none is.
+//
+// With an absolute CWD only sessions in the READER's own working tree count
+// (project.WorkTree, the rule This Week's uncommitted items use): the project
+// key is the repo's git common dir, shared by the main checkout and every
+// worktree, so another tree's last session end says nothing about this one.
+// Without a CWD (a caller that never sets one) every session counts, as
+// before.
 func repoStateLine(p Params, readerBranch string, handoff store.Record, hasHandoff bool, events []store.TimelineEvent, shellSessions map[string]bool) (string, error) {
+	readerTree := ""
+	if filepath.IsAbs(p.CWD) {
+		readerTree = project.WorkTree(p.Git, filepath.Clean(p.CWD))
+	}
+	treeOf := map[string]string{}
 	var gs *payload.SessionGitState
 	var gsTS time.Time
 	for _, e := range events {
 		if e.Kind != payload.KindSessionGitState || shellSessions[e.SessionID] {
 			continue
+		}
+		if readerTree != "" {
+			tree, known := treeOf[e.SessionID]
+			if !known {
+				var err error
+				if tree, err = p.Store.SessionTree(p.Git, e.SessionID); err != nil {
+					return "", fmt.Errorf("block: tree of session %s: %w", e.SessionID, err)
+				}
+				treeOf[e.SessionID] = tree
+			}
+			if tree != readerTree {
+				continue
+			}
 		}
 		var v payload.SessionGitState
 		if json.Unmarshal([]byte(e.Payload), &v) == nil && v.Phase != payload.GitStatePhaseStart {

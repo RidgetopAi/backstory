@@ -243,10 +243,14 @@ func (s *Store) laterUnrecordedWork(h Record, sessionIDs []string, boundaryID st
 // key alone no longer says which folder a session ran in.
 const workspaceKeyPrefix = "workspace:"
 
-// sessionFolder is the folder a session started in, for locating a failure:
-// the git toplevel (its project key) for a session in a repo, else its own
-// cwd. A non-git folder under a workspace has the workspace's key, which
-// every sibling folder shares, so the key cannot tell them apart.
+// sessionFolder is the identity laterFailureEvents matches a session's
+// location by — NOT a path to show anyone. For a session in a repo it is the
+// project key, which is the repo's git common dir (/x/repo/.git, project.Key):
+// one value for the main checkout, every worktree and every subfolder, so a
+// failure anywhere in the repo counts against a handoff written anywhere in
+// it. For a non-git folder under a workspace it is the session's own cwd:
+// the workspace's key is shared by every sibling folder, so the key cannot
+// tell them apart. For display, use SessionFolder.
 func sessionFolder(sess Session) string {
 	if !strings.HasPrefix(sess.ProjectKey, workspaceKeyPrefix) {
 		return sess.ProjectKey
@@ -564,11 +568,18 @@ func (s *Store) EventsByIDs(ids []int64) ([]TimelineEvent, error) {
 	return s.scanTimelineEvents(rows)
 }
 
-// SessionFolder is the folder a session started in, as a freshness failure
-// locates it (its git toplevel, else its cwd); "" for an unknown session.
+// SessionFolder is the folder a session worked in, to SHOW (a stale
+// reason's "where"): its cwd when recorded on this device
+// (LocalSessionCWD); else, for a repo session (a peer's, whose cwd is not
+// ours), its project's recorded toplevel; else "". Never the project key: a
+// repo's key is its git common dir (/x/repo/.git), not a folder anyone
+// works in. "" for an unknown session.
 func (s *Store) SessionFolder(sessionID string) (string, error) {
 	if sessionID == "" {
 		return "", nil
+	}
+	if cwd, err := s.LocalSessionCWD(sessionID); err != nil || cwd != "" {
+		return cwd, err
 	}
 	sess, err := s.getSession(sessionID)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -577,5 +588,15 @@ func (s *Store) SessionFolder(sessionID string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("store: session folder %s: %w", sessionID, err)
 	}
-	return sessionFolder(sess), nil
+	if strings.HasPrefix(sess.ProjectKey, workspaceKeyPrefix) {
+		return "", nil
+	}
+	proj, ok, err := s.GetProject(sess.ProjectKey)
+	if err != nil {
+		return "", fmt.Errorf("store: session folder %s: %w", sessionID, err)
+	}
+	if !ok || !filepath.IsAbs(proj.Toplevel) {
+		return "", nil
+	}
+	return filepath.Clean(proj.Toplevel), nil
 }

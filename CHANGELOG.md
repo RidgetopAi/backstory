@@ -18,6 +18,17 @@ See `RELEASING.md` for the release flow and its approval gates.
 - `make uninstall` keeps a `~/.config/hypr/backstory.lua` or a sync timer unit (`backstory-sync.timer`, `backstory-sync.service`) that you edited or symlinked, and prints a line naming it. Before, it deleted them whatever they held. It deletes only a file that holds a version Backstory shipped (for the sync service, under any binary path), the same check `make install` already used for `backstory.lua`.
 - `make install` keeps a `~/.config/systemd/user/backstory.service` you edited or symlinked and writes the new unit beside it as `backstory.service.new`, as it already did for `backstory.lua`; `make uninstall` deletes the unit only when it is a version Backstory shipped. Before, install overwrote it and uninstall deleted it.
 
+### Added
+
+- Panel Needs you: a **Terminal** button on an uncommitted-changes row opens a shell in the folder that session worked in, so you can commit or stash. `this-week --json` carries that folder as the item's `cwd` (PANEL-CONTRACT.md §Attention), only for a session recorded on this computer and only as an absolute path; the button shows only then.
+
+### Fixed
+
+- Panel Needs you and `backstory this-week`: an uncommitted-changes, contradiction or expired-claim item now leads with the project's name, as a stale handoff already did ("vidflow: session ended with 17 uncommitted change(s) on branch master"); before, the row named no project. The Codex, sync and backup items are about this machine and are unchanged.
+- Uncommitted changes are tracked per working tree, not per repo: a clean session in the main checkout no longer clears a worktree's uncommitted-changes item, and each dirty tree gets its own item (naming the tree when the repo had more than one this week).
+- The session-start block's `Repo:` line counts uncommitted changes from the agent's own working tree only: an agent starting in the main checkout no longer sees a worktree's uncommitted count, or the other way round.
+- Panel Needs you: a stale handoff's "Since then" names the folder (`projects/vidflow`), not the repo's git directory (`projects/vidflow/.git`).
+
 ## [1.3.3] - 2026-11-23
 
 ### Fixed

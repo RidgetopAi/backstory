@@ -94,6 +94,20 @@ const (
 	AttentionBackupFailing AttentionKind = "backup-failing"
 )
 
+// ReasonLeadsWithLabel reports whether k is project evidence, whose Reason
+// leads with the project's display name ("vidflow: session ended ..."). The
+// environment kinds (codex-hooks-not-approved, sync-failing,
+// backup-failing) are about this machine, not a project: their ProjectKey
+// is a fixed slug ("codex", "sync", "backup") and their Reason names its own
+// subject ("Codex hooks are not approved ...", "sync with laptop ...").
+func (k AttentionKind) ReasonLeadsWithLabel() bool {
+	switch k {
+	case AttentionPossiblyStaleHandoff, AttentionUncommittedAtSessionEnd, AttentionContradiction, AttentionExpiredClaim:
+		return true
+	}
+	return false
+}
+
 // attentionKindOrder fixes AttentionItem's sort order across kinds — the
 // order decision 9be5c1d5 lists them in — so rendered and --json output is
 // deterministic regardless of which store query happened to run first.
@@ -131,6 +145,12 @@ type AttentionItem struct {
 	// (the agent's proof the work got done): the handoff may be finished
 	// rather than wrong. Only a possibly-stale-handoff item sets it.
 	LooksFinished bool
+	// CWD is the local working tree an AttentionUncommittedAtSessionEnd item's
+	// changes sit in: the cwd of the session whose git state was observed
+	// dirty, absolute and cleaned. "" when that session was recorded on
+	// another device (its path is a peer's) or its cwd is not absolute, and
+	// for every other kind. The panel's Terminal action opens it.
+	CWD string
 	// EvidenceIDs is the positive evidence this item cites: record ids and
 	// timeline event ids (formatted as decimal strings), in the same mixed
 	// list shape block.staleMarker and recall's status labels already use
@@ -494,7 +514,7 @@ func buildProject(st *store.Store, projectKey string, since, now time.Time, git 
 		}
 		if len(reasons) > 0 {
 			summary.HandoffStale = true
-			item, err := staleHandoffItem(st, projectKey, summary.DisplayName, handoff, reasons, workspaces)
+			item, err := staleHandoffItem(st, git, projectKey, summary.DisplayName, handoff, reasons, workspaces)
 			if err != nil {
 				return ProjectSummary{}, nil, err
 			}
@@ -502,7 +522,7 @@ func buildProject(st *store.Store, projectKey string, since, now time.Time, git 
 		}
 	}
 
-	uncommitted, err := uncommittedSessionEndItems(st, projectKey, since)
+	uncommitted, err := uncommittedSessionEndItems(st, git, projectKey, summary.DisplayName, since, workspaces)
 	if err != nil {
 		return ProjectSummary{}, nil, err
 	}
@@ -516,7 +536,7 @@ func buildProject(st *store.Store, projectKey string, since, now time.Time, git 
 		attention = append(attention, AttentionItem{
 			Kind:        AttentionContradiction,
 			ProjectKey:  projectKey,
-			Reason:      fmt.Sprintf("record %s is contradicted by %s", shortID(c.TargetID), shortID(c.SourceID)),
+			Reason:      fmt.Sprintf("%s: record %s is contradicted by %s", summary.DisplayName, shortID(c.TargetID), shortID(c.SourceID)),
 			EvidenceIDs: intIDs(c.Evidence),
 		})
 	}
@@ -529,7 +549,7 @@ func buildProject(st *store.Store, projectKey string, since, now time.Time, git 
 		attention = append(attention, AttentionItem{
 			Kind:        AttentionExpiredClaim,
 			ProjectKey:  projectKey,
-			Reason:      fmt.Sprintf("claim %s expired with no outcome recorded", shortID(claim.ID)),
+			Reason:      fmt.Sprintf("%s: claim %s expired with no outcome recorded", summary.DisplayName, shortID(claim.ID)),
 			EvidenceIDs: []string{claim.ID},
 		})
 	}
@@ -557,8 +577,19 @@ func projectHandoff(st *store.Store, projectKey string, sess store.Session, hasS
 // event with CouldNotObserve false and UncommittedCount > 0 — never a
 // could-not-observe event, which carries no positive evidence at all
 // (payload.SessionGitState's own doc: "a writer must never fold that into
-// UncommittedCount 0").
-func uncommittedSessionEndItems(st *store.Store, projectKey string, since time.Time) ([]AttentionItem, error) {
+// UncommittedCount 0"). Its reason leads with label, the project's display
+// name, as every project-scoped kind's does.
+//
+// State is tracked per WORKING TREE (store.SessionTree), not per project: the
+// project key is the repo's git common dir, shared by the main checkout and
+// every worktree, so a clean session in one must not clear another's dirty
+// tree. One item per dirty tree, its CWD that tree. When the project had
+// more than one tree observed in the window, each reason also says which
+// tree ("... on branch feature in projects/vidflow-wt"); with one, the
+// wording is unchanged. Events from sessions with no local tree (a paired
+// device's, or a cwd that is not absolute) share one unknown-tree slot with
+// no CWD.
+func uncommittedSessionEndItems(st *store.Store, git project.Git, projectKey, label string, since time.Time, workspaces []string) ([]AttentionItem, error) {
 	events, err := st.EventsForTimeline(projectKey, since, payload.KindSessionGitState, 0)
 	if err != nil {
 		return nil, fmt.Errorf("week: session git-state events for %s: %w", projectKey, err)
@@ -569,14 +600,19 @@ func uncommittedSessionEndItems(st *store.Store, projectKey string, since time.T
 	if err != nil {
 		return nil, fmt.Errorf("week: shell sessions for %s: %w", projectKey, err)
 	}
-	// Only the LATEST observable event counts: events arrive oldest-first, so
-	// the last one that is not could-not-observe is the project's current
-	// state. An earlier dirty event is superseded by a later clean one, and a
-	// later could-not-observe event carries no evidence either way.
-	var latest *store.TimelineEvent
-	var latestGS payload.SessionGitState
-	for i := range events {
-		e := events[i]
+	// Only each tree's LATEST observable event counts: events arrive
+	// oldest-first, so the last one that is not could-not-observe is that
+	// tree's current state. An earlier dirty event is superseded by a later
+	// clean one in the same tree, and a later could-not-observe event carries
+	// no evidence either way.
+	type observed struct {
+		event store.TimelineEvent
+		gs    payload.SessionGitState
+	}
+	latest := map[string]observed{}
+	var trees []string
+	treeOf := map[string]string{}
+	for _, e := range events {
 		if shellSessions[e.SessionID] {
 			continue
 		}
@@ -587,19 +623,41 @@ func uncommittedSessionEndItems(st *store.Store, projectKey string, since time.T
 		if gs.Phase == payload.GitStatePhaseStart || gs.CouldNotObserve || gs.UncommittedCount == nil {
 			continue
 		}
-		latest, latestGS = &events[i], gs
+		tree, known := treeOf[e.SessionID]
+		if !known {
+			if tree, err = st.SessionTree(git, e.SessionID); err != nil {
+				return nil, fmt.Errorf("week: tree of session %s: %w", e.SessionID, err)
+			}
+			treeOf[e.SessionID] = tree
+		}
+		if _, seen := latest[tree]; !seen {
+			trees = append(trees, tree)
+		}
+		latest[tree] = observed{event: e, gs: gs}
 	}
 	var out []AttentionItem
-	if latest != nil && *latestGS.UncommittedCount > 0 {
-		reason := fmt.Sprintf("session ended with %d uncommitted change(s)", *latestGS.UncommittedCount)
-		if latestGS.Branch != "" {
-			reason += " on branch " + latestGS.Branch
+	for _, tree := range trees {
+		o := latest[tree]
+		if *o.gs.UncommittedCount <= 0 {
+			continue
+		}
+		reason := fmt.Sprintf("%s: session ended with %d uncommitted change(s)", label, *o.gs.UncommittedCount)
+		if o.gs.Branch != "" {
+			reason += " on branch " + o.gs.Branch
+		}
+		if len(trees) > 1 {
+			if tree != "" {
+				reason += " in " + project.WorkspaceRelativeName(tree, workspaces)
+			} else {
+				reason += " in an unknown folder"
+			}
 		}
 		out = append(out, AttentionItem{
 			Kind:        AttentionUncommittedAtSessionEnd,
 			ProjectKey:  projectKey,
 			Reason:      reason,
-			EvidenceIDs: []string{strconv.FormatInt(latest.ID, 10)},
+			CWD:         tree,
+			EvidenceIDs: []string{strconv.FormatInt(o.event.ID, 10)},
 		})
 	}
 	return out, nil
@@ -746,7 +804,7 @@ func buildHomeLabelProject(st *store.Store, since, now time.Time, loc store.Acti
 		}
 		if len(reasons) > 0 {
 			summary.HandoffStale = true
-			item, err := staleHandoffItem(st, summary.ProjectKey, summary.DisplayName, handoff, reasons, workspaces)
+			item, err := staleHandoffItem(st, git, summary.ProjectKey, summary.DisplayName, handoff, reasons, workspaces)
 			if err != nil {
 				return ProjectSummary{}, nil, err
 			}
@@ -952,8 +1010,8 @@ const failureTextMaxRunes = 60
 // staleHandoffItem builds the AttentionPossiblyStaleHandoff item for
 // handoffID: its reason leads with the project label (so two distinct
 // handoffs are told apart) and says what failed instead of a bare kind slug.
-func staleHandoffItem(st *store.Store, projectKey, label string, handoff store.Record, reasons []store.FreshnessReason, workspaces []string) (AttentionItem, error) {
-	detail, err := staleReasons(st, reasons, workspaces)
+func staleHandoffItem(st *store.Store, git project.Git, projectKey, label string, handoff store.Record, reasons []store.FreshnessReason, workspaces []string) (AttentionItem, error) {
+	detail, err := staleReasons(st, git, reasons, workspaces)
 	if err != nil {
 		return AttentionItem{}, fmt.Errorf("week: stale reasons for %s: %w", handoff.ID, err)
 	}
@@ -978,15 +1036,17 @@ func staleHandoffItem(st *store.Store, projectKey, label string, handoff store.R
 
 // staleReasons expands each freshness reason into a StaleReason carrying
 // when and where it happened and its full text, reading the cited records
-// and events from the store.
-func staleReasons(st *store.Store, reasons []store.FreshnessReason, workspaces []string) ([]StaleReason, error) {
+// and events from the store. Where is the working tree the session worked
+// in (store.SessionFolder, then project.WorkTree), workspace-relative — never the
+// project key, which for a repo is its git dir.
+func staleReasons(st *store.Store, git project.Git, reasons []store.FreshnessReason, workspaces []string) ([]StaleReason, error) {
 	out := make([]StaleReason, 0, len(reasons))
 	where := func(sessionID string) (string, error) {
 		folder, err := st.SessionFolder(sessionID)
 		if err != nil || folder == "" {
 			return "", err
 		}
-		return project.WorkspaceRelativeName(folder, workspaces), nil
+		return project.WorkspaceRelativeName(project.WorkTree(git, folder), workspaces), nil
 	}
 	for _, r := range reasons {
 		sr := StaleReason{Kind: string(r.Kind)}

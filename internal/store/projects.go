@@ -4,10 +4,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/RidgetopAi/backstory/internal/ident"
+	"github.com/RidgetopAi/backstory/internal/project"
 )
 
 // Project is a row in projects. Deriving Key from git common dir + first
@@ -161,6 +163,39 @@ func (s *Store) LatestLocalCWDForProject(projectKey string) (string, error) {
 		return "", fmt.Errorf("store: latest local cwd for project %s: %w", projectKey, err)
 	}
 	return cwd, nil
+}
+
+// LocalSessionCWD returns sessionID's cwd, cleaned, when the session was
+// recorded on THIS device (the same predicate LatestLocalCWDForProject
+// applies: not a synced stub, no origin device) and the cwd is absolute; ""
+// for a peer's session, an unknown id, or an empty or relative cwd. A peer's
+// path names a folder on another machine, so nothing here may open it.
+func (s *Store) LocalSessionCWD(sessionID string) (string, error) {
+	var cwd string
+	err := s.db.QueryRow(`SELECT cwd FROM sessions
+		WHERE id = ? AND origin != 'synced' AND origin_device IS NULL`, sessionID).Scan(&cwd)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("store: local cwd for session %s: %w", sessionID, err)
+	}
+	if !filepath.IsAbs(cwd) {
+		return "", nil
+	}
+	return filepath.Clean(cwd), nil
+}
+
+// SessionTree is the local working tree sessionID worked in:
+// project.WorkTree of LocalSessionCWD, so "" for a peer's session or a
+// non-absolute cwd. Not the project key, which for a repo is its git common
+// dir shared by every worktree.
+func (s *Store) SessionTree(git project.Git, sessionID string) (string, error) {
+	cwd, err := s.LocalSessionCWD(sessionID)
+	if err != nil {
+		return "", err
+	}
+	return project.WorkTree(git, cwd), nil
 }
 
 // sessionColumns are the sessions columns scanSession reads, in its order.
