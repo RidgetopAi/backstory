@@ -285,7 +285,8 @@ var codexOwnCommandLine = regexp.MustCompile(`^command = "(?:[^"\\\n]|\\.)*"\n$`
 
 // codexOwnBody returns how many bytes of interior (the text after the begin
 // line) are Backstory's table: the current body exactly, or an older one
-// with another binary path (same three-line shape).
+// with another backstory binary path (same three-line shape,
+// isBackstoryBinary). Any other command makes the interior foreign.
 func codexOwnBody(interior string, opts Options) int {
 	if cur := codexTOMLBody(opts); strings.HasPrefix(interior, cur) {
 		return len(cur)
@@ -298,6 +299,9 @@ func codexOwnBody(interior string, opts Options) int {
 	rest := interior[len(head):]
 	i := strings.Index(rest, "\n")
 	if i < 0 || !codexOwnCommandLine.MatchString(rest[:i+1]) || !strings.HasPrefix(rest[i+1:], args) {
+		return 0
+	}
+	if bin, err := strconv.Unquote(strings.TrimPrefix(rest[:i], "command = ")); err != nil || !isBackstoryBinary(bin, opts) {
 		return 0
 	}
 	return len(head) + i + 1 + len(args)
@@ -429,7 +433,7 @@ func codexTOMLStatus(path string, opts Options) (ItemStatus, string) {
 	content := string(data)
 	// Backstory's table is recognised by its shape, whatever binary it names
 	// (an install made with --binary); compare against that recorded path.
-	if bin, ok := codexRecordedBinary(content); ok {
+	if bin, ok := codexRecordedBinary(content); ok && isBackstoryBinary(bin, opts) {
 		opts.BinaryPath = bin
 	}
 	rest, err := withoutBlock(path, content, opts)

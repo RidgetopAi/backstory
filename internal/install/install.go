@@ -338,8 +338,8 @@ func mergeMCPServer(root map[string]any, opts Options) (changed bool, err error)
 }
 
 // mcpServerStatus reports mcpServers.backstory. The entry is Backstory's own
-// when it has the shape the installer writes (stdio, args ["mcp"]) whatever
-// absolute binary it names; bin is that path.
+// when it has the shape the installer writes (stdio, args ["mcp"]) and names
+// a backstory binary (isBackstoryBinary); bin is that path.
 func mcpServerStatus(root map[string]any, opts Options) (ItemStatus, string) {
 	serversRaw, ok := root["mcpServers"]
 	if !ok {
@@ -357,7 +357,7 @@ func mcpServerStatus(root map[string]any, opts Options) (ItemStatus, string) {
 		return StatusPresent, opts.binaryPath()
 	}
 	if m, ok := entry.(map[string]any); ok {
-		if cmd, ok := m["command"].(string); ok && cmd != "" && jsonDeepEqual(entry, wantMCPServerValue(Options{BinaryPath: cmd})) {
+		if cmd, ok := m["command"].(string); ok && isBackstoryBinary(cmd, opts) && jsonDeepEqual(entry, wantMCPServerValue(Options{BinaryPath: cmd})) {
 			return StatusPresent, cmd
 		}
 	}

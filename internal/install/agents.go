@@ -91,7 +91,7 @@ func agentsServerIsOurs(entry any, opts Options) bool {
 		return false
 	}
 	cmd, _ := m["command"].(string)
-	return (filepath.Base(cmd) == fallbackBinaryName || cmd == opts.binaryPath()) && jsonDeepEqual(m["args"], []any{"mcp"})
+	return isBackstoryBinary(cmd, opts) && jsonDeepEqual(m["args"], []any{"mcp"})
 }
 
 // InstallAgents installs both items. A malformed mcp.json fails before
