@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/RidgetopAi/backstory/internal/ident"
+	"github.com/RidgetopAi/backstory/internal/project"
 )
 
 // Project is a row in projects. Deriving Key from git common dir + first
@@ -183,6 +184,18 @@ func (s *Store) LocalSessionCWD(sessionID string) (string, error) {
 		return "", nil
 	}
 	return filepath.Clean(cwd), nil
+}
+
+// SessionTree is the local working tree sessionID worked in:
+// project.WorkTree of LocalSessionCWD, so "" for a peer's session or a
+// non-absolute cwd. Not the project key, which for a repo is its git common
+// dir shared by every worktree.
+func (s *Store) SessionTree(git project.Git, sessionID string) (string, error) {
+	cwd, err := s.LocalSessionCWD(sessionID)
+	if err != nil {
+		return "", err
+	}
+	return project.WorkTree(git, cwd), nil
 }
 
 // sessionColumns are the sessions columns scanSession reads, in its order.

@@ -7,7 +7,6 @@ package week
 import (
 	"encoding/json"
 	"fmt"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -581,7 +580,7 @@ func projectHandoff(st *store.Store, projectKey string, sess store.Session, hasS
 // UncommittedCount 0"). Its reason leads with label, the project's display
 // name, as every project-scoped kind's does.
 //
-// State is tracked per WORKING TREE (sessionTree), not per project: the
+// State is tracked per WORKING TREE (store.SessionTree), not per project: the
 // project key is the repo's git common dir, shared by the main checkout and
 // every worktree, so a clean session in one must not clear another's dirty
 // tree. One item per dirty tree, its CWD that tree. When the project had
@@ -626,8 +625,8 @@ func uncommittedSessionEndItems(st *store.Store, git project.Git, projectKey, la
 		}
 		tree, known := treeOf[e.SessionID]
 		if !known {
-			if tree, err = sessionTree(st, git, e.SessionID); err != nil {
-				return nil, err
+			if tree, err = st.SessionTree(git, e.SessionID); err != nil {
+				return nil, fmt.Errorf("week: tree of session %s: %w", e.SessionID, err)
 			}
 			treeOf[e.SessionID] = tree
 		}
@@ -662,36 +661,6 @@ func uncommittedSessionEndItems(st *store.Store, git project.Git, projectKey, la
 		})
 	}
 	return out, nil
-}
-
-// sessionTree is the local working tree sessionID worked in: workTree of its
-// cwd when the session was recorded on this device and its cwd is absolute
-// (store.LocalSessionCWD), else "". It is both the tree an uncommitted item
-// is tracked by and the folder its Terminal action opens: the session's own
-// tree, not the project key (a git common dir such as /x/repo/.git, shared
-// by every worktree), so a worktree's dirty tree opens in that worktree, and
-// never a peer's path or a relative one resolved against wherever the panel
-// runs.
-func sessionTree(st *store.Store, git project.Git, sessionID string) (string, error) {
-	cwd, err := st.LocalSessionCWD(sessionID)
-	if err != nil {
-		return "", fmt.Errorf("week: cwd of session %s: %w", sessionID, err)
-	}
-	return workTree(git, cwd), nil
-}
-
-// workTree is the working tree dir lies in: its git toplevel when git
-// resolves one (a worktree resolves to itself, a subfolder to its tree's
-// root), else dir itself; "" for "". The one rule an uncommitted item's
-// tree and a stale reason's where share.
-func workTree(git project.Git, dir string) string {
-	if dir == "" || git == nil {
-		return dir
-	}
-	if repo, ok := git.Repo(dir); ok && filepath.IsAbs(repo.Toplevel) {
-		return filepath.Clean(repo.Toplevel)
-	}
-	return dir
 }
 
 // sortAttention orders items by decision 9be5c1d5's own kind order, then
@@ -1068,7 +1037,7 @@ func staleHandoffItem(st *store.Store, git project.Git, projectKey, label string
 // staleReasons expands each freshness reason into a StaleReason carrying
 // when and where it happened and its full text, reading the cited records
 // and events from the store. Where is the working tree the session worked
-// in (store.SessionFolder, then workTree), workspace-relative — never the
+// in (store.SessionFolder, then project.WorkTree), workspace-relative — never the
 // project key, which for a repo is its git dir.
 func staleReasons(st *store.Store, git project.Git, reasons []store.FreshnessReason, workspaces []string) ([]StaleReason, error) {
 	out := make([]StaleReason, 0, len(reasons))
@@ -1077,7 +1046,7 @@ func staleReasons(st *store.Store, git project.Git, reasons []store.FreshnessRea
 		if err != nil || folder == "" {
 			return "", err
 		}
-		return project.WorkspaceRelativeName(workTree(git, folder), workspaces), nil
+		return project.WorkspaceRelativeName(project.WorkTree(git, folder), workspaces), nil
 	}
 	for _, r := range reasons {
 		sr := StaleReason{Kind: string(r.Kind)}
