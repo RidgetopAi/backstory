@@ -162,9 +162,13 @@ func (o Options) timeoutSeconds() int {
 
 // Install registers the MCP server, the SessionStart hook, the skill and
 // the CLAUDE.md stub. It is idempotent: a second call changes zero bytes in
-// every file. A malformed ~/.claude.json or settings.json leaves both files
-// untouched and returns a named error.
+// every file. A malformed ~/.claude.json or settings.json, a dangling
+// symlink at any config path, or a foreign mcpServers.backstory (reported as
+// ErrForeignConflict) leaves every file untouched and returns a named error.
 func Install(paths Paths, opts Options) error {
+	if err := checkWriteTargets(paths.ClaudeJSON, paths.SettingsJSON, paths.ClaudeMD); err != nil {
+		return err
+	}
 	claudeRoot, claudeMode, err := loadJSONObject(paths.ClaudeJSON, ErrMalformedClaudeJSON)
 	if err != nil {
 		return err
@@ -175,6 +179,9 @@ func Install(paths Paths, opts Options) error {
 	}
 
 	mcpChanged, err := mergeMCPServer(claudeRoot, opts)
+	if errors.Is(err, ErrForeignConflict) {
+		return fmt.Errorf("%w: %s: %s already defines mcpServers.%s; left untouched", ErrForeignConflict, ItemMCPServer, paths.ClaudeJSON, MCPServerName)
+	}
 	if err != nil {
 		return err
 	}
@@ -259,8 +266,9 @@ func Check(paths Paths, opts Options) ([]Item, error) {
 
 func install2checkStatus(s skill.Status) ItemStatus { return ItemStatus(s) }
 
-// Remove reverses Install exactly: every foreign entry, other mcpServers
-// key, and prior CLAUDE.md text stays intact.
+// Remove reverses Install exactly: every foreign entry (a foreign
+// mcpServers.backstory included), other mcpServers key, and prior CLAUDE.md
+// text stays intact.
 func Remove(paths Paths, opts Options) error {
 	claudeRoot, claudeMode, err := loadJSONObject(paths.ClaudeJSON, ErrMalformedClaudeJSON)
 	if err != nil {
@@ -271,7 +279,7 @@ func Remove(paths Paths, opts Options) error {
 		return err
 	}
 
-	mcpChanged := removeMCPServer(claudeRoot)
+	mcpChanged := removeMCPServer(claudeRoot, opts)
 	hookChanged := removeHookEntry(settingsRoot, "SessionStart", subSessionStart, opts)
 	postToolUseChanged := removeHookEntry(settingsRoot, "PostToolUse", subPostToolUse, opts)
 	failureChanged := removeHookEntry(settingsRoot, "PostToolUseFailure", subPostToolUseFailure, opts)
@@ -292,7 +300,7 @@ func Remove(paths Paths, opts Options) error {
 		return fmt.Errorf("%s: %w", ItemSkill, err)
 	}
 	// Prune the skill directory install created; os.Remove only takes an empty one.
-	_ = os.Remove(filepath.Dir(paths.SkillPath))
+	_ = pruneDir(filepath.Dir(paths.SkillPath))
 	if err := removeStub(paths.ClaudeMD); err != nil {
 		return fmt.Errorf("%s: %w", ItemClaudeMDStub, err)
 	}
@@ -309,10 +317,16 @@ func wantMCPServerValue(opts Options) map[string]any {
 	}
 }
 
+// mergeMCPServer writes Backstory's entry when the slot is empty or holds
+// Backstory's own entry (any binary path, per mcpServerStatus). Anything else
+// is ErrForeignConflict and root is left as it was.
 func mergeMCPServer(root map[string]any, opts Options) (changed bool, err error) {
 	servers, err := objectField(root, "mcpServers")
 	if err != nil {
 		return false, err
+	}
+	if st, _ := mcpServerStatus(root, opts); st == StatusForeign {
+		return false, ErrForeignConflict
 	}
 	want := wantMCPServerValue(opts)
 	if existing, ok := servers[MCPServerName]; ok && jsonDeepEqual(existing, want) {
@@ -350,18 +364,13 @@ func mcpServerStatus(root map[string]any, opts Options) (ItemStatus, string) {
 	return StatusForeign, ""
 }
 
-func removeMCPServer(root map[string]any) (changed bool) {
-	serversRaw, ok := root["mcpServers"]
-	if !ok {
+// removeMCPServer deletes mcpServers.backstory only when it is Backstory's
+// own entry (mcpServerStatus present, any binary path); a foreign one stays.
+func removeMCPServer(root map[string]any, opts Options) (changed bool) {
+	if st, _ := mcpServerStatus(root, opts); st != StatusPresent {
 		return false
 	}
-	servers, ok := serversRaw.(map[string]any)
-	if !ok {
-		return false
-	}
-	if _, ok := servers[MCPServerName]; !ok {
-		return false
-	}
+	servers, _ := root["mcpServers"].(map[string]any)
 	delete(servers, MCPServerName)
 	if len(servers) == 0 {
 		delete(root, "mcpServers")
@@ -474,7 +483,7 @@ func stubBlockStatus(claudeMDPath, want string) ItemStatus {
 // including the single trailing newline it always writes after
 // StubMarkerEnd, restoring the file to what it was before install. If
 // nothing but the stub remains, the file itself is removed (it did not
-// exist before install).
+// exist before install) — or, when the path is a symlink, emptied in place.
 func removeStub(claudeMDPath string) error {
 	data, err := os.ReadFile(claudeMDPath) //nolint:gosec // claudeMDPath is the caller-chosen CLAUDE.md location
 	if os.IsNotExist(err) {
@@ -500,7 +509,7 @@ func removeStub(claudeMDPath string) error {
 
 	newContent := content[:beginIdx] + content[endIdx:]
 	if newContent == "" {
-		return os.Remove(claudeMDPath)
+		return removeOrEmpty(claudeMDPath, nil)
 	}
 
 	mode := os.FileMode(0o600)
@@ -626,8 +635,14 @@ func writeJSONAtomic(path string, m map[string]any, mode os.FileMode) error {
 
 // writeAtomic writes data to path via a temp file in the same directory,
 // chmods it to mode, then renames it into place — a crash never leaves a
-// half-written config.
+// half-written config. A symlinked path is written through: the temp file is
+// made beside the link's final target and renamed over the target, so the
+// link survives (symlink.go); a dangling link is ErrDanglingSymlink.
 func writeAtomic(path string, data []byte, mode os.FileMode) error {
+	path, err := resolveWriteTarget(path)
+	if err != nil {
+		return err
+	}
 	dir := filepath.Dir(path)
 	tmp, err := os.CreateTemp(dir, ".backstory-tmp-*")
 	if err != nil {

@@ -7,7 +7,6 @@ package install
 import (
 	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 )
 
@@ -99,6 +98,9 @@ func agentsServerIsOurs(entry any, opts Options) bool {
 // anything is written, and so does a foreign mcpServers.backstory (reported as
 // ErrForeignConflict), so a conflict leaves both files exactly as they were.
 func InstallAgents(paths AgentsPaths, opts Options) error {
+	if err := checkWriteTargets(paths.MCPJSON, paths.AgentsMD); err != nil {
+		return err
+	}
 	root, mode, err := loadJSONObject(paths.MCPJSON, ErrMalformedAgentsMCPJSON)
 	if err != nil {
 		return err
@@ -137,7 +139,7 @@ func RemoveAgents(paths AgentsPaths, opts Options) error {
 			delete(root, "mcpServers")
 		}
 		if len(root) == 0 {
-			if err := os.Remove(paths.MCPJSON); err != nil {
+			if err := removeOrEmpty(paths.MCPJSON, []byte("{}\n")); err != nil {
 				return fmt.Errorf("%s: %w", ItemAgentsMCPServer, err)
 			}
 		} else if err := writeJSONAtomic(paths.MCPJSON, root, mode); err != nil {

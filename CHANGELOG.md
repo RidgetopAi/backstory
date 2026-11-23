@@ -11,6 +11,11 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 ## [Unreleased]
 
+### Fixed
+
+- `backstory install` and `--remove` keep symlinked config files symlinks (a dotfiles or stow setup): `~/.claude.json`, `~/.claude/settings.json`, `CLAUDE.md`, Codex's `config.toml`/`hooks.json`/`AGENTS.md`, `~/.agents/mcp.json`, `~/.config/AGENTS.md`, Pi's `AGENTS.md` and Hermes' `config.yaml` are written through to the link's target instead of being replaced by a plain file. A file `--remove` would delete is emptied in place when it is a symlink, a symlinked directory is never pruned, and a symlink whose target is missing fails the install with nothing written.
+- `backstory install` no longer overwrites an `mcpServers.backstory` entry in `~/.claude.json` that it did not write, and `--remove` no longer deletes one: the harness is skipped and reported as a foreign-conflict, as Codex and the generic agents harness already were. Backstory's own entry naming an older binary path is still updated.
+
 ## [1.3.2] - 2026-11-11
 
 ### Fixed

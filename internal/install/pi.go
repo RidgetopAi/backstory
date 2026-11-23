@@ -61,6 +61,9 @@ func (piAdapter) Name() string { return HarnessPi }
 
 func (piAdapter) Install(home string, opts Options) error {
 	p := DefaultPiPaths(home)
+	if err := checkWriteTargets(p.ExtensionTS, p.AgentsMD); err != nil {
+		return err
+	}
 	status, err := piExtensionStatus(p.ExtensionTS)
 	if err != nil {
 		return err
@@ -95,7 +98,7 @@ func (piAdapter) Remove(home string, opts Options) error {
 	}
 	// Prune the skill directories install created, stopping at the first one in use.
 	for d := filepath.Dir(p.SkillPath); d != filepath.Dir(p.ExtensionDir); d = filepath.Dir(d) {
-		if os.Remove(d) != nil {
+		if pruneDir(d) != nil {
 			break
 		}
 	}
@@ -104,7 +107,7 @@ func (piAdapter) Remove(home string, opts Options) error {
 		return err
 	}
 	if status != StatusForeign && status != StatusAbsent {
-		if err := os.Remove(p.ExtensionTS); err != nil {
+		if err := removeOwnedWholeFile(p.ExtensionTS); err != nil {
 			return fmt.Errorf("%s: %w", ItemPiExtension, err)
 		}
 	}
@@ -113,7 +116,7 @@ func (piAdapter) Remove(home string, opts Options) error {
 	extensions := filepath.Dir(p.ExtensionDir)
 	agent := filepath.Dir(extensions)
 	for _, d := range []string{p.ExtensionDir, extensions, agent, filepath.Dir(agent)} {
-		if os.Remove(d) != nil {
+		if pruneDir(d) != nil {
 			break
 		}
 	}
@@ -121,7 +124,7 @@ func (piAdapter) Remove(home string, opts Options) error {
 		return fmt.Errorf("%s: %w", ItemPiAgentsMD, err)
 	}
 	for _, d := range []string{agent, filepath.Dir(agent)} {
-		if os.Remove(d) != nil {
+		if pruneDir(d) != nil {
 			break
 		}
 	}

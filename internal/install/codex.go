@@ -146,6 +146,9 @@ func codexHookEntry(command string, timeoutSeconds int) map[string]any {
 // fails before anything is written. Verify-on-install is not run: the codex payload shape is
 // owned by the hook subcommand's own punch.
 func InstallCodex(paths CodexPaths, opts Options) error {
+	if err := checkWriteTargets(paths.ConfigTOML, paths.HooksJSON, paths.AgentsMD); err != nil {
+		return err
+	}
 	hooksRoot, hooksMode, err := loadJSONObject(paths.HooksJSON, ErrMalformedCodexHooksJSON)
 	if err != nil {
 		return err
@@ -188,7 +191,7 @@ func RemoveCodex(paths CodexPaths, opts Options) error {
 	pt := removeHookEntry(hooksRoot, "PostToolUse", subPostToolUseCodex, opts)
 	if ss || pt {
 		if len(hooksRoot) == 0 {
-			if err := os.Remove(paths.HooksJSON); err != nil {
+			if err := removeOrEmpty(paths.HooksJSON, []byte("{}\n")); err != nil {
 				return fmt.Errorf("%s: %w", ItemSessionStartHook, err)
 			}
 		} else if err := writeJSONAtomic(paths.HooksJSON, hooksRoot, hooksMode); err != nil {
@@ -201,7 +204,7 @@ func RemoveCodex(paths CodexPaths, opts Options) error {
 	// Prune the skill directories install created, stopping at the first one in use.
 	skillsDir := filepath.Dir(filepath.Dir(paths.SkillPath))
 	for d := filepath.Dir(paths.SkillPath); d != filepath.Dir(skillsDir); d = filepath.Dir(d) {
-		if os.Remove(d) != nil {
+		if pruneDir(d) != nil {
 			break
 		}
 	}
@@ -410,7 +413,7 @@ func removeCodexTOML(path string, opts Options) error {
 	}
 	out := head + blk.Foreign + content[blk.End:]
 	if out == "" {
-		return os.Remove(path)
+		return removeOrEmpty(path, nil)
 	}
 	return writeAtomic(path, []byte(out), fileMode(path))
 }
