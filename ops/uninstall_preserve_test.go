@@ -161,3 +161,75 @@ func TestUninstallKeepsAnEditedOrSymlinkedHyprlandFile(t *testing.T) {
 		mustNotExist(t, hypr)
 	})
 }
+
+// The daemon unit follows backstory.lua's rule: install replaces a shipped
+// version and keeps an edited or symlinked one (the new unit goes beside it as
+// .new); uninstall deletes only a shipped version.
+func TestInstallAndUninstallKeepAnEditedOrSymlinkedDaemonUnit(t *testing.T) {
+	shipped, err := os.ReadFile("backstory.service")
+	if err != nil {
+		t.Fatal(err)
+	}
+	edited := bytes.Replace(shipped, []byte("RestartSec=2s"), []byte("RestartSec=30s"), 1)
+	if bytes.Equal(edited, shipped) {
+		t.Fatal("backstory.service has no RestartSec line to edit")
+	}
+	versions := committedOpsVersions(t, "ops/backstory.service")
+	if len(versions) < 2 {
+		t.Fatalf("git history has %d versions of ops/backstory.service, need an older one", len(versions))
+	}
+
+	t.Run("older shipped", func(t *testing.T) {
+		f := newInstallFixture(t)
+		unit := f.path(".config", "systemd", "user", "backstory.service")
+		writeFixtureFile(t, unit, versions[len(versions)-1])
+		f.mustMake("install")
+		if got, _ := os.ReadFile(unit); !bytes.Equal(got, shipped) { //nolint:gosec // fixture path under t.TempDir
+			t.Error("install did not update an unedited older unit")
+		}
+		mustNotExist(t, unit+".new")
+		f.mustMake("uninstall")
+		mustNotExist(t, unit)
+	})
+	t.Run("edited", func(t *testing.T) {
+		f := newInstallFixture(t)
+		f.mustMake("install")
+		unit := f.path(".config", "systemd", "user", "backstory.service")
+		writeFixtureFile(t, unit, edited)
+		out := f.mustMake("install")
+		if got, _ := os.ReadFile(unit); !bytes.Equal(got, edited) { //nolint:gosec // fixture path under t.TempDir
+			t.Error("install overwrote the edited unit")
+		}
+		if got, _ := os.ReadFile(unit + ".new"); !bytes.Equal(got, shipped) { //nolint:gosec // fixture path under t.TempDir
+			t.Error("backstory.service.new is not this version's unit")
+		}
+		if !strings.Contains(out, "kept your edited "+unit) {
+			t.Errorf("install does not name the kept unit:\n%s", out)
+		}
+		out = f.mustMake("uninstall")
+		if got, _ := os.ReadFile(unit); !bytes.Equal(got, edited) { //nolint:gosec // fixture path under t.TempDir
+			t.Error("uninstall deleted the edited unit")
+		}
+		mustNotExist(t, unit+".new")
+		if !strings.Contains(out, "kept your edited "+unit) {
+			t.Errorf("uninstall does not name the kept unit:\n%s", out)
+		}
+	})
+	t.Run("symlinked", func(t *testing.T) {
+		f := newInstallFixture(t)
+		unit := f.path(".config", "systemd", "user", "backstory.service")
+		target := f.path("dotfiles", "backstory.service")
+		writeFixtureFile(t, target, shipped)
+		if err := os.MkdirAll(filepath.Dir(unit), 0o755); err != nil { //nolint:gosec // fixture path under t.TempDir
+			t.Fatal(err)
+		}
+		if err := os.Symlink(target, unit); err != nil {
+			t.Fatal(err)
+		}
+		f.mustMake("install")
+		f.mustMake("uninstall")
+		if got, err := os.Readlink(unit); err != nil || got != target {
+			t.Errorf("the symlinked unit is gone (readlink %q, %v)", got, err)
+		}
+	})
+}

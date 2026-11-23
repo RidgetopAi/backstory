@@ -51,6 +51,15 @@ a11156f6d3fd45fa6cb3d56747c17623ac72fcacf7c0f102ea02c35112e55ed5
 9af66f60cf4d89f55fceabd25a33a1bc6a11f76a4f31f6f6a6baa23a65951b7f
 17d4992a059b0576b04464cea123b5346f1ea993ec8ee96f0058f460b6ddb83a
 '
+# The sha256 of every ops/backstory.service this repo has shipped (`git log
+# --follow` of it; ops/install_preserve_test.go fails when one is missing).
+# Like backstory.lua: a matching unit is replaced on upgrade and deleted on
+# uninstall; an edited or symlinked one stays (the new one goes beside it as
+# .new).
+UNIT_SHIPPED_SHA256='
+d90bc9d91eae2790809991d79a63e74f0884ef419e8164816951ae230f223f79
+2c31211e0997890ac05a5cc4bd14064b26b3c1e1b514545741f85f56b801fcdf
+'
 # The sha256 of every sync unit `backstory install sync` has written, the
 # service's ExecStart binary put back to %h/.local/bin/backstory first
 # (SYNC_EXECSTART_UNRENDER). They are internal/install/managed.go's
@@ -248,30 +257,29 @@ wait_for_daemon() {
 	return 1
 }
 
-# install_hypr_file: install ops/hyprland/backstory.lua as HYPR_FILE, unless
-# the installed file is the user's (a symlink, or content no release shipped):
-# that one is kept and the new file is written beside it as HYPR_FILE.new.
-install_hypr_file() {
-	new="$SRC/ops/hyprland/backstory.lua"
+# install_keeping_edits NEW DEST LIST: install NEW as DEST, unless DEST is the
+# user's (a symlink, or content matching no version in LIST): that one is kept
+# and NEW is written beside it as DEST.new.
+install_keeping_edits() {
 	# A symlink (dangling or not) is the user's, even when its content matches.
-	if [ -L "$HYPR_FILE" ]; then
-		if cmp -s "$new" "$HYPR_FILE"; then
-			rm -f "$HYPR_FILE.new"
-			echo "kept your symlinked $HYPR_FILE; it matches this version"
+	if [ -L "$2" ]; then
+		if cmp -s "$1" "$2"; then
+			rm -f "$2.new"
+			echo "kept your symlinked $2; it matches this version"
 		else
-			install -m644 "$new" "$HYPR_FILE.new"
-			echo "kept your symlinked $HYPR_FILE; this version's file is $HYPR_FILE.new (merge it into yours, or replace yours with it)"
+			install -m644 "$1" "$2.new"
+			echo "kept your symlinked $2; this version's file is $2.new (merge it into yours, or replace yours with it)"
 		fi
 		return 0
 	fi
-	if [ -e "$HYPR_FILE" ] && ! cmp -s "$new" "$HYPR_FILE" && ! shipped "$HYPR_FILE" "$HYPR_SHIPPED_SHA256"; then
-		install -m644 "$new" "$HYPR_FILE.new"
-		echo "kept your edited $HYPR_FILE; this version's file is $HYPR_FILE.new (merge it into yours, or replace yours with it)"
+	if [ -e "$2" ] && ! cmp -s "$1" "$2" && ! shipped "$2" "$3"; then
+		install -m644 "$1" "$2.new"
+		echo "kept your edited $2; this version's file is $2.new (merge it into yours, or replace yours with it)"
 		return 0
 	fi
-	install -Dm644 "$new" "$HYPR_FILE"
-	rm -f "$HYPR_FILE.new"
-	echo "installed $HYPR_FILE"
+	install -Dm644 "$1" "$2"
+	rm -f "$2.new"
+	echo "installed $2"
 }
 
 # shipped FILE LIST [UNRENDER]: FILE is a regular file (not a symlink) whose
@@ -477,7 +485,7 @@ do_install() {
 
 	# Unit, then the service: enable --now does not restart a running
 	# service, so an upgrade restarts it.
-	install -Dm644 "$SRC/ops/backstory.service" "$UNIT"
+	install_keeping_edits "$SRC/ops/backstory.service" "$UNIT" "$UNIT_SHIPPED_SHA256"
 	systemctl --user daemon-reload
 	if systemctl --user is-active --quiet "$APP"; then
 		echo "restarting $APP.service..."
@@ -490,7 +498,7 @@ do_install() {
 	fi
 
 	# Hyprland: the file only; the user's hyprland.lua is theirs.
-	install_hypr_file
+	install_keeping_edits "$SRC/ops/hyprland/backstory.lua" "$HYPR_FILE" "$HYPR_SHIPPED_SHA256"
 	if hyprland_loads_backstory; then
 		echo "keybind already loaded from hyprland.lua"
 		reload_hyprland
@@ -557,7 +565,8 @@ do_uninstall() {
 		systemctl --user stop "$APP" || true
 		systemctl --user disable "$APP" || true
 	fi
-	rm -f "$UNIT" "$BIN" "$BIN.prev" "$HYPR_FILE.new"
+	rm -f "$BIN" "$BIN.prev" "$UNIT.new" "$HYPR_FILE.new"
+	remove_if_shipped "$UNIT" "$UNIT_SHIPPED_SHA256"
 	remove_if_shipped "$HYPR_FILE" "$HYPR_SHIPPED_SHA256"
 	systemctl --user daemon-reload || true
 	if [ -e "$PANEL" ] || [ -L "$PANEL" ]; then

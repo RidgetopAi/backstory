@@ -7,7 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 )
@@ -201,13 +200,19 @@ func TestInstallUpdatesAPreviouslyShippedHyprlandFile(t *testing.T) {
 // shippedHyprVersions is every committed ops/hyprland/backstory.lua, newest first.
 func shippedHyprVersions(t *testing.T) [][]byte {
 	t.Helper()
-	out, err := exec.Command("git", "-C", "..", "log", "--format=%H", "--follow", "--", "ops/hyprland/backstory.lua").Output()
+	return committedOpsVersions(t, "ops/hyprland/backstory.lua")
+}
+
+// committedOpsVersions is every committed version of the repo file rel, newest first.
+func committedOpsVersions(t *testing.T, rel string) [][]byte {
+	t.Helper()
+	out, err := exec.Command("git", "-C", "..", "log", "--format=%H", "--follow", "--", rel).Output() //nolint:gosec // a repo path from this file
 	if err != nil {
 		t.Fatalf("git log: %v", err)
 	}
 	var versions [][]byte
 	for _, c := range strings.Fields(string(out)) {
-		b, err := exec.Command("git", "-C", "..", "show", c+":ops/hyprland/backstory.lua").Output() //nolint:gosec // commit ids from git log
+		b, err := exec.Command("git", "-C", "..", "show", c+":"+rel).Output() //nolint:gosec // commit ids from git log
 		if err != nil {
 			t.Fatalf("git show %s: %v", c, err)
 		}
@@ -216,27 +221,28 @@ func shippedHyprVersions(t *testing.T) [][]byte {
 	return versions
 }
 
-// The installer's list of shipped versions covers every committed version and
-// the working tree's: a change to backstory.lua without its hash would make
-// the next upgrade treat that version, unedited, as the user's.
+// The installer's lists of shipped versions cover every committed version and
+// the working tree's: a change to a file without its hash would make the next
+// upgrade treat that version, unedited, as the user's.
 func TestInstallerKnowsEveryShippedHyprlandFile(t *testing.T) {
 	script, err := os.ReadFile("install.sh")
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := regexp.MustCompile(`(?m)^HYPR_SHIPPED_SHA256='\n((?:[0-9a-f]{64}\n)+)'$`).FindSubmatch(script)
-	if m == nil {
-		t.Fatal("install.sh has no HYPR_SHIPPED_SHA256 block of sha256 lines")
-	}
-	known := map[string]bool{}
-	for _, h := range strings.Fields(string(m[1])) {
-		known[h] = true
-	}
-	current, _ := os.ReadFile("hyprland/backstory.lua")
-	for i, v := range append([][]byte{current}, shippedHyprVersions(t)...) {
-		sum := sha256.Sum256(v)
-		if h := hex.EncodeToString(sum[:]); !known[h] {
-			t.Errorf("version %d of ops/hyprland/backstory.lua (sha256 %s) is not in install.sh's HYPR_SHIPPED_SHA256", i, h)
+	for list, rel := range map[string]string{
+		"HYPR_SHIPPED_SHA256": "ops/hyprland/backstory.lua",
+		"UNIT_SHIPPED_SHA256": "ops/backstory.service",
+	} {
+		known := map[string]bool{}
+		for _, h := range scriptHashes(t, script, list) {
+			known[h] = true
+		}
+		current, _ := os.ReadFile(filepath.Join("..", rel)) //nolint:gosec // a repo path from this test
+		for i, v := range append([][]byte{current}, committedOpsVersions(t, rel)...) {
+			sum := sha256.Sum256(v)
+			if h := hex.EncodeToString(sum[:]); !known[h] {
+				t.Errorf("version %d of %s (sha256 %s) is not in install.sh's %s", i, rel, h, list)
+			}
 		}
 	}
 }
