@@ -103,6 +103,8 @@ func InstallSyncTimer(home string) error {
 }
 
 // RemoveSyncTimer disables the timer and removes both units; absent is fine.
+// A unit file that is a symlink was linked there by the user (a dotfiles
+// tree), not written by install, so it is left in place (symlink.go).
 func RemoveSyncTimer(home string) error {
 	dir := SyncUnitDir(home)
 	_, errT := os.Stat(filepath.Join(dir, SyncTimerName))
@@ -112,7 +114,7 @@ func RemoveSyncTimer(home string) error {
 	}
 	_ = ServiceManager("disable", "--now", SyncTimerName) // best effort: it may not be enabled
 	for _, name := range []string{SyncTimerName, SyncServiceName} {
-		if err := os.Remove(filepath.Join(dir, name)); err != nil && !os.IsNotExist(err) {
+		if err := removeOwnedWholeFile(filepath.Join(dir, name)); err != nil && !os.IsNotExist(err) {
 			return err
 		}
 	}

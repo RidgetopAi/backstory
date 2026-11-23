@@ -44,3 +44,44 @@ func TestInstallSyncTimerWritesRunningBinary(t *testing.T) {
 		t.Fatalf("old %%h unit: status %s", s)
 	}
 }
+
+// TestRemoveSyncTimerKeepsSymlinkedUnit: a unit file the user linked in from
+// a dotfiles tree survives --remove (link and target); a regular unit file
+// Backstory wrote is still deleted.
+func TestRemoveSyncTimerKeepsSymlinkedUnit(t *testing.T) {
+	home, dots := t.TempDir(), t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", "")
+	oldSM := ServiceManager
+	ServiceManager = func(...string) error { return nil }
+	t.Cleanup(func() { ServiceManager = oldSM })
+
+	dir := SyncUnitDir(home)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(dots, SyncTimerName)
+	if err := os.WriteFile(target, []byte(SyncTimerUnit), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, SyncTimerName)
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	svc := filepath.Join(dir, SyncServiceName)
+	if err := os.WriteFile(svc, []byte(SyncServiceUnit), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := RemoveSyncTimer(home); err != nil {
+		t.Fatalf("RemoveSyncTimer: %v", err)
+	}
+	if got, err := os.Readlink(link); err != nil || got != target {
+		t.Errorf("symlinked timer unit: -> %q (%v), want it kept -> %q", got, err, target)
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Errorf("timer unit target gone: %v", err)
+	}
+	if _, err := os.Lstat(svc); !os.IsNotExist(err) {
+		t.Errorf("regular service unit survived remove (lstat err %v)", err)
+	}
+}

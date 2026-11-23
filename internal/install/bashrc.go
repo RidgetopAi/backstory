@@ -142,7 +142,8 @@ func RemoveBashrc(path string) error {
 	newContent := content[:loc[0]] + content[loc[1]:]
 
 	if newContent == "" {
-		return os.Remove(target)
+		// Through a symlink, empty the target and keep both (symlink.go).
+		return removeOrEmpty(path, nil)
 	}
 	return writeAtomic(target, []byte(newContent), mode)
 }

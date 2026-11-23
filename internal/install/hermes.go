@@ -140,6 +140,9 @@ func InstallHermes(paths HermesPaths, opts Options) error {
 	// Every conflict is found before anything is written: a foreign plugin
 	// file or memory.provider leaves the whole harness exactly as it was
 	// rather than half-installed.
+	if err := checkWriteTargets(paths.ConfigYAML); err != nil {
+		return fmt.Errorf("%s: %w", ItemHermesMemoryProvider, err)
+	}
 	var conflicts []string
 	if err := checkHermesPluginConflict(paths.PluginDir); err != nil {
 		if !isForeign(err) {
@@ -195,7 +198,7 @@ func RemoveHermes(paths HermesPaths, opts Options) error {
 	// Prune the skill directories install created, stopping at the first one in use.
 	skillsDir := filepath.Dir(filepath.Dir(paths.SkillPath))
 	for d := filepath.Dir(paths.SkillPath); d != filepath.Dir(skillsDir); d = filepath.Dir(d) {
-		if os.Remove(d) != nil {
+		if pruneDir(d) != nil {
 			break
 		}
 	}
@@ -292,7 +295,7 @@ func removeHermesPlugin(dir string) error {
 		if !isOurs(string(data)) {
 			continue
 		}
-		if err := os.Remove(p); err != nil {
+		if err := removeOwnedWholeFile(p); err != nil {
 			return err
 		}
 	}
@@ -301,8 +304,8 @@ func removeHermesPlugin(dir string) error {
 	if _, err := os.Stat(filepath.Join(dir, "__init__.py")); os.IsNotExist(err) {
 		_ = os.RemoveAll(filepath.Join(dir, "__pycache__"))
 	}
-	if err := os.Remove(dir); err == nil {
-		_ = os.Remove(filepath.Dir(dir))
+	if err := pruneDir(dir); err == nil {
+		_ = pruneDir(filepath.Dir(dir))
 	}
 	return nil
 }
@@ -530,7 +533,7 @@ func removeHermesConfig(path string) error {
 		}
 		out := head + content[end:]
 		if out == "" {
-			return os.Remove(path)
+			return removeOrEmpty(path, nil)
 		}
 		return writeAtomic(path, []byte(out), fileMode(path))
 	}

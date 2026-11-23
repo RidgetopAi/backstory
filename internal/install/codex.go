@@ -146,6 +146,9 @@ func codexHookEntry(command string, timeoutSeconds int) map[string]any {
 // fails before anything is written. Verify-on-install is not run: the codex payload shape is
 // owned by the hook subcommand's own punch.
 func InstallCodex(paths CodexPaths, opts Options) error {
+	if err := checkWriteTargets(paths.ConfigTOML, paths.HooksJSON, paths.AgentsMD); err != nil {
+		return err
+	}
 	hooksRoot, hooksMode, err := loadJSONObject(paths.HooksJSON, ErrMalformedCodexHooksJSON)
 	if err != nil {
 		return err
@@ -188,7 +191,7 @@ func RemoveCodex(paths CodexPaths, opts Options) error {
 	pt := removeHookEntry(hooksRoot, "PostToolUse", subPostToolUseCodex, opts)
 	if ss || pt {
 		if len(hooksRoot) == 0 {
-			if err := os.Remove(paths.HooksJSON); err != nil {
+			if err := removeOrEmpty(paths.HooksJSON, []byte("{}\n")); err != nil {
 				return fmt.Errorf("%s: %w", ItemSessionStartHook, err)
 			}
 		} else if err := writeJSONAtomic(paths.HooksJSON, hooksRoot, hooksMode); err != nil {
@@ -201,7 +204,7 @@ func RemoveCodex(paths CodexPaths, opts Options) error {
 	// Prune the skill directories install created, stopping at the first one in use.
 	skillsDir := filepath.Dir(filepath.Dir(paths.SkillPath))
 	for d := filepath.Dir(paths.SkillPath); d != filepath.Dir(skillsDir); d = filepath.Dir(d) {
-		if os.Remove(d) != nil {
+		if pruneDir(d) != nil {
 			break
 		}
 	}
@@ -282,7 +285,8 @@ var codexOwnCommandLine = regexp.MustCompile(`^command = "(?:[^"\\\n]|\\.)*"\n$`
 
 // codexOwnBody returns how many bytes of interior (the text after the begin
 // line) are Backstory's table: the current body exactly, or an older one
-// with another binary path (same three-line shape).
+// with another backstory binary path (same three-line shape,
+// isBackstoryBinary). Any other command makes the interior foreign.
 func codexOwnBody(interior string, opts Options) int {
 	if cur := codexTOMLBody(opts); strings.HasPrefix(interior, cur) {
 		return len(cur)
@@ -295,6 +299,9 @@ func codexOwnBody(interior string, opts Options) int {
 	rest := interior[len(head):]
 	i := strings.Index(rest, "\n")
 	if i < 0 || !codexOwnCommandLine.MatchString(rest[:i+1]) || !strings.HasPrefix(rest[i+1:], args) {
+		return 0
+	}
+	if bin, err := strconv.Unquote(strings.TrimPrefix(rest[:i], "command = ")); err != nil || !isBackstoryBinary(bin, opts) {
 		return 0
 	}
 	return len(head) + i + 1 + len(args)
@@ -410,7 +417,7 @@ func removeCodexTOML(path string, opts Options) error {
 	}
 	out := head + blk.Foreign + content[blk.End:]
 	if out == "" {
-		return os.Remove(path)
+		return removeOrEmpty(path, nil)
 	}
 	return writeAtomic(path, []byte(out), fileMode(path))
 }
@@ -426,7 +433,7 @@ func codexTOMLStatus(path string, opts Options) (ItemStatus, string) {
 	content := string(data)
 	// Backstory's table is recognised by its shape, whatever binary it names
 	// (an install made with --binary); compare against that recorded path.
-	if bin, ok := codexRecordedBinary(content); ok {
+	if bin, ok := codexRecordedBinary(content); ok && isBackstoryBinary(bin, opts) {
 		opts.BinaryPath = bin
 	}
 	rest, err := withoutBlock(path, content, opts)

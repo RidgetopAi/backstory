@@ -70,8 +70,15 @@ func isBackstoryHookCommand(command, sub string, opts Options) bool {
 	if !ok {
 		return false
 	}
-	bin := unquoteShell(prefix)
-	return filepath.Base(bin) == fallbackBinaryName || bin == opts.binaryPath()
+	return isBackstoryBinary(unquoteShell(prefix), opts)
+}
+
+// isBackstoryBinary is the one rule every harness uses to recognise an entry
+// Backstory wrote under some binary path: a binary named backstory (the bare
+// name earlier releases wrote, or any path to it), or this run's own binary
+// under whatever name. Any other command is foreign.
+func isBackstoryBinary(bin string, opts Options) bool {
+	return bin != "" && (filepath.Base(bin) == fallbackBinaryName || bin == opts.binaryPath())
 }
 
 // isOurHookEntry reports whether e is a hook group backstory wrote for
@@ -135,7 +142,8 @@ func mergeHookEntry(root map[string]any, event string, want map[string]any, sub 
 
 // hookEntryStatus finds Backstory's group for sub under event. A group
 // matches when it equals want, or equals want with the command's binary
-// replaced by whatever path the group names (an install made with --binary):
+// replaced by whatever backstory binary the group names (an install made with
+// --binary; isBackstoryBinary):
 // the hook subcommand and the group's shape are Backstory's marker, not the
 // current binary path. bin is the path the matched group invokes; idx its
 // position in the event's array.
@@ -161,7 +169,7 @@ func hookEntryStatus(root map[string]any, event string, want map[string]any, sub
 			return StatusPresent, opts.binaryPath(), i
 		}
 		if cmd, ok := recordedHookCommand(e); ok {
-			if prefix, ok := strings.CutSuffix(cmd, " "+sub); ok && jsonDeepEqual(e, withHookCommand(want, cmd)) {
+			if prefix, ok := strings.CutSuffix(cmd, " "+sub); ok && isBackstoryBinary(unquoteShell(prefix), opts) && jsonDeepEqual(e, withHookCommand(want, cmd)) {
 				return StatusPresent, unquoteShell(prefix), i
 			}
 		}

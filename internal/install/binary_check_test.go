@@ -30,8 +30,10 @@ func TestCodexInstallNoticeOnlyWhenHooksUntrusted(t *testing.T) {
 }
 
 // --check without --binary recognises entries an install made with --binary.
+// The fixture binary is named backstory: a binary under any other name is
+// indistinguishable from a foreign command (isBackstoryBinary).
 func TestCheckRecognisesInstallMadeWithBinary(t *testing.T) {
-	const fixtureBin = "/opt/fixture dir/bs-custom"
+	const fixtureBin = "/opt/fixture dir/backstory"
 	home := t.TempDir()
 	withBin := Options{BinaryPath: fixtureBin}
 	for _, a := range []Adapter{claudeAdapter{}, codexAdapter{}} {
