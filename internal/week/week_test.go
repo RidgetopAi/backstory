@@ -1267,7 +1267,7 @@ func staleReasonWhere(t *testing.T, cwd string, peer bool) {
 	}); err != nil {
 		t.Fatalf("insert later decision: %v", err)
 	}
-	res, err := Build(Params{Store: st, Git: repoGit{root: "/home/brian/projects/vidflow"}, Now: fixtureNow, WorkspaceDirs: []string{"/home/brian/projects"}})
+	res, err := Build(Params{Store: st, Git: twoTreeGit{}, Now: fixtureNow, WorkspaceDirs: []string{"/home/brian/projects"}})
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -1315,9 +1315,16 @@ func uncommittedItemsWith(t *testing.T, st *store.Store, git project.Git) []Atte
 
 // twoTreeGit resolves each tree (and anything under it) to its own toplevel,
 // both sharing labelRepoKey as their common dir, as a repo and its worktree do.
+// Inside the git dir itself it answers as real git does (measured: in
+// <repo>/.git, `rev-parse --git-common-dir` prints "." and exits 0, and
+// `--show-toplevel` exits 128 "must be run in a work tree"): a repo with no
+// toplevel, so resolving the key as a folder can never pass for a tree.
 type twoTreeGit struct{}
 
 func (twoTreeGit) Repo(dir string) (project.Repo, bool) {
+	if within(dir, labelRepoKey) {
+		return project.Repo{CommonDir: labelRepoKey}, true
+	}
 	for _, root := range []string{vidflowWT, vidflowMain} {
 		if within(dir, root) {
 			return project.Repo{CommonDir: labelRepoKey, Toplevel: root}, true
