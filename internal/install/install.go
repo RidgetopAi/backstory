@@ -250,9 +250,9 @@ func Check(paths Paths, opts Options) ([]Item, error) {
 	}
 
 	mcpSt, mcpBin := mcpServerStatus(claudeRoot, opts)
-	startSt, startBin, _ := hookEntryStatus(settingsRoot, "SessionStart", wantSessionStartEntry(opts), subSessionStart, opts)
-	postSt, postBin, _ := hookEntryStatus(settingsRoot, "PostToolUse", wantPostToolUseEntry(opts), subPostToolUse, opts)
-	failSt, failBin, _ := hookEntryStatus(settingsRoot, "PostToolUseFailure", wantPostToolUseFailureEntry(opts), subPostToolUseFailure, opts)
+	startSt, startBin, _, _ := hookEntryStatus(settingsRoot, "SessionStart", wantSessionStartEntry(opts), subSessionStart, opts)
+	postSt, postBin, _, _ := hookEntryStatus(settingsRoot, "PostToolUse", wantPostToolUseEntry(opts), subPostToolUse, opts)
+	failSt, failBin, _, _ := hookEntryStatus(settingsRoot, "PostToolUseFailure", wantPostToolUseFailureEntry(opts), subPostToolUseFailure, opts)
 	items := []Item{
 		{Name: ItemMCPServer, Status: mcpSt, Binary: mcpBin},
 		{Name: ItemSessionStartHook, Status: startSt, Binary: startBin},

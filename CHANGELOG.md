@@ -11,6 +11,10 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 ## [Unreleased]
 
+### Security
+
+- `backstory install`, a re-install and an upgrade to another `--binary` keep a Backstory hook you narrowed. Before, install rewrote a Backstory hook group in Claude's `settings.json` or Codex's `hooks.json` to its default matcher, so a `PostToolUse` hook you had limited to some tools (`"Bash|Edit"`, say) went back to matching every tool and recording what you had excluded. Now install updates only the hook's command (the binary path). The matcher, the timeout, any other key on the group or the hook, and any other hook you put in the same group stay as you set them. The one exception is the SessionStart matcher `startup|resume|clear`, the default releases before `compact` was added wrote, which is still moved to `startup|resume|clear|compact`. `--check` reports such a hook present. `--remove` takes out only Backstory's hook and keeps your others in a shared group. This covers SessionStart, PostToolUse and PostToolUseFailure, and both Codex hooks.
+
 ## [1.3.3] - 2026-11-23
 
 ### Fixed
