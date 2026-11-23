@@ -11,6 +11,14 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 ## [Unreleased]
 
+### Added
+
+- Panel Needs you: a **Terminal** button on an uncommitted-changes row opens a shell in the folder that session worked in, so you can commit or stash. `this-week --json` carries that folder as the item's `cwd` (PANEL-CONTRACT.md §Attention), only for a session recorded on this computer and only as an absolute path; the button shows only then.
+
+### Fixed
+
+- Panel Needs you and `backstory this-week`: an uncommitted-changes, contradiction or expired-claim item now leads with the project's name, as a stale handoff already did ("vidflow: session ended with 17 uncommitted change(s) on branch master"); before, the row named no project. The Codex, sync and backup items are about this machine and are unchanged.
+
 ## [1.3.3] - 2026-11-23
 
 ### Fixed

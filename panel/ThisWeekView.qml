@@ -594,6 +594,7 @@ Item {
             width: parent.width
             onDismissed: root.refresh()
             onUpdateRequested: (projectKey, handoffId, prompt) => root.updateHandoff(projectKey, handoffId, prompt)
+            onTerminalRequested: (cwd) => root.openTerminal(cwd)
           }
         }
 

@@ -325,7 +325,10 @@ TestCase {
   }
 
   function test_no_here_means_no_card() {
-    open(payload(function (d) { delete d.here }))
+    // No attention: a Needs You row's own Terminal must not stand in for
+    // the card's.
+    open(payload(function (d) { delete d.here; d.attention = [] }))
+    compare(named("hereCard"), null)
     verify(!hasText("here"))
     verify(!hasText("Terminal"))
   }
@@ -1031,6 +1034,64 @@ TestCase {
     compare(ProcessController.runs.filter(function (r) { return r.command[1] === "done" }).length, 1, "a second run started while busy")
     ProcessController.release(Launchers.affirmCommand("h-vid"))
     act.settled(function () { return named("attentionDone") === null || named("attentionDone").enabled }, "the actions never came back on")
+  }
+
+  // ---- Uncommitted-at-session-end row: Terminal at its working tree (task 799a232f) ----
+  // The fixture's item is bar's: "bar: session ended ...", cwd /home/brian/bar.
+  function uncommittedItem(cwd) {
+    var it = { kind: "uncommitted-at-session-end", project_key: "/home/brian/bar/.git",
+      reason: "bar: session ended with 17 uncommitted change(s) on branch master", evidence_ids: ["29689"] }
+    if (cwd !== undefined) it.cwd = cwd
+    return it
+  }
+
+  function test_uncommitted_row_names_its_project_and_terminal_opens_its_tree() {
+    var cwd = "/home/brian/it's here"
+    open(payload(function (d) { d.attention = [uncommittedItem(cwd)] }))
+    verify(hasText("bar: session ended with 17 uncommitted change(s) on branch master"), JSON.stringify(texts()))
+    compare(named("attentionTerminal").label, "Terminal")
+    verify(named("attentionTerminal").visible && named("attentionActions").visible)
+    verify(named("attentionTerminal").activeFocusOnTab)
+    compare(named("attentionDismiss"), null, "a row with no handoff offers Still right")
+    compare(named("attentionDone"), null, "a row with no handoff offers Done")
+    compare(named("attentionUpdate"), null, "a row with no handoff offers Update")
+    var tip = null
+    var data = named("attentionTerminal").data
+    for (var j = 0; j < data.length; j++) if (data[j].objectName === "attentionTerminalTip") tip = data[j]
+    verify(tip !== null, "Terminal has no tooltip")
+    compare(tip.text, attentionRow().terminalTip)
+    act.clickWhenReady(function () { return named("attentionTerminal") }, { desc: "Terminal" })
+    var want = Launchers.terminalLaunchCommand(cwd)
+    var call = act.detachedNext(function (c) { return JSON.stringify(c.command) === JSON.stringify(want) }, "Terminal opens the tree")
+    compare(call.workingDirectory, cwd)
+    // The folder is sh's positional argument, never part of the script.
+    compare(call.command[call.command.length - 1], cwd)
+    verify(call.command[4].indexOf(cwd) < 0, "cwd interpolated into the script: " + call.command[4])
+  }
+
+  function test_uncommitted_row_without_an_absolute_cwd_has_no_terminal_data() {
+    return [{ tag: "absent", cwd: undefined }, { tag: "empty", cwd: "" }, { tag: "relative", cwd: "home/brian/bar" }]
+  }
+  function test_uncommitted_row_without_an_absolute_cwd_has_no_terminal(row) {
+    open(payload(function (d) { d.attention = [uncommittedItem(row.cwd)] }))
+    verify(hasText("bar: session ended with 17 uncommitted change(s) on branch master"), row.tag + ": " + JSON.stringify(texts()))
+    compare(named("attentionTerminal"), null, row.tag + ": Terminal without an absolute cwd")
+    compare(named("attentionActions"), null, row.tag + ": an empty action column shows")
+  }
+
+  // Terminal starts no run of its own, so a Still right running on another
+  // row leaves it on, as it does Update.
+  function test_terminal_stays_on_while_a_handoff_run_is_going() {
+    open(payload(function (d) {
+      d.attention = [staleWith(false, false), uncommittedItem("/home/brian/bar")]
+      d.where_left_off[0].project.project_key = "workspace:/w/projects"
+      d.where_left_off[0].project.handoff_id = "h-vid"
+    }))
+    ProcessController.respond(Launchers.affirmCommand("h-vid"), { held: true, stdout: "", stderr: "", exitCode: 0 })
+    act.clickWhenReady(function () { return named("attentionDismiss") }, { desc: "Still right" })
+    act.settled(function () { return !named("attentionDismiss").enabled }, "Still right stayed on while affirm ran")
+    verify(named("attentionTerminal").enabled, "Terminal went off while affirm ran")
+    ProcessController.release(Launchers.affirmCommand("h-vid"))
   }
 
   // The handoff id is copied only when the agent launch failed to start, not

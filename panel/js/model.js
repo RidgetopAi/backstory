@@ -51,6 +51,14 @@ function attentionHandoffSummary(item) { return item.handoff_summary || "" }
 function attentionLooksFinished(item) { return item.looks_finished === true }
 function attentionReasons(item) { return item.reasons || [] }
 function attentionEvidenceIds(item) { return item.evidence_ids || [] }
+// cwd: set only on an uncommitted-at-session-end item whose dirty session ran
+// on this device — the working tree its Terminal action opens. "" unless it
+// is an absolute path, so a missing, relative or non-string value offers no
+// Terminal rather than one that opens wherever the panel happens to run.
+function attentionCwd(item) {
+  var cwd = item.cwd
+  return typeof cwd === "string" && /^\//.test(cwd) ? cwd : ""
+}
 // sync-failing: cross-device sync is on and not syncing (project_key "sync",
 // evidence_ids the sync_attempts row ids). Not project evidence, so it has
 // no handoff to dismiss; it clears when a sync succeeds.

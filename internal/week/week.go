@@ -7,6 +7,7 @@ package week
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
@@ -94,6 +95,20 @@ const (
 	AttentionBackupFailing AttentionKind = "backup-failing"
 )
 
+// ReasonLeadsWithLabel reports whether k is project evidence, whose Reason
+// leads with the project's display name ("vidflow: session ended ..."). The
+// environment kinds (codex-hooks-not-approved, sync-failing,
+// backup-failing) are about this machine, not a project: their ProjectKey
+// is a fixed slug ("codex", "sync", "backup") and their Reason names its own
+// subject ("Codex hooks are not approved ...", "sync with laptop ...").
+func (k AttentionKind) ReasonLeadsWithLabel() bool {
+	switch k {
+	case AttentionPossiblyStaleHandoff, AttentionUncommittedAtSessionEnd, AttentionContradiction, AttentionExpiredClaim:
+		return true
+	}
+	return false
+}
+
 // attentionKindOrder fixes AttentionItem's sort order across kinds — the
 // order decision 9be5c1d5 lists them in — so rendered and --json output is
 // deterministic regardless of which store query happened to run first.
@@ -131,6 +146,12 @@ type AttentionItem struct {
 	// (the agent's proof the work got done): the handoff may be finished
 	// rather than wrong. Only a possibly-stale-handoff item sets it.
 	LooksFinished bool
+	// CWD is the local working tree an AttentionUncommittedAtSessionEnd item's
+	// changes sit in: the cwd of the session whose git state was observed
+	// dirty, absolute and cleaned. "" when that session was recorded on
+	// another device (its path is a peer's) or its cwd is not absolute, and
+	// for every other kind. The panel's Terminal action opens it.
+	CWD string
 	// EvidenceIDs is the positive evidence this item cites: record ids and
 	// timeline event ids (formatted as decimal strings), in the same mixed
 	// list shape block.staleMarker and recall's status labels already use
@@ -502,7 +523,7 @@ func buildProject(st *store.Store, projectKey string, since, now time.Time, git 
 		}
 	}
 
-	uncommitted, err := uncommittedSessionEndItems(st, projectKey, since)
+	uncommitted, err := uncommittedSessionEndItems(st, projectKey, summary.DisplayName, since)
 	if err != nil {
 		return ProjectSummary{}, nil, err
 	}
@@ -516,7 +537,7 @@ func buildProject(st *store.Store, projectKey string, since, now time.Time, git 
 		attention = append(attention, AttentionItem{
 			Kind:        AttentionContradiction,
 			ProjectKey:  projectKey,
-			Reason:      fmt.Sprintf("record %s is contradicted by %s", shortID(c.TargetID), shortID(c.SourceID)),
+			Reason:      fmt.Sprintf("%s: record %s is contradicted by %s", summary.DisplayName, shortID(c.TargetID), shortID(c.SourceID)),
 			EvidenceIDs: intIDs(c.Evidence),
 		})
 	}
@@ -529,7 +550,7 @@ func buildProject(st *store.Store, projectKey string, since, now time.Time, git 
 		attention = append(attention, AttentionItem{
 			Kind:        AttentionExpiredClaim,
 			ProjectKey:  projectKey,
-			Reason:      fmt.Sprintf("claim %s expired with no outcome recorded", shortID(claim.ID)),
+			Reason:      fmt.Sprintf("%s: claim %s expired with no outcome recorded", summary.DisplayName, shortID(claim.ID)),
 			EvidenceIDs: []string{claim.ID},
 		})
 	}
@@ -557,8 +578,10 @@ func projectHandoff(st *store.Store, projectKey string, sess store.Session, hasS
 // event with CouldNotObserve false and UncommittedCount > 0 — never a
 // could-not-observe event, which carries no positive evidence at all
 // (payload.SessionGitState's own doc: "a writer must never fold that into
-// UncommittedCount 0").
-func uncommittedSessionEndItems(st *store.Store, projectKey string, since time.Time) ([]AttentionItem, error) {
+// UncommittedCount 0"). Its reason leads with label, the project's display
+// name, as every project-scoped kind's does; its CWD is the dirty session's
+// own local cwd (attentionCWD).
+func uncommittedSessionEndItems(st *store.Store, projectKey, label string, since time.Time) ([]AttentionItem, error) {
 	events, err := st.EventsForTimeline(projectKey, since, payload.KindSessionGitState, 0)
 	if err != nil {
 		return nil, fmt.Errorf("week: session git-state events for %s: %w", projectKey, err)
@@ -591,18 +614,41 @@ func uncommittedSessionEndItems(st *store.Store, projectKey string, since time.T
 	}
 	var out []AttentionItem
 	if latest != nil && *latestGS.UncommittedCount > 0 {
-		reason := fmt.Sprintf("session ended with %d uncommitted change(s)", *latestGS.UncommittedCount)
+		reason := fmt.Sprintf("%s: session ended with %d uncommitted change(s)", label, *latestGS.UncommittedCount)
 		if latestGS.Branch != "" {
 			reason += " on branch " + latestGS.Branch
+		}
+		cwd, err := attentionCWD(st, latest.SessionID)
+		if err != nil {
+			return nil, err
 		}
 		out = append(out, AttentionItem{
 			Kind:        AttentionUncommittedAtSessionEnd,
 			ProjectKey:  projectKey,
 			Reason:      reason,
+			CWD:         cwd,
 			EvidenceIDs: []string{strconv.FormatInt(latest.ID, 10)},
 		})
 	}
 	return out, nil
+}
+
+// attentionCWD is the folder an item's Terminal action may open: sessionID's
+// cwd when the session was recorded on this device and the cwd is absolute,
+// cleaned; "" otherwise, so the panel shows no Terminal rather than open a
+// peer's path or a relative one resolved against wherever it runs. The
+// session's own cwd, not the project key (a git common dir such as
+// /x/repo/.git, shared by every worktree of the repo): the git state was
+// observed THERE, so a worktree's dirty tree opens in that worktree.
+func attentionCWD(st *store.Store, sessionID string) (string, error) {
+	cwd, err := st.LocalSessionCWD(sessionID)
+	if err != nil {
+		return "", fmt.Errorf("week: cwd of session %s: %w", sessionID, err)
+	}
+	if !filepath.IsAbs(cwd) {
+		return "", nil
+	}
+	return filepath.Clean(cwd), nil
 }
 
 // sortAttention orders items by decision 9be5c1d5's own kind order, then

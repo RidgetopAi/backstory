@@ -103,11 +103,23 @@ window (the same set Where-you-left-off lists).
 | `handoff_summary` | string  | only on `possibly-stale-handoff` | The handoff's first line, trimmed. |
 | `reasons`      | object[]   | only on `possibly-stale-handoff` | One entry per freshness reason, in `store.HandoffFreshness` order, so the panel never parses `reason`. Each: `kind` (`contradicted`, `later-record`, `later-activity`, `later-failure` or `later-unrecorded-work`), `when` (RFC 3339 UTC of the newest evidence, `""` if unknown), `where` (the folder it happened in, workspace-relative like other labels, `""` if unknown) and `text` (never truncated: the full failed command and exit code; the newer note's first line; `N sessions edited M files and wrote no note`). A reason that cites several records or events describes the newest and ends `(+N more)`. |
 | `looks_finished` | boolean  | only on `possibly-stale-handoff` | `true` when a reason is a later `outcome` record in the handoff's scope (the agent's proof the work got done); `false` for any other reasons. The `later-record` reason then also carries `outcome_id` (the newest such outcome) and its `text` begins `outcome <short id>: `. `backstory done <handoff-id>` (human-only) marks it finished. |
+| `cwd`          | string     | only on `uncommitted-at-session-end`, and only when known | The working tree the changes sit in: the cwd of the session whose git state was observed dirty, absolute and cleaned. Omitted when that session was recorded on a paired device (its path is a peer's) or its cwd is not absolute. The panel's Needs You **Terminal** action opens a terminal there (`terminalLaunchCommand`, the folder as `sh`'s positional argument) and shows only when `cwd` is an absolute path. It is the session's own folder, not `project_key` with `/.git` stripped: a repo's key is its git common dir, shared by every worktree, and a dirty worktree must open in the worktree. |
 | `evidence_ids` | string[]   | yes (never `null`, may be empty) | Record ids and/or timeline event ids (event ids as decimal strings) that are this item's positive evidence. |
 
 A project summary (Where you left off) also carries `handoff_done` (true) and `handoff_done_at` (RFC 3339 UTC) when
 the human marked its latest handoff done with `backstory done <handoff-id>`; both are omitted otherwise. A done handoff
 is never `handoff_stale` and produces no `possibly-stale-handoff` item. Deleting the done record undoes it.
+
+`reason` of every project kind (`possibly-stale-handoff`, `uncommitted-at-session-end`,
+`contradiction`, `expired-claim`) leads with the project's label — the same
+`internal/week.DisplayName` a Where-you-left-off row's `display_name` carries — and `: `,
+because `project_key` is not a name (a repo's key is its git common dir,
+`/home/me/projects/vidflow/.git`). The environment kinds (`codex-hooks-not-approved`,
+`sync-failing`, `backup-failing`) are about this machine, not a project: their `project_key`
+is a fixed slug and their `reason` names its own subject ("Codex hooks are not approved ...",
+"sync with laptop is failing ..."), with no label in front. The text form
+(`backstory this-week`) prints a project kind's `reason` as is and prefixes an environment
+kind's with its slug (`codex: Codex hooks ...`).
 
 `kind` is one of:
 
@@ -127,14 +139,18 @@ is never `handoff_stale` and produces no `possibly-stale-handoff` item. Deleting
   repo with `uncommitted_count > 0` at session end. A `could-not-observe` git-state event
   (the repo could not be read, or was not a git working tree) NEVER produces this item —
   `could-not-observe` is its own value, never folded into a count (`SCHEMA.md` invariant 7).
-  `evidence_ids` is the one `session.git_state` event id.
+  `evidence_ids` is the one `session.git_state` event id. `reason` is e.g. `vidflow: session
+  ended with 17 uncommitted change(s) on branch master`; `cwd` names the session's working tree
+  (above).
 - `contradiction` — a `contradicts` edge into a record in this project, where the
   contradicting record was itself inserted this week. `evidence_ids` is the contradicting
   record's own evidence (the timeline event ids it cited — `AGENT-CONTRACT.md` §Outcomes:
-  "contradiction only on positive evidence").
+  "contradiction only on positive evidence"). `reason` is e.g. `vidflow: record 1a2b3c4d is
+  contradicted by 5e6f7a8b`.
 - `expired-claim` — a non-tombstoned `claim` record whose `expires_at` has passed, with no
   `produced_outcome` edge touching it (nothing has recorded an outcome for it).
-  `evidence_ids` is the claim's own record id.
+  `evidence_ids` is the claim's own record id. `reason` is e.g. `vidflow: claim 1a2b3c4d
+  expired with no outcome recorded`.
 - `codex-hooks-not-approved` — Backstory's hooks are installed in `~/.codex/hooks.json` but
   Codex has no `trusted_hash` for them. Not project evidence: `project_key` is `codex`,
   `evidence_ids` is empty. Absent when Codex or its hooks are not installed.

@@ -163,6 +163,24 @@ func (s *Store) LatestLocalCWDForProject(projectKey string) (string, error) {
 	return cwd, nil
 }
 
+// LocalSessionCWD returns sessionID's cwd when the session was recorded on
+// THIS device (the same predicate LatestLocalCWDForProject applies: not a
+// synced stub, no origin device); "" for a peer's session, an unknown id, or
+// an empty cwd. A peer's path names a folder on another machine, so nothing
+// here may open it.
+func (s *Store) LocalSessionCWD(sessionID string) (string, error) {
+	var cwd string
+	err := s.db.QueryRow(`SELECT cwd FROM sessions
+		WHERE id = ? AND origin != 'synced' AND origin_device IS NULL`, sessionID).Scan(&cwd)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("store: local cwd for session %s: %w", sessionID, err)
+	}
+	return cwd, nil
+}
+
 // sessionColumns are the sessions columns scanSession reads, in its order.
 const sessionColumns = `id, agent, harness_session_id, pid, cwd, project_key, workspace, window, started_at, origin`
 

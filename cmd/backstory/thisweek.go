@@ -112,8 +112,12 @@ type attentionItemJSON struct {
 	Reasons        []staleReasonJSON `json:"reasons,omitempty"`
 	// LooksFinished is true when a reason is a later outcome record; the
 	// field is present (true or false) on every possibly-stale-handoff item.
-	LooksFinished *bool    `json:"looks_finished,omitempty"`
-	EvidenceIDs   []string `json:"evidence_ids"`
+	LooksFinished *bool `json:"looks_finished,omitempty"`
+	// CWD is set only on an uncommitted-at-session-end item whose dirty
+	// session ran on this device: the absolute working tree the panel's
+	// Terminal action opens (week.AttentionItem.CWD).
+	CWD         string   `json:"cwd,omitempty"`
+	EvidenceIDs []string `json:"evidence_ids"`
 }
 
 // staleReasonJSON is one freshness reason of a possibly-stale handoff.
@@ -223,6 +227,7 @@ func printThisWeekJSON(stdout io.Writer, result week.Result, here *hereJSON, win
 			Reason:         it.Reason,
 			HandoffID:      it.HandoffID,
 			HandoffSummary: it.HandoffSummary,
+			CWD:            it.CWD,
 			EvidenceIDs:    it.EvidenceIDs,
 		}
 		if !it.HandoffTime.IsZero() {
