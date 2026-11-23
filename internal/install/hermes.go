@@ -120,8 +120,19 @@ func (hermesAdapter) Install(home string, opts Options) error {
 // running Hermes does not load a newly installed memory-provider plugin.
 const HermesRestartNotice = "hermes: restart Hermes to load the Backstory plugin; a running Hermes does not pick up a newly installed memory provider"
 
-// InstallNotice is printed by the CLI after a successful install.
-func (hermesAdapter) InstallNotice(home string, opts Options) string { return HermesRestartNotice }
+// InstallNotice is printed by the CLI after a successful install: the
+// restart line, after any edited plugin file install kept.
+func (hermesAdapter) InstallNotice(home string, opts Options) string {
+	if n := hermesEditedNotice(home, false); n != "" {
+		return n + "\n" + HermesRestartNotice
+	}
+	return HermesRestartNotice
+}
+
+// RemoveNotice names any edited plugin file --remove kept.
+func (hermesAdapter) RemoveNotice(home string, opts Options) string {
+	return hermesEditedNotice(home, true)
+}
 
 func (hermesAdapter) Remove(home string, opts Options) error {
 	return RemoveHermes(DefaultHermesPaths(home), opts)
@@ -226,16 +237,37 @@ func isOurs(content string) bool {
 	return strings.HasPrefix(content, hermesManagedMarker+"\n")
 }
 
+// hermesPluginManaged maps each plugin file to its managedFile.
+var hermesPluginManaged = map[string]managedFile{
+	"plugin.yaml": hermesPluginYAMLFile,
+	"__init__.py": hermesPluginPyFile,
+}
+
+// hermesPluginStatuses is each plugin file's managedFile status against the
+// bytes install would write now (HermesPluginFiles).
+func hermesPluginStatuses(dir string) (files map[string]string, st map[string]ItemStatus, err error) {
+	files, err = HermesPluginFiles()
+	if err != nil {
+		return nil, nil, err
+	}
+	st = make(map[string]ItemStatus, len(files))
+	for name, want := range files {
+		if st[name], err = hermesPluginManaged[name].status(filepath.Join(dir, name), want); err != nil {
+			return nil, nil, err
+		}
+	}
+	return files, st, nil
+}
+
 // checkHermesPluginConflict reports an ErrForeignConflict when a plugin file
 // exists that backstory did not write. It never writes.
 func checkHermesPluginConflict(dir string) error {
-	files, err := HermesPluginFiles()
+	_, st, err := hermesPluginStatuses(dir)
 	if err != nil {
 		return err
 	}
-	for name := range files {
-		data, err := os.ReadFile(filepath.Join(dir, name)) //nolint:gosec // caller-chosen plugin location
-		if err == nil && !isOurs(string(data)) {
+	for name, s := range st {
+		if s == StatusForeign {
 			return fmt.Errorf("%w: %s: %s exists and was not written by backstory; left untouched", ErrForeignConflict, ItemHermesPlugin, filepath.Join(dir, name))
 		}
 	}
@@ -255,47 +287,48 @@ func checkHermesConfigConflict(path string) error {
 	return nil
 }
 
+// installHermesPlugin writes each plugin file that is absent or a version
+// Backstory shipped. When either file was edited it writes neither: the
+// owner's plugin stays whole rather than half old, half new.
 func installHermesPlugin(dir string) error {
-	files, err := HermesPluginFiles()
+	if err := checkHermesPluginConflict(dir); err != nil {
+		return err
+	}
+	files, st, err := hermesPluginStatuses(dir)
 	if err != nil {
 		return err
 	}
-	if err := checkHermesPluginConflict(dir); err != nil {
-		return err
+	for _, s := range st {
+		if s == StatusEdited {
+			return nil
+		}
 	}
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		return err
 	}
 	for name, want := range files {
-		p := filepath.Join(dir, name)
-		if data, err := os.ReadFile(p); err == nil && string(data) == want { //nolint:gosec // caller-chosen plugin location
+		if st[name] == StatusPresent {
 			continue
 		}
-		if err := writeAtomic(p, []byte(want), 0o600); err != nil {
+		if err := writeAtomic(filepath.Join(dir, name), []byte(want), 0o600); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
+// removeHermesPlugin deletes each plugin file that holds a version Backstory
+// shipped; a foreign or edited one stays.
 func removeHermesPlugin(dir string) error {
-	files, err := HermesPluginFiles()
+	_, st, err := hermesPluginStatuses(dir)
 	if err != nil {
 		return err
 	}
-	for name := range files {
-		p := filepath.Join(dir, name)
-		data, err := os.ReadFile(p) //nolint:gosec // caller-chosen plugin location
-		if os.IsNotExist(err) {
+	for name, s := range st {
+		if s != StatusPresent && s != StatusOutdated {
 			continue
 		}
-		if err != nil {
-			return err
-		}
-		if !isOurs(string(data)) {
-			continue
-		}
-		if err := removeOwnedWholeFile(p); err != nil {
+		if err := removeOwnedWholeFile(filepath.Join(dir, name)); err != nil {
 			return err
 		}
 	}
@@ -310,26 +343,38 @@ func removeHermesPlugin(dir string) error {
 	return nil
 }
 
+// hermesPluginStatus folds the plugin files' statuses into one item:
+// foreign, then edited, then absent (a file missing), then outdated, else
+// present.
 func hermesPluginStatus(dir string) ItemStatus {
-	files, err := HermesPluginFiles()
+	_, st, err := hermesPluginStatuses(dir)
 	if err != nil {
 		return StatusAbsent
 	}
-	status := StatusPresent
-	for name, want := range files {
-		data, err := os.ReadFile(filepath.Join(dir, name)) //nolint:gosec // caller-chosen plugin location
-		switch {
-		case err != nil:
-			if status == StatusPresent {
-				status = StatusAbsent
+	for _, want := range []ItemStatus{StatusForeign, StatusEdited, StatusAbsent, StatusOutdated} {
+		for _, s := range st {
+			if s == want {
+				return want
 			}
-		case !isOurs(string(data)):
-			return StatusForeign
-		case string(data) != want:
-			status = StatusAbsent // ours but stale: install would rewrite it
 		}
 	}
-	return status
+	return StatusPresent
+}
+
+// hermesEditedNotice names the edited plugin files install or --remove kept.
+func hermesEditedNotice(home string, removing bool) string {
+	dir := DefaultHermesPaths(home).PluginDir
+	_, st, err := hermesPluginStatuses(dir)
+	if err != nil {
+		return ""
+	}
+	var lines []string
+	for _, name := range []string{"plugin.yaml", "__init__.py"} {
+		if st[name] == StatusEdited {
+			lines = append(lines, EditedNotice(HarnessHermes, filepath.Join(dir, name), removing))
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // --- config.yaml: memory.provider ---

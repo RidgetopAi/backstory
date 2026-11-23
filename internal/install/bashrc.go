@@ -174,7 +174,7 @@ func BashrcStatus(path string) ItemStatus {
 // (a non-regular file, a symlink to one, read-only, or not owned by the
 // current user) returns ErrBashrcNotWritable and never touches path.
 func resolveBashrcTarget(path string) (target string, mode os.FileMode, err error) {
-	info, err := os.Lstat(path)
+	info, err := os.Lstat(path) //nolint:gosec // G703: ~/.bashrc under the user's own $HOME, by design
 	if os.IsNotExist(err) {
 		return path, 0o644, nil
 	}
@@ -187,7 +187,7 @@ func resolveBashrcTarget(path string) (target string, mode os.FileMode, err erro
 		if err != nil {
 			return "", 0, fmt.Errorf("%w: %s: broken symlink: %v", ErrBashrcNotWritable, path, err)
 		}
-		targetInfo, err := os.Lstat(resolved)
+		targetInfo, err := os.Lstat(resolved) //nolint:gosec // G703: the target of the user's own ~/.bashrc symlink, by design
 		if err != nil {
 			return "", 0, fmt.Errorf("%w: %s -> %s: %v", ErrBashrcNotWritable, path, resolved, err)
 		}

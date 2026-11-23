@@ -26,7 +26,7 @@ func TestInstallSyncTimerWritesRunningBinary(t *testing.T) {
 	executablePath = func() (string, error) { return "/opt/tmp/backstory", nil }
 	t.Cleanup(func() { ServiceManager, executablePath = oldSM, oldExe })
 
-	if err := InstallSyncTimer(home); err != nil {
+	if _, err := InstallSyncTimer(home); err != nil {
 		t.Fatal(err)
 	}
 	svc := filepath.Join(SyncUnitDir(home), SyncServiceName)
@@ -72,7 +72,7 @@ func TestRemoveSyncTimerKeepsSymlinkedUnit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := RemoveSyncTimer(home); err != nil {
+	if _, err := RemoveSyncTimer(home); err != nil {
 		t.Fatalf("RemoveSyncTimer: %v", err)
 	}
 	if got, err := os.Readlink(link); err != nil || got != target {
