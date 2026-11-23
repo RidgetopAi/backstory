@@ -81,61 +81,113 @@ func SyncUnitDir(home string) string {
 	return filepath.Join(cfg, "systemd", "user")
 }
 
-// InstallSyncTimer writes both units and enables the timer.
-func InstallSyncTimer(home string) error {
-	dir := SyncUnitDir(home)
-	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // user unit dir
-		return err
-	}
+// syncUnits pairs each unit file with its managedFile and the bytes install
+// writes now.
+func syncUnits(home string) ([]syncUnit, error) {
 	svc, err := runningSyncService()
 	if err != nil {
-		return err
+		return nil, err
 	}
-	for name, body := range map[string]string{SyncServiceName: svc, SyncTimerName: SyncTimerUnit} {
-		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil { //nolint:gosec // unit files are world-readable
-			return err
+	dir := SyncUnitDir(home)
+	return []syncUnit{
+		{path: filepath.Join(dir, SyncTimerName), file: syncTimerFile, want: SyncTimerUnit},
+		{path: filepath.Join(dir, SyncServiceName), file: syncServiceFile, want: svc},
+	}, nil
+}
+
+type syncUnit struct {
+	path string
+	file managedFile
+	want string
+}
+
+// InstallSyncTimer writes each unit that is absent or a version Backstory
+// shipped and enables the timer. A unit the owner edited is kept as it is
+// and returned in kept.
+func InstallSyncTimer(home string) (kept []string, err error) {
+	units, err := syncUnits(home)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(SyncUnitDir(home), 0o755); err != nil { //nolint:gosec // user unit dir
+		return nil, err
+	}
+	for _, u := range units {
+		st, err := u.file.status(u.path, u.want)
+		if err != nil {
+			return nil, err
+		}
+		switch st {
+		case StatusEdited:
+			kept = append(kept, u.path)
+		case StatusAbsent, StatusOutdated:
+			if err := os.WriteFile(u.path, []byte(u.want), 0o644); err != nil { //nolint:gosec // unit files are world-readable
+				return nil, err
+			}
 		}
 	}
 	if err := ServiceManager("daemon-reload"); err != nil {
-		return err
+		return kept, err
 	}
-	return ServiceManager("enable", "--now", SyncTimerName)
+	return kept, ServiceManager("enable", "--now", SyncTimerName)
 }
 
-// RemoveSyncTimer disables the timer and removes both units; absent is fine.
-// A unit file that is a symlink was linked there by the user (a dotfiles
-// tree), not written by install, so it is left in place (symlink.go).
-func RemoveSyncTimer(home string) error {
+// RemoveSyncTimer disables the timer and removes each unit that holds a
+// version Backstory shipped; absent is fine. A unit the owner edited is kept
+// and returned in kept, and a unit file that is a symlink was linked there by
+// the user (a dotfiles tree), not written by install, so it is left in place
+// (symlink.go).
+func RemoveSyncTimer(home string) (kept []string, err error) {
 	dir := SyncUnitDir(home)
 	_, errT := os.Stat(filepath.Join(dir, SyncTimerName))
 	_, errS := os.Stat(filepath.Join(dir, SyncServiceName))
 	if errT != nil && errS != nil {
-		return nil
+		return nil, nil
+	}
+	units, err := syncUnits(home)
+	if err != nil {
+		return nil, err
 	}
 	_ = ServiceManager("disable", "--now", SyncTimerName) // best effort: it may not be enabled
-	for _, name := range []string{SyncTimerName, SyncServiceName} {
-		if err := removeOwnedWholeFile(filepath.Join(dir, name)); err != nil && !os.IsNotExist(err) {
-			return err
+	for _, u := range units {
+		st, err := u.file.status(u.path, u.want)
+		if err != nil {
+			return kept, err
+		}
+		switch st {
+		case StatusEdited:
+			kept = append(kept, u.path)
+		case StatusPresent, StatusOutdated:
+			if err := removeOwnedWholeFile(u.path); err != nil && !os.IsNotExist(err) {
+				return kept, err
+			}
 		}
 	}
-	return ServiceManager("daemon-reload")
+	return kept, ServiceManager("daemon-reload")
 }
 
-// SyncTimerStatus is present (both units written and the timer enabled),
-// inactive (units written, timer not enabled), outdated (the service unit
-// names a binary other than the running one, e.g. the old %h/.local/bin
-// path; `backstory install sync` rewrites it) or absent.
+// SyncTimerStatus is absent (a unit missing), edited (a unit changed since
+// Backstory wrote it; install and --remove keep it), outdated (a unit is an
+// older shipped version, e.g. the service naming the old %h/.local/bin path;
+// `backstory install sync` rewrites it), inactive (units written, timer not
+// enabled) or present.
 func SyncTimerStatus(home string) ItemStatus {
-	dir := SyncUnitDir(home)
-	_, errT := os.Stat(filepath.Join(dir, SyncTimerName))
-	_, errS := os.Stat(filepath.Join(dir, SyncServiceName))
-	if errT != nil || errS != nil {
+	units, err := syncUnits(home)
+	if err != nil {
 		return StatusAbsent
 	}
-	if want, err := runningSyncService(); err == nil {
-		if got, err := os.ReadFile(filepath.Join(dir, SyncServiceName)); err == nil && string(got) != want { //nolint:gosec // user unit dir
-			return StatusOutdated
+	worst := StatusPresent
+	for _, u := range units {
+		st, err := u.file.status(u.path, u.want)
+		if err != nil || st == StatusAbsent {
+			return StatusAbsent
 		}
+		if st == StatusEdited || (st == StatusOutdated && worst == StatusPresent) {
+			worst = st
+		}
+	}
+	if worst != StatusPresent {
+		return worst
 	}
 	if err := ServiceManager("is-enabled", "--quiet", SyncTimerName); err != nil {
 		return StatusInactive

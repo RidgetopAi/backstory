@@ -68,7 +68,7 @@ func checkWriteTargets(paths ...string) error {
 }
 
 func isSymlink(path string) bool {
-	info, err := os.Lstat(path)
+	info, err := os.Lstat(path) //nolint:gosec // G703: a harness config path under the user's own home, by design
 	return err == nil && info.Mode()&os.ModeSymlink != 0
 }
 

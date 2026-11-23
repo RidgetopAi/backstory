@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/RidgetopAi/backstory/internal/install"
 	"github.com/RidgetopAi/backstory/internal/project"
 	"github.com/RidgetopAi/backstory/internal/store"
 )
@@ -806,9 +807,13 @@ func TestMakeUninstall(t *testing.T) {
 	if err := os.WriteFile(db, []byte("memory"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	// An opted-in sync timer (`backstory install sync`) is on disk too.
-	for _, n := range []string{"backstory-sync.service", "backstory-sync.timer"} {
-		if err := os.WriteFile(f.path(".config", "systemd", "user", n), []byte("[Unit]\n"), 0o644); err != nil { //nolint:gosec // fixture
+	// An opted-in sync timer (`backstory install sync`) is on disk too, as
+	// that command writes it.
+	for n, body := range map[string]string{
+		install.SyncServiceName: install.SyncServiceUnitFor(f.path(".local", "bin", "backstory")),
+		install.SyncTimerName:   install.SyncTimerUnit,
+	} {
+		if err := os.WriteFile(f.path(".config", "systemd", "user", n), []byte(body), 0o644); err != nil { //nolint:gosec // fixture
 			t.Fatal(err)
 		}
 	}

@@ -1,7 +1,6 @@
 package install
 
 import (
-	"bytes"
 	_ "embed"
 	"errors"
 	"fmt"
@@ -71,7 +70,7 @@ func (piAdapter) Install(home string, opts Options) error {
 	if status == StatusForeign {
 		return ErrPiExtensionForeign
 	}
-	if status != StatusPresent {
+	if status == StatusAbsent || status == StatusOutdated {
 		if err := os.MkdirAll(p.ExtensionDir, 0o750); err != nil {
 			return fmt.Errorf("%s: %w", ItemPiExtension, err)
 		}
@@ -106,7 +105,7 @@ func (piAdapter) Remove(home string, opts Options) error {
 	if err != nil {
 		return err
 	}
-	if status != StatusForeign && status != StatusAbsent {
+	if status == StatusPresent || status == StatusOutdated {
 		if err := removeOwnedWholeFile(p.ExtensionTS); err != nil {
 			return fmt.Errorf("%s: %w", ItemPiExtension, err)
 		}
@@ -144,23 +143,27 @@ func (piAdapter) Check(home string, opts Options) ([]Item, error) {
 	return []Item{{Name: ItemPiExtension, Status: ext}, {Name: ItemPiAgentsMD, Status: stub}, {Name: ItemPiSkill, Status: ItemStatus(skill.CheckStatus(p.SkillPath, opts.Prefix))}}, nil
 }
 
-// piExtensionStatus: present when the file equals the embedded source,
-// absent when missing, and foreign when it lacks backstory's marker. A file
-// with the marker but different bytes (an older backstory) reports absent so
-// install refreshes it.
+// piExtensionStatus is the extension file as a managedFile: present,
+// absent, foreign (no Backstory marker), outdated (a version Backstory
+// shipped; install replaces it) or edited (kept by install and --remove).
 func piExtensionStatus(path string) (ItemStatus, error) {
-	data, err := os.ReadFile(path) //nolint:gosec // path derived from $HOME
-	if os.IsNotExist(err) {
-		return StatusAbsent, nil
+	return piExtensionFile.status(path, string(piExtensionSource))
+}
+
+// InstallNotice names an edited extension install kept.
+func (piAdapter) InstallNotice(home string, opts Options) string {
+	return piEditedNotice(home, false)
+}
+
+// RemoveNotice names an edited extension --remove kept.
+func (piAdapter) RemoveNotice(home string, opts Options) string {
+	return piEditedNotice(home, true)
+}
+
+func piEditedNotice(home string, removing bool) string {
+	p := DefaultPiPaths(home).ExtensionTS
+	if st, err := piExtensionStatus(p); err == nil && st == StatusEdited {
+		return EditedNotice(HarnessPi, p, removing)
 	}
-	if err != nil {
-		return "", err
-	}
-	if bytes.Equal(data, piExtensionSource) {
-		return StatusPresent, nil
-	}
-	if bytes.Contains(data, []byte(PiExtensionMarker)) {
-		return StatusAbsent, nil
-	}
-	return StatusForeign, nil
+	return ""
 }

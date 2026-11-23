@@ -24,7 +24,7 @@ installs a memory-provider plugin and the backstory skill under $HERMES_HOME.
 
 Valid harness names: claude, codex, hermes, pi, agents
 
-  --check      report each item's status (present/absent/outdated/foreign-conflict)
+  --check      report each item's status (present/absent/outdated/edited/foreign-conflict)
                and whether the daemon socket answers; exits non-zero unless
                every item is present; writes nothing
   --remove     reverse a prior install, leaving foreign entries untouched
@@ -190,6 +190,13 @@ func runInstallRemove(adapters []install.Adapter, home string, opts install.Opti
 			return 1
 		}
 		_, _ = fmt.Fprintf(stdout, "%s: removed\n", a.Name())
+		if n, ok := a.(interface {
+			RemoveNotice(home string, opts install.Options) string
+		}); ok {
+			if msg := n.RemoveNotice(home, opts); msg != "" {
+				_, _ = fmt.Fprintln(stdout, msg)
+			}
+		}
 	}
 	return 0
 }
@@ -338,11 +345,15 @@ func runInstallSync(args []string, stdout, stderr io.Writer) int {
 		}
 		return 0
 	case *remove:
-		if err := install.RemoveSyncTimer(home); err != nil {
+		kept, err := install.RemoveSyncTimer(home)
+		if err != nil {
 			_, _ = fmt.Fprintln(stderr, "backstory install sync --remove:", err)
 			return 1
 		}
 		_, _ = fmt.Fprintln(stdout, "sync: timer removed")
+		for _, p := range kept {
+			_, _ = fmt.Fprintln(stdout, install.EditedNotice("sync", p, true))
+		}
 		return 0
 	}
 	st, code := openStoreFor("install sync", stderr)
@@ -363,9 +374,13 @@ func runInstallSync(args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintln(stderr, "backstory install sync: no paired computer; run `backstory pair <ssh-host>` first")
 		return 1
 	}
-	if err := install.InstallSyncTimer(home); err != nil {
+	kept, err := install.InstallSyncTimer(home)
+	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory install sync:", err)
 		return 1
+	}
+	for _, p := range kept {
+		_, _ = fmt.Fprintln(stdout, install.EditedNotice("sync", p, false))
 	}
 	_, _ = fmt.Fprintf(stdout, "sync: %s enabled; `backstory sync --quiet` runs every 5 minutes\n", install.SyncTimerName)
 	return 0

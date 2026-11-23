@@ -11,6 +11,13 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 ## [Unreleased]
 
+### Security
+
+- `backstory install`, a re-install and an upgrade to another `--binary` keep a Backstory hook you narrowed. Before, install rewrote a Backstory hook group in Claude's `settings.json` or Codex's `hooks.json` to its default matcher, so a `PostToolUse` hook you had limited to some tools (`"Bash|Edit"`, say) went back to matching every tool and recording what you had excluded. Now install updates only the hook's command (the binary path). The matcher, the timeout, any other key on the group or the hook, and any other hook you put in the same group stay as you set them. The one exception is the SessionStart matcher `startup|resume|clear`, the default releases before `compact` was added wrote, which is still moved to `startup|resume|clear|compact`. `--check` reports such a hook present. `--remove` takes out only Backstory's hook and keeps your others in a shared group. This covers SessionStart, PostToolUse and PostToolUseFailure, and both Codex hooks.
+- `backstory install` keeps a Backstory-written file you edited: the Pi extension (`~/.pi/agent/extensions/backstory/index.ts`), the Hermes plugin files, and the sync timer's units. Before, install replaced any of them whose bytes differed from the current release, so an edit was lost on the next install or upgrade. Now install replaces such a file only when it is a version Backstory shipped. A file you edited stays as it is: install sets up the rest of that harness and prints a line naming the kept file, `--check` reports it `edited`, and `--remove` leaves it in place and says so. `--remove` now also deletes an unedited older version of the Pi extension, which it used to leave behind.
+- `make uninstall` keeps a `~/.config/hypr/backstory.lua` or a sync timer unit (`backstory-sync.timer`, `backstory-sync.service`) that you edited or symlinked, and prints a line naming it. Before, it deleted them whatever they held. It deletes only a file that holds a version Backstory shipped (for the sync service, under any binary path), the same check `make install` already used for `backstory.lua`.
+- `make install` keeps a `~/.config/systemd/user/backstory.service` you edited or symlinked and writes the new unit beside it as `backstory.service.new`, as it already did for `backstory.lua`; `make uninstall` deletes the unit only when it is a version Backstory shipped. Before, install overwrote it and uninstall deleted it.
+
 ## [1.3.3] - 2026-11-23
 
 ### Fixed

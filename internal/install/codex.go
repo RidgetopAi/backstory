@@ -511,11 +511,11 @@ func codexBackstoryTableMatches(content string, opts Options) bool {
 // hook is installed but config.toml has no trusted_hash for its key.
 func codexHookStatus(paths CodexPaths, root map[string]any, event, label, sub string, opts Options) (ItemStatus, string) {
 	want := codexHookEntry(opts.hookCommand(sub), opts.timeoutSeconds())
-	st, bin, group := hookEntryStatus(root, event, want, sub, opts)
+	st, bin, group, hook := hookEntryStatus(root, event, want, sub, opts)
 	if st != StatusPresent {
 		return st, ""
 	}
-	key := fmt.Sprintf("%s:%s:%d:0", paths.HooksJSON, label, group)
+	key := fmt.Sprintf("%s:%s:%d:%d", paths.HooksJSON, label, group, hook)
 	if codexHookTrusted(paths.ConfigTOML, key) {
 		return StatusPresent, bin
 	}
