@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -163,11 +164,11 @@ func (s *Store) LatestLocalCWDForProject(projectKey string) (string, error) {
 	return cwd, nil
 }
 
-// LocalSessionCWD returns sessionID's cwd when the session was recorded on
-// THIS device (the same predicate LatestLocalCWDForProject applies: not a
-// synced stub, no origin device); "" for a peer's session, an unknown id, or
-// an empty cwd. A peer's path names a folder on another machine, so nothing
-// here may open it.
+// LocalSessionCWD returns sessionID's cwd, cleaned, when the session was
+// recorded on THIS device (the same predicate LatestLocalCWDForProject
+// applies: not a synced stub, no origin device) and the cwd is absolute; ""
+// for a peer's session, an unknown id, or an empty or relative cwd. A peer's
+// path names a folder on another machine, so nothing here may open it.
 func (s *Store) LocalSessionCWD(sessionID string) (string, error) {
 	var cwd string
 	err := s.db.QueryRow(`SELECT cwd FROM sessions
@@ -178,7 +179,10 @@ func (s *Store) LocalSessionCWD(sessionID string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("store: local cwd for session %s: %w", sessionID, err)
 	}
-	return cwd, nil
+	if !filepath.IsAbs(cwd) {
+		return "", nil
+	}
+	return filepath.Clean(cwd), nil
 }
 
 // sessionColumns are the sessions columns scanSession reads, in its order.

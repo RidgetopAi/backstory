@@ -18,6 +18,8 @@ See `RELEASING.md` for the release flow and its approval gates.
 ### Fixed
 
 - Panel Needs you and `backstory this-week`: an uncommitted-changes, contradiction or expired-claim item now leads with the project's name, as a stale handoff already did ("vidflow: session ended with 17 uncommitted change(s) on branch master"); before, the row named no project. The Codex, sync and backup items are about this machine and are unchanged.
+- Uncommitted changes are tracked per working tree, not per repo: a clean session in the main checkout no longer clears a worktree's uncommitted-changes item, and each dirty tree gets its own item (naming the tree when the repo had more than one this week).
+- Panel Needs you: a stale handoff's "Since then" names the folder (`projects/vidflow`), not the repo's git directory (`projects/vidflow/.git`).
 
 ## [1.3.3] - 2026-11-23
 

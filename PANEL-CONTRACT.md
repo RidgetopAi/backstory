@@ -101,9 +101,9 @@ window (the same set Where-you-left-off lists).
 | `handoff_id`   | string     | only on `possibly-stale-handoff` | The stale handoff's record id: what `backstory affirm <handoff-id>` takes — the panel's Needs You Still right action runs it, and Done runs `backstory done <handoff-id>`. |
 | `handoff_time` | string     | only on `possibly-stale-handoff` | The handoff's own time, RFC 3339 UTC: which handoff the row is about. |
 | `handoff_summary` | string  | only on `possibly-stale-handoff` | The handoff's first line, trimmed. |
-| `reasons`      | object[]   | only on `possibly-stale-handoff` | One entry per freshness reason, in `store.HandoffFreshness` order, so the panel never parses `reason`. Each: `kind` (`contradicted`, `later-record`, `later-activity`, `later-failure` or `later-unrecorded-work`), `when` (RFC 3339 UTC of the newest evidence, `""` if unknown), `where` (the folder it happened in, workspace-relative like other labels, `""` if unknown) and `text` (never truncated: the full failed command and exit code; the newer note's first line; `N sessions edited M files and wrote no note`). A reason that cites several records or events describes the newest and ends `(+N more)`. |
+| `reasons`      | object[]   | only on `possibly-stale-handoff` | One entry per freshness reason, in `store.HandoffFreshness` order, so the panel never parses `reason`. Each: `kind` (`contradicted`, `later-record`, `later-activity`, `later-failure` or `later-unrecorded-work`), `when` (RFC 3339 UTC of the newest evidence, `""` if unknown), `where` (the working tree it happened in — the session's own folder's git toplevel, else that folder; for a paired device's session, the project's toplevel — workspace-relative like other labels, never the git dir; `""` if unknown) and `text` (never truncated: the full failed command and exit code; the newer note's first line; `N sessions edited M files and wrote no note`). A reason that cites several records or events describes the newest and ends `(+N more)`. |
 | `looks_finished` | boolean  | only on `possibly-stale-handoff` | `true` when a reason is a later `outcome` record in the handoff's scope (the agent's proof the work got done); `false` for any other reasons. The `later-record` reason then also carries `outcome_id` (the newest such outcome) and its `text` begins `outcome <short id>: `. `backstory done <handoff-id>` (human-only) marks it finished. |
-| `cwd`          | string     | only on `uncommitted-at-session-end`, and only when known | The working tree the changes sit in: the cwd of the session whose git state was observed dirty, absolute and cleaned. Omitted when that session was recorded on a paired device (its path is a peer's) or its cwd is not absolute. The panel's Needs You **Terminal** action opens a terminal there (`terminalLaunchCommand`, the folder as `sh`'s positional argument) and shows only when `cwd` is an absolute path. It is the session's own folder, not `project_key` with `/.git` stripped: a repo's key is its git common dir, shared by every worktree, and a dirty worktree must open in the worktree. |
+| `cwd`          | string     | only on `uncommitted-at-session-end`, and only when known | The working tree the changes sit in: the git toplevel of the cwd of the session whose git state was observed dirty (that cwd itself when git cannot resolve it), absolute and cleaned. Omitted when that session was recorded on a paired device (its path is a peer's) or its cwd is not absolute. The panel's Needs You **Terminal** action opens a terminal there (`terminalLaunchCommand`, the folder as `sh`'s positional argument) and shows only when `cwd` is an absolute path. It is the session's own folder, not `project_key` with `/.git` stripped: a repo's key is its git common dir, shared by every worktree, and a dirty worktree must open in the worktree. |
 | `evidence_ids` | string[]   | yes (never `null`, may be empty) | Record ids and/or timeline event ids (event ids as decimal strings) that are this item's positive evidence. |
 
 A project summary (Where you left off) also carries `handoff_done` (true) and `handoff_done_at` (RFC 3339 UTC) when
@@ -136,11 +136,18 @@ kind's with its slug (`codex: Codex hooks ...`).
   appears at most once; `backstory affirm <handoff-id>` (human-only) clears it until new
   evidence arrives.
 - `uncommitted-at-session-end` — a `session.git_state` event this week observed the session's
-  repo with `uncommitted_count > 0` at session end. A `could-not-observe` git-state event
+  repo with `uncommitted_count > 0` at session end. State is tracked per **working tree** (the
+  git toplevel of the session's cwd, else the cwd), not per project: a repo's main checkout and
+  its worktrees share one `project_key`, so a later clean session in one never clears another's
+  item, while a later clean session anywhere in the same tree does. One item per dirty tree.
+  When the project had more than one tree observed this week, each reason ends ` in <tree>`
+  (workspace-relative, e.g. `in projects/vidflow-wt`; `in an unknown folder` for sessions from a
+  paired device or with no absolute cwd, which share one slot and carry no `cwd`); with one
+  tree the wording has no suffix. A `could-not-observe` git-state event
   (the repo could not be read, or was not a git working tree) NEVER produces this item —
   `could-not-observe` is its own value, never folded into a count (`SCHEMA.md` invariant 7).
   `evidence_ids` is the one `session.git_state` event id. `reason` is e.g. `vidflow: session
-  ended with 17 uncommitted change(s) on branch master`; `cwd` names the session's working tree
+  ended with 17 uncommitted change(s) on branch master`; `cwd` names that working tree
   (above).
 - `contradiction` — a `contradicts` edge into a record in this project, where the
   contradicting record was itself inserted this week. `evidence_ids` is the contradicting

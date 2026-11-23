@@ -231,7 +231,9 @@ From top to bottom:
   - a session that ended with **uncommitted changes**, naming the project ("vidflow: session
     ended with 17 uncommitted change(s) on branch master"). **Terminal** opens a shell in the
     folder that session worked in, so you can commit or stash; the row clears once a later
-    session there ends with a clean tree. A session from a paired computer gets no Terminal
+    session in that same folder ends with a clean tree. Each worktree of a repo gets its own row
+    (naming the folder when there is more than one). A session from a paired computer gets no
+    Terminal
   - a **contradiction**: one record says another is wrong, with evidence
   - an **expired claim** with no outcome recorded
   - Codex hooks that still need approval ([Troubleshooting](#9-troubleshooting))
