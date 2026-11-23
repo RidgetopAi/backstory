@@ -155,3 +155,16 @@ func EditedNotice(harness, path string, removing bool) string {
 	}
 	return harness + ": kept " + path + ": it was edited after Backstory wrote it, so it was not replaced; move it aside and install again to get the current version"
 }
+
+// ShippedSHA256 is the shipped list of the managed file embedded from source
+// (relative to this package, e.g. "units/backstory-sync.timer"); nil when no
+// managed file has that source. ops/install.sh carries the sync units' lists
+// too, and a test holds the two equal.
+func ShippedSHA256(source string) []string {
+	for _, m := range managedFiles {
+		if m.source == source {
+			return slices.Clone(m.shipped)
+		}
+	}
+	return nil
+}

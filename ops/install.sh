@@ -31,9 +31,10 @@ HYPR_DIR="$CONFIG_HOME/hypr"
 HYPR_FILE="$HYPR_DIR/$APP.lua"
 HYPR_LINE='require("hypr.backstory")'
 # The sha256 of every ops/hyprland/backstory.lua this repo has shipped
-# (`git log --follow` of it; ops/install_test.go fails when one is missing). An
-# installed file matching one of them is replaced on upgrade; any other content
-# is the user's edit, so it stays and the new file goes beside it as .new.
+# (`git log --follow` of it; ops/install_preserve_test.go fails when one is
+# missing). An installed file matching one of them is replaced on upgrade and
+# deleted on uninstall; any other content is the user's edit, so it stays (on
+# upgrade the new file goes beside it as .new).
 HYPR_SHIPPED_SHA256='
 dc2c27c0fef47cd723c7ce3c14e8f6de3ae45aa1b9ef6265df4318b92f7a935f
 c18a424c3a9d5d82116647cf7134d16a453b5b322e2e664b64d81545ed63297d
@@ -50,6 +51,19 @@ a11156f6d3fd45fa6cb3d56747c17623ac72fcacf7c0f102ea02c35112e55ed5
 9af66f60cf4d89f55fceabd25a33a1bc6a11f76a4f31f6f6a6baa23a65951b7f
 17d4992a059b0576b04464cea123b5346f1ea993ec8ee96f0058f460b6ddb83a
 '
+# The sha256 of every sync unit `backstory install sync` has written, the
+# service's ExecStart binary put back to %h/.local/bin/backstory first
+# (SYNC_EXECSTART_UNRENDER). They are internal/install/managed.go's
+# syncServiceFile and syncTimerFile lists; ops/install_preserve_test.go fails
+# when the two disagree or a committed version is missing. Uninstall deletes a
+# unit that matches and keeps any other.
+SYNC_SERVICE_SHIPPED_SHA256='
+4c452a7367d8f77045677b4739bbb86b98cf7c598d2a093df83e5e99bedaf814
+'
+SYNC_TIMER_SHIPPED_SHA256='
+0eb0bf68aac09944c9011704b1c73a5e5231e3bfe45a61b01e4c6002662ddd26
+'
+SYNC_EXECSTART_UNRENDER='s/^ExecStart=("([^"\\]|\\.)*"|[^[:space:]"]+) /ExecStart=%h\/.local\/bin\/backstory /'
 # The session-locked probe: Omarchy's own omarchy-hyprland-session-locked when
 # it is on PATH (4.x locks inside the shell, with no hyprlock process); older
 # Omarchy locks with hyprlock, which is looked for by process name.
@@ -250,7 +264,7 @@ install_hypr_file() {
 		fi
 		return 0
 	fi
-	if [ -e "$HYPR_FILE" ] && ! cmp -s "$new" "$HYPR_FILE" && ! hypr_file_shipped; then
+	if [ -e "$HYPR_FILE" ] && ! cmp -s "$new" "$HYPR_FILE" && ! shipped "$HYPR_FILE" "$HYPR_SHIPPED_SHA256"; then
 		install -m644 "$new" "$HYPR_FILE.new"
 		echo "kept your edited $HYPR_FILE; this version's file is $HYPR_FILE.new (merge it into yours, or replace yours with it)"
 		return 0
@@ -260,12 +274,32 @@ install_hypr_file() {
 	echo "installed $HYPR_FILE"
 }
 
-# hypr_file_shipped: HYPR_FILE is a regular file byte-identical to a version
-# in HYPR_SHIPPED_SHA256. Without sha256sum nothing counts as shipped.
-hypr_file_shipped() {
-	[ -f "$HYPR_FILE" ] && [ ! -L "$HYPR_FILE" ] && command -v sha256sum >/dev/null 2>&1 || return 1
-	sum="$(sha256sum <"$HYPR_FILE" | cut -d' ' -f1)"
-	[ -n "$sum" ] && printf '%s\n' "$HYPR_SHIPPED_SHA256" | grep -qx "$sum"
+# shipped FILE LIST [UNRENDER]: FILE is a regular file (not a symlink) whose
+# sha256 is one of the lines of LIST, after the sed -E program UNRENDER when
+# one is given. Without sha256sum nothing counts as shipped.
+shipped() {
+	[ -f "$1" ] && [ ! -L "$1" ] && command -v sha256sum >/dev/null 2>&1 || return 1
+	if [ -n "${3:-}" ]; then
+		sum="$(sed -E "$3" <"$1" | sha256sum | cut -d' ' -f1)"
+	else
+		sum="$(sha256sum <"$1" | cut -d' ' -f1)"
+	fi
+	[ -n "$sum" ] && printf '%s\n' "$2" | grep -qx "$sum"
+}
+
+# remove_if_shipped FILE LIST [UNRENDER]: delete FILE when it holds a version
+# Backstory shipped (shipped). A symlinked or edited FILE is the user's: it is
+# kept and named.
+remove_if_shipped() {
+	if [ -L "$1" ]; then
+		echo "kept your symlinked $1; delete it yourself if you no longer want it"
+	elif [ ! -e "$1" ]; then
+		return 0
+	elif shipped "$1" "$2" "${3:-}"; then
+		rm -f "$1"
+	else
+		echo "kept your edited $1; delete it yourself if you no longer want it"
+	fi
 }
 
 # is_git_checkout DIR: DIR is a git checkout, as `omarchy plugin add` installs a
@@ -514,15 +548,17 @@ unregister_harnesses() {
 do_uninstall() {
 	unregister_harnesses
 	# The optional sync timer (`backstory install sync`), when present.
-	if [ -f "$SYNC_TIMER" ] || [ -f "$SYNC_SERVICE" ]; then
+	if [ -e "$SYNC_TIMER" ] || [ -e "$SYNC_SERVICE" ] || [ -L "$SYNC_TIMER" ] || [ -L "$SYNC_SERVICE" ]; then
 		systemctl --user disable --now "$APP-sync.timer" || true
-		rm -f "$SYNC_TIMER" "$SYNC_SERVICE"
+		remove_if_shipped "$SYNC_TIMER" "$SYNC_TIMER_SHIPPED_SHA256"
+		remove_if_shipped "$SYNC_SERVICE" "$SYNC_SERVICE_SHIPPED_SHA256" "$SYNC_EXECSTART_UNRENDER"
 	fi
 	if [ -f "$UNIT" ] || systemctl --user is-enabled --quiet "$APP" 2>/dev/null; then
 		systemctl --user stop "$APP" || true
 		systemctl --user disable "$APP" || true
 	fi
-	rm -f "$UNIT" "$BIN" "$BIN.prev" "$HYPR_FILE" "$HYPR_FILE.new"
+	rm -f "$UNIT" "$BIN" "$BIN.prev" "$HYPR_FILE.new"
+	remove_if_shipped "$HYPR_FILE" "$HYPR_SHIPPED_SHA256"
 	systemctl --user daemon-reload || true
 	if [ -e "$PANEL" ] || [ -L "$PANEL" ]; then
 		if [ -L "$PANEL" ] || ! is_backstory_panel "$PANEL"; then
