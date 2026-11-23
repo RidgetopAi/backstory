@@ -126,6 +126,57 @@ func TestInstallKeepsAUserEditedHyprlandFile(t *testing.T) {
 	mustNotExist(t, hypr+".new")
 }
 
+// A symlinked backstory.lua (dotfiles) stays a symlink, whether its target
+// matches this version, differs, or is missing.
+func TestInstallKeepsASymlinkedHyprlandFile(t *testing.T) {
+	shipped, err := os.ReadFile("hyprland/backstory.lua")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name    string
+		content []byte // nil: dangling link
+		wantNew bool
+	}{
+		{"matching", shipped, false},
+		{"edited", append(append([]byte{}, shipped...), "-- mine\n"...), true},
+		{"dangling", nil, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newInstallFixture(t)
+			hypr := f.path(".config", "hypr", "backstory.lua")
+			target := f.path("dotfiles", "backstory.lua")
+			if err := os.MkdirAll(filepath.Dir(hypr), 0o755); err != nil { //nolint:gosec // fixture path under t.TempDir
+				t.Fatal(err)
+			}
+			if tc.content != nil {
+				if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil { //nolint:gosec // fixture path under t.TempDir
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(target, tc.content, 0o644); err != nil { //nolint:gosec // fixture path under t.TempDir
+					t.Fatal(err)
+				}
+			}
+			if err := os.Symlink(target, hypr); err != nil {
+				t.Fatal(err)
+			}
+			f.mustMake("install")
+			if got, err := os.Readlink(hypr); err != nil || got != target {
+				t.Fatalf("backstory.lua is no longer the symlink to %s (readlink %q, %v)", target, got, err)
+			}
+			if tc.content != nil {
+				if got, _ := os.ReadFile(target); !bytes.Equal(got, tc.content) { //nolint:gosec // fixture path under t.TempDir
+					t.Error("install changed the symlink's target")
+				}
+			}
+			_, err := os.Stat(hypr + ".new")
+			if gotNew := err == nil; gotNew != tc.wantNew {
+				t.Errorf("backstory.lua.new written = %v, want %v", gotNew, tc.wantNew)
+			}
+		})
+	}
+}
+
 func TestInstallUpdatesAPreviouslyShippedHyprlandFile(t *testing.T) {
 	versions := shippedHyprVersions(t)
 	if len(versions) < 2 {

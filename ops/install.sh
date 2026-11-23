@@ -239,6 +239,17 @@ wait_for_daemon() {
 # that one is kept and the new file is written beside it as HYPR_FILE.new.
 install_hypr_file() {
 	new="$SRC/ops/hyprland/backstory.lua"
+	# A symlink (dangling or not) is the user's, even when its content matches.
+	if [ -L "$HYPR_FILE" ]; then
+		if cmp -s "$new" "$HYPR_FILE"; then
+			rm -f "$HYPR_FILE.new"
+			echo "kept your symlinked $HYPR_FILE; it matches this version"
+		else
+			install -m644 "$new" "$HYPR_FILE.new"
+			echo "kept your symlinked $HYPR_FILE; this version's file is $HYPR_FILE.new (merge it into yours, or replace yours with it)"
+		fi
+		return 0
+	fi
 	if [ -e "$HYPR_FILE" ] && ! cmp -s "$new" "$HYPR_FILE" && ! hypr_file_shipped; then
 		install -m644 "$new" "$HYPR_FILE.new"
 		echo "kept your edited $HYPR_FILE; this version's file is $HYPR_FILE.new (merge it into yours, or replace yours with it)"
