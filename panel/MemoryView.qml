@@ -235,6 +235,7 @@ Item {
   }
 
   function deleteRecord(recordId) {
+    if (root.busy) return
     root.errorText = ""
     root.confirmingId = ""
     mutateProcess.command = Launchers.deleteCommand(recordId)
@@ -615,6 +616,7 @@ Item {
 
             MemoryButton {
               label: "Forget"
+              enabled: !root.busy
               foreground: Commons.Color.urgent
               hoverColor: Commons.Color.urgent
               onClicked: root.deleteRecord(rec.rid)

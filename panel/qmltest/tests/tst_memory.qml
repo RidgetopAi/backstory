@@ -427,6 +427,23 @@ TestCase {
     ProcessController.release(Launchers.deleteCommand(id))
   }
 
+  // While a delete runs, a second record's Forget does nothing.
+  function test_record_forget_is_disabled_while_busy() {
+    var golden = JSON.parse(readFixture(recordsGolden))
+    verify(golden.records.length >= 2, "fixture needs two records")
+    openMemory(JSON.stringify(golden))
+    var first = golden.records[0].id
+    var second = golden.records[1].id
+    ProcessController.respond(Launchers.deleteCommand(first), { held: true, stdout: "", stderr: "", exitCode: 0 })
+    panel.view.memoryView.deleteRecord(first)
+    act.settled(function () { return panel.view.memoryView.busy }, "the first delete never started")
+    panel.view.memoryView.confirmingId = second
+    panel.view.memoryView.deleteRecord(second)
+    compare(panel.view.memoryView.confirmingId, second, "the second record's confirm was dismissed while a delete ran")
+    compare(runsMatching(Launchers.deleteCommand(second)).length, 0, "a second delete ran while one was running")
+    ProcessController.release(Launchers.deleteCommand(first))
+  }
+
   function test_kind_word_on_each_row() {
     var golden = JSON.parse(readFixture(recordsGolden))
     golden.records.push({ id: "aaaa0009-0000-4000-8000-000000000009", ts: "2026-01-01T00:07:00Z", kind: "outcome",
