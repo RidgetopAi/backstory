@@ -983,15 +983,18 @@ func TestInstallEnablesPanelPluginBeforeShellRestart(t *testing.T) {
 	}
 }
 
-func TestInstallTwiceEnablesEachTime(t *testing.T) {
+// An upgrade does not enable again: only the first install does. A panel
+// enabled before the upgrade is still enabled after its shell restart.
+func TestInstallUpgradeKeepsAnEnabledPanelEnabledWithoutEnablingAgain(t *testing.T) {
 	f := newInstallFixture(t)
 	f.fakeOmarchy()
 	f.mustMake("install")
 	f.flag("active", true)
 	f.mustMake("install")
-	if n := strings.Count(f.calls(), enableCall); n != 2 {
-		t.Errorf("enable recorded %d times, want 2:\n%s", n, f.calls())
+	if n := strings.Count(f.calls(), enableCall); n != 1 {
+		t.Errorf("enable recorded %d times over install + upgrade, want 1:\n%s", n, f.calls())
 	}
+	mustExist(t, f.log+".plugin-enabled")
 }
 
 func TestInstallWithoutOmarchyCLIStillSucceedsAndNamesCommand(t *testing.T) {

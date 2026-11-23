@@ -30,6 +30,26 @@ LEGACY_PANEL_PREV="$PLUGINS_DIR/.$LEGACY_PLUGIN_ID.prev"
 HYPR_DIR="$CONFIG_HOME/hypr"
 HYPR_FILE="$HYPR_DIR/$APP.lua"
 HYPR_LINE='require("hypr.backstory")'
+# The sha256 of every ops/hyprland/backstory.lua this repo has shipped
+# (`git log --follow` of it; ops/install_test.go fails when one is missing). An
+# installed file matching one of them is replaced on upgrade; any other content
+# is the user's edit, so it stays and the new file goes beside it as .new.
+HYPR_SHIPPED_SHA256='
+dc2c27c0fef47cd723c7ce3c14e8f6de3ae45aa1b9ef6265df4318b92f7a935f
+c18a424c3a9d5d82116647cf7134d16a453b5b322e2e664b64d81545ed63297d
+72483a10d2d15552a7cfa82d87094311df66ebcbc033c066fe09f5277e860249
+3854171377b8d31712480f7ead28c5c2a806811c3d264a593c42a7a5e387b78a
+94a41499a139a18ed748445dd9e3a9ccda7518ffb2e30f5a3413c3994bbe2a6e
+e1acf017d36dce98ffde939ca2abf1ebb95a4ebee6ed288838a3141ce707d3d1
+fe1d06e38134640589b617dfbe9eac207199ce3f9e1347a150b7198cd467aae2
+5eec66aebf0b53abe32cd61b8f3823ad155c30415a2c7e7c36b6caf2f6652dbe
+035dee62c18111932382ef23669622dad3ed82cfc6f4e2ed389f8e636d372939
+6c6b056a171c47f3ad9ecbfdf42b0232375afc1ec81d639d03e0209589516aa8
+a11156f6d3fd45fa6cb3d56747c17623ac72fcacf7c0f102ea02c35112e55ed5
+55328de35fea87a762cca4d480320e2fd660316ff2cb6a62a84329ea5a61dfb9
+9af66f60cf4d89f55fceabd25a33a1bc6a11f76a4f31f6f6a6baa23a65951b7f
+17d4992a059b0576b04464cea123b5346f1ea993ec8ee96f0058f460b6ddb83a
+'
 # The session-locked probe: Omarchy's own omarchy-hyprland-session-locked when
 # it is on PATH (4.x locks inside the shell, with no hyprlock process); older
 # Omarchy locks with hyprlock, which is looked for by process name.
@@ -214,6 +234,47 @@ wait_for_daemon() {
 	return 1
 }
 
+# install_hypr_file: install ops/hyprland/backstory.lua as HYPR_FILE, unless
+# the installed file is the user's (a symlink, or content no release shipped):
+# that one is kept and the new file is written beside it as HYPR_FILE.new.
+install_hypr_file() {
+	new="$SRC/ops/hyprland/backstory.lua"
+	if [ -e "$HYPR_FILE" ] && ! cmp -s "$new" "$HYPR_FILE" && ! hypr_file_shipped; then
+		install -m644 "$new" "$HYPR_FILE.new"
+		echo "kept your edited $HYPR_FILE; this version's file is $HYPR_FILE.new (merge it into yours, or replace yours with it)"
+		return 0
+	fi
+	install -Dm644 "$new" "$HYPR_FILE"
+	rm -f "$HYPR_FILE.new"
+	echo "installed $HYPR_FILE"
+}
+
+# hypr_file_shipped: HYPR_FILE is a regular file byte-identical to a version
+# in HYPR_SHIPPED_SHA256. Without sha256sum nothing counts as shipped.
+hypr_file_shipped() {
+	[ -f "$HYPR_FILE" ] && [ ! -L "$HYPR_FILE" ] && command -v sha256sum >/dev/null 2>&1 || return 1
+	sum="$(sha256sum <"$HYPR_FILE" | cut -d' ' -f1)"
+	[ -n "$sum" ] && printf '%s\n' "$HYPR_SHIPPED_SHA256" | grep -qx "$sum"
+}
+
+# is_git_checkout DIR: DIR is a git checkout, as `omarchy plugin add` installs a
+# marketplace plugin. `omarchy plugin` owns it: make install never moves,
+# replaces or deletes one.
+is_git_checkout() {
+	[ -e "$1/.git" ]
+}
+
+# remove_panel_backup DIR: delete a hidden panel backup, unless it is a git
+# checkout (an older make install moved an `omarchy plugin` install there),
+# which is left and named. Returns non-zero when it is left.
+remove_panel_backup() {
+	if is_git_checkout "$1"; then
+		echo "backstory: leaving $1 — it is a git checkout (an \`omarchy plugin\` install set aside by an older make install); move it back or delete it yourself" >&2
+		return 1
+	fi
+	rm -rf "$1"
+}
+
 # is_backstory_panel DIR [ID]: DIR holds a Backstory panel manifest with that id.
 is_backstory_panel() {
 	[ -f "$1/manifest.json" ] && grep -q "\"id\": *\"${2:-$PLUGIN_ID}\"" "$1/manifest.json"
@@ -244,11 +305,11 @@ remove_legacy_panel() {
 		plugin_toggle disable "$LEGACY_PLUGIN_ID"
 		rm -rf "$LEGACY_PANEL"
 		echo "removed the old panel $LEGACY_PANEL (now $PLUGIN_ID)"
-		rm -rf "$LEGACY_PANEL_PREV"
+		remove_panel_backup "$LEGACY_PANEL_PREV" || :
 	elif [ -e "$LEGACY_PANEL" ] || [ -L "$LEGACY_PANEL" ]; then
 		echo "backstory: leaving $LEGACY_PANEL — it is not a Backstory panel" >&2
 	elif [ -e "$LEGACY_PANEL_PREV" ]; then
-		rm -rf "$LEGACY_PANEL_PREV"
+		remove_panel_backup "$LEGACY_PANEL_PREV" || :
 	fi
 }
 
@@ -305,6 +366,56 @@ verify_panel_enabled() {
 	fi
 }
 
+# install_panel SECTION: copy the panel's runtime files into a plain (make
+# installed) panel dir, the previous one backed up, and restart the shell. Only
+# a first install (no panel dir before) enables the plugin; an upgrade keeps
+# the user's choice: a panel enabled before is checked to still be enabled
+# after the restart, any other is left as it was.
+install_panel() {
+	enable=first
+	if [ -d "$PANEL" ]; then
+		enable=
+		if command -v "$OMARCHY_CLI" >/dev/null 2>&1 && panel_enabled; then
+			enable=kept
+		fi
+		if remove_panel_backup "$PANEL_PREV"; then
+			mv "$PANEL" "$PANEL_PREV"
+			echo "previous panel backed up to $PANEL_PREV"
+		else
+			rm -rf "$PANEL"
+			echo "previous panel replaced without a backup"
+		fi
+	fi
+	# Runtime files only: the manifest, the QML types and their JS. The
+	# panel's Go tests, testdata and qmltest/ stay in the source tree.
+	mkdir -p "$PANEL"
+	cp -a "$SRC/panel/manifest.json" "$SRC"/panel/*.qml "$SRC/panel/js" "$PANEL/"
+	echo "installed $PANEL"
+	if [ "$enable" = first ]; then
+		plugin_toggle enable "$PLUGIN_ID" "$1"
+	fi
+
+	# New QML types need a shell restart, which must never happen over a
+	# locked session (it would kill the lock screen) and is never fatal.
+	if session_locked "$LOCK_PROC"; then
+		if defer_shell_restart; then
+			echo "session is locked: the panel loads when you unlock (or run \`omarchy restart shell\`)"
+		else
+			echo "session is locked: run \`omarchy restart shell\` to load the new panel"
+		fi
+	elif echo "restarting the Omarchy shell..." && omarchy-restart-shell; then
+		echo "restarted the Omarchy shell"
+	else
+		echo "backstory: the shell restart did not complete; run \`omarchy restart shell\` to load the new panel"
+	fi
+
+	if [ -n "$enable" ]; then
+		verify_panel_enabled "$1"
+	else
+		echo "the panel $PLUGIN_ID was not enabled; left as it was (\`$OMARCHY_CLI plugin enable $PLUGIN_ID\` turns it on)"
+	fi
+}
+
 do_install() {
 	built="$1"
 	[ -x "$built" ] || { echo "backstory: built binary $built not found" >&2; exit 1; }
@@ -334,8 +445,7 @@ do_install() {
 	fi
 
 	# Hyprland: the file only; the user's hyprland.lua is theirs.
-	install -Dm644 "$SRC/ops/hyprland/backstory.lua" "$HYPR_FILE"
-	echo "installed $HYPR_FILE"
+	install_hypr_file
 	if hyprland_loads_backstory; then
 		echo "keybind already loaded from hyprland.lua"
 		reload_hyprland
@@ -348,34 +458,12 @@ do_install() {
 	mkdir -p "$PLUGINS_DIR"
 	legacy_section="$(legacy_bar_section)"
 	remove_legacy_panel
-	if [ -d "$PANEL" ]; then
-		rm -rf "$PANEL_PREV"
-		mv "$PANEL" "$PANEL_PREV"
-		echo "previous panel backed up to $PANEL_PREV"
-	fi
-	# Runtime files only: the manifest, the QML types and their JS. The
-	# panel's Go tests, testdata and qmltest/ stay in the source tree.
-	mkdir -p "$PANEL"
-	cp -a "$SRC/panel/manifest.json" "$SRC"/panel/*.qml "$SRC/panel/js" "$PANEL/"
-	echo "installed $PANEL"
-	plugin_toggle enable "$PLUGIN_ID" "$legacy_section"
-
-	# New QML types need a shell restart, which must never happen over a
-	# locked session (it would kill the lock screen) and is never fatal.
-	if session_locked "$LOCK_PROC"; then
-		if defer_shell_restart; then
-			echo "session is locked: the panel loads when you unlock (or run \`omarchy restart shell\`)"
-		else
-			echo "session is locked: run \`omarchy restart shell\` to load the new panel"
-		fi
-	elif echo "restarting the Omarchy shell..." && omarchy-restart-shell; then
-		echo "restarted the Omarchy shell"
-	else
-		echo "backstory: the shell restart did not complete; run \`omarchy restart shell\` to load the new panel"
-	fi
-
 	PANEL_NOT_ENABLED=
-	verify_panel_enabled "$legacy_section"
+	if is_git_checkout "$PANEL"; then
+		echo "left $PANEL alone: \`omarchy plugin\` manages it (update it with \`$OMARCHY_CLI plugin update $PLUGIN_ID\`)"
+	else
+		install_panel "$legacy_section"
+	fi
 
 	# The hook verification below needs a live daemon: wait for it first.
 	echo "waiting for the daemon to answer..."
@@ -423,17 +511,19 @@ do_uninstall() {
 		systemctl --user stop "$APP" || true
 		systemctl --user disable "$APP" || true
 	fi
-	rm -f "$UNIT" "$BIN" "$BIN.prev" "$HYPR_FILE"
+	rm -f "$UNIT" "$BIN" "$BIN.prev" "$HYPR_FILE" "$HYPR_FILE.new"
 	systemctl --user daemon-reload || true
 	if [ -e "$PANEL" ] || [ -L "$PANEL" ]; then
 		if [ -L "$PANEL" ] || ! is_backstory_panel "$PANEL"; then
 			echo "backstory: leaving $PANEL — it is not a Backstory panel" >&2
+		elif is_git_checkout "$PANEL"; then
+			echo "left $PANEL: \`omarchy plugin\` manages it; remove it with \`$OMARCHY_CLI plugin remove $PLUGIN_ID\`"
 		else
 			plugin_toggle disable
 			rm -rf "$PANEL"
 		fi
 	fi
-	rm -rf "$PANEL_PREV"
+	remove_panel_backup "$PANEL_PREV" || :
 	remove_legacy_panel
 	echo "uninstalled. Your memory store was not touched."
 	echo "Harness integrations and the ~/.bashrc block were removed first. Remove $HYPR_LINE from your hyprland.lua."
