@@ -88,23 +88,27 @@ minute or two, mostly the Go build and its module downloads; an upgrade is faste
 
 - builds the program and puts it at `~/.local/bin/backstory`
 - installs and starts the background service (`systemd --user` unit `backstory`)
-- installs the panel into `~/.config/omarchy/plugins/ridgetopai.backstory` and turns it on with
-  `omarchy plugin enable ridgetopai.backstory` (if the `omarchy` command isn't found, it prints
-  that command for you to run). It restarts the Omarchy shell if your session is unlocked; if
+- installs the panel into `~/.config/omarchy/plugins/ridgetopai.backstory` and, on a first
+  install only, turns it on with `omarchy plugin enable ridgetopai.backstory` (if the `omarchy`
+  command isn't found, it prints that command for you to run); an upgrade keeps a panel you
+  turned off turned off. If that folder is a git checkout from `omarchy plugin add`, it is left
+  alone: update it with `omarchy plugin update ridgetopai.backstory`. It restarts the Omarchy shell if your session is unlocked; if
   it's locked, it restarts the shell once you unlock (and tells you the manual
   `omarchy restart shell` fallback)
-- installs the keyboard-shortcut file `~/.config/hypr/backstory.lua`
+- installs the keyboard-shortcut file `~/.config/hypr/backstory.lua`; if you edited yours, it is
+  kept and the new one is written beside it as `backstory.lua.new`
 - runs `backstory install`, which connects every agent it finds, then checks the service
   answers (or prints a failure line naming the daemon and exits non-zero)
 
 It refuses to overwrite a plugin folder that isn't a Backstory panel. `make uninstall`
-reverses it all and leaves your memory alone.
+reverses it all and leaves your memory alone (and a panel from `omarchy plugin add`, which
+`omarchy plugin remove ridgetopai.backstory` removes).
 
 **The panel shortcut.** `CTRL + SHIFT + B` is set in `~/.config/hypr/backstory.lua`; you can
 also open the panel from its bar icon (see `panel/README.md`). It shadows Chromium's
 bookmarks-bar shortcut while loaded. To change it, edit `BACKSTORY_BIND` in that file and
-reload Hyprland. `make install` overwrites the file on upgrade, so if you want a different
-chord to survive, bind it in your own `hyprland.lua` instead.
+reload Hyprland. `make install` keeps an edited file on upgrade and writes the new version
+beside it as `backstory.lua.new` for you to compare.
 
 **Optional:** `backstory install bash` also records the commands you type in bash (it adds a
 few lines to `~/.bashrc`).
@@ -160,7 +164,8 @@ backstory version
 ```
 
 `make install` keeps the previous program as `~/.local/bin/backstory.prev`, restarts the
-background service, and backs up the previous panel beside itself. `backstory version` should
+background service, and backs up the previous panel beside itself (a panel from
+`omarchy plugin add` is left for `omarchy plugin update`). `backstory version` should
 print the new tag (or, on main, the new commit).
 
 If you checked out a tag, git leaves you on that tag rather than on a branch, so a later
