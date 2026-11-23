@@ -1,0 +1,9 @@
+would purge 1 sessions, 1 events, 0 records
+would also delete 5 backups Backstory made (they still hold the text):
+  $XDG_DATA_HOME/backstory/backstory.db.pre-rehome-20260303T090000.123456789Z  <date>  <size> bytes
+  $XDG_DATA_HOME/backstory/backstory.db.pre-restore-20260303T090000Z  <date>  <size> bytes
+  $XDG_DATA_HOME/backstory/backups/backstory-20260302T090000Z.db  <date>  <size> bytes
+  $XDG_DATA_HOME/backstory/backups/backstory-auto-20260301T080000Z.db  <date>  <size> bytes
+  $XDG_DATA_HOME/backstory/backups/backstory-auto-20260302T080000Z.db  <date>  <size> bytes
+backups written elsewhere with --out are not touched and still hold the text, so delete them yourself.
+will also be forgotten on laptop at next sync

@@ -346,7 +346,8 @@ Four things only the human can do, through the panel or CLI, never through a too
   `ts` in the window is tombstoned and text-scrubbed (the human Delete's own path, same
   transaction), and a counts-only `purge_log` row (sessions, events, records) is written. A
   `--session` purge forgets no records. Refuses without `--yes` on a non-TTY. No tool or socket
-  call can purge. Forgetting reaches paired machines at the next sync: a delete or purge
+  call can purge. `--dry-run` (and the interactive prompt) also lists the Backstory backups the
+  purge deletes and the paired devices it reaches. Forgetting reaches paired machines at the next sync: a delete or purge
   tombstones the records (imported ones too) and stamps the sessions on every peer, and a
   tombstoned record is never restored by a sync.
 - **Memory and Forget act on the row** — `backstory records --location DIR` and `purge --location

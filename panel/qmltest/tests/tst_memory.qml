@@ -5,6 +5,7 @@ import Quickshell.Io
 import "testutil.js" as TestUtil
 import "../../js/launchers.js" as Launchers
 import "../../js/memory.js" as MemoryJs
+import "../../js/derive.js" as Derive
 import "../../js/glyphs.js" as Glyphs
 
 // The Memory view suite (task 04d28c19, decision 02c511b3 D5): drives the
@@ -346,12 +347,13 @@ TestCase {
       compare(argv[4], "--location")
       compare(argv[5], cwd)
       compare(argv.indexOf("--yes"), -1)
+      compare(argv[argv.indexOf("--until") + 1], "2026-03-10T15:30:45.000Z")
       if (scopes[i] === "Everything here") compare(argv.indexOf("--since"), -1)
       else if (scopes[i] === "Last hour") compare(argv[argv.indexOf("--since") + 1], "2026-03-10T14:30:45Z")
       else verify(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(argv[argv.indexOf("--since") + 1]), JSON.stringify(argv))
 
       // No canned stdout was registered (unparseable); register it and redo.
-      ProcessController.respond(argv, { stdout: "would purge 3 sessions, 42 events, 5 records\n", stderr: "", exitCode: 0 })
+      ProcessController.respond(argv, { stdout: "would purge 3 sessions, 42 events, 5 records\nno backups made by Backstory hold this text\n", stderr: "", exitCode: 0 })
       clickByLabel(scopes[i])
       expectText("Forget 3 sessions (42 events) and 5 saved records from acme? This cannot be undone.")
       var yesArgv = argv.slice(0, argv.length - 1).concat(["--yes"])
@@ -368,13 +370,61 @@ TestCase {
     pinClock()
     clickByLabel("Everything here")
     var argv = act.launchedCount(isPurgeRun, 1, "first dry-run")[0].command
-    ProcessController.respond(argv, { stdout: "would purge 1 sessions, 5 events, 0 records\n", stderr: "", exitCode: 0 })
+    ProcessController.respond(argv, { stdout: "would purge 1 sessions, 5 events, 0 records\nno backups made by Backstory hold this text\n", stderr: "", exitCode: 0 })
     clickByLabel("Everything here")
     expectText("Forget 1 sessions (5 events) and 0 saved records from acme? This cannot be undone.")
     clickByLabel("Cancel")
     act.settled(function () { return texts().indexOf("Forget 1 sessions (5 events) and 0 saved records from acme? This cannot be undone.") === -1 }, "confirm never closed after Cancel")
     var yes = purgeRuns().filter(function (r) { return r.command.indexOf("--yes") !== -1 })
     compare(yes.length, 0)
+  }
+
+  // A preview for one folder never confirms, or forgets, another: press
+  // Everything here on acme, go back and open acme-2 (same project key)
+  // before the dry run ends. Its end shows nothing and no --yes runs.
+  function test_preview_for_one_folder_never_confirms_another() {
+    openMemory(readFixture(recordsGolden))
+    pinClock()
+    var until = MemoryJs.purgeUntil(Date.parse("2026-03-10T15:30:45Z"))
+    var dryA = Launchers.purgeCommand(projectKey, cwd, "", until, true)
+    ProcessController.respond(dryA, { held: true, stdout: "would purge 3 sessions, 42 events, 5 records\nno backups made by Backstory hold this text\n", stderr: "", exitCode: 0 })
+    clickByLabel("Everything here")
+    act.launchedCount(isPurgeRun, 1, "acme's dry run")
+    panel.testKeyItem.forceActiveFocus()
+    act.pressKey(Qt.Key_U)
+    act.settledEq(panel.view, "memoryOpen", false)
+    ProcessController.respond(Launchers.recordsCommand(projectKey, "/home/x/acme-2", false), { stdout: readFixture(recordsGolden), stderr: "", exitCode: 0 })
+    panel.view.openMemory(projectKey, "acme-2", "/home/x/acme-2")
+    act.settled(function () { return TestUtil.slideDone(panel.testContentItem, "memoryPage") }, "acme-2's Memory never opened")
+    ProcessController.release(dryA)
+    act.drain()
+    verify(texts().join("|").indexOf("This cannot be undone") === -1, "a confirm showed for another folder's dry run: " + JSON.stringify(texts()))
+    verify(panel.view.memoryView.pendingPurge === null, "a purge is pending for another folder")
+    compare(purgeRuns().filter(function (r) { return r.command.indexOf("--yes") !== -1 }).length, 0)
+    // acme-2's own Forget options work again.
+    var dryB = Launchers.purgeCommand(projectKey, "/home/x/acme-2", "", until, true)
+    ProcessController.respond(dryB, { stdout: "would purge 1 sessions, 2 events, 0 records\nno backups made by Backstory hold this text\n", stderr: "", exitCode: 0 })
+    clickByLabel("Everything here")
+    expectText("Forget 1 sessions (2 events) and 0 saved records from acme-2? This cannot be undone.")
+  }
+
+  // While a purge or delete is running, the confirm's Forget does nothing.
+  function test_confirm_forget_is_disabled_while_busy() {
+    var golden = JSON.parse(readFixture(recordsGolden))
+    openMemory(JSON.stringify(golden))
+    pinClock()
+    var dry = Launchers.purgeCommand(projectKey, cwd, "", MemoryJs.purgeUntil(Date.parse("2026-03-10T15:30:45Z")), true)
+    ProcessController.respond(dry, { stdout: "would purge 1 sessions, 5 events, 0 records\nno backups made by Backstory hold this text\n", stderr: "", exitCode: 0 })
+    clickByLabel("Everything here")
+    expectText("Forget 1 sessions (5 events) and 0 saved records from acme? This cannot be undone.")
+    var id = golden.records[0].id
+    ProcessController.respond(Launchers.deleteCommand(id), { held: true, stdout: "", stderr: "", exitCode: 0 })
+    panel.view.memoryView.deleteRecord(id)
+    var button = TestUtil.findFirst(panel.testContentItem, function (n) { return n.objectName === "forgetConfirmButton" })
+    act.settled(function () { return button.visible && !button.enabled }, "the confirm's Forget stayed enabled while a delete ran")
+    panel.view.memoryView.confirmPurge()
+    compare(purgeRuns().filter(function (r) { return r.command.indexOf("--yes") !== -1 }).length, 0, "--yes ran while busy")
+    ProcessController.release(Launchers.deleteCommand(id))
   }
 
   function test_kind_word_on_each_row() {
@@ -606,6 +656,36 @@ TestCase {
     var lit = ids.filter(function (id) { return recordItem(id).current })
     compare(JSON.stringify(lit), JSON.stringify([ids[0]]))
     act.moveAway(panel.testContentItem)
+  }
+
+  // A non-git folder with no row of its own shares a workspace key with a
+  // sibling that has one: the HERE card is that folder's empty card, and
+  // its Memory and Continue never act on the sibling.
+  function test_here_card_for_a_folder_with_no_row_never_acts_on_a_sibling() {
+    var newCwd = "/home/x/projects/new", oldCwd = "/home/x/projects/old"
+    var payload = {
+      here: { project_key: wsKey, display_name: "projects/new", cwd: newCwd, source: "focused" },
+      attention: [], week: [],
+      where_left_off: [{ project: { project_key: wsKey, display_name: "projects/old", cwd: oldCwd, last_activity: "2026-01-01T00:00:00Z",
+        handoff_id: "h-old", handoff_next: "old work", window: "0xabc", tmux: "" } }]
+    }
+    var here = Derive.hereSummary(payload)
+    compare(here.cwd, newCwd)
+    verify(!here.handoff_id, "the HERE summary borrowed the sibling's handoff")
+    ProcessController.respond(Launchers.thisWeekCommand(), { stdout: JSON.stringify(payload), stderr: "", exitCode: 0 })
+    ProcessController.respond(Launchers.recordsCommand(wsKey, newCwd, false), { stdout: readFixture(recordsGolden), stderr: "", exitCode: 0 })
+    openPanelMain()
+    var memory = function () { return TestUtil.findFirst(panel.testContentItem, function (n) { return n.objectName === "hereMemory" }) }
+    act.clickWhenReady(memory, { desc: "the HERE card's Memory", until: function () { return panel.view.memoryOpen } })
+    act.launchedNext(isRecordsRun2(wsKey, newCwd), "the new folder's records run")
+    compare(ProcessController.runs.filter(isRecordsRun2(wsKey, oldCwd)).length, 0, "Memory opened the sibling's records")
+    panel.testKeyItem.forceActiveFocus()
+    act.pressKey(Qt.Key_U)
+    act.settledEq(panel.view, "memoryOpen", false)
+    act.clickWhenReady(function () { return TestUtil.findFirst(panel.testContentItem, function (n) { return n.objectName === "hereContinue" }) },
+      { desc: "the HERE card's Continue", until: function () { return ProcessController.runs.length > 0 && ProcessController.lastRun().command[0] !== "backstory" } })
+    var focused = ProcessController.runs.filter(function (r) { return JSON.stringify(r.command).indexOf("0xabc") !== -1 })
+    compare(focused.length, 0, "Continue focused the sibling's window: " + JSON.stringify(focused))
   }
 
   // ---- Memory slides in once its records are here ----
@@ -919,8 +999,8 @@ TestCase {
     openLabelRowMemory(readFixture(recordsGolden))
     var hourSince = MemoryJs.FORGET_SCOPES[0].since(pinnedNow)
     var todaySince = MemoryJs.FORGET_SCOPES[1].since(pinnedNow)
-    ProcessController.respond(Launchers.purgeCommand(wsKey, labelCwd, hourSince, true), { stdout: "would purge 0 sessions, 0 events, 0 records\n", stderr: "", exitCode: 0 })
-    ProcessController.respond(Launchers.purgeCommand(wsKey, labelCwd, todaySince, true), { stdout: "would purge 1 sessions, 27 events, 2 records\n", stderr: "", exitCode: 0 })
+    ProcessController.respond(Launchers.purgeCommand(wsKey, labelCwd, hourSince, MemoryJs.purgeUntil(pinnedNow), true), { stdout: "would purge 0 sessions, 0 events, 0 records\nno backups made by Backstory hold this text\n", stderr: "", exitCode: 0 })
+    ProcessController.respond(Launchers.purgeCommand(wsKey, labelCwd, todaySince, MemoryJs.purgeUntil(pinnedNow), true), { stdout: "would purge 1 sessions, 27 events, 2 records\nno backups made by Backstory hold this text\n", stderr: "", exitCode: 0 })
 
     clickByLabel("Last hour")
     expectText("Nothing to forget for last hour.")
@@ -930,7 +1010,7 @@ TestCase {
     var want = "Forget 1 sessions (27 events) and 2 saved records from projects/backstory-feedback? This cannot be undone."
     expectText(want)
     act.settled(function () { return texts().indexOf("Nothing to forget for last hour.") === -1 }, "stale note left behind")
-    var yesArgv = Launchers.purgeCommand(wsKey, labelCwd, todaySince, false)
+    var yesArgv = Launchers.purgeCommand(wsKey, labelCwd, todaySince, MemoryJs.purgeUntil(pinnedNow), false)
     compare(runsMatching(yesArgv).length, 0, "--yes ran before confirm")
     clickByLabel("Forget")
     act.launchedCount(function (r) { return ProcessController.keyFor(r.command) === ProcessController.keyFor(yesArgv) }, 1, "--yes run")
@@ -940,7 +1020,7 @@ TestCase {
   function test_records_only_window_is_not_nothing_to_forget() {
     openLabelRowMemory(readFixture(recordsGolden))
     var since = MemoryJs.FORGET_SCOPES[0].since(pinnedNow)
-    ProcessController.respond(Launchers.purgeCommand(wsKey, labelCwd, since, true), { stdout: "would purge 0 sessions, 0 events, 2 records\n", stderr: "", exitCode: 0 })
+    ProcessController.respond(Launchers.purgeCommand(wsKey, labelCwd, since, MemoryJs.purgeUntil(pinnedNow), true), { stdout: "would purge 0 sessions, 0 events, 2 records\nno backups made by Backstory hold this text\n", stderr: "", exitCode: 0 })
     clickByLabel("Last hour")
     expectText("Forget 0 sessions (0 events) and 2 saved records from projects/backstory-feedback? This cannot be undone.")
   }
@@ -1028,7 +1108,7 @@ TestCase {
   function test_forget_confirm_is_scrolled_into_view() {
     openLabelRowMemory(longPayload())
     var since = MemoryJs.FORGET_SCOPES[0].since(pinnedNow)
-    ProcessController.respond(Launchers.purgeCommand(wsKey, labelCwd, since, true), { stdout: "would purge 1 sessions, 27 events, 2 records\n", stderr: "", exitCode: 0 })
+    ProcessController.respond(Launchers.purgeCommand(wsKey, labelCwd, since, MemoryJs.purgeUntil(pinnedNow), true), { stdout: "would purge 1 sessions, 27 events, 2 records\nno backups made by Backstory hold this text\n", stderr: "", exitCode: 0 })
     clickForgetOptionScrolledToTop("Last hour")
     tryVerify(function () { return findTextStarting("Forget 1 sessions") !== null }, 2000)
     var confirmText = findTextStarting("Forget 1 sessions")
@@ -1046,7 +1126,7 @@ TestCase {
   function test_nothing_to_forget_note_is_scrolled_into_view() {
     openLabelRowMemory(longPayload())
     var since = MemoryJs.FORGET_SCOPES[0].since(pinnedNow)
-    ProcessController.respond(Launchers.purgeCommand(wsKey, labelCwd, since, true), { stdout: "would purge 0 sessions, 0 events, 0 records\n", stderr: "", exitCode: 0 })
+    ProcessController.respond(Launchers.purgeCommand(wsKey, labelCwd, since, MemoryJs.purgeUntil(pinnedNow), true), { stdout: "would purge 0 sessions, 0 events, 0 records\nno backups made by Backstory hold this text\n", stderr: "", exitCode: 0 })
     clickForgetOptionScrolledToTop("Last hour")
     tryVerify(function () { return findTextStarting("Nothing to forget") !== null }, 2000)
     var note = findTextStarting("Nothing to forget")
@@ -1060,7 +1140,7 @@ TestCase {
   function test_purge_error_is_scrolled_into_view() {
     openLabelRowMemory(longPayload())
     var since = MemoryJs.FORGET_SCOPES[0].since(pinnedNow)
-    ProcessController.respond(Launchers.purgeCommand(wsKey, labelCwd, since, true), { stdout: "", stderr: "store is locked", exitCode: 1 })
+    ProcessController.respond(Launchers.purgeCommand(wsKey, labelCwd, since, MemoryJs.purgeUntil(pinnedNow), true), { stdout: "", stderr: "store is locked", exitCode: 1 })
     // The error renders at the TOP of the view while the Forget options sit
     // at the bottom: scrolled to the bottom (where the click happens on the
     // desk) the error is out of sight until the view scrolls up to it.

@@ -505,17 +505,39 @@ TestCase {
       d.where_left_off[0].project.last_activity = minutesAgo(5)
       d.where_left_off[0].project.window = "0x55aa"
       d.where_left_off[0].project.tmux = "Work:1.2"
+      d.where_left_off[0].project.tmux_socket = "/tmp/tmux-1000/shoot"
     }))
     clickText("Switch")
     act.launchedCount(isHyprRun, 1, "Switch focus")
-    act.launchedCount(isRun(["tmux", "select-window"]), 1, "tmux select-window")
-    act.launchedCount(isRun(["tmux", "select-pane"]), 1, "tmux select-pane")
+    act.launchedCount(isRun(["tmux", "-S"]), 2, "tmux select-window and select-pane")
     act.drain()
     compare(hyprRuns().length, 1)
-    compare(runs(["tmux", "select-window"]).length, 1)
-    compare(runs(["tmux", "select-pane"]).length, 1)
+    // On the target's own server, after the focus, window then pane.
+    var all = ProcessController.runs.map(function (r) { return JSON.stringify(r.command) })
+    var win = all.indexOf(JSON.stringify(["tmux", "-S", "/tmp/tmux-1000/shoot", "select-window", "-t", "Work:1"]))
+    var pane = all.indexOf(JSON.stringify(["tmux", "-S", "/tmp/tmux-1000/shoot", "select-pane", "-t", "Work:1.2"]))
+    var focus = all.indexOf(JSON.stringify(hyprRuns()[0].command))
+    verify(focus >= 0 && win > focus && pane > win, "focus, select-window, select-pane out of order: " + JSON.stringify(all))
+    compare(runs(["tmux", "select-window"]).length, 0, "a tmux select ran on the default server")
     compare(agentRuns().length, 0)
     compare(runs(["xdg-terminal-exec", "--"]).length, 0)
+  }
+
+  // The window focus and its fallback both fail: no tmux select runs, so a
+  // pane is never switched behind a window that did not come up.
+  function test_switch_runs_no_tmux_select_when_the_focus_failed() {
+    open(payload(function (d) {
+      d.where_left_off[0].project.last_activity = minutesAgo(5)
+      d.where_left_off[0].project.window = "0x55aa"
+      d.where_left_off[0].project.tmux = "Work:1.2"
+      d.where_left_off[0].project.tmux_socket = "/tmp/tmux-1000/shoot"
+    }))
+    ProcessController.respond(Launchers.focusWindowCommand("0x55aa"), { stdout: "", stderr: "", exitCode: 1 })
+    ProcessController.respond(Launchers.focusWindowFallbackCommand("0x55aa"), { stdout: "", stderr: "", exitCode: 1 })
+    clickText("Switch")
+    act.launchedCount(isHyprRun, 2, "focus and its fallback")
+    act.drain()
+    compare(runs(["tmux", "-S"]).length, 0, "tmux select ran after the focus failed")
   }
 
   // ---- (5) keyboard ----
@@ -987,6 +1009,55 @@ TestCase {
     act.launchedNext(function (r) { return JSON.stringify(r.command) === doneJson }, "done")
     compare(JSON.stringify(Launchers.doneCommand("h-vid")), JSON.stringify(["backstory", "done", "h-vid"]))
     compare(ProcessController.runs.filter(function (r) { return r.command[1] === "affirm" }).length, 0, "Done must not affirm")
+  }
+
+  // Done that fails keeps the row and shows the CLI's message on it; while
+  // a Still right or Done is running both are off, and a click does nothing.
+  function test_failed_done_shows_its_error_and_busy_actions_are_off() {
+    openStale(staleWith(false, false))
+    ProcessController.respond(Launchers.doneCommand("h-vid"), { stdout: "", stderr: "backstory done: store is locked", exitCode: 1 })
+    act.clickWhenReady(function () { return named("attentionDone") }, { desc: "Done" })
+    act.settled(function () { return named("attentionError") !== null && named("attentionError").text === "backstory done: store is locked" },
+      "the failed Done showed no error")
+    verify(named("attentionRow") !== null, "the row went away after a failed Done")
+
+    ProcessController.respond(Launchers.affirmCommand("h-vid"), { held: true, stdout: "", stderr: "", exitCode: 0 })
+    act.clickWhenReady(function () { return named("attentionDismiss") }, { desc: "Still right" })
+    act.settled(function () { return !named("attentionDone").enabled && !named("attentionDismiss").enabled }, "the actions stayed on while affirm ran")
+    verify(named("attentionUpdate").enabled, "Update is not a run and stays on")
+    verify(named("attentionError") === null, "the old error stayed while a new run went")
+    var section = TestUtil.findFirst(panel.testContentItem, function (n) { return typeof n.markDone === "function" })
+    section.markDone("h-vid")
+    compare(ProcessController.runs.filter(function (r) { return r.command[1] === "done" }).length, 1, "a second run started while busy")
+    ProcessController.release(Launchers.affirmCommand("h-vid"))
+    act.settled(function () { return named("attentionDone") === null || named("attentionDone").enabled }, "the actions never came back on")
+  }
+
+  // The handoff id is copied only when the agent launch failed to start, not
+  // when an agent that started later exits non-zero.
+  function test_handoff_id_is_copied_only_when_the_agent_failed_to_start() {
+    var comp = Qt.createComponent(Qt.resolvedUrl("../../ContinueAction.qml"))
+    compare(comp.status, Component.Ready, comp.errorString())
+    var summary = { project_key: "k", display_name: "k", cwd: "/home/x/k", handoff_id: "h-copy", handoff_next: "n",
+      agents: [{ agent: "claude", last_activity: "2026-01-01T00:00:00Z", session_count: 1 }] }
+    function clipboardText(action) {
+      for (var i = 0; i < action.children.length; i++)
+        if (typeof action.children[i].selectAll === "function") return action.children[i].text
+      fail("no clipboard helper")
+    }
+    var launch = function () { return Launchers.agentLaunchCommand("claude", "/home/x/k", Format.handoffPrompt("k", "h-copy", "n")) }
+    var started = comp.createObject(testCase)
+    ProcessController.respond(launch(), { stdout: "", stderr: "", exitCode: 3 })
+    started.continueOn(summary, "claude")
+    act.launchedCount(function (r) { return JSON.stringify(r.command) === JSON.stringify(launch()) }, 1, "agent launch")
+    compare(clipboardText(started), "", "an agent's non-zero exit overwrote the clipboard")
+    started.destroy()
+
+    var notStarted = comp.createObject(testCase)
+    ProcessController.respond(launch(), { startFailure: true })
+    notStarted.continueOn(summary, "claude")
+    compare(clipboardText(notStarted), "h-copy", "a launch that failed to start copied nothing")
+    notStarted.destroy()
   }
 
   function test_still_right_does_not_run_done() {

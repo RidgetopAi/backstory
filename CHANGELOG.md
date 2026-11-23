@@ -15,6 +15,11 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 - `backstory install` and `--remove` keep symlinked config files symlinks (a dotfiles or stow setup): `~/.claude.json`, `~/.claude/settings.json`, `CLAUDE.md`, Codex's `config.toml`/`hooks.json`/`AGENTS.md`, `~/.agents/mcp.json`, `~/.config/AGENTS.md`, Pi's `AGENTS.md` and Hermes' `config.yaml` are written through to the link's target instead of being replaced by a plain file. A file `--remove` would delete is emptied in place when it is a symlink, a symlinked directory is never pruned, and a symlink whose target is missing fails the install with nothing written.
 - `backstory install` no longer overwrites an `mcpServers.backstory` entry in `~/.claude.json` that it did not write, and `--remove` no longer deletes one: the harness is skipped and reported as a foreign-conflict, as Codex and the generic agents harness already were. Backstory's own entry naming an older binary path is still updated.
+- Panel Forget: the confirm and the `--yes` run act on the folder the preview was for. Opening another folder's Memory while a preview runs stops it and drops its result, the confirm's Forget is off while a purge or delete runs, and the `--yes` run is bounded (`--until`) at the moment of the preview, so a session or record that starts after it is kept.
+- Panel Forget: the confirm now says everything Forget does. It names the Backstory backups that get deleted (they hold every project's memory) and the paired devices the forget reaches at the next sync. `purge --dry-run` now prints the paired-device line too.
+- Panel HERE card: in a non-git folder with no row of its own, the card no longer borrows a sibling folder's row that shares its workspace key. Continue, Terminal and Memory now act on that folder.
+- Panel Continue/Switch: `this-week --here auto` emits `tmux_socket`, the socket of the tmux server the pane is on, and the panel runs `tmux -S <socket>` instead of the default server. It does so only after the window focus succeeded.
+- Panel Needs you: a Done or Still right that fails shows the CLI's error on its row, and both buttons are off while one runs. Continue copies the handoff id only when the agent launch could not start, not when a started agent exits non-zero.
 
 ## [1.3.2] - 2026-11-11
 

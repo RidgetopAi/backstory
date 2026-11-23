@@ -506,16 +506,21 @@ const tmuxPaneSep = "\t"
 const tmuxPaneFormat = "#{session_name}\t#{window_index}\t#{pane_index}\t#{window_active}\t#{pane_active}\t#{pane_current_path}"
 
 // windowRef is where a project is open: a Hyprland window address plus, when
-// the project lives in a tmux pane, the tmux target (session:window.pane).
+// the project lives in a tmux pane, the tmux target (session:window.pane) and
+// the socket of the tmux server that target is on.
 type windowRef struct {
-	Address string
-	Tmux    string
+	Address    string
+	Tmux       string
+	TmuxSocket string
 }
 
 // windowFolder is one folder found inside a Hyprland window.
 type windowFolder struct {
 	Dir  string
 	Tmux string // "" unless the folder is a tmux pane
+	// TmuxSocket is the socket path of the server Tmux is on; set exactly
+	// when Tmux is.
+	TmuxSocket string
 	// Active marks the active pane of the active window; it wins a tie
 	// between several panes of one project.
 	Active bool
@@ -527,13 +532,26 @@ type windowFolder struct {
 // own target grammar (tmux itself rewrites '.' and ':' in session names).
 var tmuxTargetRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]*:[0-9]+\.[0-9]+$`)
 
+// tmuxSocketRe is the shape of a tmux server socket path this command emits
+// and the panel accepts (`tmux -S <path>`): absolute, of characters inert in
+// an argv element. A target whose server socket does not match is not
+// emitted, since the panel could not reach that server's pane.
+var tmuxSocketRe = regexp.MustCompile(`^/[A-Za-z0-9._/-]+$`)
+
 // tmuxSessionPanes lists every pane of the session the client on tty is
 // attached to (`list-panes -s`), active pane of the active window first.
+// A pane's target is kept only with the socket of the client's own server
+// (`#{socket_path}`), so the panel selects it on that server and no other.
 func tmuxSessionPanes(tty string, server []string) []windowFolder {
 	out, err := tmuxCommand(server, "display-message", "-c", tty, "-p", "#{session_name}")
 	session := strings.TrimSpace(string(out))
 	if err != nil || session == "" {
 		return nil
+	}
+	out, err = tmuxCommand(server, "display-message", "-c", tty, "-p", "#{socket_path}")
+	socket := strings.TrimSpace(string(out))
+	if err != nil || !tmuxSocketRe.MatchString(socket) {
+		socket = ""
 	}
 	out, err = tmuxCommand(server, "list-panes", "-s", "-t", "="+session, "-F", tmuxPaneFormat)
 	if err != nil {
@@ -546,8 +564,9 @@ func tmuxSessionPanes(tty string, server []string) []windowFolder {
 			continue
 		}
 		wf := windowFolder{Dir: f[5], Active: f[3] == "1" && f[4] == "1"}
-		if target := f[0] + ":" + f[1] + "." + f[2]; tmuxTargetRe.MatchString(target) {
+		if target := f[0] + ":" + f[1] + "." + f[2]; tmuxTargetRe.MatchString(target) && socket != "" {
 			wf.Tmux = target
+			wf.TmuxSocket = socket
 		}
 		panes = append(panes, wf)
 	}
@@ -631,7 +650,7 @@ func (r hereResolver) windowsByProject() map[string]windowRef {
 				continue
 			}
 			best[key] = c.FocusHistoryID
-			out[key] = windowRef{Address: c.Address, Tmux: f.Tmux}
+			out[key] = windowRef{Address: c.Address, Tmux: f.Tmux, TmuxSocket: f.TmuxSocket}
 		}
 	}
 	return out

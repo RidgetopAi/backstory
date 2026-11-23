@@ -95,6 +95,9 @@ function summaryWindow(p) { return p.window }
 // tmux: tmux target session:window.pane of the project's pane inside that
 // window; present exactly when `window` is, "" when none.
 function summaryTmux(p) { return p.tmux }
+// tmux_socket: socket path of the tmux server `tmux` is on; present exactly
+// when `window` is, "" exactly when `tmux` is.
+function summaryTmuxSocket(p) { return p.tmux_socket }
 
 // The week — DayProjectStats (PANEL-CONTRACT.md "The week").
 function dayDay(d) { return d.day }

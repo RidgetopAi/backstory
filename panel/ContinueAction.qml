@@ -7,8 +7,9 @@ import "js/format.js" as Format
 // Continue: the one action behind the panel's primary button, a row's
 // resume button, Enter, and the bar widget's right click. It focuses the
 // project's already-open window when `window` names one (a validated
-// Hyprland address) and, when `tmux` carries a valid target, selects that
-// tmux window and pane; else it launches the row's newest agent (or the
+// Hyprland address) and, once that focus succeeded, when `tmux` carries a
+// valid target on a valid `tmux_socket`, selects that tmux window and pane
+// on that server; else it launches the row's newest agent (or the
 // sub-row's chosen one) from Launchers.LAUNCH_TABLE on the handoff in the
 // project's cwd; an agent outside the table falls back to Omarchy's default
 // agent, and with no default agent it opens the picker instead.
@@ -19,12 +20,15 @@ Item {
   property string defaultAgent: ""
   readonly property string label: Format.continueLabel(root.defaultAgent)
 
-  // Falls back to copying the handoff id when the agent launch fails, so
-  // the user can still paste it (AGENT-CONTRACT.md "Cross-agent handoff").
+  // Falls back to copying the handoff id when the agent launch fails to
+  // start, so the user can still paste it (AGENT-CONTRACT.md "Cross-agent
+  // handoff"). An agent that started and later exits non-zero leaves the
+  // clipboard alone.
   property string pendingHandoffId: ""
   property string pendingWindow: ""
 
-  // tmux select argvs still to run, one at a time, in order.
+  // tmux select argvs still to run, one at a time, in order, after the
+  // window focus succeeded; each runs only once the one before it did.
   property var tmuxQueue: []
 
   function runNextTmux() {
@@ -62,13 +66,13 @@ Item {
     if (!summary) return
     var chosen = agent || ""
     if (chosen === "") {
-      var plan = Launchers.continueFocusPlan(Model.summaryWindow(summary) || "", Model.summaryTmux(summary) || "")
+      var plan = Launchers.continueFocusPlan(Model.summaryWindow(summary) || "", Model.summaryTmux(summary) || "",
+        Model.summaryTmuxSocket(summary) || "")
       if (plan) {
         root.pendingWindow = Model.summaryWindow(summary)
+        root.tmuxQueue = plan.tmuxCommands
         focusProcess.command = Launchers.focusWindowCommand(root.pendingWindow)
         focusProcess.running = true
-        root.tmuxQueue = plan.tmuxCommands
-        root.runNextTmux()
         return
       }
       chosen = root.launchAgent(summary)
@@ -117,14 +121,21 @@ Item {
 
   Process { id: pickProcess }
 
+  // The focus, then (on failure) its fallback; the tmux selects run only
+  // after one of them succeeded, and are dropped when both failed.
   Process {
     id: focusProcess
     onExited: (exitCode, exitStatus) => {
-      if (exitCode !== 0 && root.pendingWindow !== "") {
+      if (exitCode === 0) {
+        root.pendingWindow = ""
+        root.runNextTmux()
+      } else if (root.pendingWindow !== "") {
         var addr = root.pendingWindow
         root.pendingWindow = ""
         focusProcess.command = Launchers.focusWindowFallbackCommand(addr)
         focusProcess.running = true
+      } else {
+        root.tmuxQueue = []
       }
     }
   }
@@ -139,8 +150,18 @@ Item {
 
   Process {
     id: agentProcess
-    onExited: (exitCode, exitStatus) => {
-      if (exitCode !== 0 && root.pendingHandoffId !== "") root.copyToClipboard(root.pendingHandoffId)
+    // Whether `started` fired for the run now ending, and the last running
+    // value handled (as ThisWeekView's dataProcess reads a run's end).
+    property bool startedThisRun: false
+    property var lastRunning: null
+    onStarted: agentProcess.startedThisRun = true
+    onRunningChanged: {
+      if (agentProcess.running === agentProcess.lastRunning) return
+      agentProcess.lastRunning = agentProcess.running
+      if (agentProcess.running) return
+      var failed = Model.runFailedToStart(agentProcess.startedThisRun)
+      agentProcess.startedThisRun = false
+      if (failed && root.pendingHandoffId !== "") root.copyToClipboard(root.pendingHandoffId)
     }
   }
 

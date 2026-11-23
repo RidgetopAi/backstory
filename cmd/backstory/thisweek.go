@@ -156,6 +156,9 @@ type projectSummaryJSON struct {
 	Window *string `json:"window,omitempty"`
 	// Tmux is set (possibly "") exactly when Window is.
 	Tmux *string `json:"tmux,omitempty"`
+	// TmuxSocket is the socket path of the tmux server Tmux is on; set
+	// (possibly "") exactly when Window is, "" exactly when Tmux is.
+	TmuxSocket *string `json:"tmux_socket,omitempty"`
 }
 
 // agentSummaryJSON is one agent's footprint within a row's window.
@@ -209,6 +212,7 @@ func printThisWeekJSON(stdout io.Writer, result week.Result, here *hereJSON, win
 			w := windows[windowMapKey(p.ProjectKey, p.CWD)]
 			s.Window = &w.Address
 			s.Tmux = &w.Tmux
+			s.TmuxSocket = &w.TmuxSocket
 		}
 		return s
 	}

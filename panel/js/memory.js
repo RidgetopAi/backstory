@@ -66,6 +66,12 @@ function rfc3339(date) {
   return date.toISOString().replace(/\.\d+Z$/, "Z")
 }
 
+// purgeUntil is the --until bound a Forget carries: the moment its preview
+// was asked for, to the millisecond (the CLI reads RFC3339 with a fraction).
+function purgeUntil(nowMs) {
+  return new Date(nowMs).toISOString()
+}
+
 // The three "Forget activity" scopes. since() returns the RFC3339 bound
 // (computed here, in JS, from the local clock) or "" for the whole project.
 var FORGET_SCOPES = [
@@ -77,11 +83,25 @@ var FORGET_SCOPES = [
   { id: "all", label: "Everything here", since: function (nowMs) { return "" } }
 ]
 
-// parseDryRun reads `purge --dry-run`'s "would purge N sessions, M events,
-// R records" line; null when stdout is not that shape.
+// parseDryRun reads `purge --dry-run`'s stdout: the "would purge N
+// sessions, M events, R records" line, then (when there is anything to
+// purge) how many backups Backstory made the purge also deletes — they hold
+// the whole store, every project's text — and the paired devices the forget
+// reaches at the next sync (cmd/backstory purge.go; the lines are pinned by
+// cmd/backstory/testdata/purge/dry-run.golden). null when stdout is not that
+// shape: a confirm that cannot say what Forget deletes is not offered.
 function parseDryRun(stdout) {
-  var m = /would purge (\d+) sessions?, (\d+) events?, (\d+) records?/.exec(stdout || "")
-  return m ? { sessions: parseInt(m[1], 10), events: parseInt(m[2], 10), records: parseInt(m[3], 10) } : null
+  var out = stdout || ""
+  var m = /would purge (\d+) sessions?, (\d+) events?, (\d+) records?/.exec(out)
+  if (!m) return null
+  var counts = { sessions: parseInt(m[1], 10), events: parseInt(m[2], 10), records: parseInt(m[3], 10), backups: 0, syncPeers: "" }
+  if (nothingToForget(counts)) return counts
+  var b = /^would also delete (\d+) backups? Backstory made/m.exec(out)
+  if (b) counts.backups = parseInt(b[1], 10)
+  else if (!/^no backups made by Backstory hold this text$/m.test(out)) return null
+  var p = /^will also be forgotten on (.+) at next sync$/m.exec(out)
+  if (p) counts.syncPeers = p[1]
+  return counts
 }
 
 // nothingToForget is true only when the dry run found no sessions, no events
@@ -91,8 +111,48 @@ function nothingToForget(counts) {
   return counts.sessions === 0 && counts.events === 0 && counts.records === 0
 }
 
-// forgetConfirmText is the Forget confirm's sentence.
-function forgetConfirmText(pending, scopeName) {
-  return "Forget " + pending.sessions + " sessions (" + pending.events + " events) and " +
-    pending.records + " saved records from " + scopeName + "? This cannot be undone."
+// forgetConfirmText is the Forget confirm's sentence: everything the --yes
+// run does, as the dry run reported it — the counts, the store-wide backups
+// it deletes, and the paired devices it reaches. The name is the one the
+// dry run was for (pending.displayName), never the view's current one.
+function forgetConfirmText(pending) {
+  var text = "Forget " + pending.sessions + " sessions (" + pending.events + " events) and " +
+    pending.records + " saved records from " + pending.displayName + "?"
+  if (pending.backups > 0) {
+    text += " It also deletes all " + pending.backups + " Backstory backups (each holds every project's memory;" +
+      " a fresh backup is taken after). Backups you saved elsewhere keep this text."
+  }
+  if (pending.syncPeers) text += " It is also forgotten on " + pending.syncPeers + " at the next sync."
+  return text + " This cannot be undone."
+}
+
+// purgeScopeKey names the folder a purge acts on: its project key and its
+// --location. A dry run, its confirm and the --yes run carry the one they
+// started with, and it must still be the view's own.
+function purgeScopeKey(projectKey, location) {
+  return projectKey + "\n" + location
+}
+
+// dryRunOutcome is what a finished dry run (run: { scopeKey, label, since,
+// until, projectKey, location, displayName }, its stdout) shows while the
+// view shows viewScopeKey: { kind: "discard" } when the view now shows
+// another folder (nothing of it is shown), "unexpected" for stdout
+// parseDryRun cannot read, "nothing", or "confirm" with the pending purge.
+function dryRunOutcome(run, stdout, viewScopeKey) {
+  if (!run || run.scopeKey !== viewScopeKey) return { kind: "discard" }
+  var counts = parseDryRun(stdout)
+  if (counts === null) return { kind: "unexpected" }
+  if (nothingToForget(counts)) return { kind: "nothing" }
+  return { kind: "confirm", pending: {
+    scopeKey: run.scopeKey, projectKey: run.projectKey, location: run.location, displayName: run.displayName,
+    label: run.label, since: run.since, until: run.until,
+    sessions: counts.sessions, events: counts.events, records: counts.records,
+    backups: counts.backups, syncPeers: counts.syncPeers
+  } }
+}
+
+// canConfirmPurge: the confirm's Forget runs only for a pending purge of the
+// folder on show, and never while a purge (or a delete) is still running.
+function canConfirmPurge(pending, viewScopeKey, busy) {
+  return !!pending && pending.scopeKey === viewScopeKey && !busy
 }

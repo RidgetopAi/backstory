@@ -26,29 +26,56 @@ Column {
   // folder with this opening prompt.
   signal updateRequested(string projectKey, string handoffId, string prompt)
 
+  // Set while a Still right or Done run is going: both buttons are off
+  // until it ends, so a second click is refused visibly, not dropped.
+  readonly property bool busy: affirmProcess.running || doneProcess.running
+  // The last failed run's message and the handoff it was for; the row of
+  // that handoff shows it, the next run clears it.
+  property string errorText: ""
+  property string errorHandoffId: ""
+
   // Dismiss on a stale-handoff row: the human's own "this is still true",
   // run through the CLI (the only route to a human-declared affirm).
   function dismiss(handoffId) {
-    if (!handoffId) return
+    if (!handoffId || root.busy) return
+    root.errorText = ""
+    affirmProcess.handoffId = handoffId
     affirmProcess.command = Launchers.affirmCommand(handoffId)
     affirmProcess.running = true
   }
 
   // Done on a stale-handoff row: the CLI marks the handoff finished.
   function markDone(handoffId) {
-    if (!handoffId) return
+    if (!handoffId || root.busy) return
+    root.errorText = ""
+    doneProcess.handoffId = handoffId
     doneProcess.command = Launchers.doneCommand(handoffId)
     doneProcess.running = true
   }
 
+  // A run that worked refreshes (the item goes); one that failed keeps the
+  // item and shows the CLI's message on its row.
+  function finished(handoffId, exitCode, stderrText, verb) {
+    if (exitCode === 0) {
+      root.dismissed()
+      return
+    }
+    root.errorHandoffId = handoffId
+    root.errorText = stderrText.length > 0 ? stderrText : ("backstory " + verb + " exited " + exitCode)
+  }
+
   Process {
     id: affirmProcess
-    onExited: (exitCode, exitStatus) => root.dismissed()
+    property string handoffId: ""
+    stderr: StdioCollector { id: affirmStderr }
+    onExited: (exitCode, exitStatus) => root.finished(affirmProcess.handoffId, exitCode, affirmStderr.text, "affirm")
   }
 
   Process {
     id: doneProcess
-    onExited: (exitCode, exitStatus) => root.dismissed()
+    property string handoffId: ""
+    stderr: StdioCollector { id: doneStderr }
+    onExited: (exitCode, exitStatus) => root.finished(doneProcess.handoffId, exitCode, doneStderr.text, "done")
   }
   width: parent ? parent.width : Style.space(360)
   spacing: Style.spacing.labelGap
@@ -192,6 +219,17 @@ Column {
           }
         }
         Text {
+          objectName: "attentionError"
+          visible: root.errorText !== "" && root.errorHandoffId === itemRow.handoffId
+          textFormat: Text.PlainText
+          text: root.errorText
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
+          color: Commons.Color.urgent
+          width: parent.width
+          wrapMode: Text.WordWrap
+        }
+        Text {
           objectName: "attentionToggle"
           visible: itemRow.structured && itemRow.reasons.length > 0
           textFormat: Text.PlainText
@@ -226,6 +264,7 @@ Column {
             primary: index === 0 && itemRow.looksFinished
             width: Math.max(implicitWidth, actionsMetrics.needed)
             activeFocusOnTab: true
+            enabled: actionButton.isUpdate || !root.busy
             onClicked: {
               if (isDone) root.markDone(itemRow.handoffId)
               else if (isUpdate) root.updateRequested(Model.attentionProjectKey(itemRow.modelData),

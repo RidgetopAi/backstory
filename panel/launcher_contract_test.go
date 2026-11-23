@@ -221,14 +221,15 @@ func TestContinueFocusPlan(t *testing.T) {
 	}
 	argvs := func(p *plan) [][]string { return append([][]string{p.Focus, p.FocusFallback}, p.Tmux...) }
 
-	p := eval(`continueFocusPlan("0x55aa", "Work:1.2")`)
+	const sock = "/tmp/tmux-1000/default"
+	p := eval(`continueFocusPlan("0x55aa", "Work:1.2", ` + jsStringLiteral(sock) + `)`)
 	if p == nil {
 		t.Fatal("no plan for a valid window")
 	}
 	if strings.Join(p.Focus, "\x00") != strings.Join(focusArgv, "\x00") {
 		t.Errorf("focus = %q", p.Focus)
 	}
-	want := [][]string{{"tmux", "select-window", "-t", "Work:1"}, {"tmux", "select-pane", "-t", "Work:1.2"}}
+	want := [][]string{{"tmux", "-S", sock, "select-window", "-t", "Work:1"}, {"tmux", "-S", sock, "select-pane", "-t", "Work:1.2"}}
 	if len(p.Tmux) != 2 || strings.Join(p.Tmux[0], " ") != strings.Join(want[0], " ") || strings.Join(p.Tmux[1], " ") != strings.Join(want[1], " ") {
 		t.Errorf("tmux argvs = %q, want %q", p.Tmux, want)
 	}
@@ -239,12 +240,21 @@ func TestContinueFocusPlan(t *testing.T) {
 	}
 
 	for _, target := range []string{"Work:1.0;kill-server", "Work 1:1.0", "Work:1.0 ", "-t:1.0", "Work:1", "Work:x.0", "", "Work:1.0\n"} {
-		p := eval(`continueFocusPlan("0x55aa", ` + jsStringLiteral(target) + `)`)
+		p := eval(`continueFocusPlan("0x55aa", ` + jsStringLiteral(target) + `, ` + jsStringLiteral(sock) + `)`)
 		if p == nil || len(p.Tmux) != 0 {
 			t.Errorf("target %q: plan %+v, want focus only and no tmux argv", target, p)
 		}
 	}
-	if p := eval(`continueFocusPlan("", "Work:1.0")`); p != nil {
+	// A target without its server's socket, or with one that is not a safe
+	// argv element, selects nothing: a bare tmux would act on the default
+	// server, where a same-named session may be another one.
+	for _, socket := range []string{"", "tmp/tmux-1000/default", "-L", "/tmp/a b/default", "/tmp/x;kill-server", "/tmp/x\n"} {
+		p := eval(`continueFocusPlan("0x55aa", "Work:1.2", ` + jsStringLiteral(socket) + `)`)
+		if p == nil || len(p.Tmux) != 0 {
+			t.Errorf("socket %q: plan %+v, want focus only and no tmux argv", socket, p)
+		}
+	}
+	if p := eval(`continueFocusPlan("", "Work:1.0", ` + jsStringLiteral(sock) + `)`); p != nil {
 		t.Errorf("no window must give no plan (agent launch), got %+v", p)
 	}
 }

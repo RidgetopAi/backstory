@@ -99,11 +99,14 @@ function deleteCommand(recordId) {
 }
 
 // purgeCommand builds `backstory purge --project K --location L [--since T]
-// <mode>`; dryRun true previews (--dry-run), false performs it (--yes).
-// since is an RFC3339 string, or "" for everything in the row.
-function purgeCommand(projectKey, location, since, dryRun) {
+// [--until U] <mode>`; dryRun true previews (--dry-run), false performs it
+// (--yes). since is an RFC3339 string, or "" for everything in the row;
+// until is the moment the preview was asked for (RFC3339), so the --yes run
+// never reaches a session or record that began after the confirm's counts.
+function purgeCommand(projectKey, location, since, until, dryRun) {
   var argv = ["backstory", "purge", "--project", projectKey, "--location", location]
   if (since) argv.push("--since", since)
+  if (until) argv.push("--until", until)
   argv.push(dryRun ? "--dry-run" : "--yes")
   return argv
 }
@@ -287,26 +290,36 @@ function isTmuxTarget(target) {
   return typeof target === "string" && /^[A-Za-z0-9_][A-Za-z0-9_-]*:[0-9]+\.[0-9]+$/.test(target)
 }
 
-// tmuxSelectWindowCommand / tmuxSelectPaneCommand jump a tmux client to the
-// window / pane of a validated target. select-window takes session:window,
-// so the pane suffix is dropped for it.
-function tmuxSelectWindowCommand(target) {
-  return ["tmux", "select-window", "-t", target.slice(0, target.lastIndexOf("."))]
+// isTmuxSocket: a tmux server socket path as PANEL-CONTRACT.md §here
+// defines `tmux_socket` — absolute, of characters inert in an argv element
+// — and nothing else; it reaches a tmux argv as `-S <path>`.
+function isTmuxSocket(path) {
+  return typeof path === "string" && /^\/[A-Za-z0-9._\/-]+$/.test(path)
 }
 
-function tmuxSelectPaneCommand(target) {
-  return ["tmux", "select-pane", "-t", target]
+// tmuxSelectWindowCommand / tmuxSelectPaneCommand jump a tmux client to the
+// window / pane of a validated target, on the server at the validated
+// socket (the one the target was read from, not the default server).
+// select-window takes session:window, so the pane suffix is dropped for it.
+function tmuxSelectWindowCommand(socket, target) {
+  return ["tmux", "-S", socket, "select-window", "-t", target.slice(0, target.lastIndexOf("."))]
+}
+
+function tmuxSelectPaneCommand(socket, target) {
+  return ["tmux", "-S", socket, "select-pane", "-t", target]
 }
 
 // continueFocusPlan is what Continue runs for a project already open: the
-// hyprctl focus argv for `window` plus, when `tmux` is a valid target, the
-// tmux select argvs (in order). null when `window` is not an address — the
-// caller then launches the agent instead. It never builds a terminal launch.
-function continueFocusPlan(window, tmux) {
+// hyprctl focus argv for `window` plus, when `tmux` is a valid target on a
+// valid `socket`, the tmux select argvs (in order, run only once the focus
+// succeeded). null when `window` is not an address — the caller then
+// launches the agent instead. It never builds a terminal launch.
+function continueFocusPlan(window, tmux, socket) {
   if (!isWindowAddress(window)) return null
+  var selects = isTmuxTarget(tmux) && isTmuxSocket(socket)
   return {
     focus: focusWindowCommand(window),
     focusFallback: focusWindowFallbackCommand(window),
-    tmuxCommands: isTmuxTarget(tmux) ? [tmuxSelectWindowCommand(tmux), tmuxSelectPaneCommand(tmux)] : []
+    tmuxCommands: selects ? [tmuxSelectWindowCommand(socket, tmux), tmuxSelectPaneCommand(socket, tmux)] : []
   }
 }

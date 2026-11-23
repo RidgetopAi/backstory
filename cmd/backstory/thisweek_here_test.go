@@ -506,6 +506,7 @@ func TestHereAutoTmuxWindowsInNonActivePanes(t *testing.T) {
 if [ "$1" = display-message ] && [ "$2" = -c ] && [ "$3" = /dev/pts/0 ]; then
   case "$5" in
     '#{session_name}') echo Work;;
+    '#{socket_path}') echo /tmp/tmux-1000/default;;
     '#{pane_current_path}') echo `+e.bar+`;;
     *) exit 1;;
   esac
@@ -524,8 +525,54 @@ fi`)
 	if tm[e.fooKey] != "Work:1.0" || tm[e.barKey] != "Work:2.3" {
 		t.Fatalf("tmux targets = %v, want foo Work:1.0 and bar Work:2.3", tm)
 	}
-	if win[e.quxKey] != "" || tm[e.quxKey] != "" {
-		t.Fatalf("unmatched project window %q tmux %q, want both empty", win[e.quxKey], tm[e.quxKey])
+	sock := projectFields(t, m, "tmux_socket")
+	if sock[e.fooKey] != "/tmp/tmux-1000/default" || sock[e.barKey] != "/tmp/tmux-1000/default" {
+		t.Fatalf("tmux sockets = %v, want the client's server socket on foo and bar", sock)
+	}
+	if win[e.quxKey] != "" || tm[e.quxKey] != "" || sock[e.quxKey] != "" {
+		t.Fatalf("unmatched project window %q tmux %q socket %q, want all empty", win[e.quxKey], tm[e.quxKey], sock[e.quxKey])
+	}
+}
+
+// A tmux target names the server it is on: a client started with -L gets the
+// socket that server reports, so the panel selects the pane there and not on
+// the default server; a socket path that is not a safe argv element drops
+// the target (the window still focuses).
+func TestHereAutoTmuxTargetCarriesItsServerSocket(t *testing.T) {
+	for _, tc := range []struct{ socket, wantTmux, wantSocket string }{
+		{"/run/user/1000/tmux-1000/shoot", "Work:1.0", "/run/user/1000/tmux-1000/shoot"},
+		{"/tmp/a dir/shoot", "", ""},
+		{"relative/shoot", "", ""},
+		{"", "", ""},
+	} {
+		e := newHereEnv(t)
+		e.fakeHyprctl(t, `{"address":"0xaa","pid":500}`, `[{"address":"0xaa","class":"ghostty","pid":500,"focusHistoryID":0}]`)
+		e.addProc(t, 500, 1, "ghostty", e.home, "")
+		e.addProc(t, 501, 500, "tmux: client", e.home, "/dev/pts/0")
+		e.setCmdline(t, 501, "tmux", "-L", "shoot", "attach")
+		writeScript(t, filepath.Join(e.fakeBin, "tmux"), `
+[ "$1" = -L ] && [ "$2" = shoot ] || exit 1
+shift 2
+if [ "$1" = display-message ] && [ "$2" = -c ] && [ "$3" = /dev/pts/0 ]; then
+  case "$5" in
+    '#{session_name}') echo Work;;
+    '#{socket_path}') printf '%s\n' '`+tc.socket+`';;
+    '#{pane_current_path}') echo `+e.foo+`;;
+    *) exit 1;;
+  esac
+elif [ "$1" = list-panes ] && [ "$4" = =Work ]; then
+  printf 'Work\t1\t0\t1\t1\t%s\n' `+e.foo+`
+else
+  exit 1
+fi`)
+		m := mustRun(t, e, "--here", "auto")
+		if w := projectFields(t, m, "window")[e.fooKey]; w != "0xaa" {
+			t.Fatalf("socket %q: window = %q, want 0xaa", tc.socket, w)
+		}
+		tm, sock := projectFields(t, m, "tmux")[e.fooKey], projectFields(t, m, "tmux_socket")[e.fooKey]
+		if tm != tc.wantTmux || sock != tc.wantSocket {
+			t.Fatalf("socket %q: tmux %q socket %q, want %q %q", tc.socket, tm, sock, tc.wantTmux, tc.wantSocket)
+		}
 	}
 }
 
