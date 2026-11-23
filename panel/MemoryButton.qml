@@ -13,6 +13,9 @@ Rectangle {
 
   signal clicked()
 
+  // A button that is off (a run it would start is still going) shows it.
+  opacity: root.enabled ? 1 : 0.5
+
   implicitWidth: labelText.implicitWidth + Style.space(16)
   implicitHeight: labelText.implicitHeight + Style.space(8)
   radius: Style.cornerRadius

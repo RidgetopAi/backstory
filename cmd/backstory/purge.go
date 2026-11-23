@@ -120,6 +120,7 @@ func runPurge(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintf(stdout, "would purge %d sessions, %d events, %d records\n", preview.Sessions, preview.Events, preview.Records)
 		if !nothing {
 			printPurgeBackups(stdout, backups)
+			printAlsoForgotten(st, stdout, stderr)
 		}
 		return 0
 	}
@@ -131,6 +132,7 @@ func runPurge(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		}
 		if !nothing {
 			printPurgeBackups(stdout, backups)
+			printAlsoForgotten(st, stdout, stderr)
 		}
 		_, _ = fmt.Fprintf(stdout, "purge %d sessions, %d events, %d records? This cannot be undone. [y/N] ", preview.Sessions, preview.Events, preview.Records)
 		scanner := bufio.NewScanner(stdin)

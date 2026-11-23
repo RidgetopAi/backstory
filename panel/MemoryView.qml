@@ -67,8 +67,8 @@ Item {
 
   // id of the record whose inline "Forget this record?" confirm is open.
   property string confirmingId: ""
-  // The pending purge scope after a successful dry-run: { label, since,
-  // sessions, events }, or null.
+  // The pending purge after a successful dry-run (Memory.dryRunOutcome):
+  // the folder, window and counts the dry run was for, or null.
   property var pendingPurge: null
   property string purgeNote: ""
 
@@ -82,10 +82,24 @@ Item {
   // The folder the records on show belong to; the host slides Memory in
   // once they are this folder's, so it never shows another's or an empty
   // page that is only still loading.
-  readonly property string scope: root.projectKey + "\n" + root.location
+  readonly property string scope: Memory.purgeScopeKey(root.projectKey, root.location)
   property string loadedScope: ""
   property string requestScope: ""
   readonly property bool ready: root.loadedScope === root.scope
+
+  // Another folder on show: a preview still running is stopped and a
+  // confirm still open is dropped, so neither can offer or forget the
+  // folder the view was showing before (a --yes run already confirmed is
+  // left to finish).
+  onScopeChanged: root.dropPurgePreview()
+
+  function dropPurgePreview() {
+    root.pendingPurge = null
+    if (purgeProcess.running && purgeProcess.dryRun) {
+      purgeProcess.superseded = true
+      purgeProcess.running = false
+    }
+  }
 
   function refresh() {
     if (root.projectKey === "") return
@@ -118,7 +132,7 @@ Item {
       if (!root.ready) root.payload = ({})
       root.errorText = ""
       root.confirmingId = ""
-      root.pendingPurge = null
+      root.dropPurgePreview()
       root.purgeNote = ""
       root.refresh()
     }
@@ -229,26 +243,34 @@ Item {
   }
 
   // Forget activity, step 1: preview with --dry-run; nothing changes yet.
+  // The folder and window are fixed here, and the confirm and the --yes run
+  // carry them: the view may show another folder by the time either runs.
   function previewPurge(scope) {
+    if (root.busy) return
     root.errorText = ""
     root.confirmingId = ""
     root.pendingPurge = null
     root.purgeNote = ""
+    var nowMs = root.now()
     purgeProcess.dryRun = true
-    purgeProcess.scope = { label: scope.label, since: scope.since(root.now()) }
-    purgeProcess.command = Launchers.purgeCommand(root.projectKey, root.location, purgeProcess.scope.since, true)
+    purgeProcess.scope = {
+      scopeKey: Memory.purgeScopeKey(root.projectKey, root.location),
+      projectKey: root.projectKey, location: root.location, displayName: root.displayName,
+      label: scope.label, since: scope.since(nowMs), until: Memory.purgeUntil(nowMs)
+    }
+    purgeProcess.command = Launchers.purgeCommand(root.projectKey, root.location, purgeProcess.scope.since, purgeProcess.scope.until, true)
     root.busy = true
     purgeProcess.running = true
   }
 
-  // Step 2, only after the human confirms: the same argv with --yes.
+  // Step 2, only after the human confirms: the dry run's own argv with --yes.
   function confirmPurge() {
-    var scope = root.pendingPurge
-    if (!scope) return
+    var pending = root.pendingPurge
+    if (!Memory.canConfirmPurge(pending, root.scope, root.busy)) return
     root.pendingPurge = null
     purgeProcess.dryRun = false
-    purgeProcess.scope = scope
-    purgeProcess.command = Launchers.purgeCommand(root.projectKey, root.location, scope.since, false)
+    purgeProcess.scope = pending
+    purgeProcess.command = Launchers.purgeCommand(pending.projectKey, pending.location, pending.since, pending.until, false)
     root.busy = true
     purgeProcess.running = true
   }
@@ -305,23 +327,29 @@ Item {
     id: purgeProcess
     property bool dryRun: true
     property var scope: null
+    // Set while the run ending next is a preview dropPurgePreview() stopped.
+    property bool superseded: false
     stdout: StdioCollector { id: purgeStdout }
     stderr: StdioCollector { id: purgeStderr }
     onExited: (exitCode, exitStatus) => {
       root.busy = false
+      if (purgeProcess.superseded) {
+        purgeProcess.superseded = false
+        return
+      }
       if (exitCode !== 0) {
         root.fail(purgeStderr.text.length > 0 ? purgeStderr.text : ("backstory purge exited " + exitCode))
         return
       }
       if (purgeProcess.dryRun) {
-        var counts = Memory.parseDryRun(purgeStdout.text)
-        if (counts === null) {
+        var outcome = Memory.dryRunOutcome(purgeProcess.scope, purgeStdout.text, root.scope)
+        if (outcome.kind === "unexpected") {
           root.fail("Unexpected output from backstory purge --dry-run")
-        } else if (Memory.nothingToForget(counts)) {
+        } else if (outcome.kind === "nothing") {
           root.purgeNote = "Nothing to forget for " + purgeProcess.scope.label.toLowerCase() + "."
           root.revealSoon("note")
-        } else {
-          root.pendingPurge = { label: purgeProcess.scope.label, since: purgeProcess.scope.since, sessions: counts.sessions, events: counts.events, records: counts.records }
+        } else if (outcome.kind === "confirm") {
+          root.pendingPurge = outcome.pending
           root.revealSoon("purge")
         }
       } else {
@@ -675,7 +703,7 @@ Item {
         Text {
           textFormat: Text.PlainText
           text: root.pendingPurge
-            ? Memory.forgetConfirmText(root.pendingPurge, root.displayName)
+            ? Memory.forgetConfirmText(root.pendingPurge)
             : ""
           wrapMode: Text.WordWrap
           width: parent.width
@@ -688,9 +716,11 @@ Item {
           spacing: Style.spacing.controlGap
 
           MemoryButton {
+            objectName: "forgetConfirmButton"
             label: "Forget"
             foreground: Commons.Color.urgent
             hoverColor: Commons.Color.urgent
+            enabled: Memory.canConfirmPurge(root.pendingPurge, root.scope, root.busy)
             onClicked: root.confirmPurge()
           }
 

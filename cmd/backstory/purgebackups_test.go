@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -244,4 +245,34 @@ func TestPurgeEraseFailureKeepsEveryBackup(t *testing.T) {
 	if len(after) != len(before) {
 		t.Errorf("a backup was written despite the failed erase")
 	}
+}
+
+// dryRunBackupLine is a listed backup's date and size, which the golden
+// below replaces with placeholders.
+var dryRunBackupLine = regexp.MustCompile(`  \d{4}-\d\d-\d\d \d\d:\d\d  \d+ bytes$`)
+
+// TestPurgeDryRunGolden pins every line `purge --dry-run` prints for a
+// project that has backups and a paired device: the panel's Forget confirm
+// reads these lines (panel/js/memory.js parseDryRun, checked against this
+// golden by panel/memory_dryrun_test.go), so a wording change shows up here.
+func TestPurgeDryRunGolden(t *testing.T) {
+	fx := seedPurgeBackups(t)
+	st, err := openStore(fx.dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PairSyncPeer("dev-laptop", "laptop", "laptop.local"); err != nil {
+		t.Fatal(err)
+	}
+	_ = st.Close()
+	code, out, errs := runAutoCLI(t, "purge", "--project", purgeProject, "--dry-run")
+	if code != 0 {
+		t.Fatalf("exit %d err=%s", code, errs)
+	}
+	data := filepath.Dir(filepath.Dir(fx.dbPath))
+	lines := strings.Split(strings.ReplaceAll(out, data, "$XDG_DATA_HOME"), "\n")
+	for i, l := range lines {
+		lines[i] = dryRunBackupLine.ReplaceAllString(l, "  <date>  <size> bytes")
+	}
+	compareGolden(t, "../purge/dry-run.golden", strings.Join(lines, "\n"))
 }

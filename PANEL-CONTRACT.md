@@ -76,8 +76,16 @@ target `session:window.pane` (numeric window and pane indexes, e.g. `Work:1.0`) 
 holding the project inside that `window`; with several panes of one project in the window, the
 active pane of the active window, else the first. `""` when there is no `window`, the window
 has no tmux client, or the session name is not a safe argv element (`[A-Za-z0-9_-]`). A panel
-validates it before use and, with a valid one, focuses the window then runs
-`tmux select-window -t <session:window>` and `tmux select-pane -t <target>`.
+validates it before use and, with a valid one, focuses the window and, once that focus
+succeeded, runs `tmux -S <tmux_socket> select-window -t <session:window>` and then
+`tmux -S <tmux_socket> select-pane -t <target>`.
+
+`tmux_socket` (string, present exactly when `window` is, i.e. only with `--here auto`): the
+socket path of the tmux server `tmux` is on (`#{socket_path}`, asked of the client's own
+server: `-S`/`-L` from its command line, else the default), so the select reaches that server
+and never a same-named session on another. An absolute path of `[A-Za-z0-9._/-]` only; a
+server whose socket is not one emits no `tmux` target at all. `""` exactly when `tmux` is
+`""`. A panel validates it like the target and selects nothing without a valid one.
 
 ## Attention — `AttentionItem`
 
