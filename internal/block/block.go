@@ -138,6 +138,17 @@ func Render(p Params) (string, error) {
 	if p.Now.IsZero() {
 		p.Now = time.Now()
 	}
+	// One render asks about the same folders many times (the reader's own,
+	// every since-the-handoff session's): remember each folder's repository
+	// for THIS render only. Per render, never per process: the daemon lives
+	// for days while worktrees are created and removed and folders become
+	// repositories, so a lifetime cache would answer from a tree that no
+	// longer exists. State (branch, uncommitted) is never cached.
+	if p.Git != nil {
+		if _, cached := p.Git.(*project.CachedGit); !cached {
+			p.Git = project.NewCachedGit(p.Git)
+		}
+	}
 
 	readerBranch := project.CurrentBranch(p.Git, p.CWD)
 	pick, err := pickResume(p, readerBranch)
@@ -933,11 +944,21 @@ func repoStateLine(p Params, readerBranch string, handoff store.Record, hasHando
 	if filepath.IsAbs(p.CWD) {
 		readerTree = project.WorkTree(p.Git, filepath.Clean(p.CWD))
 	}
+	// Newest first (events arrive oldest-first): the first session-end state
+	// from the reader's tree is the one shown, so no older session's tree is
+	// ever resolved. Sessions from other trees still are, each once per
+	// folder (Render's per-render CachedGit), so the cost is per distinct
+	// tree, not per session.
 	treeOf := map[string]string{}
 	var gs *payload.SessionGitState
 	var gsTS time.Time
-	for _, e := range events {
+	for i := len(events) - 1; i >= 0 && gs == nil; i-- {
+		e := events[i]
 		if e.Kind != payload.KindSessionGitState || shellSessions[e.SessionID] {
+			continue
+		}
+		var v payload.SessionGitState
+		if json.Unmarshal([]byte(e.Payload), &v) != nil || v.Phase == payload.GitStatePhaseStart {
 			continue
 		}
 		if readerTree != "" {
@@ -953,11 +974,8 @@ func repoStateLine(p Params, readerBranch string, handoff store.Record, hasHando
 				continue
 			}
 		}
-		var v payload.SessionGitState
-		if json.Unmarshal([]byte(e.Payload), &v) == nil && v.Phase != payload.GitStatePhaseStart {
-			gs = &v
-			gsTS = e.TS
-		}
+		gs = &v
+		gsTS = e.TS
 	}
 	var parts []string
 	if gs != nil && !gs.CouldNotObserve {
