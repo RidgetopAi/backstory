@@ -148,8 +148,15 @@ func unrenderSyncExecStart(c string) string {
 }
 
 // EditedNotice is the line install or --remove prints for a managed file it
-// kept because the owner edited it.
+// kept because the owner edited it, or because it is a symlink the owner
+// put there.
 func EditedNotice(harness, path string, removing bool) string {
+	if isSymlink(path) {
+		if removing {
+			return harness + ": kept your symlinked " + path + "; delete it yourself if you no longer want it"
+		}
+		return harness + ": kept your symlinked " + path + ", so it was not replaced; update the file it links to, or replace the link, to get the current version"
+	}
 	if removing {
 		return harness + ": kept " + path + ": it was edited after Backstory wrote it; delete it yourself if you no longer want it"
 	}

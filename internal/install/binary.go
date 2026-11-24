@@ -44,10 +44,15 @@ func (o Options) hookCommand(sub string) string {
 
 // shellQuote leaves a path of safe characters alone and single-quotes any
 // other, so a binary under a directory with spaces still runs through sh -c.
+// A safe word that sh would read as a VAR=value assignment is quoted too.
 func shellQuote(p string) string {
-	if shellSafeBinaryPath.MatchString(p) {
+	if shellSafeBinaryPath.MatchString(p) && !shellAssignment.MatchString(p) {
 		return p
 	}
+	return singleQuote(p)
+}
+
+func singleQuote(p string) string {
 	return "'" + strings.ReplaceAll(p, "'", `'\''`) + "'"
 }
 
@@ -59,19 +64,44 @@ func unquoteShell(s string) string {
 	return s
 }
 
-// isBackstoryHookCommand reports whether command is `<some backstory binary>
-// <sub>`: the bare name earlier releases wrote, any path to a binary named
-// backstory, or this run's own binary under whatever name, so remove and
-// upgrade find entries written for a binary that has since moved.
-func isBackstoryHookCommand(command, sub string, opts Options) bool {
-	if command == sub {
-		return false
+// shellAssignment is a word sh runs as a variable assignment, not a command.
+var shellAssignment = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
+
+// shellPathWord returns the path tok names when tok is one shell word in a
+// form shellQuote writes: a plain word of safe characters that is not an
+// assignment, or one single-quoted string (an embedded quote closed,
+// escaped and reopened, as singleQuote writes it).
+// Anything else (two words, an operator, an unbalanced quote) is not.
+func shellPathWord(tok string) (string, bool) {
+	if shellSafeBinaryPath.MatchString(tok) && !shellAssignment.MatchString(tok) {
+		return tok, true
 	}
-	prefix, ok := strings.CutSuffix(command, " "+sub)
+	if len(tok) >= 2 && tok[0] == '\'' && tok[len(tok)-1] == '\'' {
+		if p := unquoteShell(tok); singleQuote(p) == tok {
+			return p, true
+		}
+	}
+	return "", false
+}
+
+// ourHookBinary returns the binary of command when command is a hook
+// Backstory wrote for sub: exactly `<binary> <sub>`, binary one path word
+// (shellPathWord) naming a backstory binary (isBackstoryBinary): the bare
+// name earlier releases wrote, any path to a binary named backstory, or this
+// run's own binary under whatever name, so remove and upgrade find entries
+// written for a binary that has since moved. A command that puts anything
+// else around our binary (an environment prefix such as BACKSTORY_OFF=1,
+// `||`, `;`, a redirect) is the owner's (ownerWrapsHook), never ours.
+func ourHookBinary(command, sub string, opts Options) (string, bool) {
+	tok, ok := strings.CutSuffix(command, " "+sub)
 	if !ok {
-		return false
+		return "", false
 	}
-	return isBackstoryBinary(unquoteShell(prefix), opts)
+	bin, ok := shellPathWord(tok)
+	if !ok || !isBackstoryBinary(bin, opts) {
+		return "", false
+	}
+	return bin, true
 }
 
 // isBackstoryBinary is the one rule every harness uses to recognise an entry
@@ -82,31 +112,80 @@ func isBackstoryBinary(bin string, opts Options) bool {
 	return bin != "" && (filepath.Base(bin) == fallbackBinaryName || bin == opts.binaryPath())
 }
 
+// hookSubWord matches the `hook <subcommand>` words of a hook command line,
+// not followed by more of a subcommand name (post-tool-use is not
+// post-tool-use-failure).
+var hookSubWord = regexp.MustCompile(`(^|\s)hook\s+([a-z-]+)($|[^A-Za-z0-9_-])`)
+
+// ownerWrapsHook reports whether command is the owner's own command around
+// Backstory's hook for sub: not ours (ourHookBinary), but it names sub's
+// `hook <subcommand>` words and Backstory (by name or this run's binary).
+// The owner wrote it to change how our hook runs, or whether it does
+// (BACKSTORY_OFF=1, `true ||`, `exit 0;`), so install keeps it as it is and
+// adds no hook of its own beside it.
+func ownerWrapsHook(command, sub string, opts Options) bool {
+	if _, ok := ourHookBinary(command, sub, opts); ok {
+		return false
+	}
+	name := strings.Fields(sub)[1]
+	named := false
+	for _, m := range hookSubWord.FindAllStringSubmatch(command, -1) {
+		named = named || m[2] == name
+	}
+	return named && (strings.Contains(strings.ToLower(command), fallbackBinaryName) || strings.Contains(command, opts.binaryPath()))
+}
+
+// groupCommands returns e's command hooks as (index, command) pairs; none
+// when e is not a group.
+func groupCommands(e any) (map[string]any, []int, []string) {
+	m, ok := e.(map[string]any)
+	if !ok {
+		return nil, nil, nil
+	}
+	hooks, ok := m["hooks"].([]any)
+	if !ok {
+		return nil, nil, nil
+	}
+	var idx []int
+	var cmds []string
+	for i, raw := range hooks {
+		h, ok := raw.(map[string]any)
+		if !ok || h["type"] != "command" {
+			continue
+		}
+		cmd, _ := h["command"].(string)
+		idx = append(idx, i)
+		cmds = append(cmds, cmd)
+	}
+	return m, idx, cmds
+}
+
 // ourHookIndexes returns e as a group and the positions, inside its hooks
 // array, of every command hook backstory wrote for subcommand sub, under any
 // binary path; no positions when e is not a group or holds none. A hook is recognised by its
 // command alone, whatever matcher, timeout or other hooks its group carries,
 // so a group the owner narrowed or added to is still found.
 func ourHookIndexes(e any, sub string, opts Options) (map[string]any, []int) {
-	m, ok := e.(map[string]any)
-	if !ok {
-		return nil, nil
-	}
-	hooks, ok := m["hooks"].([]any)
-	if !ok {
-		return nil, nil
-	}
+	m, all, cmds := groupCommands(e)
 	var idx []int
-	for i, raw := range hooks {
-		h, ok := raw.(map[string]any)
-		if !ok || h["type"] != "command" {
-			continue
-		}
-		if cmd, _ := h["command"].(string); isBackstoryHookCommand(cmd, sub, opts) {
-			idx = append(idx, i)
+	for k, cmd := range cmds {
+		if _, ok := ourHookBinary(cmd, sub, opts); ok {
+			idx = append(idx, all[k])
 		}
 	}
 	return m, idx
+}
+
+// groupWrapsHook reports whether e holds an owner's wrapper of our hook for
+// sub (ownerWrapsHook).
+func groupWrapsHook(e any, sub string, opts Options) bool {
+	_, _, cmds := groupCommands(e)
+	for _, cmd := range cmds {
+		if ownerWrapsHook(cmd, sub, opts) {
+			return true
+		}
+	}
+	return false
 }
 
 // legacyHookMatchers are the matchers earlier releases wrote as their
@@ -168,12 +247,48 @@ func hookCommandOf(g map[string]any, i int) string {
 	return cmd
 }
 
-// mergeHookEntry makes root's hooks.<event> hold Backstory's hook for sub
-// exactly once. With none of ours there, want is appended. Otherwise the
-// first group holding our hook is reconciled in place (reconcileHookGroup:
-// the command is updated, the owner's matcher and keys stay), every later
-// hook of ours is dropped (a group left with no hook goes with it), and
-// foreign groups and hooks are untouched.
+// hookPos is one hook of ours: its group's index in the event's array and
+// its index in that group's hooks.
+type hookPos struct{ group, hook int }
+
+// mergedHookGroups is what install makes of an event's groups arr: every
+// group holding our hook for sub is reconciled in place (reconcileHookGroup:
+// its first hook of ours runs command, a second one in the same group is
+// dropped, the owner's matcher and keys stay), so a hook the owner put in
+// several narrowed groups stays in each. A group that after that is
+// identical to an earlier one of ours runs the same hook for the same events
+// twice, so it goes. With no hook of ours anywhere, want is appended, unless
+// a group holds the owner's wrapper of our hook (ownerWrapsHook): that slot
+// is the owner's, and a default group beside it would undo it. Foreign
+// groups and hooks are untouched. pos is where our hooks end up.
+func mergedHookGroups(arr []any, want map[string]any, command, sub string, opts Options) (out []any, pos []hookPos) {
+	out = make([]any, 0, len(arr)+1)
+	wrapped := false
+	var ours []map[string]any
+	for _, e := range arr {
+		g, idx := ourHookIndexes(e, sub, opts)
+		if len(idx) == 0 {
+			wrapped = wrapped || groupWrapsHook(e, sub, opts)
+			out = append(out, e)
+			continue
+		}
+		r := reconcileHookGroup(g, idx[0], idx, command, want["matcher"], sub)
+		if slices.ContainsFunc(ours, func(o map[string]any) bool { return jsonDeepEqual(o, r) }) {
+			continue
+		}
+		ours = append(ours, r)
+		pos = append(pos, hookPos{len(out), idx[0]})
+		out = append(out, r)
+	}
+	if len(ours) == 0 && !wrapped {
+		pos = append(pos, hookPos{len(out), 0})
+		out = append(out, want)
+	}
+	return out, pos
+}
+
+// mergeHookEntry makes root's hooks.<event> what mergedHookGroups makes of
+// it, reporting whether that changed anything.
 func mergeHookEntry(root map[string]any, event string, want map[string]any, sub string, opts Options) (bool, error) {
 	hooksObj, err := objectField(root, "hooks")
 	if err != nil {
@@ -183,32 +298,8 @@ func mergeHookEntry(root map[string]any, event string, want map[string]any, sub 
 	if err != nil {
 		return false, err
 	}
-	command := hookCommandOf(want, 0)
-	out := make([]any, 0, len(arr)+1)
-	placed, changed := false, false
-	for _, e := range arr {
-		g, idx := ourHookIndexes(e, sub, opts)
-		if len(idx) == 0 {
-			out = append(out, e)
-			continue
-		}
-		keep := -1
-		if !placed {
-			keep, placed = idx[0], true
-		}
-		r := reconcileHookGroup(g, keep, idx, command, want["matcher"], sub)
-		if r == nil || !jsonDeepEqual(e, r) {
-			changed = true
-		}
-		if r != nil {
-			out = append(out, r)
-		}
-	}
-	if !placed {
-		out = append(out, want)
-		changed = true
-	}
-	if !changed {
+	out, _ := mergedHookGroups(arr, want, hookCommandOf(want, 0), sub, opts)
+	if jsonDeepEqual(arr, out) {
 		return false, nil
 	}
 	hooksObj[event] = out
@@ -217,42 +308,47 @@ func mergeHookEntry(root map[string]any, event string, want map[string]any, sub 
 }
 
 // hookEntryStatus finds Backstory's hook for sub under event. It is present
-// when its group already is what mergeHookEntry would make of it, the
-// command keeping whatever backstory binary it names (an install made with
-// --binary; isBackstoryBinary): the owner's matcher and keys never make it
-// outdated, so --check never sends an install to widen them. bin is the path
-// the hook invokes; group and hook its position (the group in the event's
-// array, the hook in that group).
-func hookEntryStatus(root map[string]any, event string, want map[string]any, sub string, opts Options) (st ItemStatus, bin string, group, hook int) {
+// exactly when install would leave the event's groups as they are
+// (mergedHookGroups), the command keeping whatever backstory binary its
+// first hook of ours names (an install made with --binary;
+// isBackstoryBinary): the owner's matcher and keys never make it outdated,
+// so --check never sends an install to widen them. With no hook of ours but
+// an owner's wrapper of it the slot is foreign-conflict: install leaves it
+// to the owner. bin is the path the hook invokes; pos is every hook of ours.
+func hookEntryStatus(root map[string]any, event string, want map[string]any, sub string, opts Options) (st ItemStatus, bin string, pos []hookPos) {
 	hooksRaw, ok := root["hooks"]
 	if !ok {
-		return StatusAbsent, "", 0, 0
+		return StatusAbsent, "", nil
 	}
 	hooksObj, ok := hooksRaw.(map[string]any)
 	if !ok {
-		return StatusForeign, "", 0, 0
+		return StatusForeign, "", nil
 	}
 	arrRaw, ok := hooksObj[event]
 	if !ok {
-		return StatusAbsent, "", 0, 0
+		return StatusAbsent, "", nil
 	}
 	arr, ok := arrRaw.([]any)
 	if !ok {
-		return StatusForeign, "", 0, 0
+		return StatusForeign, "", nil
 	}
-	for i, e := range arr {
+	for _, e := range arr {
 		g, idx := ourHookIndexes(e, sub, opts)
 		if len(idx) == 0 {
 			continue
 		}
 		cmd := hookCommandOf(g, idx[0])
-		if !jsonDeepEqual(e, reconcileHookGroup(g, idx[0], idx, cmd, want["matcher"], sub)) {
-			return StatusAbsent, "", 0, 0
+		out, pos := mergedHookGroups(arr, want, cmd, sub, opts)
+		if !jsonDeepEqual(arr, out) {
+			return StatusAbsent, "", nil
 		}
-		prefix, _ := strings.CutSuffix(cmd, " "+sub)
-		return StatusPresent, unquoteShell(prefix), i, idx[0]
+		bin, _ := ourHookBinary(cmd, sub, opts)
+		return StatusPresent, bin, pos
 	}
-	return StatusAbsent, "", 0, 0
+	if slices.ContainsFunc(arr, func(e any) bool { return groupWrapsHook(e, sub, opts) }) {
+		return StatusForeign, "", nil
+	}
+	return StatusAbsent, "", nil
 }
 
 // removeHookEntry drops every hook backstory wrote for sub, whatever binary

@@ -508,18 +508,22 @@ func codexBackstoryTableMatches(content string, opts Options) bool {
 // --- hook trust (config.toml hooks.state) ---
 
 // codexHookStatus is hookEntryStatus, downgraded to StatusNotTrusted when the
-// hook is installed but config.toml has no trusted_hash for its key.
+// hook is installed but config.toml has no trusted_hash for the key of one
+// of its positions (Codex runs each group's hook only once that one is
+// approved).
 func codexHookStatus(paths CodexPaths, root map[string]any, event, label, sub string, opts Options) (ItemStatus, string) {
 	want := codexHookEntry(opts.hookCommand(sub), opts.timeoutSeconds())
-	st, bin, group, hook := hookEntryStatus(root, event, want, sub, opts)
+	st, bin, pos := hookEntryStatus(root, event, want, sub, opts)
 	if st != StatusPresent {
 		return st, ""
 	}
-	key := fmt.Sprintf("%s:%s:%d:%d", paths.HooksJSON, label, group, hook)
-	if codexHookTrusted(paths.ConfigTOML, key) {
-		return StatusPresent, bin
+	for _, p := range pos {
+		key := fmt.Sprintf("%s:%s:%d:%d", paths.HooksJSON, label, p.group, p.hook)
+		if !codexHookTrusted(paths.ConfigTOML, key) {
+			return StatusNotTrusted, bin
+		}
 	}
-	return StatusNotTrusted, bin
+	return StatusPresent, bin
 }
 
 // CodexHooksTrusted reports whether every Backstory hook installed in
@@ -530,7 +534,9 @@ func CodexHooksTrusted(home string, opts Options) bool {
 		return false
 	}
 	for _, it := range items {
-		if (it.Name == ItemSessionStartHook || it.Name == ItemPostToolUseHook) && it.Status != StatusPresent {
+		// A foreign-conflict slot holds the owner's own command, no hook of
+		// ours to approve.
+		if (it.Name == ItemSessionStartHook || it.Name == ItemPostToolUseHook) && it.Status != StatusPresent && it.Status != StatusForeign {
 			return false
 		}
 	}
