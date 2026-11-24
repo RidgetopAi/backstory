@@ -101,9 +101,21 @@ type syncUnit struct {
 	want string
 }
 
+// status is the unit's managedFile status, except that a unit file that is
+// a symlink (dangling or not) is the owner's, linked in from a dotfiles
+// tree, as ops/install.sh treats it: unless it already holds what install
+// would write it is edited, so install never writes through it.
+func (u syncUnit) status() (ItemStatus, error) {
+	st, err := u.file.status(u.path, u.want)
+	if err == nil && st != StatusPresent && isSymlink(u.path) {
+		return StatusEdited, nil
+	}
+	return st, err
+}
+
 // InstallSyncTimer writes each unit that is absent or a version Backstory
-// shipped and enables the timer. A unit the owner edited is kept as it is
-// and returned in kept.
+// shipped and enables the timer. A unit the owner edited or symlinked is
+// kept as it is and returned in kept.
 func InstallSyncTimer(home string) (kept []string, err error) {
 	units, err := syncUnits(home)
 	if err != nil {
@@ -113,7 +125,7 @@ func InstallSyncTimer(home string) (kept []string, err error) {
 		return nil, err
 	}
 	for _, u := range units {
-		st, err := u.file.status(u.path, u.want)
+		st, err := u.status()
 		if err != nil {
 			return nil, err
 		}
@@ -150,7 +162,7 @@ func RemoveSyncTimer(home string) (kept []string, err error) {
 	}
 	_ = ServiceManager("disable", "--now", SyncTimerName) // best effort: it may not be enabled
 	for _, u := range units {
-		st, err := u.file.status(u.path, u.want)
+		st, err := u.status()
 		if err != nil {
 			return kept, err
 		}
@@ -178,7 +190,7 @@ func SyncTimerStatus(home string) ItemStatus {
 	}
 	worst := StatusPresent
 	for _, u := range units {
-		st, err := u.file.status(u.path, u.want)
+		st, err := u.status()
 		if err != nil || st == StatusAbsent {
 			return StatusAbsent
 		}

@@ -115,13 +115,22 @@ func (codexAdapter) Install(home string, opts Options) error {
 	return InstallCodex(DefaultCodexPaths(home), opts)
 }
 
-// InstallNotice is printed by the CLI after a successful install: the
-// approval step, or nothing when the hooks are already trusted.
+// InstallNotice is printed by the CLI after a successful install: a line
+// for each hook event left as the owner's (OwnerHookNotice), then the
+// approval step unless the hooks are already trusted; nothing when neither.
 func (codexAdapter) InstallNotice(home string, opts Options) string {
-	if CodexHooksTrusted(home, opts) {
-		return ""
+	paths := DefaultCodexPaths(home)
+	var lines []string
+	if items, err := CheckCodex(paths, opts); err == nil {
+		lines = ownerHookNotices(HarnessCodex, paths.HooksJSON, items, map[string]string{
+			ItemSessionStartHook: "SessionStart",
+			ItemPostToolUseHook:  "PostToolUse",
+		})
 	}
-	return CodexTrustNotice
+	if !CodexHooksTrusted(home, opts) {
+		lines = append(lines, CodexTrustNotice)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (codexAdapter) Remove(home string, opts Options) error {
@@ -508,18 +517,22 @@ func codexBackstoryTableMatches(content string, opts Options) bool {
 // --- hook trust (config.toml hooks.state) ---
 
 // codexHookStatus is hookEntryStatus, downgraded to StatusNotTrusted when the
-// hook is installed but config.toml has no trusted_hash for its key.
+// hook is installed but config.toml has no trusted_hash for the key of one
+// of its positions (Codex runs each group's hook only once that one is
+// approved).
 func codexHookStatus(paths CodexPaths, root map[string]any, event, label, sub string, opts Options) (ItemStatus, string) {
 	want := codexHookEntry(opts.hookCommand(sub), opts.timeoutSeconds())
-	st, bin, group, hook := hookEntryStatus(root, event, want, sub, opts)
+	st, bin, pos := hookEntryStatus(root, event, want, sub, opts)
 	if st != StatusPresent {
 		return st, ""
 	}
-	key := fmt.Sprintf("%s:%s:%d:%d", paths.HooksJSON, label, group, hook)
-	if codexHookTrusted(paths.ConfigTOML, key) {
-		return StatusPresent, bin
+	for _, p := range pos {
+		key := fmt.Sprintf("%s:%s:%d:%d", paths.HooksJSON, label, p.group, p.hook)
+		if !codexHookTrusted(paths.ConfigTOML, key) {
+			return StatusNotTrusted, bin
+		}
 	}
-	return StatusNotTrusted, bin
+	return StatusPresent, bin
 }
 
 // CodexHooksTrusted reports whether every Backstory hook installed in
@@ -530,7 +543,9 @@ func CodexHooksTrusted(home string, opts Options) bool {
 		return false
 	}
 	for _, it := range items {
-		if (it.Name == ItemSessionStartHook || it.Name == ItemPostToolUseHook) && it.Status != StatusPresent {
+		// A foreign-conflict slot holds the owner's own command, no hook of
+		// ours to approve.
+		if (it.Name == ItemSessionStartHook || it.Name == ItemPostToolUseHook) && it.Status != StatusPresent && it.Status != StatusForeign {
 			return false
 		}
 	}

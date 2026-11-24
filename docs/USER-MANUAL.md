@@ -760,6 +760,10 @@ so don't paste them into a session you want remembered.
 `BACKSTORY_OFF=1` affects only that one program and anything it starts. Other sessions keep
 recording as normal.
 
+To record only some tools in Claude Code, narrow the `matcher` of Backstory's `PostToolUse` hook in
+`~/.claude/settings.json`. A failed tool call arrives under the separate `PostToolUseFailure`
+hook, which narrowing `PostToolUse` does not narrow, so set its `matcher` too. Install keeps both.
+
 **Deleted text and backups.** Deleting wipes the text from the store, but backup copies made
 earlier still hold it. A purge cleans up after itself: once the text is erased it also deletes
 the backups Backstory made (the automatic and manual ones in the backup folder, and the

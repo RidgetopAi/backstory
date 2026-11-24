@@ -148,12 +148,39 @@ func unrenderSyncExecStart(c string) string {
 }
 
 // EditedNotice is the line install or --remove prints for a managed file it
-// kept because the owner edited it.
+// kept because the owner edited it, or because it is a symlink the owner
+// put there.
 func EditedNotice(harness, path string, removing bool) string {
+	if isSymlink(path) {
+		if removing {
+			return harness + ": kept your symlinked " + path + "; delete it yourself if you no longer want it"
+		}
+		return harness + ": kept your symlinked " + path + ", so it was not replaced; update the file it links to, or replace the link, to get the current version"
+	}
 	if removing {
 		return harness + ": kept " + path + ": it was edited after Backstory wrote it; delete it yourself if you no longer want it"
 	}
 	return harness + ": kept " + path + ": it was edited after Backstory wrote it, so it was not replaced; move it aside and install again to get the current version"
+}
+
+// OwnerHookNotice is the line install prints for a hook event it left as
+// the owner's: the event already runs Backstory's hook through a command the
+// owner wrote (ownerWrapsHook), so install added none of its own there.
+func OwnerHookNotice(harness, event, path string) string {
+	return harness + ": kept your " + event + " hook in " + path + ": it runs Backstory through a command you wrote, so Backstory added none of its own; remove yours and install again to get Backstory's"
+}
+
+// ownerHookNotices is an OwnerHookNotice for every hook item of a successful
+// install that --check reports foreign-conflict; events maps those item
+// names to their event, in report order.
+func ownerHookNotices(harness, path string, items []Item, events map[string]string) []string {
+	var lines []string
+	for _, it := range items {
+		if ev, ok := events[it.Name]; ok && it.Status == StatusForeign {
+			lines = append(lines, OwnerHookNotice(harness, ev, path))
+		}
+	}
+	return lines
 }
 
 // ShippedSHA256 is the shipped list of the managed file embedded from source
