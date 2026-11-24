@@ -144,11 +144,7 @@ func Render(p Params) (string, error) {
 	// for days while worktrees are created and removed and folders become
 	// repositories, so a lifetime cache would answer from a tree that no
 	// longer exists. State (branch, uncommitted) is never cached.
-	if p.Git != nil {
-		if _, cached := p.Git.(*project.CachedGit); !cached {
-			p.Git = project.NewCachedGit(p.Git)
-		}
-	}
+	p.Git = project.PerCall(p.Git)
 
 	readerBranch := project.CurrentBranch(p.Git, p.CWD)
 	pick, err := pickResume(p, readerBranch)

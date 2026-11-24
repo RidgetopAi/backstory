@@ -276,6 +276,9 @@ func windowStart(now time.Time) time.Time {
 
 // Build reads st and returns This Week as of p.Now.
 func Build(p Params) (Result, error) {
+	// Every session's tree and every stale reason's where resolves a folder's
+	// repository: once per folder for this build, whoever the caller is.
+	p.Git = project.PerCall(p.Git)
 	now := p.Now
 	if now.IsZero() {
 		now = time.Now()
