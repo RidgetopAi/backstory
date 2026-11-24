@@ -35,3 +35,18 @@ func (g *CachedGit) Repo(cwd string) (Repo, bool) {
 func (g *CachedGit) State(cwd string) (State, bool) {
 	return g.inner.State(cwd)
 }
+
+// PerCall is g behind a CachedGit for one call's lifetime (one SessionStart
+// render, one this-week build), which asks about the same folders once per
+// session otherwise. nil stays nil, and an already-cached g is returned as
+// is. Never hold the result past the call: a long-lived process (the daemon)
+// sees worktrees created and removed under it.
+func PerCall(g Git) Git {
+	if g == nil {
+		return nil
+	}
+	if _, cached := g.(*CachedGit); cached {
+		return g
+	}
+	return NewCachedGit(g)
+}
