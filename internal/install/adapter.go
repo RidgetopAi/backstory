@@ -4,7 +4,10 @@
 // real adapters.
 package install
 
-import "errors"
+import (
+	"errors"
+	"strings"
+)
 
 // Harness names backstory install recognizes, in the order Adapters and
 // HarnessNames report them.
@@ -85,6 +88,21 @@ func (claudeAdapter) Remove(home string, opts Options) error {
 
 func (claudeAdapter) Check(home string, opts Options) ([]Item, error) {
 	return Check(DefaultPaths(home), opts)
+}
+
+// InstallNotice is printed by the CLI after a successful install: a line
+// for each hook event left as the owner's (OwnerHookNotice), else nothing.
+func (claudeAdapter) InstallNotice(home string, opts Options) string {
+	paths := DefaultPaths(home)
+	items, err := Check(paths, opts)
+	if err != nil {
+		return ""
+	}
+	return strings.Join(ownerHookNotices(HarnessClaude, paths.SettingsJSON, items, map[string]string{
+		ItemSessionStartHook:       "SessionStart",
+		ItemPostToolUseHook:        "PostToolUse",
+		ItemPostToolUseFailureHook: "PostToolUseFailure",
+	}), "\n")
 }
 
 // Outcome is one adapter's result from InstallAll.

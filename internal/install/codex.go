@@ -115,13 +115,22 @@ func (codexAdapter) Install(home string, opts Options) error {
 	return InstallCodex(DefaultCodexPaths(home), opts)
 }
 
-// InstallNotice is printed by the CLI after a successful install: the
-// approval step, or nothing when the hooks are already trusted.
+// InstallNotice is printed by the CLI after a successful install: a line
+// for each hook event left as the owner's (OwnerHookNotice), then the
+// approval step unless the hooks are already trusted; nothing when neither.
 func (codexAdapter) InstallNotice(home string, opts Options) string {
-	if CodexHooksTrusted(home, opts) {
-		return ""
+	paths := DefaultCodexPaths(home)
+	var lines []string
+	if items, err := CheckCodex(paths, opts); err == nil {
+		lines = ownerHookNotices(HarnessCodex, paths.HooksJSON, items, map[string]string{
+			ItemSessionStartHook: "SessionStart",
+			ItemPostToolUseHook:  "PostToolUse",
+		})
 	}
-	return CodexTrustNotice
+	if !CodexHooksTrusted(home, opts) {
+		lines = append(lines, CodexTrustNotice)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (codexAdapter) Remove(home string, opts Options) error {
