@@ -11,6 +11,8 @@
 //     (PLAN.md Phase 4 "Human look": "it never reads the store").
 //   - `backstory affirm <handoff-id>`: the Needs You Still right action.
 //   - `backstory done <handoff-id>`: the Needs You Done action.
+//   - `backstory dismiss <event-id>`: the Needs You Dismiss action on an
+//     uncommitted-changes row (its one session.git_state evidence id).
 //   - `xdg-terminal-exec --dir=<cwd>`: the freedesktop terminal-launch
 //     primitive Omarchy's own `omarchy-launch-terminal` wraps, called here
 //     with an explicit `--dir` (a row's `cwd`, not the caller's own) since
@@ -63,6 +65,13 @@ function affirmCommand(handoffId) {
 // done record linked to it and deletes nothing.
 function doneCommand(handoffId) {
   return ["backstory", "done", handoffId]
+}
+
+// dismissCommand hides an uncommitted-changes Needs You row until that
+// tree's next dirty session end: the CLI checks the id is the row's current
+// evidence and records the human's dismissal locally.
+function dismissCommand(eventId) {
+  return ["backstory", "dismiss", eventId]
 }
 
 // toolsCommand lists the agent tools (name + description) straight from the

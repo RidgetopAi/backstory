@@ -230,10 +230,13 @@ From top to bottom:
     first
   - a session that ended with **uncommitted changes**, naming the project ("vidflow: session
     ended with 17 uncommitted change(s) on branch master"). **Terminal** opens a shell in the
-    folder that session worked in, so you can commit or stash; the row clears once a later
-    session in that same folder ends with a clean tree. Each worktree of a repo gets its own row
-    (naming the folder when there is more than one). A session from a paired computer gets no
-    Terminal
+    folder that session worked in, so you can commit or stash. The row clears as soon as that
+    folder is clean (Backstory looks at it again each time the panel refreshes), or once a later
+    session in that same folder ends with a clean tree. If Backstory cannot read the folder (it
+    was deleted, or is no longer a git repo), the row stays. **Dismiss** hides the row (the same
+    as `backstory dismiss`) until a session in that folder next ends with uncommitted changes.
+    Each worktree of a repo gets its own row (naming the folder when there is more than one). A
+    session from a paired computer gets no Terminal
   - a **contradiction**: one record says another is wrong, with evidence
   - an **expired claim** with no outcome recorded
   - Codex hooks that still need approval ([Troubleshooting](#9-troubleshooting))
@@ -303,6 +306,7 @@ no agent can run on your behalf through Backstory's tools.
 | [`delete`](#delete) | Delete one record |
 | [`done`](#done) | Mark a handoff finished (nothing to resume) |
 | [`affirm`](#affirm) | Clear a "possibly stale" flag on a handoff |
+| [`dismiss`](#dismiss) | Hide an "uncommitted changes" row until that folder's next dirty session end |
 | [`purge`](#purge) | Forget activity (and records) for a session or project |
 | [`capture`](#capture) | Pause or resume recording |
 | [`backfill`](#backfill) | Import past sessions from an agent's history |
@@ -440,6 +444,19 @@ new evidence turns up. Same as the panel's **Still right** button. Human-only.
 
 ```
 backstory affirm 090af43a
+```
+
+### dismiss
+
+Hides a NEEDS YOU **uncommitted changes** row until a session in that folder next ends with
+uncommitted changes. Same as the panel's **Dismiss** button. Human-only. It takes the row's
+event id, the number in `(ids N)` at the end of the row in `backstory this-week` (or its
+`evidence_ids` in `this-week --json`), and refuses an id that is not what a row shows now. A
+session that ends with a clean tree clears the row as always. The dismissal stays on this
+computer: the row is about a folder here, and paired computers never get it.
+
+```
+backstory dismiss 29689
 ```
 
 ### done
@@ -756,6 +773,7 @@ so don't paste them into a session you want remembered.
 | Mark a handoff finished (nothing to resume) | `backstory done <id>`; undo with `backstory delete <done-record-id>` |
 | Say a flagged handoff is still right | `backstory affirm <id>`, or **Still right** in NEEDS YOU |
 | Say a flagged handoff is finished | `backstory done <id>`, or **Done** in NEEDS YOU |
+| Hide an uncommitted-changes row you don't mean to commit | `backstory dismiss <event-id>`, or **Dismiss** in NEEDS YOU |
 
 `BACKSTORY_OFF=1` affects only that one program and anything it starts. Other sessions keep
 recording as normal.

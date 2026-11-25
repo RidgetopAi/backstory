@@ -18,8 +18,9 @@ Column {
 
   property var items: []
 
-  // Emitted once `backstory affirm <handoff-id>` has run, so the host can
-  // refresh and the dismissed item disappears.
+  // Emitted once `backstory affirm <handoff-id>`, `done <handoff-id>` or
+  // `dismiss <event-id>` has run, so the host can refresh and the item
+  // disappears.
   signal dismissed()
 
   // Update on a stale-handoff row: the host opens an agent in the project's
@@ -31,13 +32,18 @@ Column {
   // there, through the same launcher a Recent row's click uses.
   signal terminalRequested(string cwd)
 
-  // Set while a Still right or Done run is going: both buttons are off
-  // until it ends, so a second click is refused visibly, not dropped.
-  readonly property bool busy: affirmProcess.running || doneProcess.running
-  // The last failed run's message and the handoff it was for; the row of
-  // that handoff shows it, the next run clears it.
+  // Set while a Still right, Done or Dismiss run is going: those buttons are
+  // off until it ends, so a second click is refused visibly, not dropped.
+  readonly property bool busy: affirmProcess.running || doneProcess.running || dismissProcess.running
+  // The last failed run's message and the row it was for (rowKey: the
+  // handoff id, or "event:<id>" for an uncommitted-changes row); that row
+  // shows it, the next run clears it.
   property string errorText: ""
-  property string errorHandoffId: ""
+  property string errorKey: ""
+
+  function rowKey(handoffId, eventId) {
+    return handoffId !== "" ? handoffId : (eventId !== "" ? "event:" + eventId : "")
+  }
 
   // Dismiss on a stale-handoff row: the human's own "this is still true",
   // run through the CLI (the only route to a human-declared affirm).
@@ -58,14 +64,24 @@ Column {
     doneProcess.running = true
   }
 
+  // Dismiss on an uncommitted-changes row: the CLI hides it until that
+  // tree's next dirty session end.
+  function dismissUncommitted(eventId) {
+    if (!eventId || root.busy) return
+    root.errorText = ""
+    dismissProcess.eventId = eventId
+    dismissProcess.command = Launchers.dismissCommand(eventId)
+    dismissProcess.running = true
+  }
+
   // A run that worked refreshes (the item goes); one that failed keeps the
-  // item and shows the CLI's message on its row.
-  function finished(handoffId, exitCode, stderrText, verb) {
+  // item and shows the CLI's message on its row (key: root.rowKey).
+  function finished(key, exitCode, stderrText, verb) {
     if (exitCode === 0) {
       root.dismissed()
       return
     }
-    root.errorHandoffId = handoffId
+    root.errorKey = key
     root.errorText = stderrText.length > 0 ? stderrText : ("backstory " + verb + " exited " + exitCode)
   }
 
@@ -82,6 +98,13 @@ Column {
     stderr: StdioCollector { id: doneStderr }
     onExited: (exitCode, exitStatus) => root.finished(doneProcess.handoffId, exitCode, doneStderr.text, "done")
   }
+
+  Process {
+    id: dismissProcess
+    property string eventId: ""
+    stderr: StdioCollector { id: dismissStderr }
+    onExited: (exitCode, exitStatus) => root.finished(root.rowKey("", dismissProcess.eventId), exitCode, dismissStderr.text, "dismiss")
+  }
   width: parent ? parent.width : Style.space(360)
   spacing: Style.spacing.labelGap
 
@@ -94,6 +117,10 @@ Column {
       readonly property string handoffId: Model.attentionHandoffId(modelData)
       // Absolute or "" (Model.attentionCwd): Terminal shows only with one.
       readonly property string cwd: Model.attentionCwd(modelData)
+      // An uncommitted-changes row's one evidence id, or "": Dismiss shows
+      // only with one.
+      readonly property string eventId: Model.attentionGitStateEventId(modelData)
+      readonly property string rowId: root.rowKey(handoffId, eventId)
       readonly property var reasons: Model.attentionReasons(modelData)
       // A stale-handoff row from a payload that carries the structured
       // fields shows them; any other row shows its reason as it always did.
@@ -103,11 +130,13 @@ Column {
       readonly property string updateTip: "Open an agent here to bring this handoff up to date."
       readonly property string doneTip: "This work is finished. Stop offering it to resume; nothing is deleted."
       readonly property string terminalTip: "Open a terminal in this folder to commit or stash the changes."
+      readonly property string dismissUncommittedTip: "Hide this until a session in this folder ends with uncommitted changes again."
       // Done leads when an outcome closed the work, else Still right does. A
-      // row with no handoff but a working tree offers Terminal alone.
+      // row with no handoff offers Terminal when it names a working tree and
+      // Dismiss when it cites its git-state event.
       readonly property var actionOrder: handoffId !== ""
         ? (looksFinished ? ["done", "dismiss", "update"] : ["dismiss", "update", "done"])
-        : (cwd !== "" ? ["terminal"] : [])
+        : (cwd !== "" ? ["terminal"] : []).concat(eventId !== "" ? ["dismissUncommitted"] : [])
       property bool expanded: false
       width: root.width
       spacing: Style.spacing.controlGap
@@ -231,7 +260,7 @@ Column {
         }
         Text {
           objectName: "attentionError"
-          visible: root.errorText !== "" && root.errorHandoffId === itemRow.handoffId
+          visible: root.errorText !== "" && itemRow.rowId !== "" && root.errorKey === itemRow.rowId
           textFormat: Text.PlainText
           text: root.errorText
           font.family: Style.font.family
@@ -271,15 +300,17 @@ Column {
             readonly property bool isDone: modelData === "done"
             readonly property bool isUpdate: modelData === "update"
             readonly property bool isTerminal: modelData === "terminal"
-            objectName: isTerminal ? "attentionTerminal" : (isDone ? "attentionDone" : (isUpdate ? "attentionUpdate" : "attentionDismiss"))
-            label: isTerminal ? "Terminal" : (isDone ? "Done" : (isUpdate ? "Update" : "Still right"))
+            readonly property bool isDismissUncommitted: modelData === "dismissUncommitted"
+            objectName: isDismissUncommitted ? "attentionDismissUncommitted" : (isTerminal ? "attentionTerminal" : (isDone ? "attentionDone" : (isUpdate ? "attentionUpdate" : "attentionDismiss")))
+            label: isDismissUncommitted ? "Dismiss" : (isTerminal ? "Terminal" : (isDone ? "Done" : (isUpdate ? "Update" : "Still right")))
             primary: index === 0 && itemRow.looksFinished
             width: Math.max(implicitWidth, actionsMetrics.needed)
             activeFocusOnTab: true
             // Update and Terminal start no run of their own, so stay on.
             enabled: actionButton.isUpdate || actionButton.isTerminal || !root.busy
             onClicked: {
-              if (isTerminal) root.terminalRequested(itemRow.cwd)
+              if (isDismissUncommitted) root.dismissUncommitted(itemRow.eventId)
+              else if (isTerminal) root.terminalRequested(itemRow.cwd)
               else if (isDone) root.markDone(itemRow.handoffId)
               else if (isUpdate) root.updateRequested(Model.attentionProjectKey(itemRow.modelData),
                 itemRow.handoffId, Format.updatePrompt(itemRow.handoffId, itemRow.looksFinished, itemRow.reasons))
@@ -288,9 +319,9 @@ Column {
 
             HoverHandler { id: actionHover }
             PanelToolTip {
-              objectName: actionButton.isTerminal ? "attentionTerminalTip" : (actionButton.isDone ? "attentionDoneTip" : (actionButton.isUpdate ? "attentionUpdateTip" : "attentionStillRightTip"))
+              objectName: actionButton.isDismissUncommitted ? "attentionDismissUncommittedTip" : (actionButton.isTerminal ? "attentionTerminalTip" : (actionButton.isDone ? "attentionDoneTip" : (actionButton.isUpdate ? "attentionUpdateTip" : "attentionStillRightTip")))
               visible: actionHover.hovered
-              text: actionButton.isTerminal ? itemRow.terminalTip : (actionButton.isDone ? itemRow.doneTip : (actionButton.isUpdate ? itemRow.updateTip : itemRow.stillRightTip))
+              text: actionButton.isDismissUncommitted ? itemRow.dismissUncommittedTip : (actionButton.isTerminal ? itemRow.terminalTip : (actionButton.isDone ? itemRow.doneTip : (actionButton.isUpdate ? itemRow.updateTip : itemRow.stillRightTip)))
               delay: 0
               width: Math.min(implicitWidth, Style.space(300))
             }

@@ -332,7 +332,7 @@ with a mutation probe in the store package (`PLAN.md §First three punches`).
 
 ## User-only powers
 
-Four things only the human can do, through the panel or CLI, never through a tool:
+What only the human can do, through the panel or CLI, never through a tool:
 
 - **Pause capture** — an `omarchy toggle`-style flag file, the `crash-capture-off`
   precedent. The daemon honours it on every write path.
@@ -358,6 +358,12 @@ Four things only the human can do, through the panel or CLI, never through a too
   root row only what is attributed to the root, not its child labels. The panel always passes
   the row's own cwd. A session touching several rows' files is attributed to each, so forgetting
   one row forgets that whole session.
+- **Dismiss an uncommitted-changes item** — `backstory dismiss <event-id>` hides This Week's
+  `uncommitted-at-session-end` item whose evidence is that `session.git_state` event, until a
+  newer session end in the same working tree replaces it. It is a setting (never-list item 5),
+  written only through the CLI: `store.DismissGitState` refuses any identity but the human's,
+  and no tool or socket method reaches it. It does not sync; the event it names never leaves
+  this device.
 - **Edit (supersede)** — `backstory edit <id>` writes a NEW human-declared record (same kind,
   project, about) with a `supersedes` edge to the old one, via `$VISUAL`/`$EDITOR`, `--file`,
   or `--stdin`. The old record is never updated (append-only); a deleted or already-superseded

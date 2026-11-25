@@ -11,6 +11,14 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 ## [Unreleased]
 
+### Added
+
+- Panel Needs you: a **Dismiss** button on an uncommitted-changes row hides it until a session in that folder next ends with uncommitted changes; a session that ends clean still clears it. The panel runs the new human-only `backstory dismiss <event-id>`, which takes the row's evidence id and refuses an id that is not what a row shows now. The dismissal stays on this computer, as the row does.
+
+### Fixed
+
+- Panel Needs you and `backstory this-week`: an uncommitted-changes row clears as soon as its folder is clean. Before, after you committed from the row's **Terminal**, the row stayed until that agent session ended, because the folder's state was read only at session end. Now each refresh looks at the folder again: clean, the row goes; still dirty, it stays with the count from the session's end; unreadable (the folder was deleted, or is no longer a git repo), it stays as before. A row from a paired computer is not looked at again.
+
 ## [1.3.4] - 2026-11-24
 
 ### Security

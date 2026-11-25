@@ -146,9 +146,21 @@ kind's with its slug (`codex: Codex hooks ...`).
   tree the wording has no suffix. A `could-not-observe` git-state event
   (the repo could not be read, or was not a git working tree) NEVER produces this item —
   `could-not-observe` is its own value, never folded into a count (`SCHEMA.md` invariant 7).
+  For a local tree (the item has a `cwd`), each build asks git about that tree once more, now:
+  observed clean now, there is no item (the changes were committed or stashed since the
+  session ended); still dirty, or could-not-observe now (the folder is gone or no longer a
+  repo), the item stays as recorded. The `reason` keeps the session-end count, not the current
+  one: it says what was true when the session ended. A paired device's or cwd-less slot is never
+  re-observed. One git status per dirty local tree per build, never per session.
   `evidence_ids` is the one `session.git_state` event id. `reason` is e.g. `vidflow: session
   ended with 17 uncommitted change(s) on branch master`; `cwd` names that working tree
-  (above).
+  (above). `backstory dismiss <event-id>` (human-only; the panel's Needs You **Dismiss**,
+  shown on every such item with a numeric evidence id) hides the item while that event is its
+  tree's latest observation: a newer dirty session end in the tree shows the item again (citing
+  the newer event), and a clean one clears it as before. `dismiss` refuses an id that is not a
+  `session.git_state` event, is already dismissed, or is not an item's evidence now. The
+  dismissal is a local setting and never syncs (timeline events never leave the device, so no
+  peer has this item).
 - `contradiction` — a `contradicts` edge into a record in this project, where the
   contradicting record was itself inserted this week. `evidence_ids` is the contradicting
   record's own evidence (the timeline event ids it cited — `AGENT-CONTRACT.md` §Outcomes:

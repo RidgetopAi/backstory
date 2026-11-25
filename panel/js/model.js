@@ -59,6 +59,16 @@ function attentionCwd(item) {
   var cwd = item.cwd
   return typeof cwd === "string" && /^\//.test(cwd) ? cwd : ""
 }
+// The session.git_state event id an uncommitted-at-session-end item cites:
+// what `backstory dismiss` takes. "" for every other kind, and unless the
+// item cites exactly one all-digit id, so no Dismiss shows without one.
+var ATTENTION_UNCOMMITTED = "uncommitted-at-session-end"
+function attentionGitStateEventId(item) {
+  var ids = attentionEvidenceIds(item)
+  if (item.kind !== ATTENTION_UNCOMMITTED || ids.length !== 1) return ""
+  var id = ids[0]
+  return typeof id === "string" && /^[0-9]+$/.test(id) ? id : ""
+}
 // sync-failing: cross-device sync is on and not syncing (project_key "sync",
 // evidence_ids the sync_attempts row ids). Not project evidence, so it has
 // no handoff to dismiss; it clears when a sync succeeds.

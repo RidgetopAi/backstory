@@ -137,7 +137,7 @@ func TestWindowAddressIsValidatedBeforeAnyHyprctlDispatch(t *testing.T) {
 }
 
 // TestFocusAndAgentCommandShapes pins the argv of every command task
-// fc1f340d added to js/launchers.js.
+// fc1f340d added to js/launchers.js, and of the Needs You write commands.
 func TestFocusAndAgentCommandShapes(t *testing.T) {
 	cases := []struct {
 		expr string
@@ -149,6 +149,10 @@ func TestFocusAndAgentCommandShapes(t *testing.T) {
 		{`defaultAgentCommand()`, []string{"omarchy-default-agent"}},
 		{`thisWeekCommand()`, []string{"backstory", "this-week", "--json", "--here", "auto"}},
 		{`agentPromptCommand("go")`, []string{"omarchy", "agent", "prompt", "go"}},
+		// The Needs You writes: each id is its own last argv element.
+		{`affirmCommand("h-1")`, []string{"backstory", "affirm", "h-1"}},
+		{`doneCommand("h-1")`, []string{"backstory", "done", "h-1"}},
+		{`dismissCommand("29689")`, []string{"backstory", "dismiss", "29689"}},
 	}
 	for _, c := range cases {
 		var got []string

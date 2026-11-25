@@ -170,7 +170,7 @@ CREATE TABLE edges (
 );
 
 CREATE TABLE settings (
-  key    TEXT PRIMARY KEY,                  -- reserved names (budget, capture_on, inference_model, retention_days, ...); V1 reads the SessionStart budget and capture pauses from here, and no command writes the budget
+  key    TEXT PRIMARY KEY,                  -- reserved names (budget, capture_on, inference_model, retention_days, ...); V1 reads the SessionStart budget and capture pauses from here, and no command writes the budget; `backstory dismiss` writes attention_dismissed_git_state.<event id> = that event's session id (human-only, never synced)
   value  TEXT NOT NULL
 );
 

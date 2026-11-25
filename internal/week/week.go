@@ -592,6 +592,10 @@ func projectHandoff(st *store.Store, projectKey string, sess store.Session, hasS
 // wording is unchanged. Events from sessions with no local tree (a paired
 // device's, or a cwd that is not absolute) share one unknown-tree slot with
 // no CWD.
+//
+// A dirty tree's item is dropped when the human dismissed its evidence event
+// (store.GitStateDismissed), or when the tree, asked again now, is observed
+// clean: one git.State per dirty local tree, never per session.
 func uncommittedSessionEndItems(st *store.Store, git project.Git, projectKey, label string, since time.Time, workspaces []string) ([]AttentionItem, error) {
 	events, err := st.EventsForTimeline(projectKey, since, payload.KindSessionGitState, 0)
 	if err != nil {
@@ -643,6 +647,26 @@ func uncommittedSessionEndItems(st *store.Store, git project.Git, projectKey, la
 		o := latest[tree]
 		if *o.gs.UncommittedCount <= 0 {
 			continue
+		}
+		// `backstory dismiss` hid this tree's item until a newer git state
+		// replaces this event as the tree's latest.
+		if dismissed, err := st.GitStateDismissed(o.event); err != nil {
+			return nil, fmt.Errorf("week: dismissal of git-state event %d: %w", o.event.ID, err)
+		} else if dismissed {
+			continue
+		}
+		// The event is what the tree looked like when that session ended;
+		// the changes may have been committed since (from the row's own
+		// Terminal, say). A local tree is asked once more, now: observed
+		// clean drops the item. Could-not-observe now (the folder is gone,
+		// or no longer a repo) keeps it, exactly as before — it is never
+		// read as clean (SCHEMA.md invariant 7). A peer's or cwd-less slot
+		// ("") names no local tree to ask. Still dirty keeps the wording:
+		// the item is about the session's end, which is when N was true.
+		if tree != "" && git != nil {
+			if now, ok := git.State(tree); ok && now.Uncommitted == 0 {
+				continue
+			}
 		}
 		reason := fmt.Sprintf("%s: session ended with %d uncommitted change(s)", label, *o.gs.UncommittedCount)
 		if o.gs.Branch != "" {

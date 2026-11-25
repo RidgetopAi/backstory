@@ -1076,7 +1076,88 @@ TestCase {
     open(payload(function (d) { d.attention = [uncommittedItem(row.cwd)] }))
     verify(hasText("bar: session ended with 17 uncommitted change(s) on branch master"), row.tag + ": " + JSON.stringify(texts()))
     compare(named("attentionTerminal"), null, row.tag + ": Terminal without an absolute cwd")
-    compare(named("attentionActions"), null, row.tag + ": an empty action column shows")
+    compare(uncommittedActionNames(), ["attentionDismissUncommitted"], row.tag + ": Dismiss alone, as it needs no folder")
+  }
+
+  // ---- Uncommitted-at-session-end row: Dismiss until the next dirty end (task 6d6888f8) ----
+  function uncommittedActionNames() {
+    return TestUtil.findAll(panel.testContentItem, function (n) {
+      return (n.objectName === "attentionTerminal" || n.objectName === "attentionDismissUncommitted") && n.visible
+    }).map(function (n) { return n.objectName })
+  }
+
+  function test_uncommitted_row_offers_dismiss_beside_terminal() {
+    open(payload(function (d) { d.attention = [uncommittedItem("/home/brian/bar")] }))
+    compare(uncommittedActionNames(), ["attentionTerminal", "attentionDismissUncommitted"])
+    var b = named("attentionDismissUncommitted")
+    compare(b.label, "Dismiss")
+    verify(b.enabled && b.activeFocusOnTab)
+    var tip = null
+    for (var j = 0; j < b.data.length; j++) if (b.data[j].objectName === "attentionDismissUncommittedTip") tip = b.data[j]
+    verify(tip !== null, "Dismiss has no tooltip")
+    compare(tip.text, "Hide this until a session in this folder ends with uncommitted changes again.")
+    compare(named("attentionDismiss"), null, "an uncommitted row offers Still right")
+  }
+
+  function test_uncommitted_row_without_one_numeric_evidence_id_has_no_dismiss_data() {
+    return [{ tag: "absent", ids: undefined }, { tag: "empty", ids: [] }, { tag: "not a number", ids: ["abc"] },
+      { tag: "two ids", ids: ["1", "2"] }]
+  }
+  function test_uncommitted_row_without_one_numeric_evidence_id_has_no_dismiss(row) {
+    var it = uncommittedItem("/home/brian/bar")
+    if (row.ids === undefined) delete it.evidence_ids
+    else it.evidence_ids = row.ids
+    open(payload(function (d) { d.attention = [it] }))
+    compare(named("attentionDismissUncommitted"), null, row.tag + ": Dismiss without an event id")
+    compare(uncommittedActionNames(), ["attentionTerminal"], row.tag)
+  }
+
+  // Dismiss runs `backstory dismiss <event-id>` for that row's event, then
+  // the panel refreshes and the row is gone.
+  function test_dismiss_runs_the_dismiss_command_and_refreshes() {
+    open(payload(function (d) { d.attention = [uncommittedItem("/home/brian/bar")] }))
+    ProcessController.reset()
+    ProcessController.respond(Launchers.thisWeekCommand(), { stdout: JSON.stringify(payload(function (d) { d.attention = [] })), stderr: "", exitCode: 0 })
+    act.clickWhenReady(function () { return named("attentionDismissUncommitted") }, { desc: "Dismiss" })
+    var want = JSON.stringify(Launchers.dismissCommand("29689"))
+    act.launchedNext(function (r) { return JSON.stringify(r.command) === want }, "dismiss")
+    compare(want, JSON.stringify(["backstory", "dismiss", "29689"]))
+    act.launchedNext(function (r) { return JSON.stringify(r.command) === JSON.stringify(Launchers.thisWeekCommand()) }, "refresh after dismiss")
+    tryCompare(panel.view, "loading", false, 2000)
+    act.settled(function () { return named("attentionDismissUncommitted") === null }, "the dismissed row stayed")
+    compare(ProcessController.runs.filter(function (r) { return r.command[1] === "affirm" || r.command[1] === "done" }).length, 0,
+      "Dismiss ran a handoff command")
+  }
+
+  // While Dismiss runs, it and the handoff row's runs are off (Terminal and
+  // Update stay on); a failure keeps the row and shows the CLI's message on
+  // THAT row only.
+  function test_failed_dismiss_shows_its_error_and_busy_actions_are_off() {
+    open(payload(function (d) {
+      d.attention = [staleWith(false, false), uncommittedItem("/home/brian/bar")]
+      d.where_left_off[0].project.project_key = "workspace:/w/projects"
+      d.where_left_off[0].project.handoff_id = "h-vid"
+    }))
+    var msg = "backstory dismiss: event 29689 is not what an uncommitted-changes item shows now"
+    ProcessController.respond(Launchers.dismissCommand("29689"), { held: true, stdout: "", stderr: msg, exitCode: 1 })
+    act.clickWhenReady(function () { return named("attentionDismissUncommitted") }, { desc: "Dismiss" })
+    act.settled(function () { return !named("attentionDismissUncommitted").enabled && !named("attentionDismiss").enabled && !named("attentionDone").enabled },
+      "the runs stayed on while dismiss ran")
+    verify(named("attentionTerminal").enabled, "Terminal went off while dismiss ran")
+    verify(named("attentionUpdate").enabled, "Update went off while dismiss ran")
+    var section = TestUtil.findFirst(panel.testContentItem, function (n) { return typeof n.dismissUncommitted === "function" })
+    section.dismissUncommitted("29689")
+    compare(ProcessController.runs.filter(function (r) { return r.command[1] === "dismiss" }).length, 1, "a second run started while busy")
+    ProcessController.release(Launchers.dismissCommand("29689"))
+    act.settled(function () { return named("attentionDismissUncommitted").enabled }, "Dismiss never came back on")
+    var errors = TestUtil.findAll(panel.testContentItem, function (n) { return n.objectName === "attentionError" && n.visible })
+    compare(errors.length, 1, "the error showed on " + errors.length + " rows")
+    compare(errors[0].text, msg)
+    var rows = TestUtil.findAll(panel.testContentItem, function (n) { return n.objectName === "attentionRow" })
+    compare(rows.length, 2, "a row went away after a failed Dismiss")
+    var owner = errors[0]
+    while (owner && owner.objectName !== "attentionRow") owner = owner.parent
+    compare(owner.eventId, "29689", "the error is not on the dismissed row")
   }
 
   // Terminal starts no run of its own, so a Still right running on another

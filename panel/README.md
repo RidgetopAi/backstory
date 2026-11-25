@@ -11,7 +11,9 @@ opens the store directly (PLAN.md §Phase 4 "Human look", decision
 
 - **Attention** — rendered only when the JSON's `attention` array is
   non-empty (an empty array is itself "nothing to flag this week", not an
-  absent section).
+  absent section). Its writes go through the CLI: `backstory affirm <id>`
+  (Still right) and `backstory done <id>` on a stale handoff,
+  `backstory dismiss <event-id>` (Dismiss) on an uncommitted-changes row.
 - **Where you left off** — one row per project, most recently active
   first. Click a row to open a
   terminal at that project's `cwd` (`xdg-terminal-exec -- sh -c 'cd "$1"

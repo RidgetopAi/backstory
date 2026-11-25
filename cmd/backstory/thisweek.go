@@ -51,15 +51,14 @@ func runThisWeek(args []string, stdout, stderr io.Writer) int {
 	}
 	defer func() { _ = st.Close() }()
 
-	// Resolved once here, at the process entry, never inside internal/week
-	// (task 482b2320, decision f3fa04c7's clause 7).
-	workspaceDirs := resolveWorkspaceDirs()
-	projectRoots := project.DefaultProjectRoots()
 	// One cache for the whole run: Build, here and windows resolve the same
 	// folders many times, and each RealGit.Repo runs four git commands.
 	git := project.NewCachedGit(project.RealGit{})
+	params := thisWeekParams(st, git)
+	workspaceDirs, projectRoots := params.WorkspaceDirs, params.ProjectRoots
+	params.ExtraAttention = append(append(codexApprovalAttention(), syncFailingAttention(st, thisWeekNow())...), backupFailingAttention(st, thisWeekNow())...)
 
-	result, err := week.Build(week.Params{Store: st, Git: git, WorkspaceDirs: workspaceDirs, ProjectRoots: projectRoots, Locations: thisWeekLocations(), Now: thisWeekNow(), ExtraAttention: append(append(codexApprovalAttention(), syncFailingAttention(st, thisWeekNow())...), backupFailingAttention(st, thisWeekNow())...)})
+	result, err := week.Build(params)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "backstory this-week:", err)
 		return 1
@@ -94,6 +93,17 @@ func runThisWeek(args []string, stdout, stderr io.Writer) int {
 		return printThisWeekJSON(stdout, result, here, windows)
 	}
 	return printThisWeekText(stdout, result)
+}
+
+// thisWeekParams is the store-backed half of every This Week build: what
+// `this-week` renders and what `dismiss` checks its event against, so both
+// see the same items. Workspace dirs and project roots are resolved here, at
+// the process entry, never inside internal/week (task 482b2320, decision
+// f3fa04c7's clause 7). ExtraAttention (machine state, not store evidence)
+// is the caller's.
+func thisWeekParams(st *store.Store, git project.Git) week.Params {
+	return week.Params{Store: st, Git: git, WorkspaceDirs: resolveWorkspaceDirs(), ProjectRoots: project.DefaultProjectRoots(),
+		Locations: thisWeekLocations(), Now: thisWeekNow()}
 }
 
 // attentionItemJSON is one item in `backstory this-week --json`'s
