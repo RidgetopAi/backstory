@@ -241,3 +241,20 @@ function hereSourceHint(source) {
   if (source === "recent") return "most recent project"
   return ""
 }
+
+// The one line a failed Needs You run (affirm, done, dismiss) shows on its
+// row: the first non-empty line of the CLI's stderr, never the whole of it
+// (an older CLI answers a verb it lacks with exit 2, `unknown command` and
+// its full usage). That case gets its own line naming the update to make.
+// With nothing on stderr, the exit code.
+function cliErrorLine(verb, exitCode, stderrText) {
+  var text = typeof stderrText === "string" ? stderrText : ""
+  if (exitCode === 2 && text.indexOf("unknown command") >= 0)
+    return "update backstory: this panel needs a newer CLI (" + verb + ")"
+  var lines = text.split("\n")
+  for (var i = 0; i < lines.length; i++) {
+    var line = lines[i].trim()
+    if (line !== "") return line
+  }
+  return "backstory " + verb + " exited " + exitCode
+}

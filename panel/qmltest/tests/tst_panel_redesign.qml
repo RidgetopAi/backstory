@@ -1175,6 +1175,85 @@ TestCase {
     ProcessController.release(Launchers.affirmCommand("h-vid"))
   }
 
+  // ---- A failed Needs You run shows ONE line (task 6d6888f8 nit 1) ----
+  // Each verb's button, the argv it runs, on a row that offers it.
+  function failingRun(verb) {
+    if (verb === "dismiss") return { button: "attentionDismissUncommitted", command: Launchers.dismissCommand("29689") }
+    if (verb === "done") return { button: "attentionDone", command: Launchers.doneCommand("h-vid") }
+    return { button: "attentionDismiss", command: Launchers.affirmCommand("h-vid") }
+  }
+  function openBothRows() {
+    open(payload(function (d) {
+      d.attention = [staleWith(false, false), uncommittedItem("/home/brian/bar")]
+      d.where_left_off[0].project.project_key = "workspace:/w/projects"
+      d.where_left_off[0].project.handoff_id = "h-vid"
+    }))
+  }
+  function visibleErrors() {
+    return TestUtil.findAll(panel.testContentItem, function (n) { return n.objectName === "attentionError" && n.visible })
+  }
+
+  function test_failed_run_shows_one_line_data() {
+    var usage = "\nusage: backstory <command>\n\ncommands:\n  version    print the build version\n  daemon     run the memory daemon\n"
+    var rows = []
+    var verbs = ["affirm", "done", "dismiss"]
+    for (var i = 0; i < verbs.length; i++) {
+      var v = verbs[i]
+      rows.push({ tag: v + " first line", verb: v, exitCode: 1, stderr: "\n  backstory " + v + ": store is locked  \nsecond line\nthird line\n",
+        want: "backstory " + v + ": store is locked" })
+      rows.push({ tag: v + " older CLI", verb: v, exitCode: 2, stderr: "backstory: unknown command \"" + v + "\"\n" + usage,
+        want: "update backstory: this panel needs a newer CLI (" + v + ")" })
+      rows.push({ tag: v + " no stderr", verb: v, exitCode: 3, stderr: "", want: "backstory " + v + " exited 3" })
+    }
+    // A usage error (exit 2) that is not an unknown command is shown as is.
+    rows.push({ tag: "dismiss usage", verb: "dismiss", exitCode: 2, stderr: "backstory dismiss: usage: backstory dismiss <event-id>\n",
+      want: "backstory dismiss: usage: backstory dismiss <event-id>" })
+    return rows
+  }
+  function test_failed_run_shows_one_line(row) {
+    openBothRows()
+    var run = failingRun(row.verb)
+    ProcessController.respond(run.command, { stdout: "", stderr: row.stderr, exitCode: row.exitCode })
+    act.clickWhenReady(function () { return named(run.button) }, { desc: row.tag })
+    act.settled(function () { return visibleErrors().length === 1 }, row.tag + ": no error showed")
+    compare(visibleErrors()[0].text, row.want, row.tag)
+  }
+
+  // ---- A failed Dismiss re-reads the list (task 6d6888f8 nit 2) ----
+  // The error stays on the row while the same event is still its evidence;
+  // a row that now cites a newer event is new evidence and shows no error.
+  function test_failed_dismiss_refreshes_data() {
+    return [{ tag: "same event", ids: ["29689"], errorShown: true },
+      { tag: "newer event", ids: ["29701"], errorShown: false }]
+  }
+  function test_failed_dismiss_refreshes(row) {
+    open(payload(function (d) { d.attention = [uncommittedItem("/home/brian/bar")] }))
+    ProcessController.reset()
+    var refreshed = uncommittedItem("/home/brian/bar")
+    refreshed.evidence_ids = row.ids
+    refreshed.reason = "bar: session ended with 3 uncommitted change(s) on branch master"
+    ProcessController.respond(Launchers.thisWeekCommand(), { stdout: JSON.stringify(payload(function (d) { d.attention = [refreshed] })), stderr: "", exitCode: 0 })
+    ProcessController.respond(Launchers.dismissCommand("29689"), { stdout: "", stderr: "backstory dismiss: event 29689 is not what an uncommitted-changes item shows now\n", exitCode: 1 })
+    act.clickWhenReady(function () { return named("attentionDismissUncommitted") }, { desc: "Dismiss" })
+    act.launchedNext(function (r) { return JSON.stringify(r.command) === JSON.stringify(Launchers.thisWeekCommand()) }, row.tag + ": refresh after a failed dismiss")
+    tryCompare(panel.view, "loading", false, 2000)
+    act.settled(function () { return hasText("bar: session ended with 3 uncommitted change(s) on branch master") }, row.tag + ": the list was not re-read")
+    compare(named("attentionRow").eventId, row.ids[0], row.tag)
+    compare(visibleErrors().length, row.errorShown ? 1 : 0, row.tag + ": error rows")
+    if (row.errorShown) compare(visibleErrors()[0].text, "backstory dismiss: event 29689 is not what an uncommitted-changes item shows now")
+  }
+
+  // A failed Done still does not re-read the list (only Dismiss's row can
+  // have gone stale under it in a way the next refresh would show).
+  function test_failed_done_does_not_refresh() {
+    openStale(staleWith(false, false))
+    ProcessController.reset()
+    ProcessController.respond(Launchers.doneCommand("h-vid"), { stdout: "", stderr: "backstory done: store is locked", exitCode: 1 })
+    act.clickWhenReady(function () { return named("attentionDone") }, { desc: "Done" })
+    act.settled(function () { return visibleErrors().length === 1 }, "no error showed")
+    compare(ProcessController.runs.filter(function (r) { return r.command[1] === "this-week" }).length, 0, "a failed Done refreshed")
+  }
+
   // The handoff id is copied only when the agent launch failed to start, not
   // when an agent that started later exits non-zero.
   function test_handoff_id_is_copied_only_when_the_agent_failed_to_start() {

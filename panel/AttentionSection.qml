@@ -20,7 +20,10 @@ Column {
 
   // Emitted once `backstory affirm <handoff-id>`, `done <handoff-id>` or
   // `dismiss <event-id>` has run, so the host can refresh and the item
-  // disappears.
+  // disappears — and after a FAILED dismiss too: the row may be stale (a
+  // newer session ended in that folder, or it is clean now), so the list is
+  // re-read and the error stays on the row if the same event is still its
+  // evidence. A row now citing a newer event is new evidence and shows none.
   signal dismissed()
 
   // Update on a stale-handoff row: the host opens an agent in the project's
@@ -75,14 +78,16 @@ Column {
   }
 
   // A run that worked refreshes (the item goes); one that failed keeps the
-  // item and shows the CLI's message on its row (key: root.rowKey).
+  // item and shows the CLI's first error line on its row (key:
+  // root.rowKey; Format.cliErrorLine). A failed dismiss refreshes as well.
   function finished(key, exitCode, stderrText, verb) {
     if (exitCode === 0) {
       root.dismissed()
       return
     }
     root.errorKey = key
-    root.errorText = stderrText.length > 0 ? stderrText : ("backstory " + verb + " exited " + exitCode)
+    root.errorText = Format.cliErrorLine(verb, exitCode, stderrText)
+    if (verb === "dismiss") root.dismissed()
   }
 
   Process {

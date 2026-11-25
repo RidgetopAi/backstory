@@ -18,6 +18,7 @@ See `RELEASING.md` for the release flow and its approval gates.
 ### Fixed
 
 - Panel Needs you and `backstory this-week`: an uncommitted-changes row clears as soon as its folder is clean. Before, after you committed from the row's **Terminal**, the row stayed until that agent session ended, because the folder's state was read only at session end. Now each refresh looks at the folder again: clean, the row goes; still dirty, it stays with the count from the session's end; unreadable (the folder was deleted, or is no longer a git repo), it stays as before. A row from a paired computer is not looked at again.
+- Panel Needs you: a failed **Still right**, **Done** or **Dismiss** shows one line on its row, the first line of the CLI's error, instead of all of it. When the installed `backstory` is too old to know the command, the row says "update backstory: this panel needs a newer CLI (dismiss)" (or affirm, or done) rather than the CLI's full usage. A failed **Dismiss** also refreshes the list, since the row may be out of date (a newer session ended there, or the folder is clean now); the error stays on the row while it is about the same session end.
 
 ## [1.3.4] - 2026-11-24
 
