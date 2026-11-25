@@ -5,11 +5,13 @@ follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versions
 are [Semantic Versioning](https://semver.org/) (`vMAJOR.MINOR.PATCH`).
 
 v1.0.0 was cut on 2026-10-06 (decision `2deb6c91`, superseding `262cf929`), v1.1.0 on 2026-10-19,
-v1.2.0 on 2026-10-31, v1.3.0 on 2026-11-08, v1.3.1 on 2026-11-09, v1.3.2 on 2026-11-11, v1.3.3 on 2026-11-23 and v1.3.4 on 2026-11-24 on the same terms. The measurement on a machine that is not
+v1.2.0 on 2026-10-31, v1.3.0 on 2026-11-08, v1.3.1 on 2026-11-09, v1.3.2 on 2026-11-11, v1.3.3 on 2026-11-23, v1.3.4 on 2026-11-24 and v1.3.5 on 2026-11-25 on the same terms. The measurement on a machine that is not
 Brian's now gates the AUR push and the marketplace submission rather than the tag.
 See `RELEASING.md` for the release flow and its approval gates.
 
 ## [Unreleased]
+
+## [1.3.5] - 2026-11-25
 
 ### Added
 
