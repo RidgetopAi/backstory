@@ -18,7 +18,7 @@ type agentEnvMarker struct {
 }
 
 // agentSessionEnv is the named table eraseConfirmation reads to decide that
-// `backstory purge` / `backstory delete` is running inside an agent session
+// `backstory purge` / `delete` / `restore` is running inside an agent session
 // (task 4803bf95). Order is only the order the refusal names the first hit.
 //
 // It is a speed bump against an agent erasing memory through its own shell,
@@ -53,7 +53,7 @@ func agentSession(getenv func(string) string) (agentEnvMarker, bool) {
 // open; the pty tests drive the real /dev/tty.
 var controllingTTYPath = "/dev/tty"
 
-// eraseConfirmation decides whether purge/delete (verb) may go ahead and,
+// eraseConfirmation decides whether purge/delete/restore (verb) may go ahead and,
 // when a question must be asked, where it is asked:
 //
 //   - outside an agent session: --yes goes ahead with no question (the
@@ -97,15 +97,20 @@ type confirmer struct {
 	out io.Writer
 }
 
-// yesNo prints question and reads one answer. Only a bare "y" or "Y"
-// (surrounding whitespace trimmed) counts as consent; EOF, an empty line, or
-// anything else refuses.
-func (c *confirmer) yesNo(question string) bool {
+// answer prints question and reads one line, surrounding whitespace
+// trimmed; EOF reads as the empty answer.
+func (c *confirmer) answer(question string) string {
 	_, _ = fmt.Fprint(c.out, question)
 	scanner := bufio.NewScanner(c.in)
 	if !scanner.Scan() {
-		return false
+		return ""
 	}
-	answer := strings.TrimSpace(scanner.Text())
-	return answer == "y" || answer == "Y"
+	return strings.TrimSpace(scanner.Text())
+}
+
+// yesNo is answer where only a bare "y" or "Y" counts as consent; EOF, an
+// empty line, or anything else refuses.
+func (c *confirmer) yesNo(question string) bool {
+	a := c.answer(question)
+	return a == "y" || a == "Y"
 }

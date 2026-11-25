@@ -341,15 +341,15 @@ What "human-only" enforces, exactly:
   path: the daemon resolves every socket and MCP caller from `SO_PEERCRED` and `/proc`, which
   never yields it, and no tool or socket method reaches these methods at all.
 - **Not against a shell.** "Human" means "came through the `backstory` CLI". An agent's own
-  shell tool can run the CLI too, so `backstory affirm`, `done`, `dismiss`, `edit`, `link`
-  and `restore --yes` run from an agent's shell exactly as from yours.
-- **`delete` and `purge` ask you on the terminal inside an agent session.** When the
+  shell tool can run the CLI too, so `backstory affirm`, `done`, `dismiss`, `edit` and `link`
+  run from an agent's shell exactly as from yours.
+- **`delete`, `purge` and `restore` ask you on the terminal inside an agent session.** When the
   environment carries a variable an agent harness sets on its shell (the table
   `agentSessionEnv` in `cmd/backstory/humanconfirm.go`: Claude Code, Codex, Hermes, pi,
   opencode, and `AI_AGENT`), `--yes` is refused and the y/N question is read from the
   controlling terminal (`/dev/tty`), never stdin, so `yes | backstory purge …` does not answer
   it; with no controlling terminal (an agent's tool shell has none) the command refuses.
-  `--dry-run` always runs. Outside an agent session nothing changes: `--yes` goes ahead (the
+  `purge --dry-run` always runs. Outside an agent session nothing changes: `--yes` goes ahead (the
   panel's buttons) and a terminal gets the question. This is a speed bump against an agent
   erasing memory by accident or on an injected instruction, not a boundary: a process that
   unsets those variables, or gives the command a pseudo-terminal it types into (`script`),

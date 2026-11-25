@@ -13,9 +13,9 @@ import (
 // attributed to: the CLI's direct, trusted path (internal/ident.KindHuman's
 // doc comment) is the only route to store.IdentityHuman, since the socket
 // resolver's SO_PEERCRED + /proc walk never produces it. "Human" here means
-// "came through the CLI", which an agent's own shell can also run; delete
-// and purge additionally pass eraseConfirmation (humanconfirm.go), which
-// asks on the terminal inside an agent session.
+// "came through the CLI", which an agent's own shell can also run; delete,
+// purge and restore additionally pass eraseConfirmation (humanconfirm.go),
+// which asks on the terminal inside an agent session.
 var humanIdentity = store.Identity{Kind: store.IdentityHuman, Actor: "human"}
 
 // runDelete is the `backstory delete <id> [--yes]` subcommand. It opens the

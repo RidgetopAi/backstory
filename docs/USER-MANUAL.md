@@ -291,8 +291,8 @@ you're in unless you pass `--project KEY`. `backstory projects` lists the keys.
 
 **Read-only** commands only look and never change anything. **Human-only** commands are ones
 no agent can run on your behalf through Backstory's tools. An agent's own shell can still run
-the `backstory` command, so `delete` and `purge` run from an agent's shell ask you in a
-terminal instead (see [delete](#delete)).
+the `backstory` command, so `delete`, `purge` and `restore` run from an agent's shell ask you
+in a terminal instead (see [delete](#delete)).
 
 ### At a glance
 
@@ -440,11 +440,11 @@ backstory delete 3947dcca --yes    # no question
 ```
 
 Run from inside an agent's shell (Claude Code, Codex, Hermes, pi or opencode, told apart by the
-variables they set), `delete` and `purge` ignore `--yes` and ask on the terminal itself, not
+variables they set), `delete`, `purge` and `restore` ignore `--yes` and ask on the terminal itself, not
 on their input, so piping `yes` into them does not answer. An agent's shell has no terminal,
 so there they refuse with "must be confirmed by you in a terminal; run it yourself outside the
 agent". The panel's buttons and a terminal of your own are not agent shells and work as
-before. `--dry-run` always works. This stops an agent erasing memory by mistake or because a
+before. `purge --dry-run` always works. This stops an agent erasing memory by mistake or because a
 web page told it to; it does not stop an agent that sets out to get around it.
 
 ### affirm
@@ -710,7 +710,8 @@ the panel show "automatic backups are failing: last ok ..." under NEEDS YOU.
 Replaces your memory with a backup made by `backstory backup`. It checks the backup first (it
 must be a Backstory database, pass SQLite's integrity check, and not come from a newer
 Backstory) and changes nothing if it does not. It shows what the backup holds next to what you
-have now and asks before going on; with no terminal it refuses unless you pass `--yes`.
+have now and asks before going on; with no terminal it refuses unless you pass `--yes`. Inside
+an agent's shell `--yes` is ignored and it asks on the terminal (see [delete](#delete)).
 
 ```
 backstory restore ~/safe/mem.db        # asks first
@@ -807,7 +808,7 @@ purge here is forgotten on them at the next sync, and a sync can never bring it 
 
 **Agents can't erase your memory through Backstory's tools.** Only you can delete, edit, purge
 or pause. The tools agents get can add records but never remove them. An agent that runs
-`backstory delete` or `backstory purge` in its own shell is asked to have you confirm in a
+`backstory delete`, `purge` or `restore` in its own shell is asked to have you confirm in a
 terminal, and refuses where there is none.
 
 ---

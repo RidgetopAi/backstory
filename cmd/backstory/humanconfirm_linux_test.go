@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"testing"
 	"unsafe"
+
+	"github.com/RidgetopAi/backstory/internal/store"
 )
 
 // The tests in this file run the built binary as a subprocess (the shipped
@@ -229,5 +231,77 @@ func TestEraseInsideAgentSession(t *testing.T) {
 			t.Fatalf("purge: exit %d stderr %q, want the panel's purge --yes to work", r.code, r.stderr)
 		}
 		wantSessionEvents(t, f, 0)
+	})
+}
+
+// TestRestoreInsideAgentSession: restore replaces the whole store, so it
+// passes the same gate as purge and delete. The store is the seeded one plus
+// two records; the backup is the seeded one, so "replaced" and "untouched"
+// are told apart by the counts.
+func TestRestoreInsideAgentSession(t *testing.T) {
+	bin := buildBackstory(t)
+
+	setup := func(t *testing.T) (f *restoreFixture, bak string, before, backupCounts store.BackupInfo, env []string) {
+		f = newRestoreFixture(t) // t.Setenv: XDG_DATA_HOME, XDG_RUNTIME_DIR, PATH with a recording systemctl stub
+		seedBackupStore(t, f.dbPath)
+		bak = f.backup("b.db")
+		backupCounts = f.count()
+		seedDeletableRecord(t, f.dbPath, "proj-restore-agent", "written after the backup")
+		seedDeletableRecord(t, f.dbPath, "proj-restore-agent", "also after the backup")
+		before = f.count()
+		if sameCounts(before, backupCounts) {
+			t.Fatal("fixture: store did not change after the backup")
+		}
+		return f, bak, before, backupCounts, append(os.Environ(), "CLAUDECODE=1")
+	}
+
+	t.Run("--yes with no tty is refused and the store is untouched", func(t *testing.T) {
+		f, bak, before, _, env := setup(t)
+		r := runErase(t, bin, env, bytes.NewReader(nil), "", "restore", bak, "--yes")
+		if r.code == 0 || !strings.Contains(r.stderr, "--yes is refused inside an agent session") || !strings.Contains(r.stderr, noTTYRefusal) {
+			t.Fatalf("exit %d stderr %q, want the --yes and no-terminal refusals", r.code, r.stderr)
+		}
+		if got := f.count(); !sameCounts(got, before) {
+			t.Fatalf("store counts %+v after a refused restore, want %+v", got, before)
+		}
+		if kept := f.preRestore(); len(kept) != 0 || len(f.calls()) != 0 {
+			t.Fatalf("refused restore left pre-restore copies %v / service calls %v", kept, f.calls())
+		}
+	})
+
+	t.Run("y on the controlling terminal proceeds; stdin is not read", func(t *testing.T) {
+		f, bak, _, backupCounts, env := setup(t)
+		r := runErase(t, bin, env, strings.NewReader("n\n"), "y\n", "restore", bak, "--yes")
+		if r.code != 0 {
+			t.Fatalf("exit %d stderr %q tty %q, want the tty's y to restore", r.code, r.stderr, r.tty)
+		}
+		if !strings.Contains(r.tty, "backup:  ") || !strings.Contains(r.tty, "Replace the current store with this backup? [y/N]") {
+			t.Errorf("tty %q lacks the summary and the question", r.tty)
+		}
+		if got := f.count(); !sameCounts(got, backupCounts) {
+			t.Fatalf("store counts %+v after a confirmed restore, want the backup's %+v", got, backupCounts)
+		}
+	})
+
+	t.Run("n on the controlling terminal aborts even with y on stdin", func(t *testing.T) {
+		f, bak, before, _, env := setup(t)
+		r := runErase(t, bin, env, strings.NewReader("y\n"), "n\n", "restore", bak)
+		if r.code == 0 || !strings.Contains(r.stdout, "aborted") {
+			t.Fatalf("exit %d stdout %q, want aborted", r.code, r.stdout)
+		}
+		if got := f.count(); !sameCounts(got, before) {
+			t.Fatalf("store counts %+v after an aborted restore, want %+v", got, before)
+		}
+	})
+
+	t.Run("outside an agent session --yes with no tty works", func(t *testing.T) {
+		f, bak, _, backupCounts, env := setup(t)
+		r := runErase(t, bin, envWithout(env, "CLAUDECODE"), bytes.NewReader(nil), "", "restore", bak, "--yes")
+		if r.code != 0 {
+			t.Fatalf("exit %d stderr %q, want restore --yes to work outside an agent session", r.code, r.stderr)
+		}
+		if got := f.count(); !sameCounts(got, backupCounts) {
+			t.Fatalf("store counts %+v, want the backup's %+v", got, backupCounts)
+		}
 	})
 }

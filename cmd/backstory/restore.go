@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"errors"
 	"flag"
 	"fmt"
@@ -98,19 +97,26 @@ func runRestore(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		current = &c
 	}
 
-	_, _ = fmt.Fprintf(stdout, "backup:  %s\n", describeStore(backup))
+	summary := "backup:  " + describeStore(backup) + "\n"
 	if current != nil {
-		_, _ = fmt.Fprintf(stdout, "current: %s\n", describeStore(*current))
+		summary += "current: " + describeStore(*current) + "\n"
 	} else {
-		_, _ = fmt.Fprintln(stdout, "current: no store")
+		summary += "current: no store\n"
 	}
-	if !*yes {
-		if !isTerminal(stdin) {
-			return fail("refusing to restore without --yes on a non-interactive session")
+	_, _ = fmt.Fprint(stdout, summary)
+	// Replacing the whole store is the most destructive verb there is, so it
+	// passes the same gate as purge and delete: inside an agent session
+	// --yes is refused and the question is asked on the terminal.
+	ask, ok, closeTTY := eraseConfirmation("restore", *yes, os.Getenv, stdin, stdout, stderr)
+	defer closeTTY()
+	if !ok {
+		return 1
+	}
+	if ask != nil {
+		if ask.out != stdout {
+			_, _ = fmt.Fprint(ask.out, summary)
 		}
-		_, _ = fmt.Fprint(stdout, "Replace the current store with this backup? [y/N] ")
-		line, _ := bufio.NewReader(stdin).ReadString('\n')
-		if a := strings.ToLower(strings.TrimSpace(line)); a != "y" && a != "yes" {
+		if a := strings.ToLower(ask.answer("Replace the current store with this backup? [y/N] ")); a != "y" && a != "yes" {
 			_, _ = fmt.Fprintln(stdout, "aborted")
 			return 1
 		}
