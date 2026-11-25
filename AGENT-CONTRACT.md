@@ -328,11 +328,32 @@ with a mutation probe in the store package (`PLAN.md §First three punches`).
    ledger is permanent while Claude sweeps transcripts after 30 days — Backstory would
    otherwise extend the life of everything in a transcript indefinitely.
 8. **Never read another user's store.** Moot on a single-user laptop; kept moot by design.
-9. **A synced record is imported only by the human-run sync from a paired device; no tool imports.** The socket API has no import method and no agent tool touches the change feed; `store.ImportSyncChanges` refuses any identity but the human's. A synced record keeps the tier and `origin_device` it was written with, and a tombstoned record crosses with no text.
+9. **A synced record is imported only by the human-run sync from a paired device; no tool imports.** The socket API has no import method and no agent tool touches the change feed; `store.ImportSyncChanges` refuses any identity but the human's (the CLI's; see §User-only powers for what that does and does not stop). A synced record keeps the tier and `origin_device` it was written with, and a tombstoned record crosses with no text.
 
 ## User-only powers
 
-What only the human can do, through the panel or CLI, never through a tool:
+What only the human can do, through the panel or CLI, never through a tool.
+
+What "human-only" enforces, exactly:
+
+- **Against tools, by identity.** The store methods behind these powers refuse any identity
+  but the human's, and the human identity is reachable only from the CLI's own direct store
+  path: the daemon resolves every socket and MCP caller from `SO_PEERCRED` and `/proc`, which
+  never yields it, and no tool or socket method reaches these methods at all.
+- **Not against a shell.** "Human" means "came through the `backstory` CLI". An agent's own
+  shell tool can run the CLI too, so `backstory affirm`, `done`, `dismiss`, `edit`, `link`
+  and `restore --yes` run from an agent's shell exactly as from yours.
+- **`delete` and `purge` ask you on the terminal inside an agent session.** When the
+  environment carries a variable an agent harness sets on its shell (the table
+  `agentSessionEnv` in `cmd/backstory/humanconfirm.go`: Claude Code, Codex, Hermes, pi,
+  opencode, and `AI_AGENT`), `--yes` is refused and the y/N question is read from the
+  controlling terminal (`/dev/tty`), never stdin, so `yes | backstory purge …` does not answer
+  it; with no controlling terminal (an agent's tool shell has none) the command refuses.
+  `--dry-run` always runs. Outside an agent session nothing changes: `--yes` goes ahead (the
+  panel's buttons) and a terminal gets the question. This is a speed bump against an agent
+  erasing memory by accident or on an injected instruction, not a boundary: a process that
+  unsets those variables, or gives the command a pseudo-terminal it types into (`script`),
+  gets past it.
 
 - **Pause capture** — an `omarchy toggle`-style flag file, the `crash-capture-off`
   precedent. The daemon honours it on every write path.
@@ -345,7 +366,8 @@ What only the human can do, through the panel or CLI, never through a tool:
   `purged_at` so backfill never re-imports it, every non-tombstoned in-scope record with
   `ts` in the window is tombstoned and text-scrubbed (the human Delete's own path, same
   transaction), and a counts-only `purge_log` row (sessions, events, records) is written. A
-  `--session` purge forgets no records. Refuses without `--yes` on a non-TTY. No tool or socket
+  `--session` purge forgets no records. Refuses without `--yes` on a non-TTY, and inside an agent session asks on the
+  terminal whatever the flags (above). No tool or socket
   call can purge. `--dry-run` (and the interactive prompt) also lists the Backstory backups the
   purge deletes and the paired devices it reaches. Forgetting reaches paired machines at the next sync: a delete or purge
   tombstones the records (imported ones too) and stamps the sessions on every peer, and a
@@ -361,7 +383,7 @@ What only the human can do, through the panel or CLI, never through a tool:
 - **Dismiss an uncommitted-changes item** — `backstory dismiss <event-id>` hides This Week's
   `uncommitted-at-session-end` item whose evidence is that `session.git_state` event, until a
   newer session end in the same working tree replaces it. It is a setting (never-list item 5),
-  written only through the CLI: `store.DismissGitState` refuses any identity but the human's,
+  written only through the CLI: `store.DismissGitState` refuses any identity but the human's (the CLI's),
   and no tool or socket method reaches it. It does not sync; the event it names never leaves
   this device.
 - **Edit (supersede)** — `backstory edit <id>` writes a NEW human-declared record (same kind,

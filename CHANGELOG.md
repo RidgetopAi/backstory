@@ -11,6 +11,10 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 ## [Unreleased]
 
+### Security
+
+- `backstory delete` and `backstory purge` run from inside an agent's shell no longer go ahead on `--yes`. Before, "human-only" meant only that Backstory's agent tools could not delete or purge; an agent could run `backstory purge … --yes` in its own shell (its Bash tool) and erase your memory with no question asked. Now, when the environment carries a variable an agent harness sets on its shell (Claude Code's `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT` and `AI_AGENT`; Codex's `CODEX_SANDBOX`, `CODEX_SANDBOX_NETWORK_DISABLED` and `CODEX_THREAD_ID`; Hermes's `HERMES_SESSION_ID`; pi's `PI_CODING_AGENT` and `AI_AGENT`; opencode's `OPENCODE`), `--yes` is refused and the y/N question is asked on the terminal (`/dev/tty`), not read from input, so `yes | backstory purge …` does not answer it. With no terminal, which is the case in an agent's shell, the command refuses: "purge must be confirmed by you in a terminal; run it yourself outside the agent". `--dry-run` always runs. Outside an agent's shell nothing changes: the panel's **Forget** and **Delete** still run with `--yes`, and a terminal of yours still gets the question. It stops an agent erasing memory by mistake or on an injected instruction; an agent that unsets those variables or types into a pseudo-terminal it made gets past it. `AGENT-CONTRACT.md` now says exactly what "human-only" enforces: `affirm`, `done`, `dismiss` and the other human-only commands stay callable from an agent's shell.
+
 ## [1.3.5] - 2026-11-25
 
 ### Added

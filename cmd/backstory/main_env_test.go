@@ -70,9 +70,16 @@ var sandboxEnvVars = []string{"HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CO
 // developer's own setting; tests that want roots set them explicitly. It also
 // points HOME and every XDG_* base dir at a per-run temp dir, so no test in
 // this package can open the developer's real store (GitHub issue #2). Tests
-// that set their own dirs keep working: they override these.
+// that set their own dirs keep working: they override these. Every
+// agentSessionEnv variable is cleared too: `go test` is often run from an
+// agent's shell, and a purge/delete (in-process or a subprocess) that
+// inherited one would be inside an agent session (humanconfirm.go). A test
+// that wants one sets it itself, as humanconfirm_linux_test.go does.
 func TestMain(m *testing.M) {
 	_ = os.Unsetenv("BACKSTORY_PROJECT_ROOTS")
+	for _, marker := range agentSessionEnv {
+		_ = os.Unsetenv(marker.Var)
+	}
 	goEnv, err := resolveGoEnv()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "TestMain: resolve real go caches:", err)

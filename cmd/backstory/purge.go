@@ -1,11 +1,10 @@
 package main
 
 import (
-	"bufio"
 	"flag"
 	"fmt"
 	"io"
-	"strings"
+	"os"
 	"time"
 
 	"github.com/RidgetopAi/backstory/internal/project"
@@ -17,7 +16,8 @@ import (
 // [--until T] [--location DIR]) [--dry-run] [--yes]` (decision 02c511b3 D4): the human erases
 // captured activity by whole session. Like `delete` it opens the store
 // directly — PurgeSessions is a human-only power the socket API never
-// reaches (AGENT-CONTRACT.md §User-only powers).
+// reaches (AGENT-CONTRACT.md §User-only powers). --dry-run is read-only
+// and always runs; a real purge passes eraseConfirmation, as delete does.
 func runPurge(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("purge", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -125,22 +125,17 @@ func runPurge(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 0
 	}
 
-	if !*yes {
-		if !isTerminal(stdin) {
-			_, _ = fmt.Fprintln(stderr, "backstory purge: refusing to purge without --yes on a non-interactive session")
-			return 1
-		}
+	ask, ok, closeTTY := eraseConfirmation("purge", *yes, os.Getenv, stdin, stdout, stderr)
+	defer closeTTY()
+	if !ok {
+		return 1
+	}
+	if ask != nil {
 		if !nothing {
-			printPurgeBackups(stdout, backups)
-			printAlsoForgotten(st, stdout, stderr)
+			printPurgeBackups(ask.out, backups)
+			printAlsoForgotten(st, ask.out, stderr)
 		}
-		_, _ = fmt.Fprintf(stdout, "purge %d sessions, %d events, %d records? This cannot be undone. [y/N] ", preview.Sessions, preview.Events, preview.Records)
-		scanner := bufio.NewScanner(stdin)
-		if !scanner.Scan() {
-			_, _ = fmt.Fprintln(stdout, "aborted")
-			return 1
-		}
-		if a := strings.TrimSpace(scanner.Text()); a != "y" && a != "Y" {
+		if !ask.yesNo(fmt.Sprintf("purge %d sessions, %d events, %d records? This cannot be undone. [y/N] ", preview.Sessions, preview.Events, preview.Records)) {
 			_, _ = fmt.Fprintln(stdout, "aborted")
 			return 1
 		}

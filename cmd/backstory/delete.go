@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
 	"io"
 	"os"
@@ -13,7 +12,10 @@ import (
 // humanIdentity is the store.Identity every `backstory delete` tombstone is
 // attributed to: the CLI's direct, trusted path (internal/ident.KindHuman's
 // doc comment) is the only route to store.IdentityHuman, since the socket
-// resolver's SO_PEERCRED + /proc walk never produces it.
+// resolver's SO_PEERCRED + /proc walk never produces it. "Human" here means
+// "came through the CLI", which an agent's own shell can also run; delete
+// and purge additionally pass eraseConfirmation (humanconfirm.go), which
+// asks on the terminal inside an agent session.
 var humanIdentity = store.Identity{Kind: store.IdentityHuman, Actor: "human"}
 
 // runDelete is the `backstory delete <id> [--yes]` subcommand. It opens the
@@ -22,7 +24,9 @@ var humanIdentity = store.Identity{Kind: store.IdentityHuman, Actor: "human"}
 // human-only power a direct CLI process, not the socket API, ever reaches
 // (AGENT-CONTRACT.md §User-only powers), and the DSN's WAL journaling plus
 // busy_timeout (internal/store/store.go) make it safe to open alongside a
-// live daemon.
+// live daemon. Whether it may go ahead, and where it asks, is
+// eraseConfirmation's call: inside an agent session --yes is refused and
+// the question goes to the controlling terminal.
 func runDelete(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	id, yes, err := parseDeleteArgs(args)
 	if err != nil {
@@ -48,12 +52,14 @@ func runDelete(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	if !yes {
-		if !isTerminal(stdin) {
-			_, _ = fmt.Fprintln(stderr, "backstory delete: refusing to delete without --yes on a non-interactive session")
-			return 1
-		}
-		if !confirmDelete(stdin, stdout, rec) {
+	ask, ok, closeTTY := eraseConfirmation("delete", yes, os.Getenv, stdin, stdout, stderr)
+	defer closeTTY()
+	if !ok {
+		return 1
+	}
+	if ask != nil {
+		firstLine, _, _ := strings.Cut(rec.Text, "\n")
+		if !ask.yesNo(fmt.Sprintf("%s: %s\ndelete? [y/N] ", rec.Kind, firstLine)) {
 			_, _ = fmt.Fprintln(stdout, "aborted")
 			return 1
 		}
@@ -90,20 +96,6 @@ func parseDeleteArgs(args []string) (id string, yes bool, err error) {
 		return "", false, fmt.Errorf("usage: backstory delete <id> [--yes]")
 	}
 	return id, yes, nil
-}
-
-// confirmDelete prints rec's kind and first line and reads one y/N answer
-// from stdin. Only a bare "y" or "Y" (surrounding whitespace trimmed)
-// counts as consent; EOF, an empty line, or anything else refuses.
-func confirmDelete(stdin io.Reader, stdout io.Writer, rec store.Record) bool {
-	firstLine, _, _ := strings.Cut(rec.Text, "\n")
-	_, _ = fmt.Fprintf(stdout, "%s: %s\ndelete? [y/N] ", rec.Kind, firstLine)
-	scanner := bufio.NewScanner(stdin)
-	if !scanner.Scan() {
-		return false
-	}
-	answer := strings.TrimSpace(scanner.Text())
-	return answer == "y" || answer == "Y"
 }
 
 // isTerminal reports whether r is the process's own connection to an

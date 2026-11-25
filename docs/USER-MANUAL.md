@@ -290,7 +290,9 @@ Every command is `backstory <command>`. Commands that work on "a project" use th
 you're in unless you pass `--project KEY`. `backstory projects` lists the keys.
 
 **Read-only** commands only look and never change anything. **Human-only** commands are ones
-no agent can run on your behalf through Backstory's tools.
+no agent can run on your behalf through Backstory's tools. An agent's own shell can still run
+the `backstory` command, so `delete` and `purge` run from an agent's shell ask you in a
+terminal instead (see [delete](#delete)).
 
 ### At a glance
 
@@ -437,6 +439,14 @@ backstory delete 3947dcca          # asks you to confirm
 backstory delete 3947dcca --yes    # no question
 ```
 
+Run from inside an agent's shell (Claude Code, Codex, Hermes, pi or opencode, told apart by the
+variables they set), `delete` and `purge` ignore `--yes` and ask on the terminal itself, not
+on their input, so piping `yes` into them does not answer. An agent's shell has no terminal,
+so there they refuse with "must be confirmed by you in a terminal; run it yourself outside the
+agent". The panel's buttons and a terminal of your own are not agent shells and work as
+before. `--dry-run` always works. This stops an agent erasing memory by mistake or because a
+web page told it to; it does not stop an agent that sets out to get around it.
+
 ### affirm
 
 Tells Backstory "this handoff is still right", which clears its **possibly stale** flag until
@@ -493,7 +503,8 @@ backstory purge --session SESSION_ID                    # one session; leaves re
 `--since` and `--until` take a duration or a date and time. `--location DIR` limits it to the
 one row the panel shows for that folder. A session counts for the folder it started in and for
 every folder it edited, so forgetting a folder includes the records of sessions that started
-there, even if they only edited files elsewhere. `--yes` skips the confirmation.
+there, even if they only edited files elsewhere. `--yes` skips the confirmation, except inside
+an agent's shell (see [delete](#delete)).
 
 ### capture
 
@@ -794,8 +805,10 @@ backups.
 **Forgetting reaches your other machines.** If you have paired machines, what you delete or
 purge here is forgotten on them at the next sync, and a sync can never bring it back.
 
-**Agents can't erase your memory.** Only you can delete, edit, purge or pause. The
-tools agents get can add records but never remove them.
+**Agents can't erase your memory through Backstory's tools.** Only you can delete, edit, purge
+or pause. The tools agents get can add records but never remove them. An agent that runs
+`backstory delete` or `backstory purge` in its own shell is asked to have you confirm in a
+terminal, and refuses where there is none.
 
 ---
 
