@@ -8,6 +8,7 @@ import "js/launchers.js" as Launchers
 import "js/records.js" as Records
 import "js/memory.js" as Memory
 import "js/glyphs.js" as Glyphs
+import "js/format.js" as Format
 
 // Memory view (decision 02c511b3 D5): one row's saved records — see,
 // edit, delete — plus "Forget activity and saved records". A CLI CLIENT like the rest of the
@@ -306,7 +307,7 @@ Item {
       }
       root.loadedScope = root.requestScope
       if (exitCode !== 0) {
-        root.fail(listStderr.text.length > 0 ? listStderr.text : ("backstory records exited " + exitCode))
+        root.fail(Format.cliErrorLine("records", exitCode, listStderr.text))
       }
     }
   }
@@ -319,7 +320,7 @@ Item {
       if (exitCode === 0) {
         root.refresh()
       } else {
-        root.fail(mutateStderr.text.length > 0 ? mutateStderr.text : ("backstory delete exited " + exitCode))
+        root.fail(Format.cliErrorLine("delete", exitCode, mutateStderr.text))
       }
     }
   }
@@ -339,7 +340,7 @@ Item {
         return
       }
       if (exitCode !== 0) {
-        root.fail(purgeStderr.text.length > 0 ? purgeStderr.text : ("backstory purge exited " + exitCode))
+        root.fail(Format.cliErrorLine("purge", exitCode, purgeStderr.text))
         return
       }
       if (purgeProcess.dryRun) {

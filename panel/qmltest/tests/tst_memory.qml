@@ -324,6 +324,17 @@ TestCase {
     expectText("no such record")
   }
 
+  // A failed delete shows one line of the CLI's stderr, not its usage dump.
+  function test_delete_failure_shows_one_line() {
+    openMemory(readFixture(recordsGolden))
+    var id = JSON.parse(readFixture(recordsGolden)).records[0].id
+    ProcessController.respond(Launchers.deleteCommand(id), { stdout: "", stderr: "backstory delete: no such record\nusage: backstory delete <id> [--yes]\n", exitCode: 1 })
+    clickByTooltip("Delete")
+    clickByLabel("Forget")
+    expectText("backstory delete: no such record")
+    compare(texts().filter(function (t) { return t.indexOf("usage:") !== -1 }).length, 0, "the usage text was shown")
+  }
+
   function isPurgeRun(r) { return r.command[1] === "purge" }
 
   function purgeRuns() {
