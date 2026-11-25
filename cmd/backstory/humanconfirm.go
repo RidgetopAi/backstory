@@ -49,9 +49,8 @@ func agentSession(getenv func(string) string) (agentEnvMarker, bool) {
 }
 
 // controllingTTYPath is the controlling terminal the in-agent confirmation
-// is read from. A var only so a test can point it at a path that cannot
-// open; the pty tests drive the real /dev/tty.
-var controllingTTYPath = "/dev/tty"
+// is read from.
+const controllingTTYPath = "/dev/tty"
 
 // eraseConfirmation decides whether purge/delete/restore (verb) may go ahead and,
 // when a question must be asked, where it is asked:

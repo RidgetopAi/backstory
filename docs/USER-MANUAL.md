@@ -441,9 +441,10 @@ backstory delete 3947dcca --yes    # no question
 
 Run from inside an agent's shell (Claude Code, Codex, Hermes, pi or opencode, told apart by the
 variables they set), `delete`, `purge` and `restore` ignore `--yes` and ask on the terminal itself, not
-on their input, so piping `yes` into them does not answer. An agent's shell has no terminal,
-so there they refuse with "must be confirmed by you in a terminal; run it yourself outside the
-agent". The panel's buttons and a terminal of your own are not agent shells and work as
+on their input, so piping `yes` into them does not answer. An agent's shell usually has no
+terminal (Claude Code's does not), so there they refuse with "must be confirmed by you in a
+terminal; run it yourself outside the agent"; a harness that keeps your terminal shows you the
+question there and waits for your keystroke. The panel's buttons and a terminal of your own are not agent shells and work as
 before. `purge --dry-run` always works. This stops an agent erasing memory by mistake or because a
 web page told it to; it does not stop an agent that sets out to get around it.
 
