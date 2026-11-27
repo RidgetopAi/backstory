@@ -3,7 +3,7 @@
 [![CI](https://github.com/RidgetopAi/backstory/actions/workflows/ci.yml/badge.svg)](https://github.com/RidgetopAi/backstory/actions/workflows/ci.yml)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/RidgetopAi/backstory/badge)](https://scorecard.dev/viewer/?uri=github.com/RidgetopAi/backstory)
 
-**Memory for your AI coding agents, on [Omarchy](https://omarchy.org).**
+**An [Omarchy](https://omarchy.org) plugin that gives your AI coding agents memory: Claude Code, Codex, Hermes and Pi.**
 
 Start a new Claude Code, Codex, Hermes or Pi session and the agent already knows what happened
 last time: what you decided, what got finished, and what's next. You stop re-explaining
