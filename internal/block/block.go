@@ -79,8 +79,24 @@ func FinalLineOtherBranch(branch string) string {
 	return FinalLine + ". " + handoffRule + ", supersedes = nothing (the Resume handoff is from branch " + branch + "; your handoff starts this branch's chain)"
 }
 
-// EndsWithFinalLine reports whether out's last line is a FinalLineFor line
-// (any resume id).
+// FinalLineOtherLocation is slot 5 when the Resume handoff was carried in
+// from another location — the workspace root's newest repo handoff (decision
+// dc0a4387), or the root's handoff carried into a non-git direct child with
+// none of its own (decision 7a2556b6). That handoff is another folder's chain
+// to supersede, not this one's (task 23bd05fe: a ridgey session was told to
+// supersede ridgey-weather's handoff). label is the Resume line's Location
+// label; empty names it only as another folder.
+func FinalLineOtherLocation(label string) string {
+	from := "another folder"
+	if label != "" {
+		from = label
+	}
+	return FinalLine + ". " + handoffRule + ", supersedes = nothing (the Resume handoff is from " + from + "; your handoff starts this folder's chain)"
+}
+
+// EndsWithFinalLine reports whether out's last line is a slot-5 line:
+// FinalLineFor (any resume id), FinalLineOtherBranch or
+// FinalLineOtherLocation.
 func EndsWithFinalLine(out string) bool {
 	last := out[strings.LastIndex(out, "\n")+1:]
 	return strings.HasPrefix(last, FinalLine+". "+handoffRule)
@@ -264,11 +280,41 @@ func Render(p Params) (string, error) {
 	if hasHandoff {
 		resumeID = handoff.ID
 	}
+	carried, err := carriedFromElsewhere(p, handoff, hasHandoff)
+	if err != nil {
+		return "", err
+	}
 	final := FinalLineFor(resumeID)
-	if pick.otherBranch {
+	switch {
+	case carried:
+		// Checked before the branch fallback: another folder's handoff is
+		// not this folder's to supersede on any branch.
+		final = FinalLineOtherLocation(resumeLabel)
+	case pick.otherBranch:
 		final = FinalLineOtherBranch(handoff.GitBranch)
 	}
 	return assemble(syncWarn, alsoLine, slot1, slot2, slot3, slot4, final, budgetTokens), nil
+}
+
+// carriedFromElsewhere reports whether the Resume handoff is not one of the
+// reader's own location's handoffs (store.HandoffBelongsAt, the same rule
+// that picks a location's own handoff) but was carried in from another one.
+// Only a reader under a workspace has a location to compare: with no CWD, or
+// a CWD outside every workspace, Resume is the project key's newest handoff
+// and is always the reader's own. Done and imported handoffs are decided the
+// same way.
+func carriedFromElsewhere(p Params, h store.Record, ok bool) (bool, error) {
+	if !ok || p.CWD == "" {
+		return false, nil
+	}
+	if _, in := project.WorkspaceHome(p.CWD, p.WorkspaceDirs); !in {
+		return false, nil
+	}
+	own, err := p.Store.HandoffBelongsAt(h, p.CWD, p.Git, p.WorkspaceDirs)
+	if err != nil {
+		return false, fmt.Errorf("block: resume handoff location: %w", err)
+	}
+	return !own, nil
 }
 
 // syncWarning is the sync-failing line(s) for every project while

@@ -270,6 +270,16 @@ done, not superseded and under 14 days old, a pointer line `Also on branch <name
 cut with the `also:` line, before anything else. A reader in a detached HEAD or a non-git
 folder sees today's repo-wide newest with no branch wording.
 
+**Supersedes stays in the reader's folder.** Under a workspace, Resume can show a handoff
+that is not the reader's folder's own: at the workspace root, the newest handoff of a repo
+under it (decision dc0a4387); in a non-git folder directly under the root with no handoff of
+its own, the root's (decision 7a2556b6). Slot 1 then names that handoff's `Location:`, and
+the final line carries `supersedes = nothing (the Resume handoff is from <label>; your
+handoff starts this folder's chain)`, so a handoff written in one folder never supersedes
+another folder's. "Own" is the rule that picks a folder's own handoff
+(`store.HandoffBelongsAt`), applied the same way to a done handoff and to one imported from
+a paired computer. When both apply, the folder wording wins over the branch wording.
+
 The header plus these five slots are the whole of it. Harnesses with no SessionStart
 (Antigravity) or no injection on passive hooks (Grok) get the block by the skill telling
 the agent to call `recall` once.
@@ -294,7 +304,7 @@ In the file, line 1 is the YAML frontmatter block (`name: backstory` and the
 5. claim "done" only with `note outcome` pointing at a `timeline` event id; a claim without
    evidence is recorded as a claim.
 6. end with `note handoff`: what is true now, what is next, what still must not be done. Do not carry forward instructions that applied only to the current session ("don't start X now" when X is the next step); `next` is an action the next session can start, with a precondition only if it is real and unmet. Put the single next step in the handoff's optional `next` (one line, at most 200 characters; handoff only) so the panel can show it. Set
-   `supersedes` to the id of the record this replaces or corrects (the Resume slot's, or one in a
+   `supersedes` to the id of the record this replaces or corrects (the Resume slot's, unless the block's last line says `supersedes = nothing`, or one in a
    decision note's `related_decisions`), or `confirm supersede`.
 7. inferred records are hints; declared records are claims; the timeline is fact.
 8. never put a secret in a note.

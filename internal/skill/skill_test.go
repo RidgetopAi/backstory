@@ -324,7 +324,12 @@ func TestEmbeddedSkillHasFrontmatter(t *testing.T) {
 
 // The rule lines that followed the old prose header survive byte-for-byte.
 func TestEmbeddedSkillKeepsRuleLinesVerbatim(t *testing.T) {
-	before := pastSkills[len(pastSkills)-3] // 462e93f: the version before the frontmatter
+	var before struct{ commit, sha256, body string }
+	for _, p := range pastSkills {
+		if p.commit == "462e93f" { // the version before the frontmatter
+			before = p
+		}
+	}
 	_, wantRules, ok := strings.Cut(before.body, "\n")
 	if !ok {
 		t.Fatal("462e93f test data has no first line")

@@ -303,11 +303,15 @@ func (s *Store) LatestHandoffAtFromWhere(dir string, git project.Git, workspaces
 	return own, found, nil
 }
 
-// latestHandoffAtOwn is LatestHandoffAtFromWhere's own-candidates read: the
-// handoffs under dir's repo key and workspace home key that belong to dir.
-func (s *Store) latestHandoffAtOwn(dir string, git project.Git, workspaces []string, from OriginFilter, keep func(Record) bool) (Record, bool, error) {
+// ownHandoffs is the membership rule for "dir's own handoffs": the project
+// keys a handoff must be filed under (dir's repo key and workspace home key,
+// or dir's own key when it is neither) and the location matcher its writing
+// session must pass. latestHandoffAtOwn and HandoffBelongsAt both decide
+// through it, so the Resume pick and the slot-5 supersedes hint cannot
+// disagree about which handoffs are dir's own (task 23bd05fe).
+func (s *Store) ownHandoffs(dir string, git project.Git, workspaces []string) (locationMatcher, []string) {
 	m := locationMatcher{label: project.Label(dir, git, workspaces)}
-	var keys []any
+	var keys []string
 	if key := project.Key(dir, git, workspaces); !project.IsWorkspaceKey(key) {
 		m.repoKey = s.canonicalizeProjectKey(key)
 		keys = append(keys, m.repoKey)
@@ -321,8 +325,64 @@ func (s *Store) latestHandoffAtOwn(dir string, git project.Git, workspaces []str
 		m.repoKey = key
 		keys = append(keys, key)
 	}
+	return m, keys
+}
+
+// ownsHandoff reports whether h, already known to be filed under one of the
+// ownHandoffs keys, belongs to m's location: filed under its repo key, or
+// written by a session in it. A handoff whose session row is gone belongs to
+// no location.
+func (s *Store) ownsHandoff(m locationMatcher, h Record, git project.Git, workspaces []string) (bool, error) {
+	if m.repoKey != "" && h.ProjectKey == m.repoKey {
+		return true, nil
+	}
+	if h.SessionID == "" {
+		return false, nil
+	}
+	sess, err := s.getSession(h.SessionID)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return false, nil
+		}
+		return false, err
+	}
+	return s.sessionInLocation(m, sess, git, workspaces)
+}
+
+// HandoffBelongsAt reports whether h is one of dir's own handoffs — one
+// latestHandoffAtOwn(dir) could return — rather than one carried in from
+// elsewhere: the workspace root's newest repo handoff (decision dc0a4387) or,
+// for a non-git direct child with none of its own, the root's handoff
+// (decision 7a2556b6). The block's slot 5 asks it before telling the agent
+// to supersede the Resume handoff (task 23bd05fe).
+func (s *Store) HandoffBelongsAt(h Record, dir string, git project.Git, workspaces []string) (bool, error) {
+	m, keys := s.ownHandoffs(filepath.Clean(dir), git, workspaces)
+	filed := false
+	for _, k := range keys {
+		if h.ProjectKey == k {
+			filed = true
+			break
+		}
+	}
+	if !filed {
+		return false, nil
+	}
+	in, err := s.ownsHandoff(m, h, git, workspaces)
+	if err != nil {
+		return false, fmt.Errorf("store: handoff %s belongs at %s: %w", h.ID, dir, err)
+	}
+	return in, nil
+}
+
+// latestHandoffAtOwn is LatestHandoffAtFromWhere's own-candidates read: the
+// handoffs under dir's repo key and workspace home key that belong to dir.
+func (s *Store) latestHandoffAtOwn(dir string, git project.Git, workspaces []string, from OriginFilter, keep func(Record) bool) (Record, bool, error) {
+	m, keys := s.ownHandoffs(dir, git, workspaces)
 	marks := strings.TrimSuffix(strings.Repeat("?,", len(keys)), ",")
-	args := append([]any{string(KindHandoff)}, keys...)
+	args := []any{string(KindHandoff)}
+	for _, k := range keys {
+		args = append(args, k)
+	}
 	args = append(args, maxHandoffScanForLocation)
 	//nolint:gosec // marks is only "?" placeholders; every value is bound
 	query := `SELECT id FROM records
@@ -344,20 +404,7 @@ func (s *Store) latestHandoffAtOwn(dir string, git project.Git, workspaces []str
 		if !from.matches(h) || (keep != nil && !keep(h)) {
 			continue
 		}
-		if m.repoKey != "" && h.ProjectKey == m.repoKey {
-			return h, true, nil
-		}
-		if h.SessionID == "" {
-			continue
-		}
-		sess, err := s.getSession(h.SessionID)
-		if err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				continue
-			}
-			return Record{}, false, fmt.Errorf("store: latest handoff at %s: %w", dir, err)
-		}
-		in, err := s.sessionInLocation(m, sess, git, workspaces)
+		in, err := s.ownsHandoff(m, h, git, workspaces)
 		if err != nil {
 			return Record{}, false, fmt.Errorf("store: latest handoff at %s: %w", dir, err)
 		}

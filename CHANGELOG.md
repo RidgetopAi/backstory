@@ -11,6 +11,10 @@ See `RELEASING.md` for the release flow and its approval gates.
 
 ## [Unreleased]
 
+### Fixed
+
+- SessionStart block: when Resume shows another folder's handoff, the last line no longer tells the agent to supersede it. A session in a non-git folder directly under a workspace (`~/projects/ridgey`, say) with no handoff of its own is shown the workspace root's handoff, which can be the newest handoff of a repo beside it (`projects/ridgey-weather`). The last line used to say `supersedes = <that id>`, so an agent that followed it would have cut the other project's handoff chain. It now says `supersedes = nothing (the Resume handoff is from projects/ridgey-weather; your handoff starts this folder's chain)`, as it already did for a handoff from another git branch. The same holds at the workspace root when Resume is a repo's handoff. A folder's own handoff, a done one or one from a paired computer, is still named as `supersedes`. The skill and the instruction-file stubs now say to leave `supersedes` empty when the block says `supersedes = nothing`; `backstory install` updates an unedited skill from an earlier release.
+
 ## [1.3.6] - 2026-11-25
 
 ### Security
